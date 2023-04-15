@@ -1,0 +1,3 @@
+[workspace]
+
+members = ["parser", "server", "workspace-hack"]

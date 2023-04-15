@@ -1,0 +1,14 @@
+[package]
+name = "peerdb-parser"
+version = "0.1.0"
+edition = "2021"
+authors = ["PeerDB <copyright@peerdb.io>"]
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+pgwire = "0.13"
+rand = "0.8"
+sqlparser = "0.33"
+tokio = { version = "1", features = ["full"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
