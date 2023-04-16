@@ -9,5 +9,5 @@ anyhow = "1"
 async-trait = "0.1"
 pgwire = "0.13"
 rand = "0.8"
-sqlparser = "0.33"
+sqlparser = { path = "../sqlparser-rs" }
 tokio = { version = "1", features = ["full"] }

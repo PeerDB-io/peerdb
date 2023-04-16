@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_CHECKOUT }}
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo check
         run: cargo check
