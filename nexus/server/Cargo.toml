@@ -7,6 +7,7 @@ authors = ["PeerDB <copyright@peerdb.io>"]
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
+peerdb-parser = { path = "../parser" }
 pgwire = "0.13"
 rand = "0.8"
 time = "0.3"
