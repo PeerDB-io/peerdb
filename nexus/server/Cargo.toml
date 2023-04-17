@@ -7,8 +7,12 @@ authors = ["PeerDB <copyright@peerdb.io>"]
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
+catalog = { path = "../catalog" }
+clap = { version = "4.0", features = ["derive", "env"] }
 peerdb-parser = { path = "../parser" }
 pgwire = "0.13"
+prost = "0.11"
+pt = { path = "../pt" }
 rand = "0.8"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
