@@ -11,7 +11,6 @@ use pgwire::{
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal},
         results::{DescribeResponse, Response},
-        stmt::QueryParser,
         store::MemPortalStore,
         ClientInfo, MakeHandler,
     },

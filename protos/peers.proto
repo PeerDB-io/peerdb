@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package peerdb.peers;
+
+option go_package = "generated/protos";
+
+message SnowflakeConfig {
+  string account_id = 1;
+  string username = 2;
+  string private_key = 3;
+  string database = 4;
+  string warehouse = 6;
+  string role = 7;
+  uint64 query_timeout = 8;
+}
+
+message BigqueryConfig {
+  string auth_type = 1;
+  string project_id = 2;
+  string private_key_id = 3;
+  string private_key = 4;
+  string client_email = 5;
+  string client_id = 6;
+  string auth_uri = 7;
+  string token_uri = 8;
+  string auth_provider_x509_cert_url = 9;
+  string client_x509_cert_url = 10;
+  string dataset_id = 11;
+}
+
+message MongoConfig {
+  string username = 1;
+  string password = 2;
+  string clusterurl = 3;
+  int32 clusterport = 4;
+  string database = 5;
+}
+
+message PostgresConfig {
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string database = 5;
+}
+
+enum DBType {
+  BIGQUERY = 0;
+  SNOWFLAKE = 1;
+  MONGO = 2;
+  POSTGRES = 3;
+}
+
+message Peer {
+  string name = 1;
+  DBType type = 2;
+  oneof config {
+    SnowflakeConfig snowflake_config = 3;
+    BigqueryConfig bigquery_config = 4;
+    MongoConfig mongo_config = 5;
+    PostgresConfig postgres_config = 6;
+  }
+}
