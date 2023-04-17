@@ -15,6 +15,7 @@ jobs:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
       - uses: dtolnay/rust-toolchain@stable
+      - uses: arduino/setup-protoc@v1
       - name: cargo check
         run: cargo check
         working-directory: ./nexus
