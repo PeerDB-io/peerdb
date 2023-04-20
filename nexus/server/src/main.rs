@@ -1,4 +1,4 @@
-use std::{default::Default, sync::Arc};
+use std::{collections::HashMap, default::Default, sync::Arc};
 
 use analyzer::{PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer};
 use async_trait::async_trait;
@@ -11,6 +11,7 @@ use pgwire::{
         auth::{
             md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler},
             AuthSource, DefaultServerParameterProvider, LoginInfo, Password,
+            ServerParameterProvider,
         },
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal},
@@ -217,13 +218,31 @@ fn get_catalog_config(args: &Args) -> CatalogConfig {
     }
 }
 
+pub struct NexusServerParameterProvider;
+
+impl ServerParameterProvider for NexusServerParameterProvider {
+    fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
+    where
+        C: ClientInfo,
+    {
+        let mut params = HashMap::with_capacity(4);
+        params.insert("server_version".to_owned(), "14".to_owned());
+        params.insert("server_encoding".to_owned(), "UTF8".to_owned());
+        params.insert("client_encoding".to_owned(), "UTF8".to_owned());
+        params.insert("DateStyle".to_owned(), "ISO YMD".to_owned());
+        params.insert("integer_datetimes".to_owned(), "on".to_owned());
+
+        Some(params)
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
     let args = Args::parse();
 
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
         Arc::new(DummyAuthSource),
-        Arc::new(DefaultServerParameterProvider),
+        Arc::new(NexusServerParameterProvider),
     ));
     let catalog_config = get_catalog_config(&args);
     let server_addr = format!("{}:{}", args.host, args.port);

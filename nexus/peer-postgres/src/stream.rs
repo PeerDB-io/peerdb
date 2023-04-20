@@ -30,13 +30,22 @@ fn values_from_row(row: &Row) -> Vec<Value> {
         .map(|i| {
             let col_type = row.columns()[i].type_();
             match col_type {
-                &Type::BOOL => Value::Bool(row.get(i)),
-                &Type::CHAR
-                | &Type::VARCHAR
+                &Type::BOOL => row
+                    .get::<_, Option<bool>>(i)
+                    .map(Value::Bool)
+                    .unwrap_or(Value::Null),
+                &Type::CHAR => {
+                    let ch: i8 = row.get(i);
+                    Value::Char(char::from_u32(ch as u32).unwrap_or('\0'))
+                }
+                &Type::VARCHAR
                 | &Type::TEXT
                 | &Type::BPCHAR
                 | &Type::VARCHAR_ARRAY
-                | &Type::BPCHAR_ARRAY => Value::VarChar(row.get(i)),
+                | &Type::BPCHAR_ARRAY => {
+                    let s: Option<String> = row.get(i);
+                    s.map(Value::Text).unwrap_or(Value::Null)
+                }
                 &Type::NAME
                 | &Type::NAME_ARRAY
                 | &Type::REGPROC
@@ -59,7 +68,10 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 | &Type::REGDICTIONARY_ARRAY
                 | &Type::REGNAMESPACE_ARRAY
                 | &Type::REGROLE_ARRAY
-                | &Type::REGCOLLATION_ARRAY => Value::Text(row.get(i)),
+                | &Type::REGCOLLATION_ARRAY => {
+                    let s: Option<String> = row.get(i);
+                    s.map(Value::Text).unwrap_or(Value::Null)
+                }
                 &Type::INT2 | &Type::INT2_ARRAY => Value::SmallInt(row.get(i)),
                 &Type::INT4
                 | &Type::TID
@@ -74,7 +86,8 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 | &Type::PG_NDISTINCT
                 | &Type::PG_DEPENDENCIES => Value::Integer(row.get(i)),
                 &Type::INT8 | &Type::INT8_ARRAY | &Type::INT8_RANGE | &Type::INT8_RANGE_ARRAY => {
-                    Value::BigInt(row.get(i))
+                    let big_int: Option<i64> = row.get(i);
+                    big_int.map(Value::BigInt).unwrap_or(Value::Null)
                 }
                 &Type::OID | &Type::OID_ARRAY => Value::Oid(row.get(i)),
                 &Type::FLOAT4 | &Type::FLOAT4_ARRAY => Value::Float(row.get(i)),
