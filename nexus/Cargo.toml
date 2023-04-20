@@ -5,6 +5,7 @@ members = [
   "parser",
   "peer-cursor",
   "peer-postgres",
+  "pgerror",
   "pt",
   "server",
   "value",
