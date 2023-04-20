@@ -12,6 +12,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "analyzer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "catalog",
+ "pt",
+ "sqlparser",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -933,6 +944,7 @@ dependencies = [
 name = "peerdb-server"
 version = "0.1.0"
 dependencies = [
+ "analyzer",
  "anyhow",
  "async-trait",
  "catalog",
