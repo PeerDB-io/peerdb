@@ -110,7 +110,8 @@ impl MakeHandler for MakeNexusBackend {
     type Handler = Arc<NexusBackend>;
 
     fn make(&self) -> Self::Handler {
-        let catalog = Catalog::new(&self.catalog_config).unwrap();
+        let catalog = futures::executor::block_on(Catalog::new(&self.catalog_config))
+            .expect("failed to create catalog");
         let backend = NexusBackend {
             catalog: Arc::new(Mutex::new(catalog)),
             portal_store: Arc::new(MemPortalStore::new()),
@@ -197,11 +198,11 @@ pub async fn main() {
         Arc::new(DefaultServerParameterProvider),
     ));
     let catalog_config = get_catalog_config(&args);
-    let processor = Arc::new(MakeNexusBackend::new(catalog_config));
-
     let server_addr = format!("{}:{}", args.host, args.port);
     let listener = TcpListener::bind(&server_addr).await.unwrap();
     println!("Listening on {}", server_addr);
+
+    let processor = Arc::new(MakeNexusBackend::new(catalog_config));
 
     loop {
         let (socket, _) = listener.accept().await.unwrap();
