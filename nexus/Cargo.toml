@@ -1,2 +1,11 @@
 [workspace]
-members = ["analyzer", "catalog", "parser", "pt", "server"]
+members = [
+  "analyzer",
+  "catalog",
+  "parser",
+  "peer-cursor",
+  "peer-postgres",
+  "pt",
+  "server",
+  "value",
+]
