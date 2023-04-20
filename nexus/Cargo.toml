@@ -1,2 +1,2 @@
 [workspace]
-members = ["catalog", "parser", "pt", "server"]
+members = ["analyzer", "catalog", "parser", "pt", "server"]

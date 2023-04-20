@@ -50,10 +50,11 @@ pub struct NexusBackend {
 
 #[async_trait]
 impl SimpleQueryHandler for NexusBackend {
-    async fn do_query<'a, C>(&self, _client: &C, _query: &'a str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, C>(&self, _client: &C, sql: &'a str) -> PgWireResult<Vec<Response<'a>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
+        let parsed = self.query_parser.parse_simple_sql(sql)?;
         todo!("implement simple query handler for NexusBackend")
     }
 }
