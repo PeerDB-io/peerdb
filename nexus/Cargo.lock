@@ -182,10 +182,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "postgres",
  "prost",
  "pt",
  "refinery",
+ "tokio",
+ "tokio-postgres",
  "tracing",
 ]
 
@@ -936,6 +937,7 @@ dependencies = [
  "async-trait",
  "catalog",
  "clap",
+ "futures",
  "peerdb-parser",
  "pgwire",
  "prost",
@@ -1027,20 +1029,6 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
-
-[[package]]
-name = "postgres"
-version = "0.19.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bed5017bc2ff49649c0075d0d7a9d676933c1292480c1d137776fb205b5cd18"
-dependencies = [
- "bytes",
- "fallible-iterator",
- "futures-util",
- "log",
- "tokio",
- "tokio-postgres",
-]
 
 [[package]]
 name = "postgres-protocol"
@@ -1276,12 +1264,13 @@ dependencies = [
  "cfg-if",
  "lazy_static",
  "log",
- "postgres",
  "regex",
  "serde",
  "siphasher",
  "thiserror",
  "time 0.3.20",
+ "tokio",
+ "tokio-postgres",
  "toml",
  "url",
  "walkdir",

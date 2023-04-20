@@ -1,7 +1,7 @@
 use anyhow::Context;
-use postgres::{types, Client};
 use prost::Message;
 use pt::peers::{peer::Config, Peer};
+use tokio_postgres::{types, Client};
 
 mod embedded {
     use refinery::embed_migrations;
@@ -12,9 +12,10 @@ pub struct Catalog {
     pg: Box<Client>,
 }
 
-fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
+async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
     let migration_report = embedded::migrations::runner()
-        .run(client)
+        .run_async(client)
+        .await
         .context("Failed to run migrations")?;
     for migration in migration_report.applied_migrations() {
         tracing::info!(
@@ -51,17 +52,28 @@ fn get_connection_string(catalog_config: &CatalogConfig) -> String {
 }
 
 impl Catalog {
-    pub fn new(catalog_config: &CatalogConfig) -> anyhow::Result<Self> {
+    pub async fn new(catalog_config: &CatalogConfig) -> anyhow::Result<Self> {
         let connection_string = get_connection_string(catalog_config);
-        let mut client = Client::connect(&connection_string, postgres::NoTls)
-            .context("Failed to connect to catalog database")?;
-        run_migrations(&mut client)?;
+
+        let (mut client, connection) =
+            tokio_postgres::connect(&connection_string, tokio_postgres::NoTls)
+                .await
+                .context("Failed to connect to catalog database")?;
+
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::error!("Connection error: {}", e);
+            }
+        });
+
+        run_migrations(&mut client).await?;
+
         Ok(Self {
             pg: Box::new(client),
         })
     }
 
-    pub fn create_peer(&mut self, peer: Peer) -> anyhow::Result<i64> {
+    pub async fn create_peer(&self, peer: Peer) -> anyhow::Result<i64> {
         let config_blob = {
             let config = peer.config.context("invalid peer config")?;
             let mut buf = Vec::new();
@@ -92,25 +104,31 @@ impl Catalog {
             buf
         };
 
-        let stmt = self.pg.prepare_typed(
-            "INSERT INTO peers (name, type, options) VALUES ($1, $2, $3)",
-            &[types::Type::TEXT, types::Type::INT4, types::Type::BYTEA],
-        )?;
-
-        self.pg
-            .execute(&stmt, &[&peer.name, &peer.r#type, &config_blob])?;
-
-        self.get_peer_id(peer.name)
-    }
-
-    pub fn get_peer_id(&mut self, peer_name: String) -> anyhow::Result<i64> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT id FROM peers WHERE name = $1", &[types::Type::TEXT])?;
+            .prepare_typed(
+                "INSERT INTO peers (name, type, options) VALUES ($1, $2, $3)",
+                &[types::Type::TEXT, types::Type::INT4, types::Type::BYTEA],
+            )
+            .await?;
+
+        self.pg
+            .execute(&stmt, &[&peer.name, &peer.r#type, &config_blob])
+            .await?;
+
+        self.get_peer_id(peer.name).await
+    }
+
+    pub async fn get_peer_id(&self, peer_name: String) -> anyhow::Result<i64> {
+        let stmt = self
+            .pg
+            .prepare_typed("SELECT id FROM peers WHERE name = $1", &[types::Type::TEXT])
+            .await?;
 
         let id: i32 = self
             .pg
-            .query_opt(&stmt, &[&peer_name])?
+            .query_opt(&stmt, &[&peer_name])
+            .await?
             .map(|row| row.get(0))
             .context("Failed to get peer id")?;
 
