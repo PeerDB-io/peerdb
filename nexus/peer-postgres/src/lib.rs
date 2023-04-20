@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use peer_cursor::{QueryExecutor, QueryOutput, Schema, SchemaRef};
+use pgerror::PgError;
 use pgwire::{
     api::results::{FieldFormat, FieldInfo},
     error::{PgWireError, PgWireResult},
@@ -9,9 +10,6 @@ use pt::peers::PostgresConfig;
 use sqlparser::ast::Statement;
 use tokio_postgres::Client;
 
-use crate::error::PeerPostgresError;
-
-mod error;
 mod stream;
 
 // PostgresQueryExecutor is a QueryExecutor that uses a Postgres database as its
@@ -97,7 +95,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                     .query_raw(&query_str, std::iter::empty::<&str>())
                     .await
                     .map_err(|e| {
-                        PgWireError::ApiError(Box::new(PeerPostgresError::Internal {
+                        PgWireError::ApiError(Box::new(PgError::Internal {
                             err_msg: format!("error executing query: {}", e),
                         }))
                     })?;
@@ -108,7 +106,7 @@ impl QueryExecutor for PostgresQueryExecutor {
             }
             _ => {
                 let rows_affected = self.client.execute(&query_str, &[]).await.map_err(|e| {
-                    PgWireError::ApiError(Box::new(PeerPostgresError::Internal {
+                    PgWireError::ApiError(Box::new(PgError::Internal {
                         err_msg: format!("error executing query: {}", e),
                     }))
                 })?;

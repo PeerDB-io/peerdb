@@ -4,6 +4,7 @@ use analyzer::{PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer};
 use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
+use peer_cursor::{util::sendable_stream_to_query_response, QueryOutput};
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser};
 use pgwire::{
     api::{
@@ -69,7 +70,18 @@ impl SimpleQueryHandler for NexusBackend {
             todo!("implement peer query")
         } else {
             println!("catalog query: {}", parsed.statement);
-            todo!("implement catalog query")
+            let executor = catalog.get_executor();
+            let catalog_res = executor.execute(&parsed.statement).await?;
+            match catalog_res {
+                QueryOutput::AffectedRows(_num) => todo!("implement affected rows"),
+                QueryOutput::Stream(rows) => {
+                    let schema = rows.schema();
+                    // todo: why is this a vector of response rather than a single response?
+                    // can this be because of multiple statements?
+                    let res = sendable_stream_to_query_response(schema, rows)?;
+                    Ok(vec![res])
+                }
+            }
         }
     }
 }

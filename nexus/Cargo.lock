@@ -223,6 +223,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "peer-cursor",
+ "peer-postgres",
  "prost",
  "pt",
  "refinery",
@@ -996,6 +998,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "futures",
+ "pgerror",
  "pgwire",
  "sqlparser",
  "tokio",
@@ -1011,12 +1014,12 @@ dependencies = [
  "chrono",
  "futures",
  "peer-cursor",
+ "pgerror",
  "pgwire",
  "pt",
  "serde",
  "serde_bytes",
  "serde_json",
- "snafu",
  "sqlparser",
  "tokio",
  "tokio-postgres",
@@ -1046,6 +1049,7 @@ dependencies = [
  "catalog",
  "clap",
  "futures",
+ "peer-cursor",
  "peerdb-parser",
  "pgwire",
  "prost",
@@ -1078,6 +1082,13 @@ checksum = "4dd7d28ee937e54fe3080c91faa1c3a46c06de6252988a7f4592ba2310ef22a4"
 dependencies = [
  "fixedbitset",
  "indexmap",
+]
+
+[[package]]
+name = "pgerror"
+version = "0.1.0"
+dependencies = [
+ "snafu",
 ]
 
 [[package]]
