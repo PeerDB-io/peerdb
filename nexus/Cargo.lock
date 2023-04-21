@@ -1251,6 +1251,7 @@ dependencies = [
  "catalog",
  "clap",
  "futures",
+ "peer-bigquery",
  "peer-cursor",
  "peerdb-parser",
  "pgwire",

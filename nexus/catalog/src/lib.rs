@@ -4,7 +4,7 @@ use anyhow::Context;
 use peer_cursor::QueryExecutor;
 use peer_postgres::PostgresQueryExecutor;
 use prost::Message;
-use pt::peers::{peer::Config, Peer};
+use pt::peers::{peer::Config, DbType, Peer};
 use tokio_postgres::{types, Client};
 
 mod embedded {
@@ -184,34 +184,37 @@ impl Catalog {
 
         for row in rows {
             let name: String = row.get(1);
-            let r#type: i32 = row.get(2);
+            let peer_type: i32 = row.get(2);
             let options: Vec<u8> = row.get(3);
+            let db_type = DbType::from_i32(peer_type);
 
-            let config = match r#type {
-                1 => {
+            let config = match db_type {
+                Some(DbType::Snowflake) => {
                     let snowflake_config = pt::peers::SnowflakeConfig::decode(options.as_slice())?;
                     Some(Config::SnowflakeConfig(snowflake_config))
                 }
-                2 => {
+                Some(DbType::Bigquery) => {
                     let bigquery_config = pt::peers::BigqueryConfig::decode(options.as_slice())?;
                     Some(Config::BigqueryConfig(bigquery_config))
                 }
-                3 => {
+                Some(DbType::Mongo) => {
                     let mongo_config = pt::peers::MongoConfig::decode(options.as_slice())?;
                     Some(Config::MongoConfig(mongo_config))
                 }
-                4 => {
+                Some(DbType::Postgres) => {
                     let postgres_config = pt::peers::PostgresConfig::decode(options.as_slice())?;
                     Some(Config::PostgresConfig(postgres_config))
                 }
-                _ => None,
+                None => None,
             };
 
             let peer = Peer {
                 name: name.clone(),
-                r#type,
+                r#type: peer_type,
                 config,
             };
+
+            dbg!(&peer);
 
             peers.insert(name, peer);
         }

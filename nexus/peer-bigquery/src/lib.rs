@@ -7,8 +7,10 @@ use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peers::BigqueryConfig;
 use sqlparser::ast::Statement;
+use stream::BqRecordStream;
 
 mod ast;
+mod stream;
 
 pub struct BigQueryQueryExecutor {
     config: BigqueryConfig,
@@ -36,10 +38,13 @@ pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Cli
 }
 
 impl BigQueryQueryExecutor {
-    pub async fn new(config: BigqueryConfig) -> anyhow::Result<Self> {
+    pub async fn new(config: &BigqueryConfig) -> anyhow::Result<Self> {
         let client = bq_client_from_config(config.clone()).await?;
         let client = Box::new(client);
-        Ok(Self { config, client })
+        Ok(Self {
+            config: config.clone(),
+            client,
+        })
     }
 }
 
@@ -68,9 +73,15 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     .client
                     .job()
                     .query(&self.config.project_id, query_req)
-                    .await;
+                    .await
+                    .map_err(|err| {
+                        PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: err.to_string(),
+                        }))
+                    })?;
 
-                todo!()
+                let cursor = BqRecordStream::new(result_set);
+                Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),

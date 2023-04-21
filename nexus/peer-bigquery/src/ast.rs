@@ -71,9 +71,7 @@ impl BigqueryAst {
     pub fn rewrite(&self, dataset: &str, query: &mut Query) -> anyhow::Result<()> {
         // replace peername with the connected dataset.
         visit_relations_mut(query, |table| {
-            if let ObjectName(parts) = table {
-                parts[0] = dataset.into();
-            }
+            table.0[0] = dataset.into();
             ControlFlow::<()>::Continue(())
         });
 
