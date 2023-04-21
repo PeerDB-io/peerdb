@@ -1,6 +1,8 @@
 use std::{collections::HashMap, default::Default, sync::Arc};
 
-use analyzer::{PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer};
+use analyzer::{
+    PeerDDL, PeerDDLAnalyzer, PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer,
+};
 use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
@@ -10,12 +12,11 @@ use pgwire::{
     api::{
         auth::{
             md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler},
-            AuthSource, DefaultServerParameterProvider, LoginInfo, Password,
-            ServerParameterProvider,
+            AuthSource, LoginInfo, Password, ServerParameterProvider,
         },
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal},
-        results::{DescribeResponse, Response},
+        results::{DescribeResponse, Response, Tag},
         store::MemPortalStore,
         ClientInfo, MakeHandler,
     },
@@ -58,6 +59,37 @@ impl SimpleQueryHandler for NexusBackend {
         let parsed = self.query_parser.parse_simple_sql(sql)?;
         let mut catalog = self.catalog.lock().await;
 
+        {
+            let pdl: PeerDDLAnalyzer = Default::default();
+            let result = pdl.analyze(&parsed.statement).await.map_err(|e| {
+                PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    "internal_error".to_owned(),
+                    e.to_string(),
+                )))
+            })?;
+
+            #[allow(clippy::single_match)]
+            match result {
+                Some(PeerDDL::CreatePeer {
+                    peer,
+                    if_not_exists: _,
+                }) => {
+                    catalog.create_peer(peer.as_ref()).await.map_err(|e| {
+                        PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "internal_error".to_owned(),
+                            e.to_string(),
+                        )))
+                    })?;
+                    return Ok(vec![Response::Execution(Tag::new_for_execution(
+                        "OK", None,
+                    ))]);
+                }
+                _ => (),
+            }
+        }
+
         let pea = PeerExistanceAnalyzer::new(&mut catalog);
         let result = pea.analyze(&parsed.statement).await.map_err(|e| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -74,7 +106,9 @@ impl SimpleQueryHandler for NexusBackend {
             let executor = catalog.get_executor();
             let catalog_res = executor.execute(&parsed.statement).await?;
             match catalog_res {
-                QueryOutput::AffectedRows(_num) => todo!("implement affected rows"),
+                QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
+                    Tag::new_for_execution("OK", Some(rows)),
+                )]),
                 QueryOutput::Stream(rows) => {
                     let schema = rows.schema();
                     // todo: why is this a vector of response rather than a single response?
