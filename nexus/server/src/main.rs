@@ -41,7 +41,7 @@ impl AuthSource for DummyAuthSource {
         let password = "peerdb";
 
         let hash_password = hash_md5_password(
-            login_info.user().as_ref().expect("no user was provided"),
+            login_info.user().map(|s| s.as_str()).unwrap_or(""),
             password,
             salt.as_ref(),
         );
@@ -105,6 +105,7 @@ impl SimpleQueryHandler for NexusBackend {
         })?;
 
         if let QueryAssocation::Peer(peer) = result {
+            println!("peer [{}] query: {}", peer.name, parsed.statement);
             // if the peer is of type bigquery, let us route the query to bq.
             match peer.config {
                 Some(Config::BigqueryConfig(c)) => {

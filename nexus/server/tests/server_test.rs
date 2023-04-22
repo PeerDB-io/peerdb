@@ -65,11 +65,10 @@ impl Drop for PeerDBServer {
 
 #[test]
 fn server_test() {
+    let connection_string = "host=localhost port=9900 password=peerdb user=peerdb";
+
     let _server = PeerDBServer::new();
-    let mut client_result = Client::connect(
-        "host=localhost port=9900 password=peerdb user=peerdb",
-        NoTls,
-    );
+    let mut client_result = Client::connect(connection_string, NoTls);
 
     let mut client_established = false;
     let max_attempts = 10;
@@ -82,7 +81,7 @@ fn server_test() {
             Err(_) => {
                 attempts += 1;
                 thread::sleep(Duration::from_millis(2000 * attempts));
-                client_result = Client::connect("host=localhost port=9900", NoTls);
+                client_result = Client::connect(connection_string, NoTls);
             }
         }
     }
