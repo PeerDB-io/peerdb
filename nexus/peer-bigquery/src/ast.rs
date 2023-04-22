@@ -247,7 +247,15 @@ impl BigqueryAst {
                                 )));
                             }
                         }
-                        DataType::Integer(_) | DataType::Float(_) => {
+                        DataType::Integer(_)
+                        | DataType::Float(_)
+                        | DataType::BigInt(_)
+                        | DataType::UnsignedBigInt(_)
+                        | DataType::UnsignedInteger(_)
+                        | DataType::UnsignedSmallInt(_)
+                        | DataType::UnsignedTinyInt(_)
+                        | DataType::TinyInt(_)
+                        | DataType::UnsignedInt(_) => {
                             for s in split {
                                 list.push(Expr::Value(sqlparser::ast::Value::Number(
                                     s.to_string(),

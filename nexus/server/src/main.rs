@@ -40,8 +40,11 @@ impl AuthSource for DummyAuthSource {
         let salt = rand::thread_rng().gen::<[u8; 4]>().to_vec();
         let password = "peerdb";
 
-        let hash_password =
-            hash_md5_password(login_info.user().as_ref().unwrap(), password, salt.as_ref());
+        let hash_password = hash_md5_password(
+            login_info.user().as_ref().expect("no user was provided"),
+            password,
+            salt.as_ref(),
+        );
         Ok(Password::new(Some(salt), hash_password.as_bytes().to_vec()))
     }
 }
@@ -301,6 +304,8 @@ impl ServerParameterProvider for NexusServerParameterProvider {
 
 #[tokio::main]
 pub async fn main() {
+    dotenvy::dotenv().ok();
+
     let args = Args::parse();
 
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(

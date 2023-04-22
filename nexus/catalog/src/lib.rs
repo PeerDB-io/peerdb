@@ -190,31 +190,37 @@ impl Catalog {
 
             let config = match db_type {
                 Some(DbType::Snowflake) => {
-                    let snowflake_config = pt::peers::SnowflakeConfig::decode(options.as_slice())?;
+                    let err = format!("unable to decode {} options for peer {}", "snowflake", name);
+                    let snowflake_config =
+                        pt::peers::SnowflakeConfig::decode(options.as_slice()).context(err)?;
                     Some(Config::SnowflakeConfig(snowflake_config))
                 }
                 Some(DbType::Bigquery) => {
-                    let bigquery_config = pt::peers::BigqueryConfig::decode(options.as_slice())?;
+                    let err = format!("unable to decode {} options for peer {}", "bigquery", name);
+                    let bigquery_config =
+                        pt::peers::BigqueryConfig::decode(options.as_slice()).context(err)?;
                     Some(Config::BigqueryConfig(bigquery_config))
                 }
                 Some(DbType::Mongo) => {
-                    let mongo_config = pt::peers::MongoConfig::decode(options.as_slice())?;
+                    let err = format!("unable to decode {} options for peer {}", "mongo", name);
+                    let mongo_config =
+                        pt::peers::MongoConfig::decode(options.as_slice()).context(err)?;
                     Some(Config::MongoConfig(mongo_config))
                 }
                 Some(DbType::Postgres) => {
-                    let postgres_config = pt::peers::PostgresConfig::decode(options.as_slice())?;
+                    let err = format!("unable to decode {} options for peer {}", "postgres", name);
+                    let postgres_config =
+                        pt::peers::PostgresConfig::decode(options.as_slice()).context(err)?;
                     Some(Config::PostgresConfig(postgres_config))
                 }
                 None => None,
             };
 
             let peer = Peer {
-                name: name.clone(),
+                name: name.clone().to_lowercase(),
                 r#type: peer_type,
                 config,
             };
-
-            dbg!(&peer);
 
             peers.insert(name, peer);
         }

@@ -2,7 +2,7 @@ name: build and test
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/*]
   pull_request:
     branches: [main]
 
@@ -14,8 +14,19 @@ jobs:
         with:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
+
       - uses: dtolnay/rust-toolchain@stable
+
       - uses: arduino/setup-protoc@v1
+
+      - name: cargo format
+        run: cargo fmt --check
+        working-directory: ./nexus
+
       - name: cargo check
         run: cargo check
+        working-directory: ./nexus
+
+      - name: cargo test
+        run: cargo test
         working-directory: ./nexus
