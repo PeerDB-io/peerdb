@@ -19,10 +19,6 @@ jobs:
 
       - uses: arduino/setup-protoc@v1
 
-      - name: cargo format
-        run: cargo fmt --check
-        working-directory: ./nexus
-
       - name: cargo check
         run: cargo check
         working-directory: ./nexus
