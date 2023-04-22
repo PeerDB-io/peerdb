@@ -2,7 +2,7 @@ name: build and test
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/*]
   pull_request:
     branches: [main]
 
@@ -14,8 +14,26 @@ jobs:
         with:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
+
       - uses: dtolnay/rust-toolchain@stable
+
       - uses: arduino/setup-protoc@v1
+
       - name: cargo check
         run: cargo check
         working-directory: ./nexus
+
+      - name: cargo test
+        run: cargo test
+        working-directory: ./nexus
+        env:
+          RUST_BACKTRACE: 1
+          NEXUS_CATALOG_HOST: ${{ secrets.NEXUS_CATALOG_HOST }}
+          NEXUS_CATALOG_PORT: ${{ secrets.NEXUS_CATALOG_PORT }}
+          NEXUS_CATALOG_DATABASE: ${{ secrets.NEXUS_CATALOG_DATABASE }}
+          NEXUS_CATALOG_USER: ${{ secrets.NEXUS_CATALOG_USER }}
+          NEXUS_CATALOG_PASSWORD: ${{ secrets.NEXUS_CATALOG_PASSWORD }}
+
+      - name: dump server.log
+        if: failure()
+        run: cat nexus/server/server.log

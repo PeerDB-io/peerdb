@@ -19,12 +19,14 @@ impl NexusQueryParser {
     pub fn parse_simple_sql(&self, sql: &str) -> PgWireResult<NexusParsedStatement> {
         let mut stmts =
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        if stmts.len() != 1 {
+        if stmts.len() > 1 {
+            let err_msg = format!("unsupported sql: {}, statements: {:?}", sql, stmts);
+
             // TODO (kaushik): Better error message for this. When do we start seeing multiple statements?
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "42P14".to_owned(),
-                "invalid_prepared_statement_definition".to_owned(),
+                err_msg,
             ))))
         } else {
             let stmt = stmts.remove(0);
@@ -42,11 +44,12 @@ impl QueryParser for NexusQueryParser {
     fn parse_sql(&self, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> {
         let mut stmts =
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        if stmts.len() != 1 {
+        if stmts.len() > 1 {
+            let err_msg = format!("unsupported sql: {}, statements: {:?}", sql, stmts);
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "42P14".to_owned(),
-                "invalid_prepared_statement_definition".to_owned(),
+                err_msg,
             ))))
         } else {
             let stmt = stmts.remove(0);
