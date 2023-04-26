@@ -1239,8 +1239,11 @@ dependencies = [
 name = "peerdb-parser"
 version = "0.1.0"
 dependencies = [
+ "analyzer",
  "anyhow",
  "async-trait",
+ "catalog",
+ "futures",
  "pgwire",
  "rand",
  "sqlparser",

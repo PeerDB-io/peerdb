@@ -32,6 +32,7 @@ impl<'a> PeerExistanceAnalyzer<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum QueryAssocation {
     Peer(Box<Peer>),
     Catalog,
@@ -71,6 +72,7 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 #[derive(Default)]
 pub struct PeerDDLAnalyzer;
 
+#[derive(Debug, Clone)]
 pub enum PeerDDL {
     CreatePeer {
         peer: Box<pt::peers::Peer>,

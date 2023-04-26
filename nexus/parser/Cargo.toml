@@ -5,8 +5,11 @@ edition = "2021"
 authors = ["PeerDB <copyright@peerdb.io>"]
 
 [dependencies]
+analyzer = { path = "../analyzer" }
 anyhow = "1"
 async-trait = "0.1"
+catalog = { path = "../catalog" }
+futures = { version = "0.3.28", features = ["executor"] }
 pgwire = "0.13"
 rand = "0.8"
 sqlparser = { path = "../sqlparser-rs" }

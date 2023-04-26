@@ -1,14 +1,12 @@
-use std::{collections::HashMap, default::Default, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use analyzer::{
-    PeerDDL, PeerDDLAnalyzer, PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer,
-};
+use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
 use peer_bigquery::BigQueryQueryExecutor;
 use peer_cursor::{util::sendable_stream_to_query_response, QueryExecutor, QueryOutput};
-use peerdb_parser::{NexusParsedStatement, NexusQueryParser};
+use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
         auth::{
@@ -19,7 +17,7 @@ use pgwire::{
         query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal},
         results::{DescribeResponse, Response, Tag},
         store::MemPortalStore,
-        ClientInfo, MakeHandler,
+        ClientInfo, MakeHandler, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
@@ -62,88 +60,112 @@ impl SimpleQueryHandler for NexusBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let parsed = self.query_parser.parse_simple_sql(sql)?;
-        let mut catalog = self.catalog.lock().await;
-
-        {
-            let pdl: PeerDDLAnalyzer = Default::default();
-            let result = pdl.analyze(&parsed.statement).await.map_err(|e| {
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "internal_error".to_owned(),
-                    e.to_string(),
-                )))
-            })?;
-
-            #[allow(clippy::single_match)]
-            match result {
-                Some(PeerDDL::CreatePeer {
-                    peer,
-                    if_not_exists: _,
-                }) => {
-                    catalog.create_peer(peer.as_ref()).await.map_err(|e| {
-                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "internal_error".to_owned(),
-                            e.to_string(),
-                        )))
-                    })?;
-                    return Ok(vec![Response::Execution(Tag::new_for_execution(
-                        "OK", None,
-                    ))]);
-                }
-                _ => (),
-            }
-        }
-
-        let pea = PeerExistanceAnalyzer::new(&mut catalog);
-        let result = pea.analyze(&parsed.statement).await.map_err(|e| {
-            PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "feature_not_supported".to_owned(),
-                e.to_string(),
-            )))
-        })?;
-
-        // get the query executor
-        let executor = match result {
-            QueryAssocation::Peer(peer) => {
-                println!("acquiring executor for peer query: {:?}", peer);
-                // if the peer is of type bigquery, let us route the query to bq.
-                match peer.config {
-                    Some(Config::BigqueryConfig(c)) => {
-                        let executor = BigQueryQueryExecutor::new(&c).await.map_err(|e| {
+        let nexus_stmt = parsed.statement;
+        match nexus_stmt {
+            NexusStatement::PeerDDL { stmt: _, ddl } =>
+            {
+                #[allow(clippy::single_match)]
+                match ddl {
+                    PeerDDL::CreatePeer {
+                        peer,
+                        if_not_exists: _,
+                    } => {
+                        let catalog = self.catalog.lock().await;
+                        catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                             PgWireError::UserError(Box::new(ErrorInfo::new(
                                 "ERROR".to_owned(),
                                 "internal_error".to_owned(),
                                 e.to_string(),
                             )))
                         })?;
-                        Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
-                    }
-                    _ => {
-                        panic!("peer type not supported: {:?}", peer)
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            "OK", None,
+                        ))])
                     }
                 }
             }
-            QueryAssocation::Catalog => {
-                println!("acquiring executor for catalog query");
-                catalog.get_executor()
-            }
-        };
+            NexusStatement::PeerQuery { stmt, assoc } => {
+                // get the query executor
+                let executor = match assoc {
+                    QueryAssocation::Peer(peer) => {
+                        println!("acquiring executor for peer query: {:?}", peer);
+                        // if the peer is of type bigquery, let us route the query to bq.
+                        match peer.config {
+                            Some(Config::BigqueryConfig(c)) => {
+                                let executor =
+                                    BigQueryQueryExecutor::new(&c).await.map_err(|e| {
+                                        PgWireError::UserError(Box::new(ErrorInfo::new(
+                                            "ERROR".to_owned(),
+                                            "internal_error".to_owned(),
+                                            e.to_string(),
+                                        )))
+                                    })?;
+                                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+                            }
+                            _ => {
+                                panic!("peer type not supported: {:?}", peer)
+                            }
+                        }
+                    }
+                    QueryAssocation::Catalog => {
+                        println!("acquiring executor for catalog query");
+                        let catalog = self.catalog.lock().await;
+                        catalog.get_executor()
+                    }
+                };
 
-        let res = executor.execute(&parsed.statement).await?;
-        match res {
-            QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
-                Tag::new_for_execution("OK", Some(rows)),
-            )]),
-            QueryOutput::Stream(rows) => {
-                let schema = rows.schema();
-                // todo: why is this a vector of response rather than a single response?
-                // can this be because of multiple statements?
-                let res = sendable_stream_to_query_response(schema, rows)?;
-                Ok(vec![res])
+                let res = executor.execute(&stmt).await?;
+                match res {
+                    QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
+                        Tag::new_for_execution("OK", Some(rows)),
+                    )]),
+                    QueryOutput::Stream(rows) => {
+                        let schema = rows.schema();
+                        // todo: why is this a vector of response rather than a single response?
+                        // can this be because of multiple statements?
+                        let res = sendable_stream_to_query_response(schema, rows)?;
+                        Ok(vec![res])
+                    }
+                }
             }
         }
+    }
+}
+
+fn parameter_to_string(portal: &Portal<NexusParsedStatement>, idx: usize) -> PgWireResult<String> {
+    // the index is managed from portal's parameters count so it's safe to
+    // unwrap here.
+    let param_type = portal.statement().parameter_types().get(idx).unwrap();
+    match param_type {
+        &Type::VARCHAR | &Type::TEXT => Ok(format!(
+            "'{}'",
+            portal.parameter::<String>(idx)?.as_deref().unwrap_or("")
+        )),
+        &Type::BOOL => Ok(portal
+            .parameter::<bool>(idx)?
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "".to_owned())),
+        &Type::INT4 => Ok(portal
+            .parameter::<i32>(idx)?
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "".to_owned())),
+        &Type::INT8 => Ok(portal
+            .parameter::<i64>(idx)?
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "".to_owned())),
+        &Type::FLOAT4 => Ok(portal
+            .parameter::<f32>(idx)?
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "".to_owned())),
+        &Type::FLOAT8 => Ok(portal
+            .parameter::<f64>(idx)?
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "".to_owned())),
+        _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+            "ERROR".to_owned(),
+            "22023".to_owned(),
+            "unsupported_parameter_value".to_owned(),
+        )))),
     }
 }
 
@@ -172,6 +194,12 @@ impl ExtendedQueryHandler for NexusBackend {
     {
         let stmt = portal.statement().statement();
         println!("do_query: {:?}", stmt);
+
+        // manually replace variables in prepared statement
+        let mut sql = stmt.query.clone();
+        for i in 0..portal.parameter_len() {
+            sql = sql.replace(&format!("${}", i + 1), &parameter_to_string(portal, i)?);
+        }
 
         todo!("implement extended query handler for NexusBackend")
     }
@@ -218,10 +246,12 @@ impl MakeHandler for MakeNexusBackend {
     fn make(&self) -> Self::Handler {
         let catalog = futures::executor::block_on(Catalog::new(&self.catalog_config))
             .expect("failed to create catalog");
+        let catalog = Arc::new(Mutex::new(catalog));
+        let query_parser = NexusQueryParser::new(catalog.clone());
         let backend = NexusBackend {
-            catalog: Arc::new(Mutex::new(catalog)),
+            catalog,
             portal_store: Arc::new(MemPortalStore::new()),
-            query_parser: Arc::new(Default::default()),
+            query_parser: Arc::new(query_parser),
         };
         Arc::new(backend)
     }
