@@ -12,23 +12,22 @@ use pt::peers::{
 };
 use sqlparser::ast::{visit_relations, SqlOption, Statement};
 
-#[async_trait::async_trait]
 pub trait StatementAnalyzer {
     type Output;
 
-    async fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output>;
+    fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output>;
 }
 
 /// PeerExistanceAnalyzer is a statement analyzer that checks if the given
 /// statement touches a peer that exists in the system. If there isn't a peer
 /// this points to a catalog query.
 pub struct PeerExistanceAnalyzer<'a> {
-    catalog: &'a mut Catalog,
+    peers: &'a HashMap<String, Peer>,
 }
 
 impl<'a> PeerExistanceAnalyzer<'a> {
-    pub fn new(catalog: &'a mut Catalog) -> Self {
-        Self { catalog }
+    pub fn new(peers: &'a HashMap<String, Peer>) -> Self {
+        Self { peers }
     }
 }
 
@@ -38,17 +37,15 @@ pub enum QueryAssocation {
     Catalog,
 }
 
-#[async_trait::async_trait]
 impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
     type Output = QueryAssocation;
 
-    async fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
-        let peer_map = self.catalog.get_peers().await?;
+    fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
         let mut peers_touched: HashSet<String> = HashSet::new();
 
         visit_relations(statement, |relation| {
             let peer_name = &relation.0[0].value.to_lowercase();
-            if peer_map.contains_key(peer_name) {
+            if self.peers.contains_key(peer_name) {
                 peers_touched.insert(peer_name.into());
             }
             ControlFlow::<()>::Continue(())
@@ -58,7 +55,7 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
         if peers_touched.len() > 1 {
             anyhow::bail!("queries touching multiple peers are not supported")
         } else if let Some(peer_name) = peers_touched.iter().next() {
-            let peer = peer_map.get(peer_name).unwrap();
+            let peer = self.peers.get(peer_name).unwrap();
             Ok(QueryAssocation::Peer(Box::new(peer.clone())))
         } else {
             Ok(QueryAssocation::Catalog)
@@ -80,11 +77,10 @@ pub enum PeerDDL {
     },
 }
 
-#[async_trait::async_trait]
 impl StatementAnalyzer for PeerDDLAnalyzer {
     type Output = Option<PeerDDL>;
 
-    async fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
+    fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
         if let Statement::CreatePeer {
             if_not_exists,
             peer_name,

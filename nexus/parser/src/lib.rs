@@ -33,7 +33,7 @@ impl NexusStatement {
     pub fn new(catalog: Arc<Mutex<Catalog>>, stmt: &Statement) -> PgWireResult<Self> {
         let ddl = futures::executor::block_on(async move {
             let pdl: PeerDDLAnalyzer = Default::default();
-            pdl.analyze(stmt).await.map_err(|e| {
+            pdl.analyze(stmt).map_err(|e| {
                 PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
                     "internal_error".to_owned(),
@@ -50,9 +50,10 @@ impl NexusStatement {
         }
 
         let assoc = futures::executor::block_on(async move {
-            let mut catalog = catalog.lock().await;
-            let pea = PeerExistanceAnalyzer::new(&mut catalog);
-            pea.analyze(stmt).await.map_err(|e| {
+            let catalog = catalog.lock().await;
+            let peers = catalog.get_peers().await.expect("failed to get peers");
+            let pea = PeerExistanceAnalyzer::new(&peers);
+            pea.analyze(stmt).map_err(|e| {
                 PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
                     "feature_not_supported".to_owned(),
