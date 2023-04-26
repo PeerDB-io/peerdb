@@ -15,7 +15,7 @@ use pgwire::{
             md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler},
             AuthSource, LoginInfo, Password, ServerParameterProvider,
         },
-        portal::Portal,
+        portal::{Format, Portal},
         query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal},
         results::{DescribeResponse, Response, Tag},
         store::MemPortalStore,
@@ -171,23 +171,40 @@ impl ExtendedQueryHandler for NexusBackend {
     async fn do_query<'a, C>(
         &self,
         _client: &mut C,
-        _portal: &'a Portal<Self::Statement>,
+        portal: &'a Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
+        let stmt = portal.statement().statement();
+        println!("do_query: {:?}", stmt);
+
         todo!("implement extended query handler for NexusBackend")
     }
 
     async fn do_describe<C>(
         &self,
         _client: &mut C,
-        _target: StatementOrPortal<'_, Self::Statement>,
+        target: StatementOrPortal<'_, Self::Statement>,
     ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
+        let (_param_types, stmt, _format) = match target {
+            StatementOrPortal::Statement(stmt) => {
+                let param_types = Some(stmt.parameter_types().clone());
+                (param_types, stmt.statement(), &Format::UnifiedBinary)
+            }
+            StatementOrPortal::Portal(portal) => (
+                None,
+                portal.statement().statement(),
+                portal.result_column_format(),
+            ),
+        };
+
+        println!("do_describe: {:?}", stmt);
+
         todo!("implement describe handler for NexusBackend")
     }
 }

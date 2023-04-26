@@ -1,27 +1,25 @@
 use postgres::{Client, NoTls, SimpleQueryMessage};
 use std::{
     fs::{read_dir, File},
-    io::{self, prelude::*, BufReader, Write},
+    io::{prelude::*, BufReader, Write},
     path::Path,
-    process::{Command, Stdio},
+    process::Command,
     thread,
     time::Duration,
 };
 
 fn input_files() -> Vec<String> {
     let sql_directory = read_dir("tests/sql").unwrap();
-    let test_files = sql_directory
+    sql_directory
         .filter_map(|sql_input| {
             sql_input.ok().and_then(|sql_file| {
                 sql_file
                     .path()
                     .file_name()
-                    .and_then(|n| n.to_str().map(|s| String::from(s)))
+                    .and_then(|n| n.to_str().map(String::from))
             })
         })
-        .collect::<Vec<String>>();
-
-    test_files
+        .collect::<Vec<String>>()
 }
 
 fn read_queries(filename: impl AsRef<Path>) -> Vec<String> {
@@ -53,6 +51,38 @@ impl PeerDBServer {
         println!("peerdb-server Server started");
         Self { server: child }
     }
+
+    fn connect_dying(&self) -> Client {
+        let connection_string = "host=localhost port=9900 password=peerdb user=peerdb";
+        let mut client_result = Client::connect(connection_string, NoTls);
+
+        let mut client_established = false;
+        let max_attempts = 10;
+        let mut attempts = 0;
+        while !client_established && attempts < max_attempts {
+            match client_result {
+                Ok(_) => {
+                    client_established = true;
+                }
+                Err(_) => {
+                    attempts += 1;
+                    thread::sleep(Duration::from_millis(2000 * attempts));
+                    client_result = Client::connect(connection_string, NoTls);
+                }
+            }
+        }
+
+        match client_result {
+            Ok(c) => c,
+            Err(_e) => {
+                println!(
+                    "unable to connect to server after {} attempts",
+                    max_attempts
+                );
+                panic!("Failed to connect to server.");
+            }
+        }
+    }
 }
 
 impl Drop for PeerDBServer {
@@ -65,41 +95,11 @@ impl Drop for PeerDBServer {
 
 #[test]
 fn server_test() {
-    let connection_string = "host=localhost port=9900 password=peerdb user=peerdb";
-
-    let _server = PeerDBServer::new();
-    let mut client_result = Client::connect(connection_string, NoTls);
-
-    let mut client_established = false;
-    let max_attempts = 10;
-    let mut attempts = 0;
-    while !client_established && attempts < max_attempts {
-        match client_result {
-            Ok(_) => {
-                client_established = true;
-            }
-            Err(_) => {
-                attempts += 1;
-                thread::sleep(Duration::from_millis(2000 * attempts));
-                client_result = Client::connect(connection_string, NoTls);
-            }
-        }
-    }
-
-    let mut client = match client_result {
-        Ok(c) => c,
-        Err(_e) => {
-            println!(
-                "unable to connect to server after {} attempts",
-                max_attempts
-            );
-            panic!("Failed to connect to server.");
-        }
-    };
+    let server = PeerDBServer::new();
+    let mut client = server.connect_dying();
 
     let test_files = input_files();
-    for i in 0..test_files.len() {
-        let file: &str = test_files[i].as_str();
+    test_files.iter().for_each(|file| {
         let queries = read_queries(["tests/sql/", file].concat());
         let actual_output_path = ["tests/results/actual/", file, ".out"].concat();
         let expected_output_path = ["tests/results/expected/", file, ".out"].concat();
@@ -133,9 +133,8 @@ fn server_test() {
                 _ => (),
             };
 
-            for i in 0..res.len() {
-                let row = &res[i];
-                for column_head in column_names.to_owned() {
+            res.iter().for_each(|row| {
+                for column_head in &column_names {
                     let row_parse = match row {
                         SimpleQueryMessage::Row(ref simplerow) => simplerow.get(column_head),
                         SimpleQueryMessage::CommandComplete(_x) => None,
@@ -150,7 +149,7 @@ fn server_test() {
                     };
                     output.push(row_value.to_owned());
                 }
-            }
+            });
 
             for i in &output {
                 let output_line = (*i).as_bytes();
@@ -169,8 +168,8 @@ fn server_test() {
         // Compare hash of expected and obtained files
         let obtained_file = std::fs::read(&actual_output_path).unwrap();
         let expected_file = std::fs::read(&expected_output_path).unwrap();
-        let obtained_hash = sha256::digest_bytes(&obtained_file);
-        let expected_hash = sha256::digest_bytes(&expected_file);
+        let obtained_hash = sha256::digest(obtained_file.as_slice());
+        let expected_hash = sha256::digest(expected_file.as_slice());
 
         // if there is a mismatch, print the diff, along with the path.
         if obtained_hash != expected_hash {
@@ -179,5 +178,24 @@ fn server_test() {
         }
 
         assert_eq!(obtained_hash, expected_hash);
-    }
+    });
+}
+
+#[test]
+fn extended_query_protocol_no_params() {
+    let server = PeerDBServer::new();
+    let mut client = server.connect_dying();
+
+    // run `select * from peers` as a prepared statement.
+    let stmt = client
+        .prepare("select * from peers")
+        .expect("Failed to prepare query");
+
+    // run the prepared statement with no parameters.
+    let res = client
+        .execute(&stmt, &[])
+        .expect("Failed to execute prepared statement");
+
+    // check that the result is non-empty.
+    assert!(res > 0);
 }
