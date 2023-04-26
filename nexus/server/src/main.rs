@@ -26,6 +26,7 @@ use pt::peers::peer::Config;
 use rand::Rng;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use tracing_subscriber::{fmt, prelude::*};
 
 struct DummyAuthSource;
 
@@ -343,9 +344,22 @@ impl ServerParameterProvider for NexusServerParameterProvider {
     }
 }
 
+// setup tracing
+fn setup_tracing() {
+    let fmt_layer = fmt::layer().with_target(false);
+    let console_layer = console_subscriber::spawn();
+
+    tracing_subscriber::registry()
+        .with(console_layer)
+        .with(fmt_layer)
+        .init();
+}
+
 #[tokio::main]
-pub async fn main() {
+pub async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
+
+    setup_tracing();
 
     let args = Args::parse();
 
@@ -364,15 +378,17 @@ pub async fn main() {
         let (socket, _) = listener.accept().await.unwrap();
         let authenticator_ref = authenticator.make();
         let processor_ref = processor.make();
-        tokio::spawn(async move {
-            process_socket(
-                socket,
-                None,
-                authenticator_ref,
-                processor_ref.clone(),
-                processor_ref,
-            )
-            .await
-        });
+        tokio::task::Builder::new()
+            .name("tcp connection handler")
+            .spawn(async move {
+                process_socket(
+                    socket,
+                    None,
+                    authenticator_ref,
+                    processor_ref.clone(),
+                    processor_ref,
+                )
+                .await
+            })?;
     }
 }

@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::Context;
-use catalog::Catalog;
 use pt::peers::{
     peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
 };
