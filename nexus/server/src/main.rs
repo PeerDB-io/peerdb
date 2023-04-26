@@ -104,51 +104,44 @@ impl SimpleQueryHandler for NexusBackend {
             )))
         })?;
 
-        if let QueryAssocation::Peer(peer) = result {
-            println!("peer [{}] query: {}", peer.name, parsed.statement);
-            // if the peer is of type bigquery, let us route the query to bq.
-            match peer.config {
-                Some(Config::BigqueryConfig(c)) => {
-                    let executor = BigQueryQueryExecutor::new(&c).await.map_err(|e| {
-                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "internal_error".to_owned(),
-                            e.to_string(),
-                        )))
-                    })?;
-                    let res = executor.execute(&parsed.statement).await?;
-                    match res {
-                        QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
-                            Tag::new_for_execution("OK", Some(rows)),
-                        )]),
-                        QueryOutput::Stream(rows) => {
-                            let schema = rows.schema();
-                            // todo: why is this a vector of response rather than a single response?
-                            // can this be because of multiple statements?
-                            let res = sendable_stream_to_query_response(schema, rows)?;
-                            Ok(vec![res])
-                        }
+        // get the query executor
+        let executor = match result {
+            QueryAssocation::Peer(peer) => {
+                println!("acquiring executor for peer query: {:?}", peer);
+                // if the peer is of type bigquery, let us route the query to bq.
+                match peer.config {
+                    Some(Config::BigqueryConfig(c)) => {
+                        let executor = BigQueryQueryExecutor::new(&c).await.map_err(|e| {
+                            PgWireError::UserError(Box::new(ErrorInfo::new(
+                                "ERROR".to_owned(),
+                                "internal_error".to_owned(),
+                                e.to_string(),
+                            )))
+                        })?;
+                        Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+                    }
+                    _ => {
+                        panic!("peer type not supported: {:?}", peer)
                     }
                 }
-                _ => {
-                    panic!("peer type not supported: {:?}", peer)
-                }
             }
-        } else {
-            println!("catalog query: {}", parsed.statement);
-            let executor = catalog.get_executor();
-            let res = executor.execute(&parsed.statement).await?;
-            match res {
-                QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
-                    Tag::new_for_execution("OK", Some(rows)),
-                )]),
-                QueryOutput::Stream(rows) => {
-                    let schema = rows.schema();
-                    // todo: why is this a vector of response rather than a single response?
-                    // can this be because of multiple statements?
-                    let res = sendable_stream_to_query_response(schema, rows)?;
-                    Ok(vec![res])
-                }
+            QueryAssocation::Catalog => {
+                println!("acquiring executor for catalog query");
+                catalog.get_executor()
+            }
+        };
+
+        let res = executor.execute(&parsed.statement).await?;
+        match res {
+            QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
+                Tag::new_for_execution("OK", Some(rows)),
+            )]),
+            QueryOutput::Stream(rows) => {
+                let schema = rows.schema();
+                // todo: why is this a vector of response rather than a single response?
+                // can this be because of multiple statements?
+                let res = sendable_stream_to_query_response(schema, rows)?;
+                Ok(vec![res])
             }
         }
     }
