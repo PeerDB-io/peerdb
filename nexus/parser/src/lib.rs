@@ -31,7 +31,7 @@ pub enum NexusStatement {
 
 impl NexusStatement {
     pub fn new(catalog: Arc<Mutex<Catalog>>, stmt: &Statement) -> PgWireResult<Self> {
-        let ddl = futures::executor::block_on(async move {
+        let ddl = {
             let pdl: PeerDDLAnalyzer = Default::default();
             pdl.analyze(stmt).map_err(|e| {
                 PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -40,7 +40,7 @@ impl NexusStatement {
                     e.to_string(),
                 )))
             })
-        })?;
+        }?;
 
         if let Some(ddl) = ddl {
             return Ok(NexusStatement::PeerDDL {
@@ -49,9 +49,12 @@ impl NexusStatement {
             });
         }
 
-        let assoc = futures::executor::block_on(async move {
+        let peers = futures::executor::block_on(async move {
             let catalog = catalog.lock().await;
-            let peers = catalog.get_peers().await.expect("failed to get peers");
+            catalog.get_peers().await.expect("failed to get peers")
+        });
+
+        let assoc = {
             let pea = PeerExistanceAnalyzer::new(&peers);
             pea.analyze(stmt).map_err(|e| {
                 PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -60,7 +63,7 @@ impl NexusStatement {
                     e.to_string(),
                 )))
             })
-        })?;
+        }?;
 
         Ok(NexusStatement::PeerQuery {
             stmt: stmt.clone(),

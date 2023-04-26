@@ -232,12 +232,14 @@ impl ExtendedQueryHandler for NexusBackend {
 }
 
 struct MakeNexusBackend {
-    catalog_config: CatalogConfig,
+    catalog: Arc<Mutex<Catalog>>,
 }
 
 impl MakeNexusBackend {
-    fn new(catalog_config: CatalogConfig) -> Self {
-        Self { catalog_config }
+    fn new(catalog: Catalog) -> Self {
+        Self {
+            catalog: Arc::new(Mutex::new(catalog)),
+        }
     }
 }
 
@@ -245,12 +247,9 @@ impl MakeHandler for MakeNexusBackend {
     type Handler = Arc<NexusBackend>;
 
     fn make(&self) -> Self::Handler {
-        let catalog = futures::executor::block_on(Catalog::new(&self.catalog_config))
-            .expect("failed to create catalog");
-        let catalog = Arc::new(Mutex::new(catalog));
-        let query_parser = NexusQueryParser::new(catalog.clone());
+        let query_parser = NexusQueryParser::new(self.catalog.clone());
         let backend = NexusBackend {
-            catalog,
+            catalog: self.catalog.clone(),
             portal_store: Arc::new(MemPortalStore::new()),
             query_parser: Arc::new(query_parser),
         };
@@ -372,9 +371,10 @@ pub async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&server_addr).await.unwrap();
     println!("Listening on {}", server_addr);
 
-    let processor = Arc::new(MakeNexusBackend::new(catalog_config));
-
     loop {
+        let catalog = Catalog::new(&catalog_config).await?;
+        let processor = Arc::new(MakeNexusBackend::new(catalog));
+
         let (socket, _) = listener.accept().await.unwrap();
         let authenticator_ref = authenticator.make();
         let processor_ref = processor.make();
