@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use analyzer::{
     PeerDDL, PeerDDLAnalyzer, PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer,
@@ -30,7 +30,7 @@ pub enum NexusStatement {
 }
 
 impl NexusStatement {
-    pub fn new(catalog: Arc<Mutex<Catalog>>, stmt: &Statement) -> PgWireResult<Self> {
+    pub fn new(peers: HashMap<String, pt::peers::Peer>, stmt: &Statement) -> PgWireResult<Self> {
         let ddl = {
             let pdl: PeerDDLAnalyzer = Default::default();
             pdl.analyze(stmt).map_err(|e| {
@@ -48,11 +48,6 @@ impl NexusStatement {
                 ddl,
             });
         }
-
-        let peers = futures::executor::block_on(async move {
-            let catalog = catalog.lock().await;
-            catalog.get_peers().await.expect("failed to get peers")
-        });
 
         let assoc = {
             let pea = PeerExistanceAnalyzer::new(&peers);
@@ -83,6 +78,24 @@ impl NexusQueryParser {
         Self { catalog }
     }
 
+    pub fn get_peers_bridge(&self) -> PgWireResult<HashMap<String, pt::peers::Peer>> {
+        let peers = tokio::task::block_in_place(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                let catalog = self.catalog.lock().await;
+                let peers = catalog.get_peers().await;
+                peers
+            })
+        });
+
+        peers.map_err(|e| {
+            PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "internal_error".to_owned(),
+                e.to_string(),
+            )))
+        })
+    }
+
     pub fn parse_simple_sql(&self, sql: &str) -> PgWireResult<NexusParsedStatement> {
         let mut stmts =
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
@@ -97,7 +110,8 @@ impl NexusQueryParser {
             ))))
         } else {
             let stmt = stmts.remove(0);
-            let nexus_stmt = NexusStatement::new(self.catalog.clone(), &stmt)?;
+            let peers = self.get_peers_bridge()?;
+            let nexus_stmt = NexusStatement::new(peers, &stmt)?;
             Ok(NexusParsedStatement {
                 statement: nexus_stmt,
                 query: sql.to_owned(),
@@ -121,7 +135,8 @@ impl QueryParser for NexusQueryParser {
             ))))
         } else {
             let stmt = stmts.remove(0);
-            let nexus_stmt = NexusStatement::new(self.catalog.clone(), &stmt)?;
+            let peers = self.get_peers_bridge()?;
+            let nexus_stmt = NexusStatement::new(peers, &stmt)?;
             Ok(NexusParsedStatement {
                 statement: nexus_stmt,
                 query: sql.to_owned(),

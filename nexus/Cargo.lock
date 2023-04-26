@@ -1442,6 +1442,7 @@ dependencies = [
  "catalog",
  "futures",
  "pgwire",
+ "pt",
  "rand",
  "sqlparser",
  "tokio",
