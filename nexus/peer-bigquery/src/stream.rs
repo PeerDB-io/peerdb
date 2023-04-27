@@ -19,10 +19,14 @@ use pgwire::{
 };
 use value::Value;
 
-pub struct BqRecordStream {
-    result_set: ResultSet,
+pub struct BqSchema {
     schema: SchemaRef,
     fields: Vec<TableFieldSchema>,
+}
+
+pub struct BqRecordStream {
+    result_set: ResultSet,
+    schema: BqSchema,
 }
 
 // covnert FieldType to pgwire FieldInfo's Type
@@ -47,8 +51,8 @@ fn convert_field_type(field_type: &FieldType) -> Type {
     }
 }
 
-impl BqRecordStream {
-    pub fn new(result_set: ResultSet) -> Self {
+impl BqSchema {
+    pub fn from_result_set(result_set: &ResultSet) -> Self {
         let bq_schema = result_set
             .query_response()
             .schema
@@ -66,16 +70,26 @@ impl BqRecordStream {
                 .collect(),
         });
 
+        Self { schema, fields }
+    }
+
+    pub fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+}
+
+impl BqRecordStream {
+    pub fn new(result_set: ResultSet) -> Self {
+        let bq_schema = BqSchema::from_result_set(&result_set);
         Self {
             result_set,
-            schema,
-            fields,
+            schema: bq_schema,
         }
     }
 
     pub fn convert_result_set_item(&self, result_set: &ResultSet) -> anyhow::Result<Record> {
         let mut values = Vec::new();
-        for field in &self.fields {
+        for field in &self.schema.fields {
             let field_type = &field.r#type;
             let field_name = &field.name;
 
@@ -123,7 +137,7 @@ impl BqRecordStream {
 
         Ok(Record {
             values,
-            schema: self.schema.clone(),
+            schema: self.schema.schema(),
         })
     }
 }
@@ -150,6 +164,6 @@ impl Stream for BqRecordStream {
 
 impl RecordStream for BqRecordStream {
     fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        self.schema.schema()
     }
 }
