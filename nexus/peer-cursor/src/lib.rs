@@ -1,10 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 
 use futures::Stream;
-use pgwire::{
-    api::results::{FieldInfo},
-    error::PgWireResult,
-};
+use pgwire::{api::results::FieldInfo, error::PgWireResult};
 use sqlparser::ast::Statement;
 use value::Value;
 
@@ -27,7 +24,6 @@ pub trait RecordStream: Stream<Item = PgWireResult<Record>> {
 
 pub type SendableStream = Pin<Box<dyn RecordStream + Send>>;
 
-
 pub enum QueryOutput {
     AffectedRows(usize),
     /// Optionally send the number of rows to be sent.
@@ -37,4 +33,6 @@ pub enum QueryOutput {
 #[async_trait::async_trait]
 pub trait QueryExecutor: Send + Sync {
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput>;
+
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>>;
 }
