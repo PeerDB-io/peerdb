@@ -88,11 +88,13 @@ impl Catalog {
                 .await
                 .context("Failed to connect to catalog database")?;
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!("Connection error: {}", e);
-            }
-        });
+        tokio::task::Builder::new()
+            .name("Catalog connection")
+            .spawn(async move {
+                if let Err(e) = connection.await {
+                    tracing::error!("Connection error: {}", e);
+                }
+            })?;
 
         run_migrations(&mut client).await?;
 

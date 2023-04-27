@@ -2,7 +2,7 @@ use std::{pin::Pin, sync::Arc};
 
 use futures::Stream;
 use pgwire::{
-    api::results::{FieldInfo, Response},
+    api::results::{FieldInfo},
     error::PgWireResult,
 };
 use sqlparser::ast::Statement;
