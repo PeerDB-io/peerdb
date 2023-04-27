@@ -116,4 +116,14 @@ impl QueryExecutor for PostgresQueryExecutor {
             }
         }
     }
+
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+        match stmt {
+            Statement::Query(_query) => {
+                let schema = self.schema_from_query(&stmt.to_string()).await;
+                Ok(Some(schema))
+            }
+            _ => Ok(None),
+        }
+    }
 }

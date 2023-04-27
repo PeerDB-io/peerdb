@@ -182,7 +182,6 @@ fn server_test() {
 }
 
 #[test]
-#[ignore]
 fn extended_query_protocol_no_params() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
