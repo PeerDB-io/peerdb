@@ -6,8 +6,8 @@ use peer_cursor::{QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peers::BigqueryConfig;
-use sqlparser::ast::Statement;
-use stream::BqRecordStream;
+use sqlparser::ast::{Expr, Statement, Value};
+use stream::{BqRecordStream, BqSchema};
 
 mod ast;
 mod stream;
@@ -92,7 +92,49 @@ impl QueryExecutor for BigQueryQueryExecutor {
     }
 
     // describe the output of the query
-    async fn describe(&self, _stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
-        todo!("describe for bigquery")
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+        // only support SELECT statements
+        match stmt {
+            Statement::Query(query) => {
+                let mut query = query.clone();
+                let bq_ast = ast::BigqueryAst::default();
+                bq_ast
+                    .rewrite(&self.config.dataset_id, &mut query)
+                    .context("unable to rewrite query")
+                    .map_err(|err| {
+                        PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: err.to_string(),
+                        }))
+                    })?;
+
+                // add LIMIT 1 to the root level query.
+                // this is a workaround for the bigquery API not supporting DESCRIBE
+                // queries.
+                query.limit = Some(Expr::Value(Value::Number("1".to_owned(), false)));
+
+                let rewritten_query = query.to_string();
+                let mut query_req = QueryRequest::new(&rewritten_query);
+                query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
+
+                let result_set = self
+                    .client
+                    .job()
+                    .query(&self.config.project_id, query_req)
+                    .await
+                    .map_err(|err| {
+                        PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: err.to_string(),
+                        }))
+                    })?;
+
+                let schema = BqSchema::from_result_set(&result_set);
+                Ok(Some(schema.schema()))
+            }
+            _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "fdw_error".to_owned(),
+                "only SELECT statements are supported in bigquery".to_owned(),
+            )))),
+        }
     }
 }

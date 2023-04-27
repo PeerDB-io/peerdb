@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
 use peer_bigquery::BigQueryQueryExecutor;
-use peer_cursor::{util::sendable_stream_to_query_response, QueryExecutor, QueryOutput};
+use peer_cursor::{util::sendable_stream_to_query_response, QueryExecutor, QueryOutput, SchemaRef};
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
@@ -242,21 +242,40 @@ impl ExtendedQueryHandler for NexusBackend {
         let stmt = &stmt.statement;
         match stmt {
             NexusStatement::PeerDDL { .. } => Ok(DescribeResponse::no_data()),
-            NexusStatement::PeerQuery { stmt, assoc } => match assoc {
-                QueryAssocation::Peer(peer) => {
-                    todo!("descbribe peer query for {:?}", peer)
-                }
-                QueryAssocation::Catalog => {
-                    let catalog = self.catalog.lock().await;
-                    let executor = catalog.get_executor();
-                    let res = executor.describe(stmt).await?;
-                    if let Some(schema) = res {
-                        Ok(DescribeResponse::new(param_types, schema.fields.clone()))
-                    } else {
-                        Ok(DescribeResponse::no_data())
+            NexusStatement::PeerQuery { stmt, assoc } => {
+                let schema: Option<SchemaRef> = match assoc {
+                    QueryAssocation::Peer(peer) => {
+                        println!("acquiring executor for peer query: {:?}", peer);
+                        // if the peer is of type bigquery, let us route the query to bq.
+                        match &peer.config {
+                            Some(Config::BigqueryConfig(c)) => {
+                                let executor =
+                                    BigQueryQueryExecutor::new(c).await.map_err(|e| {
+                                        PgWireError::UserError(Box::new(ErrorInfo::new(
+                                            "ERROR".to_owned(),
+                                            "internal_error".to_owned(),
+                                            e.to_string(),
+                                        )))
+                                    })?;
+                                executor.describe(stmt).await?
+                            }
+                            _ => {
+                                panic!("peer type not supported: {:?}", peer)
+                            }
+                        }
                     }
+                    QueryAssocation::Catalog => {
+                        let catalog = self.catalog.lock().await;
+                        let executor = catalog.get_executor();
+                        executor.describe(stmt).await?
+                    }
+                };
+                if let Some(schema) = schema {
+                    Ok(DescribeResponse::new(param_types, schema.fields.clone()))
+                } else {
+                    Ok(DescribeResponse::no_data())
                 }
-            },
+            }
         }
     }
 }

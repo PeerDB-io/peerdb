@@ -182,7 +182,7 @@ fn server_test() {
 }
 
 #[test]
-fn extended_query_protocol_no_params() {
+fn extended_query_protocol_no_params_catalog() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
 
@@ -190,6 +190,25 @@ fn extended_query_protocol_no_params() {
     let stmt = client
         .prepare("select * from peers")
         .expect("Failed to prepare query");
+
+    // run the prepared statement with no parameters.
+    let res = client
+        .execute(&stmt, &[])
+        .expect("Failed to execute prepared statement");
+
+    // check that the result is non-empty.
+    assert!(res > 0);
+}
+
+#[test]
+fn extended_query_protocol_no_params_bq() {
+    let server = PeerDBServer::new();
+    let mut client = server.connect_dying();
+
+    let query = "SELECT country,count(*) from bq_test.users GROUP BY country;";
+
+    // run `select * from peers` as a prepared statement.
+    let stmt = client.prepare(query).expect("Failed to prepare query");
 
     // run the prepared statement with no parameters.
     let res = client
