@@ -392,15 +392,27 @@ impl ServerParameterProvider for NexusServerParameterProvider {
     }
 }
 
+fn is_test_env() -> bool {
+    if let Ok(nexus_env) = dotenvy::var("NEXUS_ENVIRONMENT") {
+        nexus_env == "test"
+    } else {
+        false
+    }
+}
+
 // setup tracing
 fn setup_tracing() {
-    let fmt_layer = fmt::layer().with_target(false);
-    let console_layer = console_subscriber::spawn();
-
-    tracing_subscriber::registry()
-        .with(console_layer)
-        .with(fmt_layer)
-        .init();
+    if is_test_env() {
+        let fmt_layer = fmt::layer().with_target(false);
+        tracing_subscriber::registry().with(fmt_layer).init();
+    } else {
+        let fmt_layer = fmt::layer().with_target(false);
+        let console_layer = console_subscriber::spawn();
+        tracing_subscriber::registry()
+            .with(console_layer)
+            .with(fmt_layer)
+            .init();
+    }
 }
 
 #[tokio::main]

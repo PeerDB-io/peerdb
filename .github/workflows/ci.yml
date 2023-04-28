@@ -33,6 +33,7 @@ jobs:
           NEXUS_CATALOG_DATABASE: ${{ secrets.NEXUS_CATALOG_DATABASE }}
           NEXUS_CATALOG_USER: ${{ secrets.NEXUS_CATALOG_USER }}
           NEXUS_CATALOG_PASSWORD: ${{ secrets.NEXUS_CATALOG_PASSWORD }}
+          NEXUS_ENVIRONMENT: test
 
       - name: dump server.log
         if: failure()
