@@ -26,7 +26,7 @@ use pt::peers::peer::Config;
 use rand::Rng;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
-use tracing_subscriber::{fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 struct DummyAuthSource;
 
@@ -96,6 +96,19 @@ async fn handle_query<'a>(
                                     e.to_string(),
                                 )))
                             })?;
+                            Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+                        }
+                        Some(Config::PostgresConfig(c)) => {
+                            let peername = Some(peer.name.clone());
+                            let executor = peer_postgres::PostgresQueryExecutor::new(peername, &c)
+                                .await
+                                .map_err(|e| {
+                                    PgWireError::UserError(Box::new(ErrorInfo::new(
+                                        "ERROR".to_owned(),
+                                        "internal_error".to_owned(),
+                                        e.to_string(),
+                                    )))
+                                })?;
                             Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
                         }
                         _ => {
@@ -397,9 +410,15 @@ fn setup_tracing() {
     let fmt_layer = fmt::layer().with_target(false);
     let console_layer = console_subscriber::spawn();
 
+    // add min tracing as info
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("info"))
+        .unwrap();
+
     tracing_subscriber::registry()
         .with(console_layer)
         .with(fmt_layer)
+        .with(filter_layer)
         .init();
 }
 
