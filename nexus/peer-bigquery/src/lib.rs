@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::Context;
 use cursor::BigQueryCursorManager;
 use gcp_bigquery_client::{model::query_request::QueryRequest, Client};
-use peer_cursor::{QueryExecutor, QueryOutput, SchemaRef};
+use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peers::BigqueryConfig;
@@ -94,12 +94,15 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     .create_cursor(&name.value, &query_stmt, self)
                     .await?;
 
-                // Return an empty result
-                Ok(QueryOutput::AffectedRows(0))
+                Ok(QueryOutput::Cursor(CursorModification::Created(
+                    name.value.clone(),
+                )))
             }
             Statement::Fetch {
                 name, direction, ..
             } => {
+                println!("fetching cursor for bigquery: {}", name.value);
+
                 // Attempt to extract the count from the direction
                 let count = match direction {
                     FetchDirection::Count {
@@ -127,6 +130,8 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     }
                 };
 
+                println!("fetching {} rows", count);
+
                 // Fetch rows from the cursor manager
                 let records = self.cursor_manager.fetch(&name.value, count).await?;
 
@@ -134,15 +139,19 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 Ok(QueryOutput::Records(records))
             }
             Statement::Close { cursor } => {
+                let mut closed_cursors = vec![];
                 match cursor {
                     CloseCursor::All => {
-                        self.cursor_manager.close_all_cursors().await?;
+                        closed_cursors = self.cursor_manager.close_all_cursors().await?;
                     }
                     CloseCursor::Specific { name } => {
                         self.cursor_manager.close(&name.value).await?;
+                        closed_cursors.push(name.value.clone());
                     }
                 };
-                Ok(QueryOutput::AffectedRows(0))
+                Ok(QueryOutput::Cursor(CursorModification::Closed(
+                    closed_cursors,
+                )))
             }
             _ => {
                 let error = format!(

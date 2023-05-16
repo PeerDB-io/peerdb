@@ -49,7 +49,14 @@ impl BigQueryCursorManager {
                 };
 
                 // Store the cursor
-                self.cursors.lock().await.insert(name.to_string(), cursor);
+                let mut cursors = self.cursors.lock().await;
+                cursors.insert(name.to_string(), cursor);
+
+                // log the cursor and statement
+                println!("Created cursor {} for statement '{}'", name, stmt);
+
+                // log all the stored cursor names
+                println!("Stored cursors: {:?}", cursors.keys());
 
                 Ok(())
             }
@@ -63,11 +70,15 @@ impl BigQueryCursorManager {
 
     pub async fn fetch(&self, name: &str, count: usize) -> PgWireResult<Records> {
         let mut cursors = self.cursors.lock().await;
+
+        // log all the stored cursor names
+        println!("Stored cursors: {:?}", cursors.keys());
+
         let cursor = cursors.get_mut(name).ok_or_else(|| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
-                format!("Cursor {} does not exist", name),
+                format!("[bigquery] Cursor {} does not exist", name),
             )))
         })?;
 
@@ -91,6 +102,10 @@ impl BigQueryCursorManager {
 
     pub async fn close(&self, name: &str) -> PgWireResult<()> {
         let mut cursors = self.cursors.lock().await;
+
+        // log that we are removing the cursor from bq
+        println!("Removing cursor {} from BigQuery", name);
+
         cursors
             .remove(name)
             .ok_or_else(|| {
@@ -104,8 +119,14 @@ impl BigQueryCursorManager {
     }
 
     // close all the cursors
-    pub async fn close_all_cursors(&self) -> PgWireResult<()> {
-        self.cursors.lock().await.clear();
-        Ok(())
+    pub async fn close_all_cursors(&self) -> PgWireResult<Vec<String>> {
+        let mut cursors = self.cursors.lock().await;
+
+        // log that we are removing all the cursors from bq
+        println!("Removing all cursors from BigQuery");
+
+        let names = cursors.keys().cloned().collect::<Vec<_>>();
+        cursors.clear();
+        Ok(names)
     }
 }

@@ -1470,6 +1470,7 @@ dependencies = [
  "pt",
  "rand",
  "sha256",
+ "sqlparser",
  "time 0.3.20",
  "tokio",
  "tracing",
