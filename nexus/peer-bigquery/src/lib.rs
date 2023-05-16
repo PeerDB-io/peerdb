@@ -83,11 +83,18 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let cursor = BqRecordStream::new(result_set);
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
-            _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "fdw_error".to_owned(),
-                "only SELECT statements are supported in bigquery".to_owned(),
-            )))),
+
+            _ => {
+                let error = format!(
+                    "only SELECT statements are supported in bigquery. got: {}",
+                    stmt
+                );
+                PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    "fdw_error".to_owned(),
+                    error,
+                ))))
+            }
         }
     }
 
