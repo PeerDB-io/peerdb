@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Context;
+use cursor::BigQueryCursorManager;
 use gcp_bigquery_client::{model::query_request::QueryRequest, Client};
 use peer_cursor::{QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
@@ -10,11 +11,13 @@ use sqlparser::ast::{Expr, Statement, Value};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;
+mod cursor;
 mod stream;
 
 pub struct BigQueryQueryExecutor {
     config: BigqueryConfig,
     client: Box<Client>,
+    cursor_manager: BigQueryCursorManager,
 }
 
 pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Client> {
@@ -41,9 +44,11 @@ impl BigQueryQueryExecutor {
     pub async fn new(config: &BigqueryConfig) -> anyhow::Result<Self> {
         let client = bq_client_from_config(config.clone()).await?;
         let client = Box::new(client);
+        let cursor_manager = BigQueryCursorManager::new();
         Ok(Self {
             config: config.clone(),
             client,
+            cursor_manager,
         })
     }
 }
@@ -83,7 +88,16 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let cursor = BqRecordStream::new(result_set);
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
+            Statement::Declare { name, query, .. } => {
+                // Assume `self.cursor_manager` is an instance of `BigQueryCursorManager`
+                let query_stmt = Statement::Query(query.clone());
+                self.cursor_manager
+                    .create_cursor(&name.value, &query_stmt, self)
+                    .await?;
 
+                // Return an empty result
+                Ok(QueryOutput::AffectedRows(0))
+            }
             _ => {
                 let error = format!(
                     "only SELECT statements are supported in bigquery. got: {}",
