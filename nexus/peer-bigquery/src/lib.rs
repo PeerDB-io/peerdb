@@ -7,7 +7,7 @@ use peer_cursor::{QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peers::BigqueryConfig;
-use sqlparser::ast::{Expr, Statement, Value};
+use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;
@@ -89,13 +89,59 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             Statement::Declare { name, query, .. } => {
-                // Assume `self.cursor_manager` is an instance of `BigQueryCursorManager`
                 let query_stmt = Statement::Query(query.clone());
                 self.cursor_manager
                     .create_cursor(&name.value, &query_stmt, self)
                     .await?;
 
                 // Return an empty result
+                Ok(QueryOutput::AffectedRows(0))
+            }
+            Statement::Fetch {
+                name, direction, ..
+            } => {
+                // Attempt to extract the count from the direction
+                let count = match direction {
+                    FetchDirection::Count {
+                        limit: sqlparser::ast::Value::Number(n, _),
+                    }
+                    | FetchDirection::Forward {
+                        limit: Some(sqlparser::ast::Value::Number(n, _)),
+                    } => n.parse::<usize>(),
+                    _ => {
+                        return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "fdw_error".to_owned(),
+                            "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
+                        ))))
+                    }
+                };
+
+                // If parsing the count resulted in an error, return an internal error
+                let count = match count {
+                    Ok(c) => c,
+                    Err(err) => {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: err.to_string(),
+                        })))
+                    }
+                };
+
+                // Fetch rows from the cursor manager
+                let records = self.cursor_manager.fetch(&name.value, count).await?;
+
+                // Return the fetched records as the query output
+                Ok(QueryOutput::Records(records))
+            }
+            Statement::Close { cursor } => {
+                match cursor {
+                    CloseCursor::All => {
+                        self.cursor_manager.close_all_cursors().await?;
+                    }
+                    CloseCursor::Specific { name } => {
+                        self.cursor_manager.close(&name.value).await?;
+                    }
+                };
                 Ok(QueryOutput::AffectedRows(0))
             }
             _ => {

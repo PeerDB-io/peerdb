@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use tokio::sync::Mutex;
 
 use futures::StreamExt;
-use peer_cursor::{QueryExecutor, QueryOutput, Record, SchemaRef, SendableStream};
+use peer_cursor::{QueryExecutor, QueryOutput, Record, Records, SchemaRef, SendableStream};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::ast::Statement;
 
@@ -53,15 +53,15 @@ impl BigQueryCursorManager {
 
                 Ok(())
             }
-            QueryOutput::AffectedRows(_) => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+            _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
-                "Cannot create a cursor for a non-SELECT statement".to_owned(),
+                "Only SELECT queries can be used with cursors".to_owned(),
             )))),
         }
     }
 
-    pub async fn fetch(&self, name: &str, count: usize) -> PgWireResult<Vec<Record>> {
+    pub async fn fetch(&self, name: &str, count: usize) -> PgWireResult<Records> {
         let mut cursors = self.cursors.lock().await;
         let cursor = cursors.get_mut(name).ok_or_else(|| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -83,7 +83,10 @@ impl BigQueryCursorManager {
             }
         }
 
-        Ok(records)
+        Ok(Records {
+            records,
+            schema: cursor.schema.clone(),
+        })
     }
 
     pub async fn close(&self, name: &str) -> PgWireResult<()> {
@@ -98,5 +101,11 @@ impl BigQueryCursorManager {
                 )))
             })
             .map(|_| ())
+    }
+
+    // close all the cursors
+    pub async fn close_all_cursors(&self) -> PgWireResult<()> {
+        self.cursors.lock().await.clear();
+        Ok(())
     }
 }

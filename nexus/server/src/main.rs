@@ -5,7 +5,10 @@ use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
 use peer_bigquery::BigQueryQueryExecutor;
-use peer_cursor::{util::sendable_stream_to_query_response, QueryExecutor, QueryOutput, SchemaRef};
+use peer_cursor::{
+    util::{records_to_query_response, sendable_stream_to_query_response},
+    QueryExecutor, QueryOutput, SchemaRef,
+};
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
@@ -133,6 +136,10 @@ async fn handle_query<'a>(
                     // todo: why is this a vector of response rather than a single response?
                     // can this be because of multiple statements?
                     let res = sendable_stream_to_query_response(schema, rows)?;
+                    Ok(vec![res])
+                }
+                QueryOutput::Records(records) => {
+                    let res = records_to_query_response(records)?;
                     Ok(vec![res])
                 }
             }
