@@ -17,7 +17,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: arduino/setup-protoc@v1
+      - name: install protobuf compiler and go plugin
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: cargo check
         run: cargo check
