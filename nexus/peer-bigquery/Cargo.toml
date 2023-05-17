@@ -13,7 +13,7 @@ dashmap = "5.0"
 futures = { version = "0.3.28", features = ["executor"] }
 peer-cursor = { path = "../peer-cursor" }
 pgerror = { path = "../pgerror" }
-pgwire = "0.13"
+pgwire = "0.14"
 pt = { path = "../pt" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
