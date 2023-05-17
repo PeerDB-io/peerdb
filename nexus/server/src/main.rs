@@ -25,6 +25,7 @@ use pgwire::{
         ClientInfo, MakeHandler, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
+    messages::response::{CommandComplete, ReadyForQuery},
     tokio::process_socket,
 };
 use pt::peers::{peer::Config, Peer};
@@ -101,10 +102,24 @@ impl NexusBackend {
             QueryOutput::Cursor(cm) => {
                 println!("cursor modification: {:?}", cm);
                 let mut peer_cursors = self.peer_cursors.lock().await;
-                peer_cursors.handle_event(peer_holder.unwrap(), cm);
-                Ok(vec![Response::Execution(Tag::new_for_execution(
-                    "OK", None,
-                ))])
+                match cm {
+                    peer_cursor::CursorModification::Created(cursor_name) => {
+                        peer_cursors.add_cursor(cursor_name, peer_holder.unwrap());
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            "DECLARE CURSOR",
+                            None,
+                        ))])
+                    }
+                    peer_cursor::CursorModification::Closed(cursors) => {
+                        for cursor_name in cursors {
+                            peer_cursors.remove_cursor(cursor_name);
+                        }
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            "CLOSE CURSOR",
+                            None,
+                        ))])
+                    }
+                }
             }
         }
     }
@@ -113,6 +128,8 @@ impl NexusBackend {
         &self,
         nexus_stmt: NexusStatement,
     ) -> PgWireResult<Vec<Response<'a>>> {
+        println!("handle query nexus statement: {:#?}", nexus_stmt);
+
         let mut peer_holder: Option<Box<Peer>> = None;
         match nexus_stmt {
             NexusStatement::PeerDDL { stmt: _, ddl } =>
