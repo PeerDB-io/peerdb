@@ -9,7 +9,7 @@ use anyhow::Context;
 use pt::peers::{
     peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
 };
-use sqlparser::ast::{visit_relations, SqlOption, Statement};
+use sqlparser::ast::{visit_relations, FetchDirection, SqlOption, Statement};
 
 pub trait StatementAnalyzer {
     type Output;
@@ -101,6 +101,60 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
             }))
         } else {
             Ok(None)
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum CursorEvent {
+    Fetch(String, usize),
+    CloseAll,
+    Close(String),
+}
+
+/// PeerCursorAnalyzer is a statement analyzer that checks if the given
+/// statement is a PeerDB cursor statement. If it is, it returns the type of
+/// cursor statement.
+///
+/// Cursor statements are statements that are used to manage cursors. They are
+/// used to fetch data from a peer and close cursors.
+///
+/// Note that this doesn't include DECLARE statements as they are not used to
+/// manage cursors, but rather to declare / create them.
+#[derive(Default)]
+pub struct PeerCursorAnalyzer;
+
+impl StatementAnalyzer for PeerCursorAnalyzer {
+    type Output = Option<CursorEvent>;
+
+    fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
+        match statement {
+            Statement::Fetch {
+                name, direction, ..
+            } => {
+                let count = match direction {
+                    FetchDirection::Count {
+                        limit: sqlparser::ast::Value::Number(n, _),
+                    }
+                    | FetchDirection::Forward {
+                        limit: Some(sqlparser::ast::Value::Number(n, _)),
+                    } => n.parse::<usize>(),
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "invalid fetch direction for cursor: {:?}",
+                            direction
+                        ))
+                    }
+                };
+                Ok(Some(CursorEvent::Fetch(name.value.clone(), count?)))
+            }
+            Statement::Close { cursor } => match cursor {
+                sqlparser::ast::CloseCursor::All => Ok(Some(CursorEvent::CloseAll)),
+                sqlparser::ast::CloseCursor::Specific { name } => {
+                    Ok(Some(CursorEvent::Close(name.to_string())))
+                }
+            },
+            _ => Ok(None),
         }
     }
 }
