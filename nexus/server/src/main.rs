@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
 use cursor::PeerCursors;
+use dashmap::DashMap;
 use peer_bigquery::BigQueryQueryExecutor;
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -59,6 +60,7 @@ pub struct NexusBackend {
     portal_store: Arc<MemPortalStore<NexusParsedStatement>>,
     query_parser: Arc<NexusQueryParser>,
     peer_cursors: Arc<Mutex<PeerCursors>>,
+    executors: Arc<DashMap<String, Arc<Box<dyn QueryExecutor>>>>,
 }
 
 impl NexusBackend {
@@ -69,6 +71,7 @@ impl NexusBackend {
             portal_store: Arc::new(MemPortalStore::new()),
             query_parser: Arc::new(query_parser),
             peer_cursors: Arc::new(Mutex::new(PeerCursors::new())),
+            executors: Arc::new(DashMap::new()),
         }
     }
 
@@ -178,23 +181,30 @@ impl NexusBackend {
     }
 
     async fn get_peer_executor(&self, peer: &Peer) -> Arc<Box<dyn QueryExecutor>> {
-        let executor = match peer.config {
+        if let Some(executor) = self.executors.get(&peer.name) {
+            return Arc::clone(executor.value());
+        }
+
+        let executor = match &peer.config {
             Some(Config::BigqueryConfig(ref c)) => {
                 let executor = BigQueryQueryExecutor::new(c).await.unwrap();
-                Box::new(executor) as Box<dyn QueryExecutor>
+                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
             Some(Config::PostgresConfig(ref c)) => {
                 let peername = Some(peer.name.clone());
                 let executor = peer_postgres::PostgresQueryExecutor::new(peername, &c)
                     .await
                     .unwrap();
-                Box::new(executor) as Box<dyn QueryExecutor>
+                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
             _ => {
                 panic!("peer type not supported: {:?}", peer)
             }
         };
-        Arc::new(executor)
+
+        self.executors
+            .insert(peer.name.clone(), Arc::clone(&executor));
+        executor
     }
 }
 

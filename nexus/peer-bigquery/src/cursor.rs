@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use dashmap::DashMap;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 use futures::StreamExt;
@@ -11,18 +12,18 @@ use crate::BigQueryQueryExecutor;
 pub struct BigQueryCursor {
     stmt: Statement,
     position: usize,
-    stream: SendableStream,
+    stream: Mutex<SendableStream>,
     schema: SchemaRef,
 }
 
 pub struct BigQueryCursorManager {
-    cursors: Mutex<HashMap<String, BigQueryCursor>>,
+    cursors: DashMap<String, BigQueryCursor>,
 }
 
 impl BigQueryCursorManager {
     pub fn new() -> Self {
         Self {
-            cursors: Mutex::new(HashMap::new()),
+            cursors: DashMap::new(),
         }
     }
 
@@ -44,19 +45,15 @@ impl BigQueryCursorManager {
                 let cursor = BigQueryCursor {
                     stmt: stmt.clone(),
                     position: 0,
-                    stream,
+                    stream: Mutex::new(stream),
                     schema,
                 };
 
                 // Store the cursor
-                let mut cursors = self.cursors.lock().await;
-                cursors.insert(name.to_string(), cursor);
+                self.cursors.insert(name.to_string(), cursor);
 
                 // log the cursor and statement
                 println!("Created cursor {} for statement '{}'", name, stmt);
-
-                // log all the stored cursor names
-                println!("Stored cursors: {:?}", cursors.keys());
 
                 Ok(())
             }
@@ -69,12 +66,7 @@ impl BigQueryCursorManager {
     }
 
     pub async fn fetch(&self, name: &str, count: usize) -> PgWireResult<Records> {
-        let mut cursors = self.cursors.lock().await;
-
-        // log all the stored cursor names
-        println!("Stored cursors: {:?}", cursors.keys());
-
-        let cursor = cursors.get_mut(name).ok_or_else(|| {
+        let mut cursor = self.cursors.get_mut(name).ok_or_else(|| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
@@ -83,16 +75,24 @@ impl BigQueryCursorManager {
         })?;
 
         let mut records = Vec::new();
-        while cursor.position < count {
-            match cursor.stream.next().await {
-                Some(Ok(record)) => {
-                    records.push(record);
-                    cursor.position += 1;
+        let prev_end = cursor.position;
+        let mut cursor_position = cursor.position;
+        {
+            let mut stream = cursor.stream.lock().await;
+            while cursor_position - prev_end < count {
+                match stream.next().await {
+                    Some(Ok(record)) => {
+                        records.push(record);
+                        cursor_position += 1;
+                        println!("cusror position: {}", cursor_position);
+                    }
+                    Some(Err(err)) => return Err(err),
+                    None => break,
                 }
-                Some(Err(err)) => return Err(err),
-                None => break,
             }
         }
+
+        cursor.position = cursor_position;
 
         Ok(Records {
             records,
@@ -101,12 +101,10 @@ impl BigQueryCursorManager {
     }
 
     pub async fn close(&self, name: &str) -> PgWireResult<()> {
-        let mut cursors = self.cursors.lock().await;
-
         // log that we are removing the cursor from bq
         println!("Removing cursor {} from BigQuery", name);
 
-        cursors
+        self.cursors
             .remove(name)
             .ok_or_else(|| {
                 PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -120,13 +118,15 @@ impl BigQueryCursorManager {
 
     // close all the cursors
     pub async fn close_all_cursors(&self) -> PgWireResult<Vec<String>> {
-        let mut cursors = self.cursors.lock().await;
-
         // log that we are removing all the cursors from bq
         println!("Removing all cursors from BigQuery");
 
-        let names = cursors.keys().cloned().collect::<Vec<_>>();
-        cursors.clear();
-        Ok(names)
+        let keys: Vec<_> = self
+            .cursors
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        self.cursors.clear();
+        Ok(keys)
     }
 }

@@ -11,6 +11,7 @@ async-trait = "0.1"
 catalog = { path = "../catalog" }
 clap = { version = "4.0", features = ["derive", "env"] }
 console-subscriber = "0.1"
+dashmap = "5.0"
 dotenvy = "0.15.7"
 futures = { version = "0.3.28", features = ["executor"] }
 peer-bigquery = { path = "../peer-bigquery" }
