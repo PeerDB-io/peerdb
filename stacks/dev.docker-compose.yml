@@ -10,3 +10,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_destination=stderr"]

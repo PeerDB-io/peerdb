@@ -17,28 +17,15 @@ impl PeerCursors {
         }
     }
 
-    fn add_cursor(&mut self, name: String, peer: Box<Peer>) {
+    pub fn add_cursor(&mut self, name: String, peer: Box<Peer>) {
         self.cursors.insert(name, peer);
     }
 
-    fn remove_cursor(&mut self, name: String) {
+    pub fn remove_cursor(&mut self, name: String) {
         self.cursors.remove(&name);
     }
 
     pub fn get_peer(&self, name: &str) -> Option<&Box<Peer>> {
         self.cursors.get(name)
-    }
-
-    pub fn handle_event(&mut self, peer: Box<Peer>, cursor_modification: CursorModification) {
-        match cursor_modification {
-            CursorModification::Created(name) => {
-                self.add_cursor(name, peer);
-            }
-            CursorModification::Closed(names) => {
-                for name in names {
-                    self.remove_cursor(name);
-                }
-            }
-        }
     }
 }
