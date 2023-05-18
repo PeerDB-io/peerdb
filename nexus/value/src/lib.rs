@@ -1,7 +1,10 @@
+use array::ArrayValue;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
+
+pub mod array;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -26,7 +29,7 @@ pub enum Value {
     Timestamp(DateTime<Utc>),
     TimestampWithTimeZone(DateTime<Utc>),
     Interval(i64),
-    Array(Vec<Option<Value>>),
+    Array(ArrayValue),
     Json(String),
     JsonB(String),
     Uuid(Uuid),
@@ -117,7 +120,7 @@ impl Value {
         Value::Interval(value)
     }
 
-    pub fn array(value: Vec<Option<Value>>) -> Self {
+    pub fn array(value: ArrayValue) -> Self {
         Value::Array(value)
     }
 
@@ -160,12 +163,31 @@ impl Value {
                 }
             }
             serde_json::Value::String(s) => Value::Text(s.clone()),
-            serde_json::Value::Array(arr) => Value::Array(
-                arr.iter()
-                    .map(Self::from_serde_json_value)
-                    .map(Some)
-                    .collect(),
-            ),
+            serde_json::Value::Array(arr) => {
+                if arr.is_empty() {
+                    Value::Array(ArrayValue::Empty)
+                } else {
+                    match &arr[0] {
+                        serde_json::Value::Number(_) => Value::Array(ArrayValue::Integer(
+                            arr.iter()
+                                .filter_map(|v| v.as_i64().map(|n| n as i32)) // adjust according to your needs
+                                .collect(),
+                        )),
+                        serde_json::Value::String(_) => Value::Array(ArrayValue::VarChar(
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect(),
+                        )),
+                        serde_json::Value::Bool(_) => Value::Array(ArrayValue::Bool(
+                            arr.iter().filter_map(|v| v.as_bool()).collect(),
+                        )),
+                        _ty => {
+                            let err = format!("unsupported array type: {:?}", _ty);
+                            panic!("{}", err)
+                        }
+                    }
+                }
+            }
             serde_json::Value::Object(map) => {
                 let mut hstore = HashMap::new();
                 for (key, value) in map {
@@ -209,11 +231,7 @@ impl Value {
             Value::Timestamp(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::TimestampWithTimeZone(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::Interval(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-            Value::Array(arr) => serde_json::Value::Array(
-                arr.iter()
-                    .flat_map(|v| v.as_ref().map(|v| v.to_serde_json_value()))
-                    .collect(),
-            ),
+            Value::Array(arr) => arr.to_serde_json_value(),
             Value::Json(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
             Value::JsonB(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
             Value::Uuid(u) => serde_json::Value::String(u.to_string()),

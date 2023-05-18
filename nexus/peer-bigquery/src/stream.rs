@@ -99,7 +99,15 @@ impl BqRecordStream {
             let field_name = &field.name;
 
             let value = match result_set.get_json_value_by_name(&field.name)? {
-                Some(serde_json::Value::Array(arr)) => {
+                Some(serde_json::Value::Array(mut arr)) => {
+                    for item in arr.iter_mut() {
+                        if let Some(obj) = item.as_object_mut() {
+                            if let Some(value) = obj.remove("v") {
+                                *item = value;
+                            }
+                        }
+                    }
+
                     Some(Value::from_serde_json_value(&serde_json::Value::Array(arr)))
                 }
                 _ => match field_type {

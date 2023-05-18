@@ -6,7 +6,7 @@ use pgwire::{
     api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response},
     error::{PgWireError, PgWireResult},
 };
-use value::Value;
+use value::{array::ArrayValue, Value};
 
 use crate::{Record, Records, SchemaRef, SendableStream};
 
@@ -39,13 +39,7 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
         Value::Timestamp(ts) => builder.encode_field(ts),
         Value::TimestampWithTimeZone(ts) => builder.encode_field(ts),
         Value::Interval(i) => builder.encode_field(i),
-        Value::Array(a) => {
-            for value in a.iter() {
-                // if value is None then encode Value::Null
-                encode_value(value.as_ref().unwrap_or(&Value::Null), builder)?;
-            }
-            Ok(())
-        }
+        Value::Array(a) => builder.encode_field(a),
         Value::Json(j) => builder.encode_field(j),
         Value::JsonB(j) => builder.encode_field(j),
         Value::Uuid(u) => {
