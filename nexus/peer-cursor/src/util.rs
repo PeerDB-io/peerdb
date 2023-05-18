@@ -6,7 +6,7 @@ use pgwire::{
     api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response},
     error::{PgWireError, PgWireResult},
 };
-use value::{ArrayValue, Value};
+use value::{array::ArrayValue, Value};
 
 use crate::{Record, Records, SchemaRef, SendableStream};
 

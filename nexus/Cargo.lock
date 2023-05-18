@@ -2841,6 +2841,7 @@ dependencies = [
  "bytes",
  "chrono",
  "hex",
+ "pgwire",
  "postgres",
  "postgres-types",
  "serde",
