@@ -1,6 +1,7 @@
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-use std::collections::HashMap;
+use postgres::types::{IsNull, ToSql, Type};
+use std::{collections::HashMap, error::Error};
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -26,13 +27,179 @@ pub enum Value {
     Timestamp(DateTime<Utc>),
     TimestampWithTimeZone(DateTime<Utc>),
     Interval(i64),
-    Array(Vec<Option<Value>>),
+    Array(ArrayValue),
     Json(String),
     JsonB(String),
     Uuid(Uuid),
     Enum(String),
     Hstore(HashMap<String, String>),
 }
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum ArrayValue {
+    Empty,
+    Bool(Vec<bool>),
+    TinyInt(Vec<i8>),
+    SmallInt(Vec<i16>),
+    Integer(Vec<i32>),
+    BigInt(Vec<i64>),
+    Float(Vec<f32>),
+    Double(Vec<f64>),
+    Numeric(Vec<String>),
+    Char(Vec<char>),
+    VarChar(Vec<String>),
+    Text(Vec<String>),
+    Binary(Vec<Bytes>),
+    VarBinary(Vec<Bytes>),
+    Date(Vec<NaiveDate>),
+    Time(Vec<NaiveTime>),
+    TimeWithTimeZone(Vec<NaiveTime>),
+    Timestamp(Vec<DateTime<Utc>>),
+    TimestampWithTimeZone(Vec<DateTime<Utc>>),
+}
+
+impl ArrayValue {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        match self {
+            ArrayValue::Empty => serde_json::Value::Null,
+            ArrayValue::Bool(arr) => {
+                serde_json::Value::Array(arr.iter().map(|&v| serde_json::Value::Bool(v)).collect())
+            }
+            ArrayValue::TinyInt(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::Number(v.into()))
+                    .collect(),
+            ),
+            ArrayValue::SmallInt(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::Number(v.into()))
+                    .collect(),
+            ),
+            ArrayValue::Integer(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::Number(v.into()))
+                    .collect(),
+            ),
+            ArrayValue::BigInt(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| {
+                        serde_json::Value::Number(serde_json::Number::from_f64(v as f64).unwrap())
+                    })
+                    .collect(),
+            ),
+            ArrayValue::Float(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| {
+                        serde_json::Value::Number(serde_json::Number::from_f64(v as f64).unwrap())
+                    })
+                    .collect(),
+            ),
+            ArrayValue::Double(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::Number(serde_json::Number::from_f64(v).unwrap()))
+                    .collect(),
+            ),
+            ArrayValue::Numeric(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|v| serde_json::Value::String(v.clone()))
+                    .collect(),
+            ),
+            ArrayValue::Char(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::String(v.to_string()))
+                    .collect(),
+            ),
+            ArrayValue::VarChar(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|v| serde_json::Value::String(v.clone()))
+                    .collect(),
+            ),
+            ArrayValue::Binary(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|v| serde_json::Value::String(hex::encode(v)))
+                    .collect(),
+            ),
+            ArrayValue::VarBinary(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|v| serde_json::Value::String(hex::encode(v)))
+                    .collect(),
+            ),
+            ArrayValue::Date(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::String(v.to_string()))
+                    .collect(),
+            ),
+            ArrayValue::Time(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::String(v.to_string()))
+                    .collect(),
+            ),
+            ArrayValue::TimeWithTimeZone(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::String(v.to_string()))
+                    .collect(),
+            ),
+            ArrayValue::Timestamp(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::String(v.to_rfc3339()))
+                    .collect(),
+            ),
+            ArrayValue::TimestampWithTimeZone(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|&v| serde_json::Value::String(v.to_rfc3339()))
+                    .collect(),
+            ),
+            ArrayValue::Text(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|v| serde_json::Value::String(v.clone()))
+                    .collect(),
+            ),
+        }
+    }
+}
+
+// impl<'a> ToSql for ArrayValue {
+//     fn to_sql(
+//         &self,
+//         ty: &Type,
+//         out: &mut BytesMut,
+//     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+//         match self {
+//             ArrayValue::Bool(arr) => {
+//                 let repr = arr.iter().map(|&v| v as u8).collect::<Vec<_>>();
+//                 out.extend_from_slice(arr.to_sql(ty, out)?);
+//             }
+//             ArrayValue::TinyInt(arr) => {
+//                 out.extend_from_slice(&arr.iter().collect::<Vec<_>>().to_sql(ty, out)?);
+//             }
+//             // ...and so forth for all other ArrayValue variants
+//             ArrayValue::Empty => {}
+//         }
+
+//         Ok(IsNull::No)
+//     }
+
+//     fn accepts(ty: &Type) -> bool {
+//         match *ty {
+//             Type::BOOL_ARRAY => true,
+//             Type::INT2_ARRAY => true,
+//             // ...and so forth for all other types corresponding to ArrayValue variants
+//             _ => false,
+//         }
+//     }
+
+//     fn to_sql_checked(
+//         &self,
+//         ty: &Type,
+//         out: &mut BytesMut,
+//     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+//         if !<Self as ToSql>::accepts(ty) {
+//             return Err("Invalid type".into());
+//         }
+
+//         ToSql::to_sql(self, ty, out)
+//     }
+// }
 
 use std::fmt;
 
@@ -117,7 +284,7 @@ impl Value {
         Value::Interval(value)
     }
 
-    pub fn array(value: Vec<Option<Value>>) -> Self {
+    pub fn array(value: ArrayValue) -> Self {
         Value::Array(value)
     }
 
@@ -160,12 +327,31 @@ impl Value {
                 }
             }
             serde_json::Value::String(s) => Value::Text(s.clone()),
-            serde_json::Value::Array(arr) => Value::Array(
-                arr.iter()
-                    .map(Self::from_serde_json_value)
-                    .map(Some)
-                    .collect(),
-            ),
+            serde_json::Value::Array(arr) => {
+                if arr.is_empty() {
+                    Value::Array(ArrayValue::Empty)
+                } else {
+                    match &arr[0] {
+                        serde_json::Value::Number(_) => Value::Array(ArrayValue::Integer(
+                            arr.iter()
+                                .filter_map(|v| v.as_i64().map(|n| n as i32)) // adjust according to your needs
+                                .collect(),
+                        )),
+                        serde_json::Value::String(_) => Value::Array(ArrayValue::VarChar(
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect(),
+                        )),
+                        serde_json::Value::Bool(_) => Value::Array(ArrayValue::Bool(
+                            arr.iter().filter_map(|v| v.as_bool()).collect(),
+                        )),
+                        _ty => {
+                            let err = format!("unsupported array type: {:?}", _ty);
+                            panic!("{}", err)
+                        }
+                    }
+                }
+            }
             serde_json::Value::Object(map) => {
                 let mut hstore = HashMap::new();
                 for (key, value) in map {
@@ -209,11 +395,7 @@ impl Value {
             Value::Timestamp(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::TimestampWithTimeZone(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::Interval(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-            Value::Array(arr) => serde_json::Value::Array(
-                arr.iter()
-                    .flat_map(|v| v.as_ref().map(|v| v.to_serde_json_value()))
-                    .collect(),
-            ),
+            Value::Array(arr) => arr.to_serde_json_value(),
             Value::Json(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
             Value::JsonB(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
             Value::Uuid(u) => serde_json::Value::String(u.to_string()),

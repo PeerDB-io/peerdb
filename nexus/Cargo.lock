@@ -2833,6 +2833,8 @@ dependencies = [
  "base64 0.21.0",
  "bytes",
  "chrono",
+ "hex",
+ "postgres",
  "serde",
  "serde_json",
  "uuid",
