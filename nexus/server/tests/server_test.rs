@@ -205,7 +205,7 @@ fn extended_query_protocol_no_params_bq() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
 
-    let query = "SELECT country,count(*) from bq_test.users GROUP BY country;";
+    let query = "SELECT count(*) from my_bq_b.events LIMIT 1;";
 
     // run `select * from peers` as a prepared statement.
     let stmt = client.prepare(query).expect("Failed to prepare query");
