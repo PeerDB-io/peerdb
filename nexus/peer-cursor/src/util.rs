@@ -39,17 +39,27 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
         Value::Timestamp(ts) => builder.encode_field(ts),
         Value::TimestampWithTimeZone(ts) => builder.encode_field(ts),
         Value::Interval(i) => builder.encode_field(i),
-        Value::Array(_)
-        | Value::Json(_)
-        | Value::JsonB(_)
-        | Value::Uuid(_)
-        | Value::Enum(_)
-        | Value::Hstore(_) => Err(PgWireError::ApiError(Box::new(PgError::Internal {
-            err_msg: format!(
-                "cannot write value {:?} in postgres protocol: unimplemented",
-                &value
-            ),
-        }))),
+        Value::Array(a) => {
+            for value in a.iter() {
+                // if value is None then encode Value::Null
+                encode_value(value.as_ref().unwrap_or(&Value::Null), builder)?;
+            }
+            Ok(())
+        }
+        Value::Json(j) => builder.encode_field(j),
+        Value::JsonB(j) => builder.encode_field(j),
+        Value::Uuid(u) => {
+            let s = u.to_string();
+            builder.encode_field(&s)
+        }
+        Value::Enum(_) | Value::Hstore(_) => {
+            Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                err_msg: format!(
+                    "cannot write value {:?} in postgres protocol: unimplemented",
+                    &value
+                ),
+            })))
+        }
     }
 }
 
