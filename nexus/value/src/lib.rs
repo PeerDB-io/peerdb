@@ -158,48 +158,74 @@ impl ArrayValue {
     }
 }
 
-// impl<'a> ToSql for ArrayValue {
-//     fn to_sql(
-//         &self,
-//         ty: &Type,
-//         out: &mut BytesMut,
-//     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-//         match self {
-//             ArrayValue::Bool(arr) => {
-//                 let repr = arr.iter().map(|&v| v as u8).collect::<Vec<_>>();
-//                 out.extend_from_slice(arr.to_sql(ty, out)?);
-//             }
-//             ArrayValue::TinyInt(arr) => {
-//                 out.extend_from_slice(&arr.iter().collect::<Vec<_>>().to_sql(ty, out)?);
-//             }
-//             // ...and so forth for all other ArrayValue variants
-//             ArrayValue::Empty => {}
-//         }
+impl<'a> ToSql for ArrayValue {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        match self {
+            ArrayValue::Bool(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::TinyInt(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::SmallInt(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Integer(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::BigInt(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Float(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Double(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Numeric(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Char(arr) => {
+                let stringified: Vec<i8> = arr.iter().map(|c| *c as i8).collect();
+                stringified.to_sql(ty, out)?
+            }
+            ArrayValue::VarChar(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Text(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Binary(arr) => todo!("support encoding array of binary"),
+            ArrayValue::VarBinary(arr) => todo!("support encoding array of varbinary"),
+            ArrayValue::Date(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Time(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::TimeWithTimeZone(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Timestamp(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::TimestampWithTimeZone(arr) => arr.to_sql(ty, out)?,
+            ArrayValue::Empty => IsNull::Yes,
+        };
 
-//         Ok(IsNull::No)
-//     }
+        Ok(IsNull::No)
+    }
 
-//     fn accepts(ty: &Type) -> bool {
-//         match *ty {
-//             Type::BOOL_ARRAY => true,
-//             Type::INT2_ARRAY => true,
-//             // ...and so forth for all other types corresponding to ArrayValue variants
-//             _ => false,
-//         }
-//     }
+    fn accepts(ty: &Type) -> bool {
+        matches!(
+            *ty,
+            Type::BOOL_ARRAY
+                | Type::INT2_ARRAY
+                | Type::INT4_ARRAY
+                | Type::INT8_ARRAY
+                | Type::FLOAT4_ARRAY
+                | Type::FLOAT8_ARRAY
+                | Type::NUMERIC_ARRAY
+                | Type::CHAR_ARRAY
+                | Type::VARCHAR_ARRAY
+                | Type::TEXT_ARRAY
+                | Type::BYTEA_ARRAY
+                | Type::DATE_ARRAY
+                | Type::TIME_ARRAY
+                | Type::TIMETZ_ARRAY
+                | Type::TIMESTAMP_ARRAY
+                | Type::TIMESTAMPTZ_ARRAY
+        )
+    }
 
-//     fn to_sql_checked(
-//         &self,
-//         ty: &Type,
-//         out: &mut BytesMut,
-//     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-//         if !<Self as ToSql>::accepts(ty) {
-//             return Err("Invalid type".into());
-//         }
+    fn to_sql_checked(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        if !<Self as ToSql>::accepts(ty) {
+            return Err("Invalid type".into());
+        }
 
-//         ToSql::to_sql(self, ty, out)
-//     }
-// }
+        ToSql::to_sql(self, ty, out)
+    }
+}
 
 use std::fmt;
 

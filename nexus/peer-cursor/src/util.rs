@@ -39,7 +39,7 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
         Value::Timestamp(ts) => builder.encode_field(ts),
         Value::TimestampWithTimeZone(ts) => builder.encode_field(ts),
         Value::Interval(i) => builder.encode_field(i),
-        Value::Array(a) => encode_array_value(a, builder),
+        Value::Array(a) => builder.encode_field(a),
         Value::Json(j) => builder.encode_field(j),
         Value::JsonB(j) => builder.encode_field(j),
         Value::Uuid(u) => {
@@ -55,108 +55,6 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
             })))
         }
     }
-}
-
-fn encode_array_value(value: &ArrayValue, builder: &mut DataRowEncoder) -> PgWireResult<()> {
-    // start with '{' and end with '}'
-    builder.encode_field(&Some::<&str>("{"))?;
-    match value {
-        ArrayValue::Bool(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::TinyInt(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::SmallInt(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Integer(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::BigInt(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Float(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Double(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Numeric(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Char(arr) => {
-            for v in arr {
-                builder.encode_field(&v.to_string())?;
-            }
-        }
-        ArrayValue::VarChar(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Text(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Binary(arr) => {
-            for v in arr {
-                let bytes: &[u8] = v.as_ref();
-                builder.encode_field(&bytes)?;
-            }
-        }
-        ArrayValue::VarBinary(arr) => {
-            for v in arr {
-                let bytes: &[u8] = v.as_ref();
-                builder.encode_field(&bytes)?;
-            }
-        }
-        ArrayValue::Date(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Time(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::TimeWithTimeZone(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Timestamp(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::TimestampWithTimeZone(arr) => {
-            for v in arr {
-                builder.encode_field(v)?;
-            }
-        }
-        ArrayValue::Empty => {}
-    }
-    builder.encode_field(&Some::<&str>("}"))?;
-    Ok(())
 }
 
 pub fn sendable_stream_to_query_response<'a>(
