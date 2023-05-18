@@ -87,7 +87,12 @@ impl BigqueryAst {
                 }
 
                 if let DataType::Timestamp(_, tz) = dt {
-                    *tz = TimezoneInfo::None;
+                    *tz = match *tz {
+                        TimezoneInfo::None => TimezoneInfo::None,
+                        TimezoneInfo::WithTimeZone => TimezoneInfo::WithTimeZone,
+                        TimezoneInfo::WithoutTimeZone => TimezoneInfo::None,
+                        TimezoneInfo::Tz => TimezoneInfo::WithTimeZone,
+                    };
                 }
             }
 
