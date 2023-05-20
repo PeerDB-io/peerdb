@@ -1475,6 +1475,7 @@ dependencies = [
  "analyzer",
  "anyhow",
  "async-trait",
+ "bytes",
  "catalog",
  "clap",
  "console-subscriber",

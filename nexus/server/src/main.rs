@@ -1,7 +1,8 @@
-use std::{collections::HashMap, f32::consts::E, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
+use bytes::{BufMut, BytesMut};
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
 use cursor::PeerCursors;
@@ -30,8 +31,8 @@ use pgwire::{
 };
 use pt::peers::{peer::Config, Peer};
 use rand::Rng;
-use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cursor;
@@ -515,16 +516,43 @@ pub async fn main() -> anyhow::Result<()> {
         Arc::new(NexusServerParameterProvider),
     ));
     let catalog_config = get_catalog_config(&args);
+
+    {
+        // leave this in this scope so that the catalog is dropped before we
+        // start the server.
+        let mut catalog = Catalog::new(&catalog_config).await?;
+        catalog.run_migrations().await?;
+    }
+
     let server_addr = format!("{}:{}", args.host, args.port);
     let listener = TcpListener::bind(&server_addr).await.unwrap();
     println!("Listening on {}", server_addr);
 
     loop {
-        let catalog = Catalog::new(&catalog_config).await?;
-        let processor = Arc::new(MakeNexusBackend::new(catalog));
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let catalog = match Catalog::new(&catalog_config).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Failed to connect to catalog: {}", e);
 
-        let (socket, _) = listener.accept().await.unwrap();
+                let mut buf = BytesMut::with_capacity(1024);
+                buf.put_u8(b'E');
+                buf.put_i32(0);
+                buf.put(&b"FATAL"[..]);
+                buf.put_u8(0);
+                let error_message = format!("Failed to connect to catalog: {}", e);
+                buf.put(error_message.as_bytes());
+                buf.put_u8(0);
+                buf.put_u8(b'\0');
+
+                socket.write_all(&buf).await?;
+                socket.shutdown().await?;
+                continue;
+            }
+        };
+
         let authenticator_ref = authenticator.make();
+        let processor = Arc::new(MakeNexusBackend::new(catalog));
         let processor_ref = processor.make();
         tokio::task::Builder::new()
             .name("tcp connection handler")
