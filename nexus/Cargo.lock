@@ -577,6 +577,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "deadpool"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "421fe0f90f2ab22016f32a9881be5134fdd71c65298917084b0c7477cbc3856e"
+dependencies = [
+ "async-trait",
+ "deadpool-runtime",
+ "num_cpus",
+ "retain_mut",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-postgres"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "836a24a9d49deefe610b8b60c767a7412e9a931d79a89415cd2d2d71630ca8d7"
+dependencies = [
+ "deadpool",
+ "log",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
+name = "deadpool-runtime"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eaa37046cc0f6c3cc6090fbdbf73ef0b8ef4cfcc37f6befc0020f63e8cf121e1"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "der"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1402,6 +1436,7 @@ dependencies = [
  "dashmap",
  "futures",
  "gcp-bigquery-client",
+ "peer-connections",
  "peer-cursor",
  "pgerror",
  "pgwire",
@@ -1414,6 +1449,18 @@ dependencies = [
  "uuid",
  "value",
  "yup-oauth2",
+]
+
+[[package]]
+name = "peer-connections"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "deadpool-postgres",
+ "tokio",
+ "tokio-postgres",
+ "uuid",
 ]
 
 [[package]]
@@ -1438,6 +1485,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "peer-connections",
  "peer-cursor",
  "pgerror",
  "pgwire",
@@ -1483,6 +1531,7 @@ dependencies = [
  "dotenvy",
  "futures",
  "peer-bigquery",
+ "peer-connections",
  "peer-cursor",
  "peer-postgres",
  "peerdb-parser",
@@ -1497,6 +1546,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1949,6 +1999,12 @@ dependencies = [
  "webpki-roots",
  "winreg",
 ]
+
+[[package]]
+name = "retain_mut"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4389f1d5789befaf6029ebd9f7dac4af7f7e3d61b69d4f30e2ac02b57e7712b0"
 
 [[package]]
 name = "ring"

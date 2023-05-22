@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{any, collections::HashMap, sync::Arc};
 
 use anyhow::Context;
 use peer_cursor::QueryExecutor;
@@ -62,28 +62,29 @@ impl CatalogConfig {
             database: self.database.clone(),
         }
     }
-}
 
-fn get_connection_string(catalog_config: &CatalogConfig) -> String {
-    let mut connection_string = String::new();
-    connection_string.push_str("host=");
-    connection_string.push_str(&catalog_config.host);
-    connection_string.push_str(" port=");
-    connection_string.push_str(&catalog_config.port.to_string());
-    connection_string.push_str(" user=");
-    connection_string.push_str(&catalog_config.user);
-    if !catalog_config.password.is_empty() {
-        connection_string.push_str(" password=");
-        connection_string.push_str(&catalog_config.password);
+    // Get the connection string for this catalog configuration
+    pub fn get_connection_string(&self) -> String {
+        let mut connection_string = String::new();
+        connection_string.push_str("host=");
+        connection_string.push_str(&self.host);
+        connection_string.push_str(" port=");
+        connection_string.push_str(&self.port.to_string());
+        connection_string.push_str(" user=");
+        connection_string.push_str(&self.user);
+        if !self.password.is_empty() {
+            connection_string.push_str(" password=");
+            connection_string.push_str(&self.password);
+        }
+        connection_string.push_str(" dbname=");
+        connection_string.push_str(&self.database);
+        connection_string
     }
-    connection_string.push_str(" dbname=");
-    connection_string.push_str(&catalog_config.database);
-    connection_string
 }
 
 impl Catalog {
     pub async fn new(catalog_config: &CatalogConfig) -> anyhow::Result<Self> {
-        let connection_string = get_connection_string(catalog_config);
+        let connection_string = catalog_config.get_connection_string();
 
         let (mut client, connection) =
             tokio_postgres::connect(&connection_string, tokio_postgres::NoTls)

@@ -11,6 +11,7 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 peer-cursor = { path = "../peer-cursor" }
+peer-connections = { path = "../peer-connections" }
 pgerror = { path = "../pgerror" }
 pgwire = "0.14"
 pt = { path = "../pt" }
