@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use analyzer::{
-    PeerDDL, PeerDDLAnalyzer, PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer,
+    CursorEvent, PeerCursorAnalyzer, PeerDDL, PeerDDLAnalyzer, PeerExistanceAnalyzer,
+    QueryAssocation, StatementAnalyzer,
 };
 use catalog::Catalog;
 use pgwire::{
@@ -27,6 +28,10 @@ pub enum NexusStatement {
         stmt: Statement,
         assoc: QueryAssocation,
     },
+    PeerCursor {
+        stmt: Statement,
+        cursor: CursorEvent,
+    },
 }
 
 impl NexusStatement {
@@ -46,6 +51,14 @@ impl NexusStatement {
             return Ok(NexusStatement::PeerDDL {
                 stmt: stmt.clone(),
                 ddl,
+            });
+        }
+
+        let peer_cursor: PeerCursorAnalyzer = Default::default();
+        if let Ok(Some(cursor)) = peer_cursor.analyze(stmt) {
+            return Ok(NexusStatement::PeerCursor {
+                stmt: stmt.clone(),
+                cursor,
             });
         }
 

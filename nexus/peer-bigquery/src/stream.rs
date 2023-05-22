@@ -19,6 +19,7 @@ use pgwire::{
 };
 use value::Value;
 
+#[derive(Debug)]
 pub struct BqSchema {
     schema: SchemaRef,
     fields: Vec<TableFieldSchema>,
@@ -81,6 +82,10 @@ impl BqSchema {
 impl BqRecordStream {
     pub fn new(result_set: ResultSet) -> Self {
         let bq_schema = BqSchema::from_result_set(&result_set);
+
+        // log the total number of rows
+        println!("[bq result set] Total rows: {}", result_set.row_count());
+
         Self {
             result_set,
             schema: bq_schema,
@@ -94,7 +99,15 @@ impl BqRecordStream {
             let field_name = &field.name;
 
             let value = match result_set.get_json_value_by_name(&field.name)? {
-                Some(serde_json::Value::Array(arr)) => {
+                Some(serde_json::Value::Array(mut arr)) => {
+                    for item in arr.iter_mut() {
+                        if let Some(obj) = item.as_object_mut() {
+                            if let Some(value) = obj.remove("v") {
+                                *item = value;
+                            }
+                        }
+                    }
+
                     Some(Value::from_serde_json_value(&serde_json::Value::Array(arr)))
                 }
                 _ => match field_type {
@@ -149,6 +162,7 @@ impl Stream for BqRecordStream {
         let this = self.get_mut();
         match this.result_set.next_row() {
             true => {
+                println!("[bq result set] had row");
                 let record = this.convert_result_set_item(&this.result_set);
                 let result = record.map_err(|e| {
                     PgWireError::ApiError(Box::new(PgError::Internal {
@@ -157,7 +171,10 @@ impl Stream for BqRecordStream {
                 });
                 Poll::Ready(Some(result))
             }
-            false => Poll::Ready(None),
+            false => {
+                println!("[bq result set] no more rows");
+                Poll::Ready(None)
+            }
         }
     }
 }

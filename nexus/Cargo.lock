@@ -103,6 +103,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7de8ce5e0f9f8d88245311066a578d72b7af3e7088f32783804676302df237e4"
 
 [[package]]
+name = "array-init"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d62b7694a562cdf5a74227903507c56ab2cc8bdd1f781ed5cb4cf9c9f810bfc"
+
+[[package]]
 name = "async-stream"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -555,6 +561,53 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.15",
+]
+
+[[package]]
+name = "dashmap"
+version = "5.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "907076dfda823b0b36d2a1bb5f90c96660a5bbcd7729e10727f07858f22c4edc"
+dependencies = [
+ "cfg-if",
+ "hashbrown",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "deadpool"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "421fe0f90f2ab22016f32a9881be5134fdd71c65298917084b0c7477cbc3856e"
+dependencies = [
+ "async-trait",
+ "deadpool-runtime",
+ "num_cpus",
+ "retain_mut",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-postgres"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "836a24a9d49deefe610b8b60c767a7412e9a931d79a89415cd2d2d71630ca8d7"
+dependencies = [
+ "deadpool",
+ "log",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
+name = "deadpool-runtime"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eaa37046cc0f6c3cc6090fbdbf73ef0b8ef4cfcc37f6befc0020f63e8cf121e1"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
@@ -1380,8 +1433,10 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "dashmap",
  "futures",
  "gcp-bigquery-client",
+ "peer-connections",
  "peer-cursor",
  "pgerror",
  "pgwire",
@@ -1394,6 +1449,18 @@ dependencies = [
  "uuid",
  "value",
  "yup-oauth2",
+]
+
+[[package]]
+name = "peer-connections"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "deadpool-postgres",
+ "tokio",
+ "tokio-postgres",
+ "uuid",
 ]
 
 [[package]]
@@ -1418,6 +1485,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "peer-connections",
  "peer-cursor",
  "pgerror",
  "pgwire",
@@ -1455,13 +1523,17 @@ dependencies = [
  "analyzer",
  "anyhow",
  "async-trait",
+ "bytes",
  "catalog",
  "clap",
  "console-subscriber",
+ "dashmap",
  "dotenvy",
  "futures",
  "peer-bigquery",
+ "peer-connections",
  "peer-cursor",
+ "peer-postgres",
  "peerdb-parser",
  "pgwire",
  "postgres",
@@ -1469,10 +1541,12 @@ dependencies = [
  "pt",
  "rand",
  "sha256",
+ "sqlparser",
  "time 0.3.20",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1509,9 +1583,9 @@ dependencies = [
 
 [[package]]
 name = "pgwire"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3da58f2d096a2b20ee96420524c6156425575b64409a25acdf638bff450cf53a"
+checksum = "bd66851a4b1d6631371c931810e453b0319eb260bbd5853ebe98e37b15105b80"
 dependencies = [
  "async-trait",
  "base64 0.21.0",
@@ -1623,6 +1697,7 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f028f05971fe20f512bcc679e2c10227e57809a3af86a7606304435bc8896cd6"
 dependencies = [
+ "array-init",
  "bytes",
  "chrono",
  "fallible-iterator",
@@ -1924,6 +1999,12 @@ dependencies = [
  "webpki-roots",
  "winreg",
 ]
+
+[[package]]
+name = "retain_mut"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4389f1d5789befaf6029ebd9f7dac4af7f7e3d61b69d4f30e2ac02b57e7712b0"
 
 [[package]]
 name = "ring"
@@ -2816,6 +2897,10 @@ dependencies = [
  "base64 0.21.0",
  "bytes",
  "chrono",
+ "hex",
+ "pgwire",
+ "postgres",
+ "postgres-types",
  "serde",
  "serde_json",
  "uuid",

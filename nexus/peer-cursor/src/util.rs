@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use futures::StreamExt;
+use futures::{stream, StreamExt};
 use pgerror::PgError;
 use pgwire::{
     api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response},
     error::{PgWireError, PgWireResult},
 };
-use value::Value;
+use value::{array::ArrayValue, Value};
 
-use crate::{SchemaRef, SendableStream};
+use crate::{Record, Records, SchemaRef, SendableStream};
 
 fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()> {
     match value {
@@ -39,17 +39,21 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
         Value::Timestamp(ts) => builder.encode_field(ts),
         Value::TimestampWithTimeZone(ts) => builder.encode_field(ts),
         Value::Interval(i) => builder.encode_field(i),
-        Value::Array(_)
-        | Value::Json(_)
-        | Value::JsonB(_)
-        | Value::Uuid(_)
-        | Value::Enum(_)
-        | Value::Hstore(_) => Err(PgWireError::ApiError(Box::new(PgError::Internal {
-            err_msg: format!(
-                "cannot write value {:?} in postgres protocol: unimplemented",
-                &value
-            ),
-        }))),
+        Value::Array(a) => builder.encode_field(a),
+        Value::Json(j) => builder.encode_field(j),
+        Value::JsonB(j) => builder.encode_field(j),
+        Value::Uuid(u) => {
+            let s = u.to_string();
+            builder.encode_field(&s)
+        }
+        Value::Enum(_) | Value::Hstore(_) => {
+            Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                err_msg: format!(
+                    "cannot write value {:?} in postgres protocol: unimplemented",
+                    &value
+                ),
+            })))
+        }
     }
 }
 
@@ -69,6 +73,26 @@ pub fn sendable_stream_to_query_response<'a>(
                 }
                 encoder.finish()
             })
+        })
+        .boxed();
+
+    Ok(Response::Query(QueryResponse::new(
+        pg_schema,
+        data_row_stream,
+    )))
+}
+
+pub fn records_to_query_response<'a>(records: Records) -> PgWireResult<Response<'a>> {
+    let pg_schema: Arc<Vec<FieldInfo>> = Arc::new(records.schema.fields.clone());
+    let schema_copy = pg_schema.clone();
+
+    let data_row_stream = stream::iter(records.records.into_iter())
+        .map(move |record| {
+            let mut encoder = DataRowEncoder::new(schema_copy.clone());
+            for value in record.values.iter() {
+                encode_value(value, &mut encoder)?;
+            }
+            encoder.finish()
         })
         .boxed();
 

@@ -17,7 +17,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: arduino/setup-protoc@v1
+      - name: Build PeerDB OSS Image
+        uses: docker/build-push-action@v4.0.0
+        with:
+          context: .
+          file: stacks/Dockerfile
+          push: false
+          tags: peerdb-server:latest
+
+      - name: install protobuf compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: cargo check
         run: cargo check
@@ -26,6 +37,7 @@ jobs:
       - name: cargo test
         run: cargo test
         working-directory: ./nexus
+        timeout-minutes: 30
         env:
           RUST_BACKTRACE: 1
           NEXUS_CATALOG_HOST: ${{ secrets.NEXUS_CATALOG_HOST }}

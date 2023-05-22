@@ -8,22 +8,28 @@ authors = ["PeerDB <copyright@peerdb.io>"]
 analyzer = { path = "../analyzer" }
 anyhow = "1"
 async-trait = "0.1"
+bytes = "1.0"
 catalog = { path = "../catalog" }
 clap = { version = "4.0", features = ["derive", "env"] }
 console-subscriber = "0.1"
+dashmap = "5.0"
 dotenvy = "0.15.7"
 futures = { version = "0.3.28", features = ["executor"] }
 peer-bigquery = { path = "../peer-bigquery" }
+peer-connections = { path = "../peer-connections" }
 peer-cursor = { path = "../peer-cursor" }
+peer-postgres = { path = "../peer-postgres" }
 peerdb-parser = { path = "../parser" }
-pgwire = "0.13"
+pgwire = "0.14"
 prost = "0.11"
 pt = { path = "../pt" }
+sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }
 rand = "0.8"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
+uuid = "0.8"
 
 [dev-dependencies]
 postgres = "0.19.4"

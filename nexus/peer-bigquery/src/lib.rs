@@ -1,20 +1,29 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
-use gcp_bigquery_client::{model::query_request::QueryRequest, Client};
-use peer_cursor::{QueryExecutor, QueryOutput, SchemaRef};
+use cursor::BigQueryCursorManager;
+use gcp_bigquery_client::{
+    model::{query_request::QueryRequest, query_response::ResultSet},
+    Client,
+};
+use peer_connections::{PeerConnectionTracker, PeerConnections};
+use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peers::BigqueryConfig;
-use sqlparser::ast::{Expr, Statement, Value};
+use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;
+mod cursor;
 mod stream;
 
 pub struct BigQueryQueryExecutor {
+    peer_name: String,
     config: BigqueryConfig,
+    peer_connections: Arc<PeerConnectionTracker>,
     client: Box<Client>,
+    cursor_manager: BigQueryCursorManager,
 }
 
 pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Client> {
@@ -38,13 +47,55 @@ pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Cli
 }
 
 impl BigQueryQueryExecutor {
-    pub async fn new(config: &BigqueryConfig) -> anyhow::Result<Self> {
+    pub async fn new(
+        peer_name: String,
+        config: &BigqueryConfig,
+        peer_connections: Arc<PeerConnectionTracker>,
+    ) -> anyhow::Result<Self> {
         let client = bq_client_from_config(config.clone()).await?;
         let client = Box::new(client);
+        let cursor_manager = BigQueryCursorManager::new();
         Ok(Self {
+            peer_name,
             config: config.clone(),
+            peer_connections,
             client,
+            cursor_manager,
         })
+    }
+
+    async fn run_tracked(&self, query: &str) -> PgWireResult<ResultSet> {
+        let mut query_req = QueryRequest::new(query);
+        query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
+
+        let token = self
+            .peer_connections
+            .track_query(&self.peer_name, query)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: err.to_string(),
+                }))
+            })?;
+
+        let result_set = self
+            .client
+            .job()
+            .query(&self.config.project_id, query_req)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: err.to_string(),
+                }))
+            })?;
+
+        token.end().await.map_err(|err| {
+            PgWireError::ApiError(Box::new(PgError::Internal {
+                err_msg: err.to_string(),
+            }))
+        })?;
+
+        Ok(result_set)
     }
 }
 
@@ -65,34 +116,95 @@ impl QueryExecutor for BigQueryQueryExecutor {
                         }))
                     })?;
 
-                let rewritten_query = query.to_string();
-                let mut query_req = QueryRequest::new(&rewritten_query);
-                query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
-
-                let result_set = self
-                    .client
-                    .job()
-                    .query(&self.config.project_id, query_req)
-                    .await
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        }))
-                    })?;
+                let query = query.to_string();
+                let result_set = self.run_tracked(&query).await?;
 
                 let cursor = BqRecordStream::new(result_set);
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
-            _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "fdw_error".to_owned(),
-                "only SELECT statements are supported in bigquery".to_owned(),
-            )))),
+            Statement::Declare { name, query, .. } => {
+                let query_stmt = Statement::Query(query.clone());
+                self.cursor_manager
+                    .create_cursor(&name.value, &query_stmt, self)
+                    .await?;
+
+                Ok(QueryOutput::Cursor(CursorModification::Created(
+                    name.value.clone(),
+                )))
+            }
+            Statement::Fetch {
+                name, direction, ..
+            } => {
+                println!("fetching cursor for bigquery: {}", name.value);
+
+                // Attempt to extract the count from the direction
+                let count = match direction {
+                    FetchDirection::Count {
+                        limit: sqlparser::ast::Value::Number(n, _),
+                    }
+                    | FetchDirection::Forward {
+                        limit: Some(sqlparser::ast::Value::Number(n, _)),
+                    } => n.parse::<usize>(),
+                    _ => {
+                        return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "fdw_error".to_owned(),
+                            "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
+                        ))))
+                    }
+                };
+
+                // If parsing the count resulted in an error, return an internal error
+                let count = match count {
+                    Ok(c) => c,
+                    Err(err) => {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: err.to_string(),
+                        })))
+                    }
+                };
+
+                println!("fetching {} rows", count);
+
+                // Fetch rows from the cursor manager
+                let records = self.cursor_manager.fetch(&name.value, count).await?;
+
+                // Return the fetched records as the query output
+                Ok(QueryOutput::Records(records))
+            }
+            Statement::Close { cursor } => {
+                let mut closed_cursors = vec![];
+                match cursor {
+                    CloseCursor::All => {
+                        closed_cursors = self.cursor_manager.close_all_cursors().await?;
+                    }
+                    CloseCursor::Specific { name } => {
+                        self.cursor_manager.close(&name.value).await?;
+                        closed_cursors.push(name.value.clone());
+                    }
+                };
+                Ok(QueryOutput::Cursor(CursorModification::Closed(
+                    closed_cursors,
+                )))
+            }
+            _ => {
+                let error = format!(
+                    "only SELECT statements are supported in bigquery. got: {}",
+                    stmt
+                );
+                PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    "fdw_error".to_owned(),
+                    error,
+                ))))
+            }
         }
     }
 
     // describe the output of the query
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+        // print the statement
+        println!("[bigquery] describe: {}", stmt);
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
@@ -112,23 +224,18 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 // queries.
                 query.limit = Some(Expr::Value(Value::Number("1".to_owned(), false)));
 
-                let rewritten_query = query.to_string();
-                let mut query_req = QueryRequest::new(&rewritten_query);
-                query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
-
-                let result_set = self
-                    .client
-                    .job()
-                    .query(&self.config.project_id, query_req)
-                    .await
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        }))
-                    })?;
-
+                let query = query.to_string();
+                let result_set = self.run_tracked(&query).await?;
                 let schema = BqSchema::from_result_set(&result_set);
+
+                // log the schema
+                println!("[bigquery] schema: {:?}", schema);
+
                 Ok(Some(schema.schema()))
+            }
+            Statement::Declare { query, .. } => {
+                let query_stmt = Statement::Query(query.clone());
+                self.describe(&query_stmt).await
             }
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
