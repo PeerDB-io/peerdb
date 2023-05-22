@@ -17,6 +17,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: docker build
+        run: docker build -t peerdb-server:latest -f stacks/Dockerfile . 
+
       - name: install protobuf compiler
         run: |
           sudo apt-get update
@@ -41,3 +44,4 @@ jobs:
       - name: dump server.log
         if: failure()
         run: cat nexus/server/server.log
+        
