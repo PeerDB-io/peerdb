@@ -17,6 +17,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Build PeerDB OSS Image
+        uses: docker/build-push-action@v4.0.0
+        with:
+          context: .
+          file: stacks/Dockerfile
+          push: false
+          tags: peerdb-server:latest
+
       - name: install protobuf compiler
         run: |
           sudo apt-get update
@@ -41,3 +49,4 @@ jobs:
       - name: dump server.log
         if: failure()
         run: cat nexus/server/server.log
+
