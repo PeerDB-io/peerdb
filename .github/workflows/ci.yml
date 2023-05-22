@@ -29,6 +29,7 @@ jobs:
       - name: cargo test
         run: cargo test
         working-directory: ./nexus
+        timeout-minutes: 30
         env:
           RUST_BACKTRACE: 1
           NEXUS_CATALOG_HOST: ${{ secrets.NEXUS_CATALOG_HOST }}
