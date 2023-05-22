@@ -1,8 +1,12 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 use cursor::BigQueryCursorManager;
-use gcp_bigquery_client::{model::query_request::QueryRequest, Client};
+use gcp_bigquery_client::{
+    model::{query_request::QueryRequest, query_response::ResultSet},
+    Client,
+};
+use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -15,7 +19,9 @@ mod cursor;
 mod stream;
 
 pub struct BigQueryQueryExecutor {
+    peer_name: String,
     config: BigqueryConfig,
+    peer_connections: Arc<PeerConnectionTracker>,
     client: Box<Client>,
     cursor_manager: BigQueryCursorManager,
 }
@@ -41,15 +47,55 @@ pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Cli
 }
 
 impl BigQueryQueryExecutor {
-    pub async fn new(config: &BigqueryConfig) -> anyhow::Result<Self> {
+    pub async fn new(
+        peer_name: String,
+        config: &BigqueryConfig,
+        peer_connections: Arc<PeerConnectionTracker>,
+    ) -> anyhow::Result<Self> {
         let client = bq_client_from_config(config.clone()).await?;
         let client = Box::new(client);
         let cursor_manager = BigQueryCursorManager::new();
         Ok(Self {
+            peer_name,
             config: config.clone(),
+            peer_connections,
             client,
             cursor_manager,
         })
+    }
+
+    async fn run_tracked(&self, query: &str) -> PgWireResult<ResultSet> {
+        let mut query_req = QueryRequest::new(query);
+        query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
+
+        let token = self
+            .peer_connections
+            .track_query(&self.peer_name, query)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: err.to_string(),
+                }))
+            })?;
+
+        let result_set = self
+            .client
+            .job()
+            .query(&self.config.project_id, query_req)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: err.to_string(),
+                }))
+            })?;
+
+        token.end().await.map_err(|err| {
+            PgWireError::ApiError(Box::new(PgError::Internal {
+                err_msg: err.to_string(),
+            }))
+        })?;
+
+        Ok(result_set)
     }
 }
 
@@ -70,20 +116,8 @@ impl QueryExecutor for BigQueryQueryExecutor {
                         }))
                     })?;
 
-                let rewritten_query = query.to_string();
-                let mut query_req = QueryRequest::new(&rewritten_query);
-                query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
-
-                let result_set = self
-                    .client
-                    .job()
-                    .query(&self.config.project_id, query_req)
-                    .await
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        }))
-                    })?;
+                let query = query.to_string();
+                let result_set = self.run_tracked(&query).await?;
 
                 let cursor = BqRecordStream::new(result_set);
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
@@ -190,21 +224,8 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 // queries.
                 query.limit = Some(Expr::Value(Value::Number("1".to_owned(), false)));
 
-                let rewritten_query = query.to_string();
-                let mut query_req = QueryRequest::new(&rewritten_query);
-                query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
-
-                let result_set = self
-                    .client
-                    .job()
-                    .query(&self.config.project_id, query_req)
-                    .await
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        }))
-                    })?;
-
+                let query = query.to_string();
+                let result_set = self.run_tracked(&query).await?;
                 let schema = BqSchema::from_result_set(&result_set);
 
                 // log the schema
