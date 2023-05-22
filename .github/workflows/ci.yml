@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest-16-cores
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
         with:
@@ -49,4 +49,3 @@ jobs:
       - name: dump server.log
         if: failure()
         run: cat nexus/server/server.log
-
