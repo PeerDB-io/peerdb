@@ -37,17 +37,24 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cursor;
 
-struct DummyAuthSource;
+struct FixedPasswordAuthSource {
+    password: String,
+}
+
+impl FixedPasswordAuthSource {
+    pub fn new(password: String) -> Self {
+        Self { password }
+    }
+}
 
 #[async_trait]
-impl AuthSource for DummyAuthSource {
+impl AuthSource for FixedPasswordAuthSource {
     async fn get_password(&self, login_info: &LoginInfo) -> PgWireResult<Password> {
         println!("login info: {:?}", login_info);
 
         // randomly generate a 4 byte salt
         let salt = rand::thread_rng().gen::<[u8; 4]>().to_vec();
-        let password = "peerdb";
-
+        let password = &self.password;
         let hash_password = hash_md5_password(
             login_info.user().map(|s| s.as_str()).unwrap_or(""),
             password,
@@ -456,6 +463,12 @@ struct Args {
     #[clap(short, long, default_value = "/var/log/nexus", env = "NEXUS_LOG_DIR")]
     log_dir: String,
 
+    /// Password for the nexus postgres interface.
+    ///
+    /// Defaults to `peerdb`.
+    #[clap(long, env = "NEXUS_PASSWORD", default_value = "peerdb")]
+    peerdb_password: String,
+
     /// host:port of the flow server for flow jobs.
     #[clap(long, env = "NEXUS_FLOW_SERVER_ADDR")]
     flow_server_addr: Option<String>,
@@ -516,7 +529,7 @@ pub async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
-        Arc::new(DummyAuthSource),
+        Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
         Arc::new(NexusServerParameterProvider),
     ));
     let catalog_config = get_catalog_config(&args);
