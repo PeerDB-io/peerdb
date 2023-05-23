@@ -28,6 +28,7 @@ rand = "0.8"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
+tracing-appender = "0.2"
 tracing-subscriber = "0.3"
 uuid = "0.8"
 

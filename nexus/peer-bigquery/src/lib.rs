@@ -101,6 +101,7 @@ impl BigQueryQueryExecutor {
 
 #[async_trait::async_trait]
 impl QueryExecutor for BigQueryQueryExecutor {
+    #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         // only support SELECT statements
         match stmt {
@@ -120,6 +121,11 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let result_set = self.run_tracked(&query).await?;
 
                 let cursor = BqRecordStream::new(result_set);
+                tracing::info!(
+                    "retrieved {} rows for query {}",
+                    cursor.get_num_records(),
+                    query
+                );
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             Statement::Declare { name, query, .. } => {
