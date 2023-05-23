@@ -135,7 +135,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
             Statement::Fetch {
                 name, direction, ..
             } => {
-                println!("fetching cursor for bigquery: {}", name.value);
+                tracing::info!("fetching cursor for bigquery: {}", name.value);
 
                 // Attempt to extract the count from the direction
                 let count = match direction {
@@ -164,7 +164,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     }
                 };
 
-                println!("fetching {} rows", count);
+                tracing::info!("fetching {} rows", count);
 
                 // Fetch rows from the cursor manager
                 let records = self.cursor_manager.fetch(&name.value, count).await?;
@@ -204,7 +204,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
     // describe the output of the query
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
         // print the statement
-        println!("[bigquery] describe: {}", stmt);
+        tracing::info!("[bigquery] describe: {}", stmt);
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
@@ -229,7 +229,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let schema = BqSchema::from_result_set(&result_set);
 
                 // log the schema
-                println!("[bigquery] schema: {:?}", schema);
+                tracing::info!("[bigquery] schema: {:?}", schema);
 
                 Ok(Some(schema.schema()))
             }

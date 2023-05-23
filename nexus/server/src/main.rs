@@ -50,7 +50,7 @@ impl FixedPasswordAuthSource {
 #[async_trait]
 impl AuthSource for FixedPasswordAuthSource {
     async fn get_password(&self, login_info: &LoginInfo) -> PgWireResult<Password> {
-        println!("login info: {:?}", login_info);
+        tracing::info!("login info: {:?}", login_info);
 
         // randomly generate a 4 byte salt
         let salt = rand::thread_rng().gen::<[u8; 4]>().to_vec();
@@ -110,7 +110,7 @@ impl NexusBackend {
                 Ok(vec![res])
             }
             QueryOutput::Cursor(cm) => {
-                println!("cursor modification: {:?}", cm);
+                tracing::info!("cursor modification: {:?}", cm);
                 let mut peer_cursors = self.peer_cursors.lock().await;
                 match cm {
                     peer_cursor::CursorModification::Created(cursor_name) => {
@@ -138,7 +138,7 @@ impl NexusBackend {
         &self,
         nexus_stmt: NexusStatement,
     ) -> PgWireResult<Vec<Response<'a>>> {
-        // println!("handle query nexus statement: {:#?}", nexus_stmt);
+        // tracing::info!("handle query nexus statement: {:#?}", nexus_stmt);
 
         let mut peer_holder: Option<Box<Peer>> = None;
         match nexus_stmt {
@@ -168,12 +168,12 @@ impl NexusBackend {
                 // get the query executor
                 let executor = match assoc {
                     QueryAssocation::Peer(peer) => {
-                        println!("acquiring executor for peer query: {:?}", peer.name);
+                        tracing::info!("acquiring executor for peer query: {:?}", peer.name);
                         peer_holder = Some(peer.clone());
                         self.get_peer_executor(&peer).await
                     }
                     QueryAssocation::Catalog => {
-                        println!("acquiring executor for catalog query");
+                        tracing::info!("acquiring executor for catalog query");
                         let catalog = self.catalog.lock().await;
                         catalog.get_executor()
                     }
@@ -196,7 +196,7 @@ impl NexusBackend {
                             catalog.get_executor()
                         }
                         Some(peer) => {
-                            println!("acquiring executor for peer cursor query: {:?}", peer.name);
+                            tracing::info!("acquiring executor for peer cursor query: {:?}", peer.name);
                             self.get_peer_executor(peer).await
                         }
                     }
@@ -312,7 +312,7 @@ impl ExtendedQueryHandler for NexusBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let stmt = portal.statement().statement();
-        println!("[eqp] do_query: {}", stmt.query);
+        tracing::info!("[eqp] do_query: {}", stmt.query);
 
         // manually replace variables in prepared statement
         let mut sql = stmt.query.clone();
@@ -350,7 +350,7 @@ impl ExtendedQueryHandler for NexusBackend {
             ),
         };
 
-        println!("[eqp] do_describe: {}", stmt.query);
+        tracing::info!("[eqp] do_describe: {}", stmt.query);
         let stmt = &stmt.statement;
         match stmt {
             NexusStatement::PeerDDL { .. } => Ok(DescribeResponse::no_data()),
@@ -358,7 +358,7 @@ impl ExtendedQueryHandler for NexusBackend {
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<SchemaRef> = match assoc {
                     QueryAssocation::Peer(peer) => {
-                        println!("acquiring executor for peer query: {:?}", peer.name);
+                        tracing::info!("acquiring executor for peer query: {:?}", peer.name);
                         // if the peer is of type bigquery, let us route the query to bq.
                         match &peer.config {
                             Some(Config::BigqueryConfig(_)) => {
@@ -549,7 +549,7 @@ pub async fn main() -> anyhow::Result<()> {
 
     let server_addr = format!("{}:{}", args.host, args.port);
     let listener = TcpListener::bind(&server_addr).await.unwrap();
-    println!("Listening on {}", server_addr);
+    tracing::info!("Listening on {}", server_addr);
 
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();

@@ -1446,6 +1446,7 @@ dependencies = [
  "serde_json",
  "sqlparser",
  "tokio",
+ "tracing",
  "uuid",
  "value",
  "yup-oauth2",
@@ -1460,6 +1461,7 @@ dependencies = [
  "deadpool-postgres",
  "tokio",
  "tokio-postgres",
+ "tracing",
  "uuid",
 ]
 
@@ -1496,6 +1498,7 @@ dependencies = [
  "sqlparser",
  "tokio",
  "tokio-postgres",
+ "tracing",
  "uuid",
  "value",
 ]

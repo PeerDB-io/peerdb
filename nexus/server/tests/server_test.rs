@@ -39,7 +39,7 @@ impl PeerDBServer {
         let mut server_start = Command::new("cargo");
         server_start.envs(std::env::vars());
         server_start.args(["run"]);
-        println!("Starting server...");
+        tracing::info!("Starting server...");
 
         let f = File::create("server.log").expect("unable to open server.log");
         let child = server_start
@@ -48,7 +48,7 @@ impl PeerDBServer {
             .expect("Failed to start peerdb-server");
 
         thread::sleep(Duration::from_millis(2000));
-        println!("peerdb-server Server started");
+        tracing::info!("peerdb-server Server started");
         Self { server: child }
     }
 
@@ -75,7 +75,7 @@ impl PeerDBServer {
         match client_result {
             Ok(c) => c,
             Err(_e) => {
-                println!(
+                tracing::info!(
                     "unable to connect to server after {} attempts",
                     max_attempts
                 );
@@ -87,9 +87,9 @@ impl PeerDBServer {
 
 impl Drop for PeerDBServer {
     fn drop(&mut self) {
-        println!("Stopping server...");
+        tracing::info!("Stopping server...");
         self.server.kill().expect("Failed to kill peerdb-server");
-        println!("Server stopped");
+        tracing::info!("Server stopped");
     }
 }
 
@@ -173,8 +173,8 @@ fn server_test() {
 
         // if there is a mismatch, print the diff, along with the path.
         if obtained_hash != expected_hash {
-            println!("expected: {expected_output_path}");
-            println!("obtained: {actual_output_path}");
+            tracing::info!("expected: {expected_output_path}");
+            tracing::info!("obtained: {actual_output_path}");
         }
 
         assert_eq!(obtained_hash, expected_hash);
