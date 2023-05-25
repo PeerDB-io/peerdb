@@ -12,7 +12,8 @@ jobs:
       - name: checkout sources
         uses: actions/checkout@v3
         with:
-          submodules: true
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
       - name: install musl-tools
         run: |
@@ -27,13 +28,14 @@ jobs:
         uses: arduino/setup-protoc@v1
 
       - name: build project release
+        working-directory: ./nexus/server
         run: cargo build --release --target=x86_64-unknown-linux-musl
 
       - name: install cargo-deb
+        working-directory: ./nexus/server
         run: cargo install cargo-deb
 
       - name: create peerdb-server deb package
-        working-directory: ./nexus/server
         run: cargo deb --target=x86_64-unknown-linux-musl
 
       - name: upload release artifacts
@@ -41,7 +43,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb
+            nexus/server/target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb
 
       # - name: push package to packagecloud
       #   run: |
