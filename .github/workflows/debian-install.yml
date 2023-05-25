@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout sources
-      - uses: actions/checkout@v3
+        uses: actions/checkout@v3
         with:
           submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
