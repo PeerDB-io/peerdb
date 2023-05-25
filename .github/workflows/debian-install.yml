@@ -1,8 +1,10 @@
 name: Publish debian package
 
 on:
-  release:
-    type: [published]
+  push:
+    branches: [main, release/*]
+  pull_request:
+    branches: [main]
 
 jobs:
   release:
@@ -15,17 +17,16 @@ jobs:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
-      - name: install musl-tools
+      - name: install musl-tools & protobuf
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
+          sudo apt-get install -y protobuf-compiler
+          sudo apt-get install -y gcc-multilib
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
 
       - name: build project release
         working-directory: ./nexus/server
@@ -36,20 +37,12 @@ jobs:
         run: cargo install cargo-deb
 
       - name: create peerdb-server deb package
-        run: cargo deb --target=x86_64-unknown-linux-musl
+        working-directory: ./nexus/
+        run: cargo deb --target x86_64-unknown-linux-musl -p peerdb-server
 
-      - name: upload release artifacts
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            nexus/server/target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb
-
-      # - name: push package to packagecloud
-      #   run: |
-      #     sudo apt install ruby ruby-dev
-      #     sudo gem install package_cloud
-      #     package_cloud push saipeerdb/test_package_cloud/ubuntu/jammy $WORKSPACE_ROOT/target/debian/*
-      #   env:
-      #     WORKSPACE_ROOT: ${{ github.workspace }}
-      #     PACKAGECLOUD_TOKEN: ${{secrets.PACKAGECLOUD_TOKEN}}
+      # - name: upload release artifacts
+      #   uses: softprops/action-gh-release@v1
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   with:
+      #     files: |
+      #       nexus/server/target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb
