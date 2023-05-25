@@ -28,6 +28,7 @@ jobs:
         uses: arduino/setup-protoc@v1
 
       - name: build project release
+        working-directory: ./nexus/server
         run: cargo build --release --target=x86_64-unknown-linux-musl
 
       - name: install cargo-deb
