@@ -1,4 +1,4 @@
-FROM rust:latest as builder
+FROM rust:1.69-slim-bullseye as builder
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive \
   apt-get install --assume-yes --no-install-recommends \
