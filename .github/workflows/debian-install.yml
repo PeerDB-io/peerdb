@@ -20,21 +20,23 @@ jobs:
       - name: install musl-tools & protobuf
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools
-          sudo apt-get install -y protobuf-compiler
-          sudo apt-get install -y gcc-multilib
+          sudo apt-get install -y musl-tools protobuf-compiler gcc-multilib
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
 
       - name: build project release
-        working-directory: ./nexus/server
+        working-directory: ./nexus
         run: cargo build --release --target=x86_64-unknown-linux-musl
 
       - name: install cargo-deb
-        working-directory: ./nexus/server
         run: cargo install cargo-deb
+
+      - name: Setup tmate session
+        if: ${{ failure() }}
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 60
 
       - name: create peerdb-server deb package
         working-directory: ./nexus/
