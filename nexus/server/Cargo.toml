@@ -11,30 +11,19 @@ depends = "$auto"
 priority = "optional"
 assets = [
   [
-    "../target/release/peerdb-server",
+    "../target/x86_64-unknown-linux-musl/release/peerdb-server",
     "usr/bin/peerdb-server",
     "755",
-  ],
-  [
-    "../catalog.yml",
-    "var/lib/nexus/catalog.yml",
-    "644",
-  ],
+  ]
 ]
-conf-files = ["var/lib/nexus/catalog.yml"]
 
 [package.metadata.deb.variants.debug]
 assets = [
   [
-    "../target/release/peerdb-server",
+    "../target/x86_64-unknown-linux-musl/release/peerdb-server",
     "usr/bin/peerdb-server",
     "755",
-  ],
-  [
-    "../catalog.yml",
-    "var/lib/nexus/catalog.yml",
-    "644",
-  ],
+  ]
 ]
 
 

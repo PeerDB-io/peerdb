@@ -1,0 +1,22 @@
+[Unit]
+Description=PeerDB Server
+
+[Service]
+# Environment variables
+Environment=NEXUS_HOST=0.0.0.0
+Environment=NEXUS_PORT=9090
+Environment=NEXUS_CATALOG_HOST=localhost
+Environment=NEXUS_CATALOG_PORT=5432
+Environment=NEXUS_CATALOG_USER=postgres
+Environment=NEXUS_CATALOG_PASSWORD=postgres
+Environment=NEXUS_CATALOG_DATABASE=postgres
+Environment=NEXUS_TLS_CERT=cert
+Environment=NEXUS_TLS_KEY=key
+Environment=NEXUS_LOG_DIR=/var/log/nexus
+Environment=NEXUS_PASSWORD=peerdb
+Environment=NEXUS_FLOW_SERVER_ADDR=localhost
+# Start Executable
+ExecStart=/usr/bin/peerdb-server
+
+[Install]
+WantedBy=multi-user.target

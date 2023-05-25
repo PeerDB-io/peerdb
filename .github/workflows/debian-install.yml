@@ -1,0 +1,53 @@
+name: Publish debian package
+
+on:
+  release:
+    type: [published]
+
+jobs:
+  release:
+    name: build and release
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout sources
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: install musl-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+
+      - name: build project release
+        run: cargo build --release --target=x86_64-unknown-linux-musl
+
+      - name: install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: create peerdb-server deb package
+        working-directory: ./nexus/server
+        run: cargo deb --target=x86_64-unknown-linux-musl
+
+      - name: upload release artifacts
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb
+
+      # - name: push package to packagecloud
+      #   run: |
+      #     sudo apt install ruby ruby-dev
+      #     sudo gem install package_cloud
+      #     package_cloud push saipeerdb/test_package_cloud/ubuntu/jammy $WORKSPACE_ROOT/target/debian/*
+      #   env:
+      #     WORKSPACE_ROOT: ${{ github.workspace }}
+      #     PACKAGECLOUD_TOKEN: ${{secrets.PACKAGECLOUD_TOKEN}}
