@@ -10,9 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout sources
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
         with:
-          submodules: true
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
       - name: install musl-tools
         run: |
