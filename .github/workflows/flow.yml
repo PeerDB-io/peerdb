@@ -32,6 +32,10 @@ jobs:
         with:
           go-version: '>=1.19.0'
 
+      - name: install gotestsum
+        run: |
+          go install gotest.tools/gotestsum@latest
+
       - name: download go modules
         run: |
           go mod download
@@ -39,7 +43,7 @@ jobs:
 
       - name: run tests
         run: |
-          go test -timeout 600s -v ./...
+          gotestsum --format testname
         working-directory: ./flow
         env:
           TEST_BQ_CREDS: ${{ github.workspace }}/flow/e2e/assets/bq_service_account.json
