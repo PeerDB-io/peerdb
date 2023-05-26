@@ -9,6 +9,9 @@ on:
 jobs:
   docker-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: checkout
         uses: actions/checkout@v3
