@@ -17,25 +17,30 @@ jobs:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
-      - name: install musl-tools & protobuf
+      - name: install system tools
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools protobuf-compiler gcc-multilib
+
+      - name: install cargo binstall
+        run: |
+          cargo install cargo-binstall
+          cargo binstall cargo-deb
+          cargo binstall cargo-zigbuild
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
 
+      - uses: goto-bus-stop/setup-zig@v2
+
       - name: build project release
         working-directory: ./nexus
-        run: cargo build --release --target=x86_64-unknown-linux-musl
-
-      - name: install cargo-deb
-        run: cargo install cargo-deb
+        run: cargo zigbuild --release --target=x86_64-unknown-linux-musl
 
       - name: create peerdb-server deb package
         working-directory: ./nexus/
-        run: cargo deb --target x86_64-unknown-linux-musl -p peerdb-server
+        run: cargo deb --target=x86_64-unknown-linux-musl -p peerdb-server --no-build
 
       - name: Setup tmate session
         if: ${{ failure() }}
