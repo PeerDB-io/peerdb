@@ -49,5 +49,5 @@ jobs:
           file: stacks/Dockerfile
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
           tags: |
-            'peerdb-server:${{ process.env.DOCKER_TAG }}'
+            ${{ format('ghcr.io/peerdb-io/peerdb-server:{0}', process.env.DOCKER_TAG) }}
             
