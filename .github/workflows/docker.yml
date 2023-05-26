@@ -1,4 +1,4 @@
-name: Docker images
+name: Publish docker images
 
 on: 
   push:
@@ -49,5 +49,5 @@ jobs:
           file: stacks/Dockerfile
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
           tags: |
-            ${{ format('ghcr.io/peerdb-io/peerdb-server:{0}', process.env.DOCKER_TAG) }}
+            ${{ format('ghcr.io/peerdb-io/peerdb-server:{0}', env.DOCKER_TAG) }}
             
