@@ -12,6 +12,13 @@ fn main() -> Result<()> {
     let proto_files = std::fs::read_dir(protos)?
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        // ignore flow.proto file
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .map(|s| s != "flow.proto")
+                .unwrap_or(false)
+        })
         .map(|e| e.path())
         .collect::<Vec<_>>();
 
