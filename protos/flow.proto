@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
-import "catalog/src/model.proto";
+import "peers.proto";
 
 option go_package = "generated/protos";
 
@@ -16,9 +16,7 @@ message FlowConnectionConfigs {
   TableSchema table_schema = 6;
 }
 
-message SyncFlowOptions {
-  int32 batch_size = 1;
-}
+message SyncFlowOptions { int32 batch_size = 1; }
 
 message LastSyncState {
   int64 checkpoint = 1;
@@ -52,9 +50,7 @@ message CreateRawTableInput {
   string flow_job_name = 3;
 }
 
-message CreateRawTableOutput {
-  string table_identifier = 1;
-}
+message CreateRawTableOutput { string table_identifier = 1; }
 
 message GetTableSchemaInput {
   peerdb.peers.Peer peer_connection_config = 1;
