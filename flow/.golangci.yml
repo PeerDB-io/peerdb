@@ -1,0 +1,25 @@
+run:
+  skip-dirs:
+    - generated
+linters:
+  enable:
+    - dogsled
+    - dupl
+    - gofmt
+    - gosec
+    - misspell
+    - nakedret
+    - stylecheck
+    - unconvert
+    - unparam
+    - whitespace
+    - errcheck
+    - gosimple
+    - staticcheck
+    - ineffassign
+    - unused
+    - lll
+linters-settings:
+  lll:
+    line-length: 120
+    tab-width: 4

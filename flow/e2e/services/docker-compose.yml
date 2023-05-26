@@ -1,0 +1,12 @@
+# keep this file in sync with the one in the root of the repo
+version: "3.9"
+services:
+  test_catalog_db:
+    image: debezium/postgres:14-alpine
+    ports:
+      - ${FLOW_TEST_CATALOG_PORT}:${FLOW_TEST_CATALOG_PORT}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    command: -p ${FLOW_TEST_CATALOG_PORT}

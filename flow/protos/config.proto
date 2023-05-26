@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "catalog/src/model.proto";
+
+option go_package = "generated/protos";
+
+package peerdb.flow;
+
+message FlowConnectionConfigs {
+  peerdb.peers.Peer source = 1;
+  peerdb.peers.Peer destination = 2;
+  string flow_job_name = 3;
+  string source_table_identifier = 4;
+  string destination_table_identifier = 5;
+  TableSchema table_schema = 6;
+}
+
+message SyncFlowOptions {
+  int32 batch_size = 1;
+}
+
+message LastSyncState {
+  int64 checkpoint = 1;
+  google.protobuf.Timestamp last_synced_at = 2;
+}
+
+message StartFlowInput {
+  LastSyncState last_sync_state = 1;
+  FlowConnectionConfigs flow_connection_configs = 2;
+  SyncFlowOptions sync_flow_options = 3;
+}
+
+message StartNormalizeInput {
+  FlowConnectionConfigs flow_connection_configs = 1;
+}
+
+message GetLastSyncedIDInput {
+  peerdb.peers.Peer peer_connection_config = 1;
+  string flow_job_name = 2;
+}
+
+message EnsurePullabilityInput {
+  peerdb.peers.Peer peer_connection_config = 1;
+  string flow_job_name = 2;
+  string source_table_identifier = 3;
+}
+
+message CreateRawTableInput {
+  peerdb.peers.Peer peer_connection_config = 1;
+  string destination_table_identifier = 2;
+  string flow_job_name = 3;
+}
+
+message CreateRawTableOutput {
+  string table_identifier = 1;
+}
+
+message GetTableSchemaInput {
+  peerdb.peers.Peer peer_connection_config = 1;
+  string table_identifier = 2;
+}
+
+message TableSchema {
+  string table_identifier = 1;
+  // list of column names and types, types can be one of the following:
+  // "string", "int", "float", "bool", "timestamp".
+  map<string, string> columns = 2;
+  string primary_key_column = 3;
+}
+
+message SetupNormalizedTableInput {
+  peerdb.peers.Peer peer_connection_config = 1;
+  string table_identifier = 2;
+  TableSchema source_table_schema = 3;
+}
+
+message SetupNormalizedTableOutput {
+  string table_identifier = 1;
+  bool already_exists = 2;
+}
