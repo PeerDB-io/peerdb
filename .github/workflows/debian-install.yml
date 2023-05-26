@@ -1,0 +1,53 @@
+name: Publish debian package
+
+on:
+  push:
+    branches: [main, release/*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  release:
+    name: build and release
+    runs-on: ubuntu-latest-16-cores
+    steps:
+      - name: checkout sources
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_CHECKOUT }}
+
+      - name: install system tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools protobuf-compiler gcc-multilib
+
+      - name: install cargo binstall
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf\
+           https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+
+      - name: install cargo binaries
+        run: |
+          cargo binstall --no-confirm --no-symlinks cargo-deb cargo-zigbuild
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: goto-bus-stop/setup-zig@v2
+
+      - name: build project release
+        working-directory: ./nexus
+        run: cargo zigbuild --release --target=x86_64-unknown-linux-musl
+
+      - name: create peerdb-server deb package
+        working-directory: ./nexus/
+        run: cargo deb --target=x86_64-unknown-linux-musl -p peerdb-server --no-build
+
+      # - name: upload release artifacts
+      #   uses: softprops/action-gh-release@v1
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   with:
+      #     files: |
+      #       nexus/server/target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb
