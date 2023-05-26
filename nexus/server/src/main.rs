@@ -410,63 +410,59 @@ impl MakeHandler for MakeNexusBackend {
 #[derive(Parser, Debug)]
 struct Args {
     /// Host to bind to, defaults to localhost.
-    #[clap(long, default_value = "0.0.0.0", env = "NEXUS_HOST")]
+    #[clap(long, default_value = "0.0.0.0", env = "PEERDB_HOST")]
     host: String,
 
     /// Port of the server, defaults to `9900`.
-    #[clap(short, long, default_value_t = 9900, env = "NEXUS_PORT")]
+    #[clap(short, long, default_value_t = 9900, env = "PEERDB_PORT")]
     port: u16,
 
     // define args for catalog postgres server - host, port, user, password, database
     /// Catalog postgres server host.
     /// Defaults to `localhost`.
-    #[clap(long, default_value = "localhost", env = "NEXUS_CATALOG_HOST")]
+    #[clap(long, default_value = "localhost", env = "PEERDB_CATALOG_HOST")]
     catalog_host: String,
 
     /// Catalog postgres server port.
     /// Defaults to `5432`.
-    #[clap(long, default_value_t = 5432, env = "NEXUS_CATALOG_PORT")]
+    #[clap(long, default_value_t = 5432, env = "PEERDB_CATALOG_PORT")]
     catalog_port: u16,
 
     /// Catalog postgres server user.
     /// Defaults to `postgres`.
-    #[clap(long, default_value = "postgres", env = "NEXUS_CATALOG_USER")]
+    #[clap(long, default_value = "postgres", env = "PEERDB_CATALOG_USER")]
     catalog_user: String,
 
     /// Catalog postgres server password.
     /// Defaults to `postgres`.
-    #[clap(long, default_value = "postgres", env = "NEXUS_CATALOG_PASSWORD")]
+    #[clap(long, default_value = "postgres", env = "PEERDB_CATALOG_PASSWORD")]
     catalog_password: String,
 
     /// Catalog postgres server database.
     /// Defaults to `postgres`.
-    #[clap(long, default_value = "postgres", env = "NEXUS_CATALOG_DATABASE")]
+    #[clap(long, default_value = "postgres", env = "PEERDB_CATALOG_DATABASE")]
     catalog_database: String,
 
     /// Path to the TLS certificate file.
-    #[clap(long, requires = "tls_key", env = "NEXUS_TLS_CERT")]
+    #[clap(long, requires = "tls_key", env = "PEERDB_TLS_CERT")]
     tls_cert: Option<String>,
 
     /// Path to the TLS private key file.
-    #[clap(long, requires = "tls_cert", env = "NEXUS_TLS_KEY")]
+    #[clap(long, requires = "tls_cert", env = "PEERDB_TLS_KEY")]
     tls_key: Option<String>,
 
-    /// Path to the directory where nexus logs will be written to.
+    /// Path to the directory where peerdb logs will be written to.
     ///
     /// This is only respected in release mode. In debug mode the logs
     /// will exlusively be written to stdout.
-    #[clap(short, long, default_value = "/var/log/nexus", env = "NEXUS_LOG_DIR")]
+    #[clap(short, long, default_value = "/var/log/peerdb", env = "PEERDB_LOG_DIR")]
     log_dir: String,
 
-    /// Password for the nexus postgres interface.
+    /// Password for the  postgres interface.
     ///
     /// Defaults to `peerdb`.
-    #[clap(long, env = "NEXUS_PASSWORD", default_value = "peerdb")]
+    #[clap(long, env = "PEERDB_PASSWORD", default_value = "peerdb")]
     peerdb_password: String,
-
-    /// host:port of the flow server for flow jobs.
-    #[clap(long, env = "NEXUS_FLOW_SERVER_ADDR")]
-    flow_server_addr: Option<String>,
 }
 
 // Get catalog config from args
@@ -506,8 +502,8 @@ struct TracerGuards {
 fn setup_tracing(log_dir: &str) -> TracerGuards {
     let console_layer = console_subscriber::spawn();
 
-    // also log to nexus.log in log_dir
-    let file_appender = tracing_appender::rolling::never(log_dir, "nexus.log");
+    // also log to peerdb.log in log_dir
+    let file_appender = tracing_appender::rolling::never(log_dir, "peerdb.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     let fmt_file_layer = fmt::layer().with_target(false).with_writer(non_blocking);
 

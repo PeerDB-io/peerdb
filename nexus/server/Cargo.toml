@@ -4,6 +4,29 @@ version = "0.1.0"
 edition = "2021"
 authors = ["PeerDB <copyright@peerdb.io>"]
 
+[package.metadata.deb]
+systemd-units = { enable = true }
+maintainer-scripts = "debian/"
+depends = "$auto"
+priority = "optional"
+assets = [
+  [
+    "../target/x86_64-unknown-linux-musl/release/peerdb-server",
+    "usr/bin/peerdb-server",
+    "755",
+  ]
+]
+
+[package.metadata.deb.variants.debug]
+assets = [
+  [
+    "../target/x86_64-unknown-linux-musl/release/peerdb-server",
+    "usr/bin/peerdb-server",
+    "755",
+  ]
+]
+
+
 [dependencies]
 analyzer = { path = "../analyzer" }
 anyhow = "1"
@@ -31,6 +54,7 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = "0.3"
 uuid = "0.8"
+cargo-deb = "1.43.1"
 
 [dev-dependencies]
 postgres = "0.19.4"

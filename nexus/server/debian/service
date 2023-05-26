@@ -1,0 +1,20 @@
+[Unit]
+Description=PeerDB Server
+
+[Service]
+# Environment variables for PeerDB
+Environment=PEERDB_HOST=0.0.0.0
+Environment=PEERDB_PORT=9090
+Environment=PEERDB_LOG_DIR=/var/log/peerdb
+Environment=PEERDB_PASSWORD=peerdb
+# Environment variables for Catalog
+Environment=PEERDB_CATALOG_HOST=localhost
+Environment=PEERDB_CATALOG_PORT=5432
+Environment=PEERDB_CATALOG_USER=postgres
+Environment=PEERDB_CATALOG_PASSWORD=postgres
+Environment=PEERDB_CATALOG_DATABASE=postgres
+# Start Executable
+ExecStart=/usr/bin/peerdb-server
+
+[Install]
+WantedBy=multi-user.target
