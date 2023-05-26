@@ -103,11 +103,11 @@ impl BigqueryAst {
             }
 
             // interval rewrite
-            if let Expr::Interval {
+            if let Expr::Interval(sqlparser::ast::Interval {
                 value,
                 leading_field,
                 ..
-            } = node
+            }) = node
             {
                 if let Expr::Value(sqlparser::ast::Value::SingleQuotedString(s)) = value.as_mut() {
                     /*
@@ -153,6 +153,7 @@ impl BigqueryAst {
                             over: None,
                             distinct: false,
                             special: false,
+                            order_by: vec![],
                         })
                     } else if let BinaryOperator::Plus = op {
                         *node = Expr::Function(Function {
@@ -164,6 +165,7 @@ impl BigqueryAst {
                             over: None,
                             distinct: false,
                             special: false,
+                            order_by: vec![],
                         })
                     }
                 }
