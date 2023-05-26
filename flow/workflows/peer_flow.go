@@ -291,7 +291,6 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 			}
 		})
 		selector.Select(ctx)
-
 	}
 
 	return &w.PeerFlowState, w.SyncFlowErrors
