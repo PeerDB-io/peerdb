@@ -27,7 +27,7 @@ jobs:
 
   dev-build:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/head/master'
+    if: github.ref == 'refs/heads/master'
       - name: Build dev image
         uses: .github/workflows/image.yml
         with:
@@ -35,7 +35,7 @@ jobs:
     
   latest-build:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/head/stable'
+    if: github.ref == 'refs/heads/stable'
     steps:
       - name: Build stable image
         uses: .github/workflows/image.yml
