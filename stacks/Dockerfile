@@ -8,9 +8,8 @@ COPY nexus nexus
 COPY protos protos
 WORKDIR /root/nexus
 RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerdb-server
-RUN mkdir -p /var/log/nexus
 
 FROM gcr.io/distroless/cc-debian11
 COPY --from=builder /root/nexus/target/release/peerdb-server .
-COPY --from=builder /var/log/nexus /var/log/nexus
+RUN mkdir -p /var/log/nexus
 CMD ["./peerdb-server"]
