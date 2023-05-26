@@ -86,6 +86,7 @@ impl PostgresQueryExecutor {
 
 #[async_trait::async_trait]
 impl QueryExecutor for PostgresQueryExecutor {
+    #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         // if the query is a select statement, we need to fetch the rows
         // and return them as a QueryOutput::Stream, else we return the
@@ -100,6 +101,12 @@ impl QueryExecutor for PostgresQueryExecutor {
                 ast.rewrite(&mut query);
                 let rewritten_query = query.to_string();
 
+                // first fetch the schema as this connection will be
+                // short lived, only then run the query as the query
+                // could hold the pin on the connection for a long time.
+                let schema = self.schema_from_query(&rewritten_query).await;
+
+                tracing::info!("[peer-postgres] rewritten query: {}", rewritten_query);
                 // given that there could be a lot of rows returned, we
                 // need to use a cursor to stream the rows back to the
                 // client.
@@ -113,7 +120,9 @@ impl QueryExecutor for PostgresQueryExecutor {
                         }))
                     })?;
 
-                let schema = self.schema_from_query(&rewritten_query).await;
+                // log that raw query execution has completed
+                tracing::info!("[peer-postgres] raw query execution completed");
+
                 let cursor = stream::PgRecordStream::new(stream, schema);
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
