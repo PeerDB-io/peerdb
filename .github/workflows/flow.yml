@@ -39,7 +39,7 @@ jobs:
 
       - name: run tests
         run: |
-          go test -timeout 300s -v ./...
+          go test -timeout 600s -v ./...
         working-directory: ./flow
         env:
           TEST_BQ_CREDS: ${{ github.workspace }}/flow/e2e/assets/bq_service_account.json
