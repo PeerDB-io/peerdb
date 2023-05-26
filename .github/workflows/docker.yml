@@ -29,7 +29,7 @@ jobs:
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
 
-      - name: Build PeerDB Dev Image
+      - name: Publish PeerDB Dev Image
         uses: docker/build-push-action@v4.0.0
         with:
           context: .
@@ -42,7 +42,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: "echo \"DOCKER_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
 
-      - name: Build PeerDB Stable Image
+      - name: Publish PeerDB Stable Image
         uses: docker/build-push-action@v4.0.0
         with:
           context: .
