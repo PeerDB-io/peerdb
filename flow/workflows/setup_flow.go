@@ -191,7 +191,6 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 	// initialize the table schema on the destination peer
 
-
 	return srcTableSchema, nil
 }
 
