@@ -28,8 +28,9 @@ jobs:
   dev-build:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
+    steps:
       - name: Build dev image
-        uses: .github/workflows/image.yml
+        uses: ./.github/workflows/build-push-image.yml
         with:
           tags: peerdb-server:dev
     
@@ -38,7 +39,7 @@ jobs:
     if: github.ref == 'refs/heads/stable'
     steps:
       - name: Build stable image
-        uses: .github/workflows/image.yml
+        uses: ./.github/workflows/build-push-image.yml
         with:
           tags: peerdb-server:latest
     
@@ -50,6 +51,6 @@ jobs:
         run: "echo \"RELEASE_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
 
       - name: Build tag image
-        uses: .github/workflows/image.yml
+        uses: ./.github/workflows/build-push-image.yml
         with:
           tags: 'peerdb-server:${{ process.env.RELEASE_TAG }}'
