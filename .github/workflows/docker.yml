@@ -2,55 +2,52 @@ name: Docker images
 
 on: 
   push:
-    branches: [master, stable]
+    branches: [main]
     tags:
       - 'v[0-9]+.[0-9]+'
 
 jobs:
-
-  checkout:
+  docker-build:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: checkout
+        uses: actions/checkout@v3
         with:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
+          
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
 
-  login:
-    runs-on: ubuntu-latest
-    steps:
-      - name: 'Login to GitHub Container Registry'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v
+
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v2.1.0
         with:
           registry: ghcr.io
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
 
-  dev-build:
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'
-    steps:
-      - name: Build dev image
-        uses: ./.github/workflows/build-push-image.yml
+      - name: Build PeerDB Dev Image
+        uses: docker/build-push-action@v4.0.0
         with:
-          tags: peerdb-server:dev
-    
-  latest-build:
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/stable'
-    steps:
-      - name: Build stable image
-        uses: ./.github/workflows/build-push-image.yml
-        with:
-          tags: peerdb-server:latest
-    
-  tag-build:
-    runs-on: ubuntu-latest  
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: "Get tag"
-        run: "echo \"RELEASE_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
+          context: .
+          file: stacks/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/peerdb-io/peerdb-server:dev
 
-      - name: Build tag image
-        uses: ./.github/workflows/build-push-image.yml
+      - name: Get tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: "echo \"DOCKER_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
+
+      - name: Build PeerDB Stable Image
+        uses: docker/build-push-action@v4.0.0
         with:
-          tags: 'peerdb-server:${{ process.env.RELEASE_TAG }}'
+          context: .
+          file: stacks/Dockerfile
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: |
+            'peerdb-server:${{ process.env.DOCKER_TAG }}'
+            
