@@ -1,6 +1,6 @@
 name: Publish docker images
 
-on: 
+on:
   push:
     branches: [main]
     tags:
@@ -18,7 +18,7 @@ jobs:
         with:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
-          
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
@@ -36,7 +36,7 @@ jobs:
         uses: docker/build-push-action@v4.0.0
         with:
           context: .
-          file: stacks/Dockerfile
+          file: stacks/nexus.Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/peerdb-io/peerdb-server:dev
@@ -49,8 +49,7 @@ jobs:
         uses: docker/build-push-action@v4.0.0
         with:
           context: .
-          file: stacks/Dockerfile
+          file: stacks/nexus.Dockerfile
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
           tags: |
             ${{ format('ghcr.io/peerdb-io/peerdb-server:{0}', env.DOCKER_TAG) }}
-            
