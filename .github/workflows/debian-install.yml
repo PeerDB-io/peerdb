@@ -29,8 +29,7 @@ jobs:
 
       - name: install cargo binaries
         run: |
-          cargo binstall cargo-deb
-          cargo binstall cargo-zigbuild
+          cargo binstall --no-confirm --no-symlinks cargo-deb cargo-zigbuild
 
       - uses: dtolnay/rust-toolchain@stable
         with:
