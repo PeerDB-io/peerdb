@@ -613,8 +613,11 @@ pub async fn main() -> anyhow::Result<()> {
 
     let flow_server_addr = args.flow_api_url.clone();
     // log that we accept mirror commands if we have a flow server
-    if let Some(flow_server_addr) = &flow_server_addr {
-        tracing::info!("MIRROR commands enabled, flow server: {}", flow_server_addr);
+    if let Some(addr) = &flow_server_addr {
+        let flow_handler = FlowHandler::new(flow_server_addr.clone());
+        if flow_handler.has_flow_server().await? {
+            tracing::info!("MIRROR commands enabled, flow server: {}", addr);
+        }
     } else {
         tracing::info!("MIRROR commands disabled");
     }

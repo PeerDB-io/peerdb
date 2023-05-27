@@ -26,7 +26,7 @@ impl FlowHandler {
         }
     }
 
-    pub async fn has_flow_server(&mut self) -> anyhow::Result<bool> {
+    pub async fn has_flow_server(&self) -> anyhow::Result<bool> {
         if self.flow_server_addr.is_none() {
             return Ok(false);
         }
@@ -48,12 +48,21 @@ impl FlowHandler {
         } else {
             // log the non-ok status
             tracing::error!("flow server is not healthy: {:?}", status);
-            anyhow::bail!("flow server is not healthy: {:?}", status);
+            Err(anyhow::anyhow!("flow server is not healthy: {:?}", status))
         }
     }
 
     // submit_job submits a job to the flow server and returns the workflow id
     pub async fn submit_job(&self, job: &FlowJob) -> anyhow::Result<String> {
+        let flow_server_addr = match self.flow_server_addr.as_ref() {
+            Some(addr) => addr,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "failed to submit job: flow server address is not set"
+                ))
+            }
+        };
+
         // the request body is a json, like with one field
         // "peer_flow_name" : "job_name", this request is made to `/flows/start`
         // endpoint of the flow server
@@ -61,7 +70,6 @@ impl FlowHandler {
         let mut job_req = HashMap::new();
         job_req.insert("peer_flow_name", job.name.clone());
 
-        let flow_server_addr = self.flow_server_addr.as_ref().unwrap();
         let start_flow_endpoint = format!("{}/flows/start", flow_server_addr);
         let response = self
             .client
@@ -85,7 +93,7 @@ impl FlowHandler {
         }
     }
 
-    pub fn get_healthcheck_endpoint(&self) -> String {
+    fn get_healthcheck_endpoint(&self) -> String {
         let flow_server_addr = self.flow_server_addr.as_ref().unwrap();
         format!("{}/health", flow_server_addr)
     }
