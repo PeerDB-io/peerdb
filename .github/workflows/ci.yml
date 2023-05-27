@@ -32,12 +32,12 @@ jobs:
         working-directory: ./nexus
         env:
           RUST_BACKTRACE: 1
-          NEXUS_CATALOG_HOST: ${{ secrets.NEXUS_CATALOG_HOST }}
-          NEXUS_CATALOG_PORT: ${{ secrets.NEXUS_CATALOG_PORT }}
-          NEXUS_CATALOG_DATABASE: ${{ secrets.NEXUS_CATALOG_DATABASE }}
-          NEXUS_CATALOG_USER: ${{ secrets.NEXUS_CATALOG_USER }}
-          NEXUS_CATALOG_PASSWORD: ${{ secrets.NEXUS_CATALOG_PASSWORD }}
-          NEXUS_LOG_DIR: /tmp
+          PEERDB_CATALOG_HOST: ${{ secrets.NEXUS_CATALOG_HOST }}
+          PEERDB_CATALOG_PORT: ${{ secrets.NEXUS_CATALOG_PORT }}
+          PEERDB_CATALOG_DATABASE: ${{ secrets.NEXUS_CATALOG_DATABASE }}
+          PEERDB_CATALOG_USER: ${{ secrets.NEXUS_CATALOG_USER }}
+          PEERDB_CATALOG_PASSWORD: ${{ secrets.NEXUS_CATALOG_PASSWORD }}
+          PEERDB_LOG_DIR: /tmp
 
       - name: dump server.log
         if: failure()
