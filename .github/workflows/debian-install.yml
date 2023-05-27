@@ -20,7 +20,8 @@ jobs:
       - name: install system tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools protobuf-compiler gcc-multilib
+          sudo apt-get install -y musl-tools protobuf-compiler gcc-multilib \
+            protobuf-compiler libssl-dev pkg-config build-essential
 
       - name: install cargo binstall
         run: |

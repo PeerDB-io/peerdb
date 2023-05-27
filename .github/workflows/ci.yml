@@ -18,10 +18,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: install protobuf compiler
+      - name: install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config build-essential
 
       - name: cargo check
         run: cargo check
