@@ -38,6 +38,12 @@ jobs:
 
       - uses: goto-bus-stop/setup-zig@v2
 
+      - name: Set Cargo version as Git tag
+        working-directory: ./nexus/server
+        run: |
+          export VERSION=${{ github.ref_name#v }}
+          sed -i "s/0.1.0/$VERSION/g" Cargo.toml
+
       - name: build project release
         working-directory: ./nexus
         run: cargo zigbuild --release --target=x86_64-unknown-linux-musl
@@ -46,9 +52,9 @@ jobs:
         working-directory: ./nexus/
         run: cargo deb --target=x86_64-unknown-linux-musl -p peerdb-server --no-build
 
-      # - name: upload release artifacts
-      #   uses: softprops/action-gh-release@v1
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   with:
-      #     files: |
-      #       nexus/server/target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb
+      - name: upload release artifacts
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            nexus/server/target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb

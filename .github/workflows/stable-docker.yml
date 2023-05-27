@@ -38,4 +38,4 @@ jobs:
           file: stacks/nexus.Dockerfile
           push: true
           tags: |
-            'ghcr.io/peerdb-io/peerdb-server:${{ github.ref }}'
+            'ghcr.io/peerdb-io/peerdb-server:${{ github.ref_name }}'
