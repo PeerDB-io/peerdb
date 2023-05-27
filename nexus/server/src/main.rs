@@ -465,6 +465,12 @@ struct Args {
     /// Defaults to `peerdb`.
     #[clap(long, env = "PEERDB_PASSWORD", default_value = "peerdb")]
     peerdb_password: String,
+
+    /// Points to the URL for the Flow API server.
+    ///
+    /// This is an optional parameter. If not provided, the MIRROR commands will not be supported.
+    #[clap(long, env = "PEERDB_FLOW_SERVER_ADDRESS")]
+    flow_api_url: Option<String>,
 }
 
 // Get catalog config from args
