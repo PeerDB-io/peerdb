@@ -49,5 +49,6 @@ jobs:
       - name: upload release artifacts
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: dev
           files: |
             nexus/server/target/x86_64-unknown-linux-musl/debian/peerdb-server*.deb
