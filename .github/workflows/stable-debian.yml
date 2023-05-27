@@ -9,6 +9,9 @@ jobs:
   release:
     name: build and release
     runs-on: ubuntu-latest-16-cores
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: checkout sources
         uses: actions/checkout@v3
