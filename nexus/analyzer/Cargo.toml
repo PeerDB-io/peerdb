@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 async-trait = "0.1"
 catalog = { path = "../catalog" }
+flow-rs = { path = "../flow-rs" }
 pem = "1.1.0"
 pt = { path = "../pt" }
 sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }

@@ -33,6 +33,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "catalog",
+ "flow-rs",
  "pem",
  "pt",
  "sqlparser",
@@ -341,6 +342,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "flow-rs",
  "peer-cursor",
  "peer-postgres",
  "prost",
@@ -1758,6 +1760,7 @@ dependencies = [
  "console-subscriber",
  "dashmap",
  "dotenvy",
+ "flow-rs",
  "futures",
  "peer-bigquery",
  "peer-connections",

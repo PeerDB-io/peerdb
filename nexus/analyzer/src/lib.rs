@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::Context;
+use flow_rs::FlowJob;
 use pt::peers::{
     peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
 };
@@ -74,33 +75,69 @@ pub enum PeerDDL {
         peer: Box<pt::peers::Peer>,
         if_not_exists: bool,
     },
+    CreateMirror {
+        flow_job: FlowJob,
+    },
 }
 
 impl StatementAnalyzer for PeerDDLAnalyzer {
     type Output = Option<PeerDDL>;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
-        if let Statement::CreatePeer {
-            if_not_exists,
-            peer_name,
-            peer_type,
-            with_options,
-        } = statement
-        {
-            let db_type = DbType::from(peer_type.clone());
-            let config = parse_db_options(db_type, with_options.clone())?;
-            let peer = Peer {
-                name: peer_name.to_string(),
-                r#type: db_type as i32,
-                config,
-            };
+        match statement {
+            Statement::CreatePeer {
+                if_not_exists,
+                peer_name,
+                peer_type,
+                with_options,
+            } => {
+                let db_type = DbType::from(peer_type.clone());
+                let config = parse_db_options(db_type, with_options.clone())?;
+                let peer = Peer {
+                    name: peer_name.to_string(),
+                    r#type: db_type as i32,
+                    config,
+                };
 
-            Ok(Some(PeerDDL::CreatePeer {
-                peer: Box::new(peer),
-                if_not_exists: *if_not_exists,
-            }))
-        } else {
-            Ok(None)
+                Ok(Some(PeerDDL::CreatePeer {
+                    peer: Box::new(peer),
+                    if_not_exists: *if_not_exists,
+                }))
+            }
+            Statement::CreateMirror {
+                mirror_name,
+                source_table,
+                target_table,
+                with_options: _,
+            } => {
+                let source_table = source_table.to_string();
+                let target_table = target_table.to_string();
+                let mirror_name = mirror_name.to_string();
+
+                // get first part of the '.' separated part from the source table as peer name
+                // and rest as the table name with schema
+                let source_table_parts: Vec<&str> = source_table.split('.').collect();
+                let source_peer_name = source_table_parts[0];
+                let source_table_name = source_table_parts[1..].join(".");
+
+                // get first part of the '.' separated part from the target table as peer name
+                // and rest as the table name with schema
+                let target_table_parts: Vec<&str> = target_table.split('.').collect();
+                let target_peer_name = target_table_parts[0];
+                let target_table_name = target_table_parts[1..].join(".");
+
+                let flow_job = FlowJob {
+                    name: mirror_name,
+                    source_peer: source_peer_name.to_string(),
+                    source_table_identifier: source_table_name,
+                    destination_peer: target_peer_name.to_string(),
+                    destination_table_identifier: target_table_name,
+                    description: "".to_string(), // TODO: add description
+                };
+
+                Ok(Some(PeerDDL::CreateMirror { flow_job }))
+            }
+            _ => Ok(None),
         }
     }
 }

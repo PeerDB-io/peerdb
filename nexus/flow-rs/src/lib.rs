@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-pub struct FlowServer {
+pub struct FlowHandler {
     flow_server_addr: Option<String>,
     client: reqwest::Client,
 }
@@ -18,7 +18,7 @@ pub struct FlowJob {
     pub description: String,
 }
 
-impl FlowServer {
+impl FlowHandler {
     pub fn new(flow_server_addr: Option<String>) -> Self {
         Self {
             flow_server_addr,
@@ -53,7 +53,7 @@ impl FlowServer {
     }
 
     // submit_job submits a job to the flow server and returns the workflow id
-    pub async fn submit_job(&mut self, job: &FlowJob) -> anyhow::Result<String> {
+    pub async fn submit_job(&self, job: &FlowJob) -> anyhow::Result<String> {
         // the request body is a json, like with one field
         // "peer_flow_name" : "job_name", this request is made to `/flows/start`
         // endpoint of the flow server
@@ -79,8 +79,9 @@ impl FlowServer {
             Ok(workflow_id.to_string())
         } else {
             // log the non-ok status
-            tracing::error!("failed to submit job: {:?}", status);
-            anyhow::bail!("failed to submit job: {:?}", status);
+            let err = format!("failed to flow submit job: {:?}", status);
+            tracing::error!(err);
+            Err(anyhow::anyhow!(err))
         }
     }
 
