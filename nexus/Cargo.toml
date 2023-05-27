@@ -2,6 +2,7 @@
 members = [
   "analyzer",
   "catalog",
+  "flow-rs",
   "parser",
   "peer-bigquery",
   "peer-connections",

@@ -1,6 +1,7 @@
 use std::{any, collections::HashMap, sync::Arc};
 
 use anyhow::Context;
+use flow_rs::FlowJob;
 use peer_cursor::QueryExecutor;
 use peer_postgres::PostgresQueryExecutor;
 use prost::Message;
@@ -233,5 +234,35 @@ impl Catalog {
         }
 
         Ok(peers)
+    }
+
+    pub async fn create_flow_job(&self, job: &FlowJob) -> anyhow::Result<()> {
+        let source_peer_id = self.get_peer_id(&job.source_peer).await?;
+        let destination_peer_id = self.get_peer_id(&job.destination_peer).await?;
+
+        let stmt = self
+            .pg
+            .prepare_typed(
+                "INSERT INTO flows (name, source_peer, destination_peer, description, source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6)",
+                &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT, types::Type::TEXT, types::Type::TEXT],
+            )
+            .await?;
+
+        let _rows = self
+            .pg
+            .execute(
+                &stmt,
+                &[
+                    &job.name,
+                    &source_peer_id,
+                    &destination_peer_id,
+                    &job.description,
+                    &job.source_table_identifier,
+                    &job.destination_table_identifier,
+                ],
+            )
+            .await?;
+
+        Ok(())
     }
 }

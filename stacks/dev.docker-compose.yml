@@ -62,7 +62,10 @@ services:
       PEERDB_CATALOG_USER: postgres
       PEERDB_CATALOG_PASSWORD: postgres
       PEERDB_CATALOG_DB: postgres
+      PEERDB_PASSWORD: peerdb
+      PEERDB_FLOW_SERVER_ADDRESS: http://flow_api:8112
     ports:
       - 9900:9900
     depends_on:
       - catalog
+      - flow_api
