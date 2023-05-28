@@ -3,8 +3,8 @@ use std::ops::ControlFlow;
 use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
-    visit_expressions_mut, visit_relations_mut, BinaryOperator, DataType, DateTimeField, Expr,
-    Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, TimezoneInfo,
+    visit_expressions_mut, visit_relations_mut, Array, BinaryOperator, DataType, DateTimeField,
+    Expr, Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, TimezoneInfo,
 };
 
 #[derive(Default)]
@@ -230,6 +230,38 @@ impl BigqueryAst {
         Ok(())
     }
 
+    fn pour_array_into_list(&self, arr: &Array, mut list: Vec<Expr>) -> anyhow::Result<Vec<Expr>> {
+        for element in &arr.elem {
+            match &element {
+                Expr::Value(val) => match val {
+                    sqlparser::ast::Value::Number(_, _) => {
+                        list.push(Expr::Value(sqlparser::ast::Value::Number(
+                            element.to_string(),
+                            false,
+                        )));
+                    }
+                    sqlparser::ast::Value::SingleQuotedString(_) => {
+                        list.push(Expr::Value(sqlparser::ast::Value::SingleQuotedString(
+                            element.to_string(),
+                        )));
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "Unsupported data type for IN list: {:?}",
+                            val
+                        ))
+                    }
+                },
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Unsupported element for IN list: {:?}",
+                        element
+                    ))
+                }
+            }
+        }
+        Ok(list)
+    }
     /// Flatten Cast EXPR to List with right value type
     /// For example Value(SingleQuotedString("{hash1,hash2}") must return
     /// a vector Value(SingleQuotedString("hash1"), Value(SingleQuotedString("hash2")))
@@ -283,7 +315,15 @@ impl BigqueryAst {
                         ))
                     }
                 }
+            } else if let Expr::Array(arr) = expr.as_ref() {
+                list = self
+                    .pour_array_into_list(arr, list)
+                    .expect("Failed to transfer array to list");
             }
+        } else if let Expr::Array(arr) = expr {
+            list = self
+                .pour_array_into_list(arr, list)
+                .expect("Failed to transfer array to list");
         }
 
         Ok(list)
