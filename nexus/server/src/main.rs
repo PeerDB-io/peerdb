@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
@@ -580,6 +580,29 @@ fn setup_tracing(log_dir: &str) -> TracerGuards {
     }
 }
 
+async fn run_migrations(config: &CatalogConfig) -> anyhow::Result<()> {
+    // retry connecting to the catalog 3 times with 30 seconds delay
+    // if it fails, return an error
+    for _ in 0..3 {
+        let catalog = Catalog::new(config).await;
+        match catalog {
+            Ok(mut catalog) => {
+                catalog.run_migrations().await?;
+                return Ok(());
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to connect to catalog. Retrying in 30 seconds. {}",
+                    err
+                );
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!("Failed to connect to catalog"))
+}
+
 #[tokio::main]
 pub async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -594,12 +617,7 @@ pub async fn main() -> anyhow::Result<()> {
     ));
     let catalog_config = get_catalog_config(&args);
 
-    {
-        // leave this in this scope so that the catalog is dropped before we
-        // start the server.
-        let mut catalog = Catalog::new(&catalog_config).await?;
-        catalog.run_migrations().await?;
-    }
+    run_migrations(&catalog_config).await?;
 
     let peer_conns = {
         let conn_str = catalog_config.get_connection_string();
