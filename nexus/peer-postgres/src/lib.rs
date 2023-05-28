@@ -64,12 +64,8 @@ impl PostgresQueryExecutor {
         })
     }
 
-    pub async fn schema_from_query(&self, query: &str) -> SchemaRef {
-        let prepared = self
-            .client
-            .prepare_typed(query, &[])
-            .await
-            .expect("failed to prepare query");
+    pub async fn schema_from_query(&self, query: &str) -> anyhow::Result<SchemaRef> {
+        let prepared = self.client.prepare_typed(query, &[]).await?;
 
         let fields: Vec<FieldInfo> = prepared
             .columns()
@@ -80,7 +76,7 @@ impl PostgresQueryExecutor {
             })
             .collect();
 
-        Arc::new(Schema { fields })
+        Ok(Arc::new(Schema { fields }))
     }
 }
 
@@ -104,7 +100,14 @@ impl QueryExecutor for PostgresQueryExecutor {
                 // first fetch the schema as this connection will be
                 // short lived, only then run the query as the query
                 // could hold the pin on the connection for a long time.
-                let schema = self.schema_from_query(&rewritten_query).await;
+                let schema = self
+                    .schema_from_query(&rewritten_query)
+                    .await
+                    .map_err(|e| {
+                        PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: format!("error getting schema: {}", e),
+                        }))
+                    })?;
 
                 tracing::info!("[peer-postgres] rewritten query: {}", rewritten_query);
                 // given that there could be a lot of rows returned, we
@@ -141,7 +144,14 @@ impl QueryExecutor for PostgresQueryExecutor {
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
         match stmt {
             Statement::Query(_query) => {
-                let schema = self.schema_from_query(&stmt.to_string()).await;
+                let schema = self
+                    .schema_from_query(&stmt.to_string())
+                    .await
+                    .map_err(|e| {
+                        PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: format!("error getting schema: {}", e),
+                        }))
+                    })?;
                 Ok(Some(schema))
             }
             _ => Ok(None),
