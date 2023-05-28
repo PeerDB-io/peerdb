@@ -3,13 +3,15 @@ use std::{
     task::{Context, Poll},
 };
 
+use bytes::Bytes;
+use chrono::{DateTime, NaiveTime, Utc};
 use futures::Stream;
 use peer_cursor::{Record, RecordStream, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{PgWireError, PgWireResult};
 use tokio_postgres::{types::Type, Row, RowStream};
 use uuid::Uuid;
-use value::Value;
+use value::{array::ArrayValue, Value};
 
 pub struct PgRecordStream {
     row_stream: Pin<Box<RowStream>>,
@@ -35,16 +37,20 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                     .map(Value::Bool)
                     .unwrap_or(Value::Null),
                 &Type::CHAR => {
-                    let ch: i8 = row.get(i);
-                    Value::Char(char::from_u32(ch as u32).unwrap_or('\0'))
+                    let ch: Option<i8> = row.get(i);
+                    ch.map(|c| char::from_u32(c as u32).unwrap_or('\0'))
+                        .map(Value::Char)
+                        .unwrap_or(Value::Null)
                 }
-                &Type::VARCHAR
-                | &Type::TEXT
-                | &Type::BPCHAR
-                | &Type::VARCHAR_ARRAY
-                | &Type::BPCHAR_ARRAY => {
+                &Type::VARCHAR | &Type::TEXT | &Type::BPCHAR => {
                     let s: Option<String> = row.get(i);
                     s.map(Value::Text).unwrap_or(Value::Null)
+                }
+                &Type::VARCHAR_ARRAY | &Type::BPCHAR_ARRAY => {
+                    let s: Option<Vec<String>> = row.get(i);
+                    s.map(ArrayValue::VarChar)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
                 }
                 &Type::NAME
                 | &Type::NAME_ARRAY
@@ -72,42 +78,113 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                     let s: Option<String> = row.get(i);
                     s.map(Value::Text).unwrap_or(Value::Null)
                 }
-                &Type::INT2 | &Type::INT2_ARRAY => Value::SmallInt(row.get(i)),
+                &Type::INT2 => {
+                    let int: Option<i16> = row.get(i);
+                    int.map(Value::SmallInt).unwrap_or(Value::Null)
+                }
+                &Type::INT2_ARRAY => {
+                    let int: Option<Vec<i16>> = row.get(i);
+                    int.map(ArrayValue::SmallInt)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
+                }
                 &Type::INT4
                 | &Type::TID
                 | &Type::XID
                 | &Type::CID
-                | &Type::INT4_ARRAY
+                | &Type::PG_NDISTINCT
+                | &Type::PG_DEPENDENCIES => {
+                    let int: Option<i32> = row.get(i);
+                    int.map(Value::Integer).unwrap_or(Value::Null)
+                }
+                &Type::INT4_ARRAY
                 | &Type::TID_ARRAY
                 | &Type::XID_ARRAY
                 | &Type::CID_ARRAY
                 | &Type::OID_VECTOR
-                | &Type::OID_VECTOR_ARRAY
-                | &Type::PG_NDISTINCT
-                | &Type::PG_DEPENDENCIES => Value::Integer(row.get(i)),
-                &Type::INT8 | &Type::INT8_ARRAY | &Type::INT8_RANGE | &Type::INT8_RANGE_ARRAY => {
+                | &Type::OID_VECTOR_ARRAY => {
+                    let int: Option<Vec<i32>> = row.get(i);
+                    int.map(ArrayValue::Integer)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
+                }
+                &Type::INT8 => {
                     let big_int: Option<i64> = row.get(i);
                     big_int.map(Value::BigInt).unwrap_or(Value::Null)
                 }
-                &Type::OID | &Type::OID_ARRAY => Value::Oid(row.get(i)),
-                &Type::FLOAT4 | &Type::FLOAT4_ARRAY => Value::Float(row.get(i)),
-                &Type::FLOAT8 | &Type::FLOAT8_ARRAY => Value::Double(row.get(i)),
-                &Type::NUMERIC
-                | &Type::NUMERIC_ARRAY
-                | &Type::NUM_RANGE
-                | &Type::NUM_RANGE_ARRAY => Value::Numeric(row.get(i)),
-                &Type::BYTEA | &Type::BYTEA_ARRAY => {
-                    let bytes: Vec<u8> = row.get(i);
-                    Value::VarBinary(bytes.into())
+                &Type::INT8_ARRAY => {
+                    let big_int: Option<Vec<i64>> = row.get(i);
+                    big_int
+                        .map(ArrayValue::BigInt)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
                 }
-                &Type::JSON | &Type::JSON_ARRAY => Value::Json(row.get(i)),
-                &Type::JSONB | &Type::JSONB_ARRAY => Value::JsonB(row.get(i)),
-                &Type::UUID | &Type::UUID_ARRAY => {
-                    let uuid: Uuid = row.get(i);
-                    Value::Uuid(uuid)
+                &Type::OID => {
+                    let oid: Option<u32> = row.get(i);
+                    oid.map(Value::Oid).unwrap_or(Value::Null)
                 }
-                &Type::INET | &Type::INET_ARRAY | &Type::CIDR | &Type::CIDR_ARRAY => {
-                    Value::Text(row.get(i))
+                &Type::FLOAT4 => {
+                    let float: Option<f32> = row.get(i);
+                    float.map(Value::Float).unwrap_or(Value::Null)
+                }
+                &Type::FLOAT4_ARRAY => {
+                    let float: Option<Vec<f32>> = row.get(i);
+                    float
+                        .map(ArrayValue::Float)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
+                }
+                &Type::FLOAT8 => {
+                    let float: Option<f64> = row.get(i);
+                    float.map(Value::Double).unwrap_or(Value::Null)
+                }
+                &Type::FLOAT8_ARRAY => {
+                    let float: Option<Vec<f64>> = row.get(i);
+                    float
+                        .map(ArrayValue::Double)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
+                }
+                &Type::NUMERIC => {
+                    let numeric: Option<String> = row.get(i);
+                    numeric.map(Value::Numeric).unwrap_or(Value::Null)
+                }
+                &Type::NUMERIC_ARRAY => {
+                    let numeric: Option<Vec<String>> = row.get(i);
+                    numeric
+                        .map(ArrayValue::Numeric)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
+                }
+                &Type::BYTEA => {
+                    let bytes: Option<&[u8]> = row.get(i);
+                    let bytes = bytes.map(Bytes::copy_from_slice);
+                    bytes.map(Value::VarBinary).unwrap_or(Value::Null)
+                }
+                &Type::BYTEA_ARRAY => {
+                    let bytes: Option<Vec<&[u8]>> = row.get(i);
+                    let bytes = bytes.map(|bytes| {
+                        bytes
+                            .iter()
+                            .map(|bytes| Bytes::copy_from_slice(bytes))
+                            .collect()
+                    });
+                    bytes
+                        .map(ArrayValue::VarBinary)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
+                }
+                &Type::JSON | &Type::JSONB => {
+                    let jsonb: Option<String> = row.get(i);
+                    jsonb.map(Value::JsonB).unwrap_or(Value::Null)
+                }
+                &Type::UUID => {
+                    let uuid: Option<Uuid> = row.get(i);
+                    uuid.map(Value::Uuid).unwrap_or(Value::Null)
+                }
+                &Type::INET | &Type::CIDR => {
+                    let s: Option<String> = row.get(i);
+                    s.map(Value::Text).unwrap_or(Value::Null)
                 }
                 &Type::POINT
                 | &Type::POINT_ARRAY
@@ -121,15 +198,20 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 | &Type::POLYGON_ARRAY
                 | &Type::CIRCLE
                 | &Type::CIRCLE_ARRAY => Value::Text(row.get(i)),
-                &Type::TIMESTAMP
-                | &Type::TIMESTAMP_ARRAY
-                | &Type::TIMESTAMPTZ
-                | &Type::TIMESTAMPTZ_ARRAY => Value::TimestampWithTimeZone(row.get(i)),
-                &Type::DATE | &Type::DATE_ARRAY => Value::Date(row.get(i)),
-                &Type::TIME | &Type::TIME_ARRAY | &Type::TIMETZ | &Type::TIMETZ_ARRAY => {
-                    Value::Time(row.get(i))
+                &Type::TIMESTAMP | &Type::TIMESTAMPTZ => {
+                    let dt_utc: Option<DateTime<Utc>> = row.get(i);
+                    dt_utc
+                        .map(Value::TimestampWithTimeZone)
+                        .unwrap_or(Value::Null)
                 }
-                &Type::INTERVAL | &Type::INTERVAL_ARRAY => Value::Interval(row.get(i)),
+                &Type::DATE | &Type::TIME | &Type::TIMETZ => {
+                    let t: Option<NaiveTime> = row.get(i);
+                    t.map(Value::Time).unwrap_or(Value::Null)
+                }
+                &Type::INTERVAL => {
+                    let iv: Option<String> = row.get(i);
+                    iv.map(Value::Text).unwrap_or(Value::Null)
+                }
                 &Type::ANY => Value::Text(row.get(i)),
                 &Type::ANYARRAY => {
                     todo!("Array type conversion not implemented yet")
