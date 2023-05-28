@@ -198,28 +198,25 @@ impl BigqueryAst {
             if let Expr::BinaryOp { left, op, right } = node {
                 // check if right is ANY
                 if let Expr::AnyOp(expr) = right.as_mut() {
-                    // check if left is a column
-                    if let Expr::Identifier(_) = left.as_mut() {
-                        let list = self
-                            .flatten_expr_to_in_list(expr)
-                            .expect("failed to flatten");
-                        // check if op is =
-                        if let BinaryOperator::Eq = op {
-                            // rewrite to IN
-                            *node = Expr::InList {
-                                expr: left.clone(),
-                                list,
-                                negated: false,
-                            };
-                        }
-                        // if op is != rewrite to NOT IN
-                        else if let BinaryOperator::NotEq = op {
-                            *node = Expr::InList {
-                                expr: left.clone(),
-                                list,
-                                negated: true,
-                            };
-                        }
+                    let list = self
+                        .flatten_expr_to_in_list(expr)
+                        .expect("failed to flatten");
+                    // check if op is =
+                    if let BinaryOperator::Eq = op {
+                        // rewrite to IN
+                        *node = Expr::InList {
+                            expr: left.clone(),
+                            list,
+                            negated: false,
+                        };
+                    }
+                    // if op is != rewrite to NOT IN
+                    else if let BinaryOperator::NotEq = op {
+                        *node = Expr::InList {
+                            expr: left.clone(),
+                            list,
+                            negated: true,
+                        };
                     }
                 }
             }
