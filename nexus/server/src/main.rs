@@ -371,6 +371,8 @@ impl ExtendedQueryHandler for NexusBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
+        let args = Args::parse();
+        let peerdb_fdw_mode = args.peerdb_fwd_mode;
         let (param_types, stmt, _format) = match target {
             StatementOrPortal::Statement(stmt) => {
                 let param_types = Some(stmt.parameter_types().clone());
@@ -408,8 +410,15 @@ impl ExtendedQueryHandler for NexusBackend {
                         executor.describe(stmt).await?
                     }
                 };
-                if let Some(_schema) = schema {
-                    Ok(DescribeResponse::no_data())
+                if let Some(described_schema) = schema {
+                    if peerdb_fdw_mode == "true" {
+                        Ok(DescribeResponse::no_data())
+                    } else {
+                        Ok(DescribeResponse::new(
+                            param_types,
+                            described_schema.fields.clone(),
+                        ))
+                    }
                 } else {
                     Ok(DescribeResponse::no_data())
                 }
@@ -513,6 +522,9 @@ struct Args {
     /// This is an optional parameter. If not provided, the MIRROR commands will not be supported.
     #[clap(long, env = "PEERDB_FLOW_SERVER_ADDRESS")]
     flow_api_url: Option<String>,
+
+    #[clap(long, env = "PEERDB_FDW_MODE", default_value = "false")]
+    peerdb_fwd_mode: String,
 }
 
 // Get catalog config from args

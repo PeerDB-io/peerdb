@@ -188,7 +188,7 @@ fn extended_query_protocol_no_params_catalog() {
 
     // run `select * from peers` as a prepared statement.
     let stmt = client
-        .prepare("select * from peers")
+        .prepare("SELECT * FROM peers;")
         .expect("Failed to prepare query");
 
     // run the prepared statement with no parameters.
