@@ -73,6 +73,10 @@ func (c *PostgresConnector) GetQRepPartitions(last *protos.QRepPartition) ([]*pr
 		}
 	}
 
+	// TODO I am currently returning only one partition for the entire range,
+	// but this can be changed to return multiple partitions for the range
+	// if this is past the max partition size which needs to be taken in as a
+	// configuration parameter
 	return []*protos.QRepPartition{
 		{
 			Config:      config,
@@ -180,6 +184,6 @@ func (c *PostgresConnector) PullQRepRecords(partition *protos.QRepPartition) (*m
 	return batch, nil
 }
 
-func (c *PostgresConnector) SyncQRepRecords(partition *protos.QRepPartition, records *model.RecordBatch) (int, error) {
+func (c *PostgresConnector) SyncQRepRecords(partition *protos.QRepPartition, records *model.QRecordBatch) (int, error) {
 	return 0, fmt.Errorf("SyncQRepRecords not implemented for postgres connector")
 }
