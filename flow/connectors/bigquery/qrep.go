@@ -8,21 +8,84 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/appengine/datastore"
 )
 
-func (c *BigQueryConnector) GetQRepPartitions(last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
+type QRecordValueSaver struct {
+	Record      *model.QRecord
+	PartitionID string
+}
+
+func (q *QRecordValueSaver) Save() (datastore.PropertyList, error) {
+	pl := make(datastore.PropertyList, len(*q.Record))
+	i := 0
+	for k, v := range *q.Record {
+		switch v.Kind {
+		case model.QValueKindFloat:
+			val, ok := v.Value.(float64)
+			if !ok {
+				return nil, fmt.Errorf("failed to convert %v to float64", v.Value)
+			}
+			pl[i] = datastore.Property{Name: k, Value: val}
+
+		case model.QValueKindInteger:
+			val, ok := v.Value.(int64)
+			if !ok {
+				return nil, fmt.Errorf("failed to convert %v to int64", v.Value)
+			}
+			pl[i] = datastore.Property{Name: k, Value: val}
+
+		case model.QValueKindBoolean:
+			val, ok := v.Value.(bool)
+			if !ok {
+				return nil, fmt.Errorf("failed to convert %v to bool", v.Value)
+			}
+			pl[i] = datastore.Property{Name: k, Value: val}
+
+		case model.QValueKindString:
+			val, ok := v.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("failed to convert %v to string", v.Value)
+			}
+			pl[i] = datastore.Property{Name: k, Value: val}
+
+		case model.QValueKindETime:
+			val, ok := v.Value.(*model.ExtendedTime)
+			if !ok {
+				return nil, fmt.Errorf("failed to convert %v to ExtendedTime", v.Value)
+			}
+			pl[i] = datastore.Property{Name: k, Value: val.Time}
+
+		default:
+			// return nil, fmt.Errorf("invalid QValueKind: %v", v.Kind)
+		}
+		i++
+	}
+	// add partition id to the property list
+	pl = append(pl, datastore.Property{Name: "PartitionID", Value: q.PartitionID})
+
+	// log the property list
+	fmt.Printf("PropertyList: %v\n", pl)
+
+	return pl, nil
+}
+
+func (c *BigQueryConnector) GetQRepPartitions(config *protos.QRepConfig,
+	last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
 	panic("not implemented")
 }
 
-func (c *BigQueryConnector) PullQRepRecords(partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+func (c *BigQueryConnector) PullQRepRecords(config *protos.QRepConfig,
+	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
 	panic("not implemented")
 }
 
 func (c *BigQueryConnector) SyncQRepRecords(
+	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	records *model.QRecordBatch) (int, error) {
 	// Ensure the destination table is available.
-	destTable := partition.Config.DestinationTableIdentifier
+	destTable := config.DestinationTableIdentifier
 	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
 	tblMetadata, err := bqTable.Metadata(c.ctx)
 	if err != nil {
@@ -33,7 +96,11 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	stagingTable := fmt.Sprintf("%s_staging", destTable)
 	stagingBQTable := c.client.Dataset(c.datasetID).Table(stagingTable)
 	if _, err := stagingBQTable.Metadata(c.ctx); err != nil {
-		metadata := tblMetadata
+		metadata := &bigquery.TableMetadata{
+			Name:   stagingTable,
+			Schema: tblMetadata.Schema,
+		}
+
 		// add partitionID column with string type
 		metadata.Schema = append(metadata.Schema, &bigquery.FieldSchema{
 			Name: "partitionID",
@@ -51,13 +118,17 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	// Step 2: Insert records into the staging table.
 	numRowsInserted := 0
 	for _, qRecord := range records.Records {
-		toPut := make(map[string]interface{})
-		for k, v := range *qRecord {
-			// TODO: handle complex types.
-			toPut[k] = v.Value
+		toPut := QRecordValueSaver{
+			Record:      qRecord,
+			PartitionID: partition.PartitionId,
 		}
-		toPut["partitionID"] = partition.PartitionId
-		err := inserter.Put(c.ctx, toPut)
+
+		pl, err := toPut.Save()
+		if err != nil {
+			return -1, fmt.Errorf("failed to convert QRecord to PropertyList: %v", err)
+		}
+
+		err = inserter.Put(c.ctx, pl)
 		if err != nil {
 			return -1, fmt.Errorf("failed to insert record into staging table: %v", err)
 		}

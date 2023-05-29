@@ -5,15 +5,18 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 )
 
-func (c *SnowflakeConnector) GetQRepPartitions(last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
+func (c *SnowflakeConnector) GetQRepPartitions(config *protos.QRepConfig,
+	last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
 	panic("not implemented")
 }
 
-func (c *SnowflakeConnector) PullQRepRecords(partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+func (c *SnowflakeConnector) PullQRepRecords(config *protos.QRepConfig,
+	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
 	panic("not implemented")
 }
 
 func (c *SnowflakeConnector) SyncQRepRecords(
+	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	records *model.QRecordBatch) (int, error) {
 	panic("not implemented")

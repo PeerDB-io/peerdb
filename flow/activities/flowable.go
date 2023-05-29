@@ -261,26 +261,36 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.Sta
 }
 
 // GetQRepPartitions returns the partitions for a given QRepConfig.
-func (a *FlowableActivity) GetQRepPartitions(ctx context.Context, last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
-	config := last.Config
+func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
+	config *protos.QRepConfig,
+	last *protos.QRepPartition) (*protos.QRepParitionResult, error) {
 	conn, err := connectors.GetConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(conn)
 
-	return conn.GetQRepPartitions(last)
+	partitions, err := conn.GetQRepPartitions(config, last)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
+	}
+
+	return &protos.QRepParitionResult{
+		Partitions: partitions,
+	}, nil
 }
 
 // ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
-func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context, partition *protos.QRepPartition) error {
-	srcConn, err := connectors.GetConnector(ctx, partition.Config.SourcePeer)
+func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition) error {
+	srcConn, err := connectors.GetConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
 	defer connectors.CloseConnector(srcConn)
 
-	destConn, err := connectors.GetConnector(ctx, partition.Config.DestinationPeer)
+	destConn, err := connectors.GetConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
@@ -288,14 +298,14 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context, partition
 
 	log.Printf("replicating partition %s\n", partition.PartitionId)
 
-	recordBatch, err := srcConn.PullQRepRecords(partition)
+	recordBatch, err := srcConn.PullQRepRecords(config, partition)
 	if err != nil {
 		return fmt.Errorf("failed to pull records: %w", err)
 	}
 
 	log.Printf("pulled %d records\n", len(recordBatch.Records))
 
-	res, err := destConn.SyncQRepRecords(partition, recordBatch)
+	res, err := destConn.SyncQRepRecords(config, partition, recordBatch)
 	if err != nil {
 		return fmt.Errorf("failed to sync records: %w", err)
 	}

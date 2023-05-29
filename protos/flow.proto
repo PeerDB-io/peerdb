@@ -107,10 +107,15 @@ message QRepConfig {
 
   string query = 6;
   string watermark_column = 7;
+
+  bool inital_copy_only = 8;
 }
 
 message QRepPartition {
-  QRepConfig config = 1;
   string partition_id = 2;
   PartitionRange range = 3;
+}
+
+message QRepParitionResult {
+  repeated QRepPartition partitions = 1;
 }

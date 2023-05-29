@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -11,18 +12,21 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (c *PostgresConnector) GetQRepPartitions(last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
-	config := last.Config
-
+func (c *PostgresConnector) GetQRepPartitions(config *protos.QRepConfig,
+	last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
 	// For the table `config.SourceTableIdentifier`
 	// Get the min, max value (inclusive) of `config.WatermarkColumn`
-	row := c.pool.QueryRow(c.ctx, "SELECT MIN($1), MAX($1) FROM $2",
-		config.WatermarkColumn, config.SourceTableIdentifier)
+	extremaQuery := fmt.Sprintf("SELECT MIN(%s), MAX(%s) FROM %s",
+		config.WatermarkColumn, config.WatermarkColumn, config.SourceTableIdentifier)
+	row := c.pool.QueryRow(c.ctx, extremaQuery)
 
 	var minValue, maxValue interface{}
 	if err := row.Scan(&minValue, &maxValue); err != nil {
 		return nil, fmt.Errorf("failed to get min, max value: %w", err)
 	}
+
+	// log the min, max value
+	fmt.Printf("minValue: %v, maxValue: %v\n", minValue, maxValue)
 
 	// Depending on the type of the minValue and maxValue, convert them into
 	// protos.TimestampPartitionRange or protos.IntPartitionRange
@@ -60,7 +64,7 @@ func (c *PostgresConnector) GetQRepPartitions(last *protos.QRepPartition) ([]*pr
 	}
 
 	// If last is not nil, then return partitions between last partition's max and current max
-	if last != nil {
+	if last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			if _, ok := maxValue.(int64); ok {
@@ -79,7 +83,6 @@ func (c *PostgresConnector) GetQRepPartitions(last *protos.QRepPartition) ([]*pr
 	// configuration parameter
 	return []*protos.QRepPartition{
 		{
-			Config:      config,
 			PartitionId: uuid.New().String(), // generate a new UUID as partition ID
 			Range:       &rangePartition,
 		},
@@ -89,16 +92,23 @@ func (c *PostgresConnector) GetQRepPartitions(last *protos.QRepPartition) ([]*pr
 func mapRowToQRecord(row pgx.Row, columns []string) (*model.QRecord, error) {
 	record := &model.QRecord{}
 
-	for _, column := range columns {
-		var val model.QValue
-		err := row.Scan(&val.Value)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
+	scanArgs := make([]interface{}, len(columns))
+	for i := range scanArgs {
+		scanArgs[i] = new(sql.RawBytes)
+	}
 
+	err := row.Scan(scanArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	for i, column := range columns {
+		var val model.QValue
+		rawBytes := scanArgs[i].(*sql.RawBytes)
 		switch v := val.Value.(type) {
 		case int32, int64:
 			val.Kind = model.QValueKindInteger
+			val.Value = string(scanArgs[i].(*sql.RawBytes))
 		case float32, float64:
 			val.Kind = model.QValueKindFloat
 		case bool:
@@ -124,7 +134,8 @@ func mapRowToQRecord(row pgx.Row, columns []string) (*model.QRecord, error) {
 	return record, nil
 }
 
-func (c *PostgresConnector) PullQRepRecords(partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+func (c *PostgresConnector) PullQRepRecords(config *protos.QRepConfig,
+	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
 	var rangeStart interface{}
 	var rangeEnd interface{}
 
@@ -139,8 +150,6 @@ func (c *PostgresConnector) PullQRepRecords(partition *protos.QRepPartition) (*m
 	default:
 		return nil, fmt.Errorf("unknown range type: %v", x)
 	}
-
-	config := partition.Config
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
@@ -159,6 +168,10 @@ func (c *PostgresConnector) PullQRepRecords(partition *protos.QRepPartition) (*m
 	for i, desc := range fieldDescriptions {
 		columnNames[i] = desc.Name
 	}
+
+	// log the number of field descriptions and column names
+	fmt.Printf("field descriptions: %v\n", fieldDescriptions)
+	fmt.Printf("column names: %v\n", columnNames)
 
 	// Initialize the record batch
 	batch := &model.QRecordBatch{
@@ -184,6 +197,7 @@ func (c *PostgresConnector) PullQRepRecords(partition *protos.QRepPartition) (*m
 	return batch, nil
 }
 
-func (c *PostgresConnector) SyncQRepRecords(partition *protos.QRepPartition, records *model.QRecordBatch) (int, error) {
+func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
+	partition *protos.QRepPartition, records *model.QRecordBatch) (int, error) {
 	return 0, fmt.Errorf("SyncQRepRecords not implemented for postgres connector")
 }

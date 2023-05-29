@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
@@ -31,7 +32,10 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow() {
 		s.NoError(err)
 	}
 
-	// TODO create test_qrep_flow on bigquery side
+	dstTableName := fmt.Sprintf("%s.%s", s.bqHelper.Config.DatasetId, "test_qrep_flow")
+	dstTableCmd := fmt.Sprintf("CREATE TABLE %s (id INT, key STRING, value STRING)", dstTableName)
+	err = s.bqHelper.RunCommand(dstTableCmd)
+	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:                "test_complete_qrep_flow",
@@ -47,8 +51,8 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow() {
 	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark)
 	s.NoError(err)
 
-	// TODO: make the workflow exit after 1 successful sync
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, &qrepConfig)
+	qrepConfig.InitalCopyOnly = true
+	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -57,9 +61,13 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	// TODO: verify that the data is correctly synced to the destination table
+	// verify that the data is correctly synced to the destination table
 	// on the bigquery side by querying the number of rows in the table on the
 	// bigquery side and comparing it to the number of rows in the source table (100)
+	count, err := s.bqHelper.CountRows("test_qrep_flow")
+	s.NoError(err)
+
+	s.Equal(100, count)
 
 	env.AssertExpectations(s.T())
 }

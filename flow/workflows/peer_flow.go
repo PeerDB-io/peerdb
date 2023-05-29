@@ -105,7 +105,10 @@ func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
 }
 
 // getChildWorkflowID returns the child workflow ID for a new sync flow.
-func (w *PeerFlowWorkflowExecution) getChildWorkflowID(ctx workflow.Context, prefix string, peerFlowName string) (string, error) {
+func (w *PeerFlowWorkflowExecution) getChildWorkflowID(
+	ctx workflow.Context,
+	prefix string,
+	peerFlowName string) (string, error) {
 	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		return fmt.Sprintf("%s-%s-%s", prefix, peerFlowName, uuid.New().String())
 	})

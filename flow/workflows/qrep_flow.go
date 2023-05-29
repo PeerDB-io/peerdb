@@ -29,20 +29,21 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig) *QRep
 }
 
 // GetPartitions returns the partitions to replicate.
-func (q *QRepFlowExecution) GetPartitions(ctx workflow.Context) ([]*protos.QRepPartition, error) {
+func (q *QRepFlowExecution) GetPartitions(ctx workflow.Context,
+	last *protos.QRepPartition) (*protos.QRepParitionResult, error) {
 	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
 
-	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config)
-	partitions := []*protos.QRepPartition{}
+	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last)
+	partitions := &protos.QRepParitionResult{}
 	if err := partitionsFuture.Get(ctx, &partitions); err != nil {
 		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
 
-	q.logger.Info("partitions to replicate - ", partitions)
+	q.logger.Info("partitions to replicate - ", len(partitions.Partitions))
 	return partitions, nil
 }
 
@@ -54,7 +55,8 @@ func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
-	if err := workflow.ExecuteActivity(ctx, flowable.ReplicateQRepPartition, partition).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx,
+		flowable.ReplicateQRepPartition, q.config, partition).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to replicate partition: %w", err)
 	}
 
@@ -84,16 +86,21 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 	//	 4. Wait for all the workflows to complete.
 	//   5. Sleep for a while and repeat the loop.
 
+	lastPartition := &protos.QRepPartition{
+		PartitionId: "not-application-partition",
+		Range:       nil,
+	}
+
 	q := NewQRepFlowExecution(ctx, config)
 	for {
-		partitions, err := q.GetPartitions(ctx)
+		partitions, err := q.GetPartitions(ctx, lastPartition)
 		if err != nil {
 			return fmt.Errorf("failed to get partitions: %w", err)
 		}
 
 		// start a new workflow for each partition
 		futures := []workflow.Future{}
-		for _, partition := range partitions {
+		for _, partition := range partitions.Partitions {
 			wid, err := q.getPartitionWorkflowID(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to get child workflow ID: %w", err)
@@ -105,7 +112,7 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 					MaximumAttempts: 10,
 				},
 			})
-			futures = append(futures, workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, partition))
+			futures = append(futures, workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, config, partition))
 		}
 
 		// wait for all the workflows to complete
@@ -115,13 +122,22 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 			}
 		}
 
+		if config.InitalCopyOnly {
+			q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+			break
+		}
+
+		// TODO (important): update the last partition
+
 		// sleep for a while and repeat the loop
 		time.Sleep(5 * time.Second)
 	}
+
+	return nil
 }
 
 // QRepPartitionWorkflow replicate a single partition.
-func QRepPartitionWorkflow(ctx workflow.Context, partition *protos.QRepPartition) error {
-	q := NewQRepFlowExecution(ctx, partition.Config)
+func QRepPartitionWorkflow(ctx workflow.Context, config *protos.QRepConfig, partition *protos.QRepPartition) error {
+	q := NewQRepFlowExecution(ctx, config)
 	return q.ReplicatePartition(ctx, partition)
 }
