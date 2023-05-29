@@ -5,7 +5,6 @@ go 1.19
 require (
 	cloud.google.com/go/bigquery v1.46.0
 	github.com/gin-gonic/gin v1.8.2
-	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jackc/pglogrepl v0.0.0-20221125161640-1e972958ba03
@@ -64,6 +63,7 @@ require (
 	github.com/gogo/status v1.1.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/mock v1.6.0 // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers v23.1.21+incompatible // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
