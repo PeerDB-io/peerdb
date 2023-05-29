@@ -104,6 +104,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                     .schema_from_query(&rewritten_query)
                     .await
                     .map_err(|e| {
+                        tracing::error!("error getting schema: {}", e);
                         PgWireError::ApiError(Box::new(PgError::Internal {
                             err_msg: format!("error getting schema: {}", e),
                         }))
@@ -118,6 +119,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                     .query_raw(&rewritten_query, std::iter::empty::<&str>())
                     .await
                     .map_err(|e| {
+                        tracing::error!("error executing query: {}", e);
                         PgWireError::ApiError(Box::new(PgError::Internal {
                             err_msg: format!("error executing query: {}", e),
                         }))
@@ -132,6 +134,7 @@ impl QueryExecutor for PostgresQueryExecutor {
             _ => {
                 let query_str = stmt.to_string();
                 let rows_affected = self.client.execute(&query_str, &[]).await.map_err(|e| {
+                    tracing::error!("error executing query: {}", e);
                     PgWireError::ApiError(Box::new(PgError::Internal {
                         err_msg: format!("error executing query: {}", e),
                     }))
@@ -148,6 +151,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                     .schema_from_query(&stmt.to_string())
                     .await
                     .map_err(|e| {
+                        tracing::error!("error getting schema: {}", e);
                         PgWireError::ApiError(Box::new(PgError::Internal {
                             err_msg: format!("error getting schema: {}", e),
                         }))
