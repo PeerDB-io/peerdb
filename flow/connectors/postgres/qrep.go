@@ -3,12 +3,15 @@ package connpostgres
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -89,10 +92,10 @@ func (c *PostgresConnector) GetQRepPartitions(config *protos.QRepConfig,
 	}, nil
 }
 
-func mapRowToQRecord(row pgx.Row, columns []string) (*model.QRecord, error) {
+func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord, error) {
 	record := &model.QRecord{}
 
-	scanArgs := make([]interface{}, len(columns))
+	scanArgs := make([]interface{}, len(fds))
 	for i := range scanArgs {
 		scanArgs[i] = new(sql.RawBytes)
 	}
@@ -102,33 +105,33 @@ func mapRowToQRecord(row pgx.Row, columns []string) (*model.QRecord, error) {
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 
-	for i, column := range columns {
-		var val model.QValue
+	for i, fd := range fds {
 		rawBytes := scanArgs[i].(*sql.RawBytes)
-		switch v := val.Value.(type) {
-		case int32, int64:
-			val.Kind = model.QValueKindInteger
-			val.Value = string(scanArgs[i].(*sql.RawBytes))
-		case float32, float64:
-			val.Kind = model.QValueKindFloat
-		case bool:
-			val.Kind = model.QValueKindBoolean
-		case string:
-			val.Kind = model.QValueKindString
-		case []interface{}:
-			val.Kind = model.QValueKindArray
-		case time.Time:
-			et, err := model.NewExtendedTime(v, model.DateTimeKindType, "")
+
+		// Determine the type of the value using the OID
+		oid := fd.DataTypeOID
+		switch oid {
+		case pgtype.Int4OID, pgtype.Int8OID:
+			val, _ := strconv.ParseInt(string(*rawBytes), 10, 64)
+			(*record)[fd.Name] = model.QValue{Kind: model.QValueKindInteger, Value: val}
+		case pgtype.Float4OID, pgtype.Float8OID:
+			val, _ := strconv.ParseFloat(string(*rawBytes), 64)
+			(*record)[fd.Name] = model.QValue{Kind: model.QValueKindFloat, Value: val}
+		case pgtype.BoolOID:
+			val, _ := strconv.ParseBool(string(*rawBytes))
+			(*record)[fd.Name] = model.QValue{Kind: model.QValueKindBoolean, Value: val}
+		case pgtype.TextOID:
+			(*record)[fd.Name] = model.QValue{Kind: model.QValueKindString, Value: string(*rawBytes)}
+		case pgtype.TimestampOID, pgtype.TimestamptzOID:
+			val, _ := time.Parse(time.RFC3339, string(*rawBytes))
+			et, err := model.NewExtendedTime(val, model.DateTimeKindType, "")
 			if err != nil {
 				return nil, fmt.Errorf("failed to create extended time: %w", err)
 			}
-			val.Value = et
-			val.Kind = model.QValueKindETime
+			(*record)[fd.Name] = model.QValue{Kind: model.QValueKindETime, Value: et}
 		default:
-			val.Kind = model.QValueKindInvalid
+			(*record)[fd.Name] = model.QValue{Kind: model.QValueKindInvalid, Value: nil}
 		}
-
-		(*record)[column] = val
 	}
 
 	return record, nil
@@ -164,14 +167,9 @@ func (c *PostgresConnector) PullQRepRecords(config *protos.QRepConfig,
 
 	// get column names from field descriptions
 	fieldDescriptions := rows.FieldDescriptions()
-	columnNames := make([]string, len(fieldDescriptions))
-	for i, desc := range fieldDescriptions {
-		columnNames[i] = desc.Name
-	}
 
 	// log the number of field descriptions and column names
 	fmt.Printf("field descriptions: %v\n", fieldDescriptions)
-	fmt.Printf("column names: %v\n", columnNames)
 
 	// Initialize the record batch
 	batch := &model.QRecordBatch{
@@ -181,7 +179,7 @@ func (c *PostgresConnector) PullQRepRecords(config *protos.QRepConfig,
 
 	// Map each row to a QRecord and add it to the batch
 	for rows.Next() {
-		record, err := mapRowToQRecord(rows, columnNames)
+		record, err := mapRowToQRecord(rows, fieldDescriptions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to map row to QRecord: %w", err)
 		}

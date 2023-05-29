@@ -8,7 +8,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/appengine/datastore"
 )
 
 type QRecordValueSaver struct {
@@ -16,58 +15,58 @@ type QRecordValueSaver struct {
 	PartitionID string
 }
 
-func (q *QRecordValueSaver) Save() (datastore.PropertyList, error) {
-	pl := make(datastore.PropertyList, len(*q.Record))
-	i := 0
+func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
+	bqValues := make(map[string]bigquery.Value, len(*q.Record))
+
 	for k, v := range *q.Record {
 		switch v.Kind {
 		case model.QValueKindFloat:
 			val, ok := v.Value.(float64)
 			if !ok {
-				return nil, fmt.Errorf("failed to convert %v to float64", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to float64", v.Value)
 			}
-			pl[i] = datastore.Property{Name: k, Value: val}
+			bqValues[k] = val
 
 		case model.QValueKindInteger:
 			val, ok := v.Value.(int64)
 			if !ok {
-				return nil, fmt.Errorf("failed to convert %v to int64", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to int64", v.Value)
 			}
-			pl[i] = datastore.Property{Name: k, Value: val}
+			bqValues[k] = val
 
 		case model.QValueKindBoolean:
 			val, ok := v.Value.(bool)
 			if !ok {
-				return nil, fmt.Errorf("failed to convert %v to bool", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to bool", v.Value)
 			}
-			pl[i] = datastore.Property{Name: k, Value: val}
+			bqValues[k] = val
 
 		case model.QValueKindString:
 			val, ok := v.Value.(string)
 			if !ok {
-				return nil, fmt.Errorf("failed to convert %v to string", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to string", v.Value)
 			}
-			pl[i] = datastore.Property{Name: k, Value: val}
+			bqValues[k] = val
 
 		case model.QValueKindETime:
 			val, ok := v.Value.(*model.ExtendedTime)
 			if !ok {
-				return nil, fmt.Errorf("failed to convert %v to ExtendedTime", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to ExtendedTime", v.Value)
 			}
-			pl[i] = datastore.Property{Name: k, Value: val.Time}
+			bqValues[k] = val.Time
 
 		default:
-			// return nil, fmt.Errorf("invalid QValueKind: %v", v.Kind)
+			// Skip invalid QValueKind
 		}
-		i++
 	}
-	// add partition id to the property list
-	pl = append(pl, datastore.Property{Name: "PartitionID", Value: q.PartitionID})
 
-	// log the property list
-	fmt.Printf("PropertyList: %v\n", pl)
+	// add partition id to the map
+	bqValues["PartitionID"] = q.PartitionID
 
-	return pl, nil
+	// log the bigquery values
+	// fmt.Printf("BigQuery Values: %v\n", bqValues)
+
+	return bqValues, "", nil
 }
 
 func (c *BigQueryConnector) GetQRepPartitions(config *protos.QRepConfig,
@@ -123,12 +122,8 @@ func (c *BigQueryConnector) SyncQRepRecords(
 			PartitionID: partition.PartitionId,
 		}
 
-		pl, err := toPut.Save()
-		if err != nil {
-			return -1, fmt.Errorf("failed to convert QRecord to PropertyList: %v", err)
-		}
-
-		err = inserter.Put(c.ctx, pl)
+		var vs bigquery.ValueSaver = toPut
+		err = inserter.Put(c.ctx, vs)
 		if err != nil {
 			return -1, fmt.Errorf("failed to insert record into staging table: %v", err)
 		}
@@ -140,8 +135,17 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	// append all the statements to one list
 	stmts := []string{}
 	stmts = append(stmts, "BEGIN TRANSACTION;")
-	paritionSelect := fmt.Sprintf("SELECT * FROM %s WHERE partitionID = '%s';", stagingTable, partition.PartitionId)
-	appendStmt := fmt.Sprintf("INSERT INTO %s %s", destTable, paritionSelect)
+
+	// col names for the destination table joined by comma
+	colNames := []string{}
+	for _, col := range tblMetadata.Schema {
+		colNames = append(colNames, col.Name)
+	}
+	colNamesStr := strings.Join(colNames, ", ")
+
+	paritionSelect := fmt.Sprintf("SELECT %s FROM %s.%s WHERE partitionID = '%s';",
+		colNamesStr, c.datasetID, stagingTable, partition.PartitionId)
+	appendStmt := fmt.Sprintf("INSERT INTO %s.%s %s", c.datasetID, destTable, paritionSelect)
 	stmts = append(stmts, appendStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 

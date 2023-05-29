@@ -144,7 +144,7 @@ func (b *BigQueryTestHelper) RunCommand(command string) error {
 }
 
 // CountRows(tableName) returns the number of rows in the given table.
-func (b *BigQueryTestHelper) CountRows(tableName string) (int64, error) {
+func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", b.Config.DatasetId, tableName)
 	it, err := b.client.Query(command).Read(context.Background())
 	if err != nil {
@@ -162,5 +162,10 @@ func (b *BigQueryTestHelper) CountRows(tableName string) (int64, error) {
 		}
 	}
 
-	return row[0].(int64), nil
+	cntI64, ok := row[0].(int64)
+	if !ok {
+		return 0, fmt.Errorf("failed to convert row count to int64")
+	}
+
+	return int(cntI64), nil
 }

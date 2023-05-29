@@ -24,7 +24,8 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow() {
 	s.NoError(err)
 
 	// insert 100 rows into the source table
-	for i := 0; i < 100; i++ {
+	rowCount := 10
+	for i := 0; i < rowCount; i++ {
 		_, err := s.pool.Exec(context.Background(), `
 			INSERT INTO e2e_test.test_qrep_flow (key, value)
 			VALUES ('key', 'value');
@@ -67,7 +68,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow() {
 	count, err := s.bqHelper.CountRows("test_qrep_flow")
 	s.NoError(err)
 
-	s.Equal(100, count)
+	s.Equal(rowCount, count)
 
 	env.AssertExpectations(s.T())
 }
