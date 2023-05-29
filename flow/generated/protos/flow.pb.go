@@ -786,6 +786,406 @@ func (x *SetupNormalizedTableOutput) GetAlreadyExists() bool {
 	return false
 }
 
+// partition ranges [start, end] inclusive
+type IntPartitionRange struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Start int64 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
+	End   int64 `protobuf:"varint,2,opt,name=end,proto3" json:"end,omitempty"`
+}
+
+func (x *IntPartitionRange) Reset() {
+	*x = IntPartitionRange{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[13]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *IntPartitionRange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IntPartitionRange) ProtoMessage() {}
+
+func (x *IntPartitionRange) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[13]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IntPartitionRange.ProtoReflect.Descriptor instead.
+func (*IntPartitionRange) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *IntPartitionRange) GetStart() int64 {
+	if x != nil {
+		return x.Start
+	}
+	return 0
+}
+
+func (x *IntPartitionRange) GetEnd() int64 {
+	if x != nil {
+		return x.End
+	}
+	return 0
+}
+
+type TimestampPartitionRange struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Start *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	End   *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+}
+
+func (x *TimestampPartitionRange) Reset() {
+	*x = TimestampPartitionRange{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[14]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *TimestampPartitionRange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TimestampPartitionRange) ProtoMessage() {}
+
+func (x *TimestampPartitionRange) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[14]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TimestampPartitionRange.ProtoReflect.Descriptor instead.
+func (*TimestampPartitionRange) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *TimestampPartitionRange) GetStart() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Start
+	}
+	return nil
+}
+
+func (x *TimestampPartitionRange) GetEnd() *timestamppb.Timestamp {
+	if x != nil {
+		return x.End
+	}
+	return nil
+}
+
+type PartitionRange struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// can be a timestamp range or an integer range
+	//
+	// Types that are assignable to Range:
+	//
+	//	*PartitionRange_IntRange
+	//	*PartitionRange_TimestampRange
+	Range isPartitionRange_Range `protobuf_oneof:"range"`
+}
+
+func (x *PartitionRange) Reset() {
+	*x = PartitionRange{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[15]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *PartitionRange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PartitionRange) ProtoMessage() {}
+
+func (x *PartitionRange) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[15]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PartitionRange.ProtoReflect.Descriptor instead.
+func (*PartitionRange) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{15}
+}
+
+func (m *PartitionRange) GetRange() isPartitionRange_Range {
+	if m != nil {
+		return m.Range
+	}
+	return nil
+}
+
+func (x *PartitionRange) GetIntRange() *IntPartitionRange {
+	if x, ok := x.GetRange().(*PartitionRange_IntRange); ok {
+		return x.IntRange
+	}
+	return nil
+}
+
+func (x *PartitionRange) GetTimestampRange() *TimestampPartitionRange {
+	if x, ok := x.GetRange().(*PartitionRange_TimestampRange); ok {
+		return x.TimestampRange
+	}
+	return nil
+}
+
+type isPartitionRange_Range interface {
+	isPartitionRange_Range()
+}
+
+type PartitionRange_IntRange struct {
+	IntRange *IntPartitionRange `protobuf:"bytes,1,opt,name=int_range,json=intRange,proto3,oneof"`
+}
+
+type PartitionRange_TimestampRange struct {
+	TimestampRange *TimestampPartitionRange `protobuf:"bytes,2,opt,name=timestamp_range,json=timestampRange,proto3,oneof"`
+}
+
+func (*PartitionRange_IntRange) isPartitionRange_Range() {}
+
+func (*PartitionRange_TimestampRange) isPartitionRange_Range() {}
+
+// protos for qrep
+type QRepConfig struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	FlowJobName                string `protobuf:"bytes,1,opt,name=flow_job_name,json=flowJobName,proto3" json:"flow_job_name,omitempty"`
+	SourcePeer                 *Peer  `protobuf:"bytes,2,opt,name=source_peer,json=sourcePeer,proto3" json:"source_peer,omitempty"`
+	DestinationPeer            *Peer  `protobuf:"bytes,3,opt,name=destination_peer,json=destinationPeer,proto3" json:"destination_peer,omitempty"`
+	SourceTableIdentifier      string `protobuf:"bytes,4,opt,name=source_table_identifier,json=sourceTableIdentifier,proto3" json:"source_table_identifier,omitempty"`
+	DestinationTableIdentifier string `protobuf:"bytes,5,opt,name=destination_table_identifier,json=destinationTableIdentifier,proto3" json:"destination_table_identifier,omitempty"`
+	Query                      string `protobuf:"bytes,6,opt,name=query,proto3" json:"query,omitempty"`
+	WatermarkColumn            string `protobuf:"bytes,7,opt,name=watermark_column,json=watermarkColumn,proto3" json:"watermark_column,omitempty"`
+	InitalCopyOnly             bool   `protobuf:"varint,8,opt,name=inital_copy_only,json=initalCopyOnly,proto3" json:"inital_copy_only,omitempty"`
+}
+
+func (x *QRepConfig) Reset() {
+	*x = QRepConfig{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[16]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *QRepConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QRepConfig) ProtoMessage() {}
+
+func (x *QRepConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[16]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QRepConfig.ProtoReflect.Descriptor instead.
+func (*QRepConfig) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *QRepConfig) GetFlowJobName() string {
+	if x != nil {
+		return x.FlowJobName
+	}
+	return ""
+}
+
+func (x *QRepConfig) GetSourcePeer() *Peer {
+	if x != nil {
+		return x.SourcePeer
+	}
+	return nil
+}
+
+func (x *QRepConfig) GetDestinationPeer() *Peer {
+	if x != nil {
+		return x.DestinationPeer
+	}
+	return nil
+}
+
+func (x *QRepConfig) GetSourceTableIdentifier() string {
+	if x != nil {
+		return x.SourceTableIdentifier
+	}
+	return ""
+}
+
+func (x *QRepConfig) GetDestinationTableIdentifier() string {
+	if x != nil {
+		return x.DestinationTableIdentifier
+	}
+	return ""
+}
+
+func (x *QRepConfig) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *QRepConfig) GetWatermarkColumn() string {
+	if x != nil {
+		return x.WatermarkColumn
+	}
+	return ""
+}
+
+func (x *QRepConfig) GetInitalCopyOnly() bool {
+	if x != nil {
+		return x.InitalCopyOnly
+	}
+	return false
+}
+
+type QRepPartition struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	PartitionId string          `protobuf:"bytes,2,opt,name=partition_id,json=partitionId,proto3" json:"partition_id,omitempty"`
+	Range       *PartitionRange `protobuf:"bytes,3,opt,name=range,proto3" json:"range,omitempty"`
+}
+
+func (x *QRepPartition) Reset() {
+	*x = QRepPartition{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[17]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *QRepPartition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QRepPartition) ProtoMessage() {}
+
+func (x *QRepPartition) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[17]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QRepPartition.ProtoReflect.Descriptor instead.
+func (*QRepPartition) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *QRepPartition) GetPartitionId() string {
+	if x != nil {
+		return x.PartitionId
+	}
+	return ""
+}
+
+func (x *QRepPartition) GetRange() *PartitionRange {
+	if x != nil {
+		return x.Range
+	}
+	return nil
+}
+
+type QRepParitionResult struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Partitions []*QRepPartition `protobuf:"bytes,1,rep,name=partitions,proto3" json:"partitions,omitempty"`
+}
+
+func (x *QRepParitionResult) Reset() {
+	*x = QRepParitionResult{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[18]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *QRepParitionResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QRepParitionResult) ProtoMessage() {}
+
+func (x *QRepParitionResult) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[18]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QRepParitionResult.ProtoReflect.Descriptor instead.
+func (*QRepParitionResult) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *QRepParitionResult) GetPartitions() []*QRepPartition {
+	if x != nil {
+		return x.Partitions
+	}
+	return nil
+}
+
 var File_flow_proto protoreflect.FileDescriptor
 
 var file_flow_proto_rawDesc = []byte{
@@ -929,9 +1329,67 @@ var file_flow_proto_rawDesc = []byte{
 	0x74, 0x61, 0x62, 0x6c, 0x65, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x12,
 	0x25, 0x0a, 0x0e, 0x61, 0x6c, 0x72, 0x65, 0x61, 0x64, 0x79, 0x5f, 0x65, 0x78, 0x69, 0x73, 0x74,
 	0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0d, 0x61, 0x6c, 0x72, 0x65, 0x61, 0x64, 0x79,
-	0x45, 0x78, 0x69, 0x73, 0x74, 0x73, 0x42, 0x12, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61,
-	0x74, 0x65, 0x64, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74,
-	0x6f, 0x33,
+	0x45, 0x78, 0x69, 0x73, 0x74, 0x73, 0x22, 0x3b, 0x0a, 0x11, 0x49, 0x6e, 0x74, 0x50, 0x61, 0x72,
+	0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x61, 0x6e, 0x67, 0x65, 0x12, 0x14, 0x0a, 0x05, 0x73,
+	0x74, 0x61, 0x72, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x05, 0x73, 0x74, 0x61, 0x72,
+	0x74, 0x12, 0x10, 0x0a, 0x03, 0x65, 0x6e, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03, 0x52, 0x03,
+	0x65, 0x6e, 0x64, 0x22, 0x79, 0x0a, 0x17, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70,
+	0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x61, 0x6e, 0x67, 0x65, 0x12, 0x30,
+	0x0a, 0x05, 0x73, 0x74, 0x61, 0x72, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e,
+	0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e,
+	0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x05, 0x73, 0x74, 0x61, 0x72, 0x74,
+	0x12, 0x2c, 0x0a, 0x03, 0x65, 0x6e, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e,
+	0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e,
+	0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x03, 0x65, 0x6e, 0x64, 0x22, 0xa9,
+	0x01, 0x0a, 0x0e, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x61, 0x6e, 0x67,
+	0x65, 0x12, 0x3d, 0x0a, 0x09, 0x69, 0x6e, 0x74, 0x5f, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x0b, 0x32, 0x1e, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x2e, 0x66, 0x6c,
+	0x6f, 0x77, 0x2e, 0x49, 0x6e, 0x74, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52,
+	0x61, 0x6e, 0x67, 0x65, 0x48, 0x00, 0x52, 0x08, 0x69, 0x6e, 0x74, 0x52, 0x61, 0x6e, 0x67, 0x65,
+	0x12, 0x4f, 0x0a, 0x0f, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x5f, 0x72, 0x61,
+	0x6e, 0x67, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x24, 0x2e, 0x70, 0x65, 0x65, 0x72,
+	0x64, 0x62, 0x2e, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d,
+	0x70, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x61, 0x6e, 0x67, 0x65, 0x48,
+	0x00, 0x52, 0x0e, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x61, 0x6e, 0x67,
+	0x65, 0x42, 0x07, 0x0a, 0x05, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x22, 0x89, 0x03, 0x0a, 0x0a, 0x51,
+	0x52, 0x65, 0x70, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x22, 0x0a, 0x0d, 0x66, 0x6c, 0x6f,
+	0x77, 0x5f, 0x6a, 0x6f, 0x62, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x0b, 0x66, 0x6c, 0x6f, 0x77, 0x4a, 0x6f, 0x62, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x33, 0x0a,
+	0x0b, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x5f, 0x70, 0x65, 0x65, 0x72, 0x18, 0x02, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x12, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x2e, 0x70, 0x65, 0x65, 0x72,
+	0x73, 0x2e, 0x50, 0x65, 0x65, 0x72, 0x52, 0x0a, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x50, 0x65,
+	0x65, 0x72, 0x12, 0x3d, 0x0a, 0x10, 0x64, 0x65, 0x73, 0x74, 0x69, 0x6e, 0x61, 0x74, 0x69, 0x6f,
+	0x6e, 0x5f, 0x70, 0x65, 0x65, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x12, 0x2e, 0x70,
+	0x65, 0x65, 0x72, 0x64, 0x62, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x73, 0x2e, 0x50, 0x65, 0x65, 0x72,
+	0x52, 0x0f, 0x64, 0x65, 0x73, 0x74, 0x69, 0x6e, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x50, 0x65, 0x65,
+	0x72, 0x12, 0x36, 0x0a, 0x17, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x5f, 0x74, 0x61, 0x62, 0x6c,
+	0x65, 0x5f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x18, 0x04, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x15, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x54, 0x61, 0x62, 0x6c, 0x65, 0x49,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x12, 0x40, 0x0a, 0x1c, 0x64, 0x65, 0x73,
+	0x74, 0x69, 0x6e, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x5f, 0x69,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x1a, 0x64, 0x65, 0x73, 0x74, 0x69, 0x6e, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x61, 0x62, 0x6c,
+	0x65, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x12, 0x14, 0x0a, 0x05, 0x71,
+	0x75, 0x65, 0x72, 0x79, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x71, 0x75, 0x65, 0x72,
+	0x79, 0x12, 0x29, 0x0a, 0x10, 0x77, 0x61, 0x74, 0x65, 0x72, 0x6d, 0x61, 0x72, 0x6b, 0x5f, 0x63,
+	0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x18, 0x07, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x77, 0x61, 0x74,
+	0x65, 0x72, 0x6d, 0x61, 0x72, 0x6b, 0x43, 0x6f, 0x6c, 0x75, 0x6d, 0x6e, 0x12, 0x28, 0x0a, 0x10,
+	0x69, 0x6e, 0x69, 0x74, 0x61, 0x6c, 0x5f, 0x63, 0x6f, 0x70, 0x79, 0x5f, 0x6f, 0x6e, 0x6c, 0x79,
+	0x18, 0x08, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0e, 0x69, 0x6e, 0x69, 0x74, 0x61, 0x6c, 0x43, 0x6f,
+	0x70, 0x79, 0x4f, 0x6e, 0x6c, 0x79, 0x22, 0x65, 0x0a, 0x0d, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61,
+	0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x21, 0x0a, 0x0c, 0x70, 0x61, 0x72, 0x74, 0x69,
+	0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x70,
+	0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x64, 0x12, 0x31, 0x0a, 0x05, 0x72, 0x61,
+	0x6e, 0x67, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1b, 0x2e, 0x70, 0x65, 0x65, 0x72,
+	0x64, 0x62, 0x2e, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f,
+	0x6e, 0x52, 0x61, 0x6e, 0x67, 0x65, 0x52, 0x05, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x22, 0x50, 0x0a,
+	0x12, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x73,
+	0x75, 0x6c, 0x74, 0x12, 0x3a, 0x0a, 0x0a, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e,
+	0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62,
+	0x2e, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74,
+	0x69, 0x6f, 0x6e, 0x52, 0x0a, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x42,
+	0x12, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x2f, 0x70, 0x72, 0x6f,
+	0x74, 0x6f, 0x73, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -946,7 +1404,7 @@ func file_flow_proto_rawDescGZIP() []byte {
 	return file_flow_proto_rawDescData
 }
 
-var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_flow_proto_goTypes = []interface{}{
 	(*FlowConnectionConfigs)(nil),      // 0: peerdb.flow.FlowConnectionConfigs
 	(*SyncFlowOptions)(nil),            // 1: peerdb.flow.SyncFlowOptions
@@ -961,31 +1419,45 @@ var file_flow_proto_goTypes = []interface{}{
 	(*TableSchema)(nil),                // 10: peerdb.flow.TableSchema
 	(*SetupNormalizedTableInput)(nil),  // 11: peerdb.flow.SetupNormalizedTableInput
 	(*SetupNormalizedTableOutput)(nil), // 12: peerdb.flow.SetupNormalizedTableOutput
-	nil,                                // 13: peerdb.flow.TableSchema.ColumnsEntry
-	(*Peer)(nil),                       // 14: peerdb.peers.Peer
-	(*timestamppb.Timestamp)(nil),      // 15: google.protobuf.Timestamp
+	(*IntPartitionRange)(nil),          // 13: peerdb.flow.IntPartitionRange
+	(*TimestampPartitionRange)(nil),    // 14: peerdb.flow.TimestampPartitionRange
+	(*PartitionRange)(nil),             // 15: peerdb.flow.PartitionRange
+	(*QRepConfig)(nil),                 // 16: peerdb.flow.QRepConfig
+	(*QRepPartition)(nil),              // 17: peerdb.flow.QRepPartition
+	(*QRepParitionResult)(nil),         // 18: peerdb.flow.QRepParitionResult
+	nil,                                // 19: peerdb.flow.TableSchema.ColumnsEntry
+	(*Peer)(nil),                       // 20: peerdb.peers.Peer
+	(*timestamppb.Timestamp)(nil),      // 21: google.protobuf.Timestamp
 }
 var file_flow_proto_depIdxs = []int32{
-	14, // 0: peerdb.flow.FlowConnectionConfigs.source:type_name -> peerdb.peers.Peer
-	14, // 1: peerdb.flow.FlowConnectionConfigs.destination:type_name -> peerdb.peers.Peer
+	20, // 0: peerdb.flow.FlowConnectionConfigs.source:type_name -> peerdb.peers.Peer
+	20, // 1: peerdb.flow.FlowConnectionConfigs.destination:type_name -> peerdb.peers.Peer
 	10, // 2: peerdb.flow.FlowConnectionConfigs.table_schema:type_name -> peerdb.flow.TableSchema
-	15, // 3: peerdb.flow.LastSyncState.last_synced_at:type_name -> google.protobuf.Timestamp
+	21, // 3: peerdb.flow.LastSyncState.last_synced_at:type_name -> google.protobuf.Timestamp
 	2,  // 4: peerdb.flow.StartFlowInput.last_sync_state:type_name -> peerdb.flow.LastSyncState
 	0,  // 5: peerdb.flow.StartFlowInput.flow_connection_configs:type_name -> peerdb.flow.FlowConnectionConfigs
 	1,  // 6: peerdb.flow.StartFlowInput.sync_flow_options:type_name -> peerdb.flow.SyncFlowOptions
 	0,  // 7: peerdb.flow.StartNormalizeInput.flow_connection_configs:type_name -> peerdb.flow.FlowConnectionConfigs
-	14, // 8: peerdb.flow.GetLastSyncedIDInput.peer_connection_config:type_name -> peerdb.peers.Peer
-	14, // 9: peerdb.flow.EnsurePullabilityInput.peer_connection_config:type_name -> peerdb.peers.Peer
-	14, // 10: peerdb.flow.CreateRawTableInput.peer_connection_config:type_name -> peerdb.peers.Peer
-	14, // 11: peerdb.flow.GetTableSchemaInput.peer_connection_config:type_name -> peerdb.peers.Peer
-	13, // 12: peerdb.flow.TableSchema.columns:type_name -> peerdb.flow.TableSchema.ColumnsEntry
-	14, // 13: peerdb.flow.SetupNormalizedTableInput.peer_connection_config:type_name -> peerdb.peers.Peer
+	20, // 8: peerdb.flow.GetLastSyncedIDInput.peer_connection_config:type_name -> peerdb.peers.Peer
+	20, // 9: peerdb.flow.EnsurePullabilityInput.peer_connection_config:type_name -> peerdb.peers.Peer
+	20, // 10: peerdb.flow.CreateRawTableInput.peer_connection_config:type_name -> peerdb.peers.Peer
+	20, // 11: peerdb.flow.GetTableSchemaInput.peer_connection_config:type_name -> peerdb.peers.Peer
+	19, // 12: peerdb.flow.TableSchema.columns:type_name -> peerdb.flow.TableSchema.ColumnsEntry
+	20, // 13: peerdb.flow.SetupNormalizedTableInput.peer_connection_config:type_name -> peerdb.peers.Peer
 	10, // 14: peerdb.flow.SetupNormalizedTableInput.source_table_schema:type_name -> peerdb.flow.TableSchema
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	21, // 15: peerdb.flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
+	21, // 16: peerdb.flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
+	13, // 17: peerdb.flow.PartitionRange.int_range:type_name -> peerdb.flow.IntPartitionRange
+	14, // 18: peerdb.flow.PartitionRange.timestamp_range:type_name -> peerdb.flow.TimestampPartitionRange
+	20, // 19: peerdb.flow.QRepConfig.source_peer:type_name -> peerdb.peers.Peer
+	20, // 20: peerdb.flow.QRepConfig.destination_peer:type_name -> peerdb.peers.Peer
+	15, // 21: peerdb.flow.QRepPartition.range:type_name -> peerdb.flow.PartitionRange
+	17, // 22: peerdb.flow.QRepParitionResult.partitions:type_name -> peerdb.flow.QRepPartition
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_flow_proto_init() }
@@ -1151,6 +1623,82 @@ func file_flow_proto_init() {
 				return nil
 			}
 		}
+		file_flow_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*IntPartitionRange); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_flow_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*TimestampPartitionRange); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_flow_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*PartitionRange); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_flow_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*QRepConfig); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_flow_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*QRepPartition); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_flow_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*QRepParitionResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
+	file_flow_proto_msgTypes[15].OneofWrappers = []interface{}{
+		(*PartitionRange_IntRange)(nil),
+		(*PartitionRange_TimestampRange)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1158,7 +1706,7 @@ func file_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_flow_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

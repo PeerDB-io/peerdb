@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"google.golang.org/api/iterator"
 )
 
 type BigQueryTestHelper struct {
@@ -20,6 +21,8 @@ type BigQueryTestHelper struct {
 	Config *protos.BigqueryConfig
 	// client to talk to BigQuery
 	client *bigquery.Client
+	// dataset to use for testing.
+	datasetName string
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
@@ -57,9 +60,10 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	}
 
 	return &BigQueryTestHelper{
-		runID:  runID,
-		Config: &config,
-		client: client,
+		runID:       runID,
+		Config:      &config,
+		client:      client,
+		datasetName: config.DatasetId,
 	}, nil
 }
 
@@ -127,4 +131,41 @@ func (b *BigQueryTestHelper) DropDataset() error {
 	}
 
 	return nil
+}
+
+// RunCommand runs the given command.
+func (b *BigQueryTestHelper) RunCommand(command string) error {
+	_, err := b.client.Query(command).Read(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to run command: %w", err)
+	}
+
+	return nil
+}
+
+// CountRows(tableName) returns the number of rows in the given table.
+func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
+	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", b.Config.DatasetId, tableName)
+	it, err := b.client.Query(command).Read(context.Background())
+	if err != nil {
+		return 0, fmt.Errorf("failed to run command: %w", err)
+	}
+
+	var row []bigquery.Value
+	for {
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to iterate over query results: %w", err)
+		}
+	}
+
+	cntI64, ok := row[0].(int64)
+	if !ok {
+		return 0, fmt.Errorf("failed to convert row count to int64")
+	}
+
+	return int(cntI64), nil
 }
