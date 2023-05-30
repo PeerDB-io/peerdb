@@ -51,6 +51,9 @@ type Connector interface {
 
 	///// QRep methods /////
 
+	// SetupQRepMetadataTables sets up the metadata tables for QRep.
+	SetupQRepMetadataTables(config *protos.QRepConfig) error
+
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
