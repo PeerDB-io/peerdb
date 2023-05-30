@@ -78,7 +78,7 @@ pub struct NexusBackend {
     peer_cursors: Arc<Mutex<PeerCursors>>,
     executors: Arc<DashMap<String, Arc<Box<dyn QueryExecutor>>>>,
     flow_handler: Arc<FlowHandler>,
-    peerdb_fdw_mode: Arc<String>,
+    peerdb_fdw_mode: bool,
 }
 
 impl NexusBackend {
@@ -86,7 +86,7 @@ impl NexusBackend {
         catalog: Arc<Mutex<Catalog>>,
         peer_connections: Arc<PeerConnectionTracker>,
         flow_api_server_addr: Option<String>,
-        peerdb_fdw_mode: String,
+        peerdb_fdw_mode: bool,
     ) -> Self {
         let query_parser = NexusQueryParser::new(catalog.clone());
         let flow_handler = Arc::new(FlowHandler::new(flow_api_server_addr));
@@ -98,7 +98,7 @@ impl NexusBackend {
             peer_cursors: Arc::new(Mutex::new(PeerCursors::new())),
             executors: Arc::new(DashMap::new()),
             flow_handler,
-            peerdb_fdw_mode: Arc::new(peerdb_fdw_mode),
+            peerdb_fdw_mode
         }
     }
 
@@ -412,7 +412,7 @@ impl ExtendedQueryHandler for NexusBackend {
                     }
                 };
                 if let Some(described_schema) = schema {
-                    if self.peerdb_fdw_mode.as_ref() == "true" {
+                    if self.peerdb_fdw_mode {
                         Ok(DescribeResponse::no_data())
                     } else {
                         Ok(DescribeResponse::new(
@@ -432,7 +432,7 @@ struct MakeNexusBackend {
     catalog: Arc<Mutex<Catalog>>,
     peer_connections: Arc<PeerConnectionTracker>,
     flow_server_addr: Option<String>,
-    peerdb_fdw_mode: String,
+    peerdb_fdw_mode: bool,
 }
 
 impl MakeNexusBackend {
@@ -440,7 +440,7 @@ impl MakeNexusBackend {
         catalog: Catalog,
         peer_connections: Arc<PeerConnectionTracker>,
         flow_server_addr: Option<String>,
-        peerdb_fdw_mode: String,
+        peerdb_fdw_mode: bool,
     ) -> Self {
         Self {
             catalog: Arc::new(Mutex::new(catalog)),
@@ -682,12 +682,16 @@ pub async fn main() -> anyhow::Result<()> {
 
         let authenticator_ref = authenticator.make();
 
-        let peerdb_fdw_mode = args.peerdb_fwd_mode.clone();
+        let peerdb_fdw_mode = match args.peerdb_fwd_mode.as_str() {
+            "false" => false,
+            _ => true
+        };
+
         let processor = Arc::new(MakeNexusBackend::new(
             catalog,
             Arc::new(tracker),
             flow_server_addr.clone(),
-            peerdb_fdw_mode.clone(),
+            peerdb_fdw_mode,
         ));
         let processor_ref = processor.make();
         tokio::task::Builder::new()
