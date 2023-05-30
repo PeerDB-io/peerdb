@@ -21,3 +21,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	records *model.QRecordBatch) (int, error) {
 	panic("not implemented")
 }
+
+func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
+	panic("SetupQRepMetadataTables not implemented for snowflake connector")
+}

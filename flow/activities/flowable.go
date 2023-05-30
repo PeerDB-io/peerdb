@@ -260,6 +260,17 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.Sta
 	return res, nil
 }
 
+// SetupQRepMetadataTables sets up the metadata tables for QReplication.
+func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
+	conn, err := connectors.GetConnector(ctx, config.DestinationPeer)
+	if err != nil {
+		return fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(conn)
+
+	return conn.SetupQRepMetadataTables(config)
+}
+
 // GetQRepPartitions returns the partitions for a given QRepConfig.
 func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	config *protos.QRepConfig,

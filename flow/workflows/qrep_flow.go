@@ -28,6 +28,22 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig) *QRep
 	}
 }
 
+// SetupMetadataTables creates the metadata tables for query based replication.
+func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
+	q.logger.Info("setting up metadata tables for peer flow - ", q.config.FlowJobName)
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute,
+	})
+
+	if err := workflow.ExecuteActivity(ctx, flowable.SetupQRepMetadataTables, q.config).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to setup metadata tables: %w", err)
+	}
+
+	q.logger.Info("metadata tables setup for peer flow - ", q.config.FlowJobName)
+	return nil
+}
+
 // GetPartitions returns the partitions to replicate.
 func (q *QRepFlowExecution) GetPartitions(ctx workflow.Context,
 	last *protos.QRepPartition) (*protos.QRepParitionResult, error) {
@@ -92,6 +108,12 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 	}
 
 	q := NewQRepFlowExecution(ctx, config)
+
+	err := q.SetupMetadataTables(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup metadata tables: %w", err)
+	}
+
 	for {
 		partitions, err := q.GetPartitions(ctx, lastPartition)
 		if err != nil {
