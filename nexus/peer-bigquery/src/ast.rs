@@ -3,9 +3,8 @@ use std::ops::ControlFlow;
 use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
-    visit_expressions_mut, visit_function_arguments, visit_function_arguments_mut,
-    visit_relations_mut, Array, BinaryOperator, DataType, DateTimeField, Expr, Function,
-    FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, TimezoneInfo,
+    visit_expressions_mut, visit_relations_mut, Array, BinaryOperator, DataType, DateTimeField,
+    Expr, Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, TimezoneInfo,
 };
 
 #[derive(Default)]
