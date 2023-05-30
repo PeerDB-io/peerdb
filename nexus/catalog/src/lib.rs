@@ -176,8 +176,7 @@ impl Catalog {
             .prepare_typed("SELECT id FROM peers WHERE name = $1", &[types::Type::TEXT])
             .await?;
 
-        self
-            .pg
+        self.pg
             .query_opt(&stmt, &[&peer_name])
             .await?
             .map(|row| row.get(0))

@@ -92,3 +92,5 @@ SELECT * FROM bq_test.events WHERE id = ANY(CAST(ARRAY[1] AS BIGINT[]));
 SELECT * FROM bq_test.events WHERE id = ANY(ARRAY[1]);
 
 SELECT * FROM bq_test.events WHERE id = ANY(CAST('{1}' AS BIGINT[]));
+SELECT * FROM bq_test.events WHERE os = ANY(ARRAY['mac']::text[]);
+SELECT * FROM bq_test.events WHERE os = ANY(CAST(ARRAY['mac'] as text[]));
