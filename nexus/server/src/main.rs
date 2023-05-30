@@ -683,8 +683,8 @@ pub async fn main() -> anyhow::Result<()> {
         let authenticator_ref = authenticator.make();
 
         let peerdb_fdw_mode = match args.peerdb_fwd_mode.as_str() {
-            "false" => false,
-            _ => true
+            "true" => true,
+            _ => false
         };
 
         let processor = Arc::new(MakeNexusBackend::new(
