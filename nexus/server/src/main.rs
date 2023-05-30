@@ -554,7 +554,7 @@ impl ServerParameterProvider for NexusServerParameterProvider {
         params.insert("server_version".to_owned(), "14".to_owned());
         params.insert("server_encoding".to_owned(), "UTF8".to_owned());
         params.insert("client_encoding".to_owned(), "UTF8".to_owned());
-        params.insert("DateStyle".to_owned(), "ISO YMD".to_owned());
+        params.insert("DateStyle".to_owned(), "ISO, MDY".to_owned());
         params.insert("integer_datetimes".to_owned(), "on".to_owned());
 
         Some(params)
