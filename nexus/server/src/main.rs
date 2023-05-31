@@ -35,11 +35,7 @@ use rand::Rng;
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{
-    fmt::{self, format},
-    prelude::*,
-    EnvFilter,
-};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cursor;
 
@@ -259,7 +255,7 @@ impl NexusBackend {
             }
             Some(Config::PostgresConfig(ref c)) => {
                 let peername = Some(peer.name.clone());
-                let executor = peer_postgres::PostgresQueryExecutor::new(peername, &c)
+                let executor = peer_postgres::PostgresQueryExecutor::new(peername, c)
                     .await
                     .unwrap();
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
@@ -459,7 +455,7 @@ impl MakeHandler for MakeNexusBackend {
             self.catalog.clone(),
             self.peer_connections.clone(),
             self.flow_server_addr.clone(),
-            self.peerdb_fdw_mode.clone(),
+            self.peerdb_fdw_mode,
         ))
     }
 }
@@ -682,12 +678,7 @@ pub async fn main() -> anyhow::Result<()> {
 
         let authenticator_ref = authenticator.make();
 
-        // let peerdb_fdw_mode = matches!(args.peerdb_fwd_mode.as_str(), "true");
-
-        // this is true for now to make upgrades easier.
-        // TODO kaushik - remove this hack.
-        let peerdb_fdw_mode = true;
-
+        let peerdb_fdw_mode = matches!(args.peerdb_fwd_mode.as_str(), "true");
         let processor = Arc::new(MakeNexusBackend::new(
             catalog,
             Arc::new(tracker),
