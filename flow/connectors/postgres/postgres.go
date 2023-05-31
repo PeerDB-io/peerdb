@@ -85,7 +85,8 @@ func (c *PostgresConnector) GetLastSyncBatchId(jobName string) (int64, error) {
 func (c *PostgresConnector) GetLastNormalizeBatchId(jobName string) (int64, error) {
 	panic("not implemented")
 }
-func (c *PostgresConnector) GetDistinctTableNamesInBatch(flowJobName string, syncBatchID int64, normalizeBatchID int64) ([]string, error) {
+func (c *PostgresConnector) GetDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
+	normalizeBatchID int64) ([]string, error) {
 	panic("not implemented")
 }
 
@@ -113,7 +114,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	cdc, err := NewPostgresCDCSource(&PostrgesCDCConfig{
 		AppContext:            c.ctx,
 		Connection:            replPool,
-		SrcTableIdNameMapping: req.SrcTableIdNameMapping,
+		SrcTableIdNameMapping: req.SrcTableIDNameMapping,
 		Slot:                  slotName,
 		Publication:           publicationName,
 		TableNameMapping:      req.TableNameMapping,

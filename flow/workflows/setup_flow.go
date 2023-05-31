@@ -263,7 +263,8 @@ func (s *SetupFlowExecution) executeSetupFlow(
 }
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
-func SetupFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) (*protos.FlowConnectionConfigs, error) {
+func SetupFlowWorkflow(ctx workflow.Context,
+	config *protos.FlowConnectionConfigs) (*protos.FlowConnectionConfigs, error) {
 	setupFlowState := &SetupFlowState{
 		PeerFlowName: config.FlowJobName,
 		Progress:     []string{},

@@ -16,7 +16,7 @@ type PullRecordsRequest struct {
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
 	//relId to name Mapping
-	SrcTableIdNameMapping map[uint32]string
+	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
 	TableNameMapping map[string]string
 }

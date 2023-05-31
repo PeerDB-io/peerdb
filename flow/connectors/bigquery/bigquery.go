@@ -277,11 +277,14 @@ func (c *BigQueryConnector) GetLastNormalizeBatchId(jobName string) (int64, erro
 	}
 }
 
-func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64, normalizeBatchID int64) ([]string, error) {
+func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
+	normalizeBatchID int64) ([]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
-	query := fmt.Sprintf("SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <=%d", c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
+	query := fmt.Sprintf(`SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s
+	 WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d`,
+		c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
 	// Run the query
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
@@ -691,7 +694,9 @@ func (c *BigQueryConnector) getAppendStagingToRawStmt(
 	rawTableName string, stagingTableName string, stagingBatchID int64,
 ) string {
 	return fmt.Sprintf(
-		"INSERT INTO %s.%s SELECT _peerdb_uid,_peerdb_timestamp,_peerdb_timestamp_nanos,_peerdb_destination_table_name,_peerdb_data,_peerdb_record_type,_peerdb_match_data,_peerdb_batch_id FROM %s.%s WHERE _peerdb_staging_batch_id = %d;",
+		`INSERT INTO %s.%s SELECT _peerdb_uid,_peerdb_timestamp,_peerdb_timestamp_nanos,
+		_peerdb_destination_table_name,_peerdb_data,_peerdb_record_type,_peerdb_match_data,
+		_peerdb_batch_id FROM %s.%s WHERE _peerdb_staging_batch_id = %d;`,
 		c.datasetID, rawTableName, c.datasetID, stagingTableName, stagingBatchID)
 }
 
@@ -883,8 +888,11 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	flattenedProjs = append(flattenedProjs, "_peerdb_record_type")
 
 	// normalize anything between last normalized batch id to last sync batchid
-	return fmt.Sprintf("WITH _peerdb_flattened AS (SELECT %s FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <=%d and _peerdb_destination_table_name='%s')",
-		strings.Join(flattenedProjs, ", "), m.Dataset, m.RawTable, m.NormalizeBatchID, m.SyncBatchID, m.NormalizedTable)
+	return fmt.Sprintf(`WITH _peerdb_flattened AS
+	 (SELECT %s FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d and
+	 _peerdb_destination_table_name='%s')`,
+		strings.Join(flattenedProjs, ", "), m.Dataset, m.RawTable, m.NormalizeBatchID,
+		m.SyncBatchID, m.NormalizedTable)
 }
 
 // generateDeDupedCTE generates a de-duped CTE.

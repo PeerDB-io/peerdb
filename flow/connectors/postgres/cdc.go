@@ -18,7 +18,7 @@ import (
 type PostgresCDCSource struct {
 	ctx                   context.Context
 	conn                  *pgxpool.Pool
-	SrcTableIdNameMapping map[uint32]string
+	SrcTableIDNameMapping map[uint32]string
 	TableNameMapping      map[string]string
 	slot                  string
 	publication           string
@@ -41,7 +41,7 @@ func NewPostgresCDCSource(cdcConfing *PostrgesCDCConfig) (*PostgresCDCSource, er
 	return &PostgresCDCSource{
 		ctx:                   cdcConfing.AppContext,
 		conn:                  cdcConfing.Connection,
-		SrcTableIdNameMapping: cdcConfing.SrcTableIdNameMapping,
+		SrcTableIDNameMapping: cdcConfing.SrcTableIdNameMapping,
 		TableNameMapping:      cdcConfing.TableNameMapping,
 		slot:                  cdcConfing.Slot,
 		publication:           cdcConfing.Publication,
@@ -232,7 +232,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 	msg *pglogrepl.InsertMessage,
 ) (model.Record, error) {
 
-	tableName, exists := p.SrcTableIdNameMapping[msg.RelationID]
+	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil
 	}
@@ -264,7 +264,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	msg *pglogrepl.UpdateMessage,
 ) (model.Record, error) {
 
-	tableName, exists := p.SrcTableIdNameMapping[msg.RelationID]
+	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil
 	}
@@ -302,7 +302,7 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	msg *pglogrepl.DeleteMessage,
 ) (model.Record, error) {
 
-	tableName, exists := p.SrcTableIdNameMapping[msg.RelationID]
+	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil
 	}

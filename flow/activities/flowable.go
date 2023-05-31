@@ -215,7 +215,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 
 	records, err := src.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:           input.FlowConnectionConfigs.FlowJobName,
-		SrcTableIdNameMapping: input.FlowConnectionConfigs.SrcTableIdNameMapping,
+		SrcTableIDNameMapping: input.FlowConnectionConfigs.SrcTableIdNameMapping,
 		TableNameMapping:      input.FlowConnectionConfigs.TableNameMapping,
 		LastSyncState:         input.LastSyncState,
 		MaxBatchSize:          uint32(input.SyncFlowOptions.BatchSize),
