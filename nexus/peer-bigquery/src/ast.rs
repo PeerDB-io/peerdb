@@ -3,8 +3,9 @@ use std::ops::ControlFlow;
 use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
-    visit_expressions_mut, visit_relations_mut, Array, BinaryOperator, DataType, DateTimeField,
-    Expr, Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, TimezoneInfo,
+    visit_expressions_mut, visit_relations_mut, visit_setexpr_mut, Array, BinaryOperator, DataType,
+    DateTimeField, Expr, Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, SetExpr,
+    SetOperator, SetQuantifier, TimezoneInfo,
 };
 
 #[derive(Default)]
@@ -210,6 +211,26 @@ impl BigqueryAst {
                     });
                     a[1] = FunctionArg::Unnamed(FunctionArgExpr::Expr(tmp));
                 }
+            }
+
+            ControlFlow::<()>::Continue(())
+        });
+
+        // Replace UNION with UNION DISTINCT (only if there is no SetQuantifier after UNION)
+        visit_setexpr_mut(query, |node| {
+            if let SetExpr::SetOperation {
+                op: SetOperator::Union,
+                set_quantifier: SetQuantifier::None,
+                left,
+                right,
+            } = node
+            {
+                *node = SetExpr::SetOperation {
+                    op: SetOperator::Union,
+                    set_quantifier: SetQuantifier::Distinct,
+                    left: left.clone(),
+                    right: right.clone(),
+                };
             }
 
             ControlFlow::<()>::Continue(())
