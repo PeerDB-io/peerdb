@@ -18,5 +18,6 @@ jobs:
           workdir: ./flow
           reporter: github-pr-review
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          golangci_lint_flags: "--timeout 10m"
         env:
           REVIEWDOG_TOKEN: ${{ secrets.REVIEWDOG_TOKEN }}
