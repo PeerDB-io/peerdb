@@ -1,22 +1,32 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
-import "peers.proto";
+import "./peers.proto";
 
 option go_package = "generated/protos";
 
 package peerdb.flow;
 
+message tableNameMapping {
+  string sourceTableName = 1;
+  string destinationTableName = 2;
+}
+
 message FlowConnectionConfigs {
   peerdb.peers.Peer source = 1;
   peerdb.peers.Peer destination = 2;
   string flow_job_name = 3;
-  string source_table_identifier = 4;
-  string destination_table_identifier = 5;
-  TableSchema table_schema = 6;
+  TableSchema table_schema = 4;
+  map<string, string> tableNameMapping = 5;
+  map<uint32, string> srcTableIdNameMapping = 6;
+  map<string, TableSchema> tableNameSchemaMapping = 7;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
+
+message NormalizeFlowOptions {
+  int32 batch_size = 1;
+}
 
 message LastSyncState {
   int64 checkpoint = 1;
@@ -44,10 +54,15 @@ message EnsurePullabilityInput {
   string source_table_identifier = 3;
 }
 
+message SetupReplicationInput {
+  peerdb.peers.Peer peer_connection_config = 1;
+  string flow_job_name = 2;
+  map<string, string> tableNameMapping = 3;
+}
+
 message CreateRawTableInput {
   peerdb.peers.Peer peer_connection_config = 1;
-  string destination_table_identifier = 2;
-  string flow_job_name = 3;
+  string flow_job_name = 2;
 }
 
 message CreateRawTableOutput { string table_identifier = 1; }
