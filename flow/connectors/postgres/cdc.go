@@ -172,7 +172,6 @@ func (p *PostgresCDCSource) consumeStream(
 			log.Debugf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime)
 			rec, err := p.processMessage(xld)
-
 			if err != nil {
 				return nil, fmt.Errorf("error processing message: %w", err)
 			}

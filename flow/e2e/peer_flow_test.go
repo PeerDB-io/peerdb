@@ -225,6 +225,7 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
 
+
 	_, err := s.pool.Exec(context.Background(), `
 		CREATE TABLE e2e_test.test_char_table (
 			id SERIAL PRIMARY KEY,

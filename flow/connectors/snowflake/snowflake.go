@@ -262,7 +262,8 @@ func (c *SnowflakeConnector) GetTableSchema(
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+	req *protos.SetupNormalizedTableInput,
+) (*protos.SetupNormalizedTableOutput, error) {
 	normalizedTableInfo, err := parseTableInfo(req.TableIdentifier, req.SourceTableSchema)
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
