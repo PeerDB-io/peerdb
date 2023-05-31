@@ -1,0 +1,15 @@
+on: [pull_request]
+jobs:
+  golangci-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_CHECKOUT }}
+
+      - name: golangci-lint
+        uses: reviewdog/action-golangci-lint@v2
+        with:
+          workdir: ./flow
