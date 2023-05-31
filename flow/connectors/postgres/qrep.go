@@ -16,7 +16,8 @@ import (
 )
 
 func (c *PostgresConnector) GetQRepPartitions(config *protos.QRepConfig,
-	last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
+	last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
 	// For the table `config.SourceTableIdentifier`
 	// Get the min, max value (inclusive) of `config.WatermarkColumn`
 	extremaQuery := fmt.Sprintf("SELECT MIN(%s), MAX(%s) FROM %s",
@@ -138,7 +139,8 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 }
 
 func (c *PostgresConnector) PullQRepRecords(config *protos.QRepConfig,
-	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+	partition *protos.QRepPartition,
+) (*model.QRecordBatch, error) {
 	var rangeStart interface{}
 	var rangeEnd interface{}
 
@@ -196,7 +198,8 @@ func (c *PostgresConnector) PullQRepRecords(config *protos.QRepConfig,
 }
 
 func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
-	partition *protos.QRepPartition, records *model.QRecordBatch) (int, error) {
+	partition *protos.QRepPartition, records *model.QRecordBatch,
+) (int, error) {
 	return 0, fmt.Errorf("SyncQRepRecords not implemented for postgres connector")
 }
 

@@ -225,7 +225,8 @@ func (c *SnowflakeConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*p
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+	req *protos.SetupNormalizedTableInput,
+) (*protos.SetupNormalizedTableOutput, error) {
 	normalizedTableInfo, err := parseTableInfo(req.TableIdentifier, req.SourceTableSchema)
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
@@ -545,7 +546,8 @@ func getRawTableIdentifier(jobName string, tableIdentifier string) string {
 }
 
 func (c *SnowflakeConnector) insertRecordsInRawTable(schemaIdentifier string, rawTableIdentifier string,
-	snowflakeRawRecords []snowflakeRawRecord, syncRecordsTx *sql.Tx) error {
+	snowflakeRawRecords []snowflakeRawRecord, syncRecordsTx *sql.Tx,
+) error {
 	rawRecordsData := make([]any, 0)
 
 	for _, record := range snowflakeRawRecords {
@@ -560,7 +562,8 @@ func (c *SnowflakeConnector) insertRecordsInRawTable(schemaIdentifier string, ra
 }
 
 func (c *SnowflakeConnector) generateAndExecuteMergeStatement(sourceTableInfo *tableInfo, destinationTableIdentifier string,
-	rawTableIdentifier string, syncBatchID int64, normalizeBatchID int64, normalizeRecordsTx *sql.Tx) error {
+	rawTableIdentifier string, syncBatchID int64, normalizeBatchID int64, normalizeRecordsTx *sql.Tx,
+) error {
 	normalizedTableSchema := sourceTableInfo.tableSchema
 	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))

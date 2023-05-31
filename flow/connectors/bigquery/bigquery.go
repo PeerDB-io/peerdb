@@ -324,7 +324,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	records := make([]StagingBQRecord, 0)
 
-	var first = true
+	first := true
 	var firstCP int64 = 0
 	var lastCP int64 = 0
 
@@ -520,7 +520,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	// normalize anything between last normalized batch id to last sync batchid
 	mergeStmts := mergeGen.GenerateMergeStmts()
 
-	//update metadata to make the last normalized batch id to the recent last sync batch id.
+	// update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
 		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name = '%s';",
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
@@ -532,9 +532,9 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 
-	//put this within a transaction
-	//TODO - not truncating rows in staging table as of now.
-	//err = c.truncateTable(staging...)
+	// put this within a transaction
+	// TODO - not truncating rows in staging table as of now.
+	// err = c.truncateTable(staging...)
 
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
@@ -642,7 +642,8 @@ func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedChec
 
 // getAppendStagingToRawStmt returns the statement to append the staging table to the raw table.
 func (c *BigQueryConnector) getAppendStagingToRawStmt(
-	rawTableName string, stagingTableName string, stagingBatchID int64) string {
+	rawTableName string, stagingTableName string, stagingBatchID int64,
+) string {
 	return fmt.Sprintf(
 		"INSERT INTO %s.%s SELECT _peerdb_uid,_peerdb_timestamp,_peerdb_timestamp_nanos,_peerdb_data,_peerdb_record_type,_peerdb_match_data,_peerdb_batch_id FROM %s.%s WHERE _peerdb_staging_batch_id = %d;",
 		c.datasetID, rawTableName, c.datasetID, stagingTableName, stagingBatchID)
@@ -682,7 +683,8 @@ func (c *BigQueryConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
 func (c *BigQueryConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+	req *protos.SetupNormalizedTableInput,
+) (*protos.SetupNormalizedTableOutput, error) {
 	// convert the column names and types to bigquery types
 	sourceSchema := req.SourceTableSchema
 

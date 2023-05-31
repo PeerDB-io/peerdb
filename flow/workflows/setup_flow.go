@@ -152,7 +152,8 @@ func (s *SetupFlowExecution) createRawTable(
 // fetchTableSchemaAndSetupNormalizedTables fetches the table schema for the source table and
 // sets up the normalized tables on the destination peer.
 func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
-	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs) (*protos.TableSchema, error) {
+	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs,
+) (*protos.TableSchema, error) {
 	s.logger.Info("fetching table schema for peer flow - ", s.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{

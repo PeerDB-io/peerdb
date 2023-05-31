@@ -20,8 +20,7 @@ type FetchConfigActivityInput struct {
 
 // FetchConfigActivity is an activity that fetches the config for the specified peer flow.
 // This activity is invoked by the PeerFlowWorkflow.
-type FetchConfigActivity struct {
-}
+type FetchConfigActivity struct{}
 
 // FetchConfig retrieves the source and destination config.
 func (a *FetchConfigActivity) FetchConfig(

@@ -46,7 +46,8 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 
 // GetPartitions returns the partitions to replicate.
 func (q *QRepFlowExecution) GetPartitions(ctx workflow.Context,
-	last *protos.QRepPartition) (*protos.QRepParitionResult, error) {
+	last *protos.QRepPartition,
+) (*protos.QRepParitionResult, error) {
 	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{

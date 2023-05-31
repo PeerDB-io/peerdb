@@ -81,6 +81,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 func (c *PostgresConnector) GetLastSyncBatchId(jobName string) (int64, error) {
 	panic("not implemented")
 }
+
 func (c *PostgresConnector) GetLastNormalizeBatchId(jobName string) (int64, error) {
 	panic("not implemented")
 }
@@ -292,7 +293,8 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
 func (c *PostgresConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+	req *protos.SetupNormalizedTableInput,
+) (*protos.SetupNormalizedTableOutput, error) {
 	panic("not implemented")
 }
 

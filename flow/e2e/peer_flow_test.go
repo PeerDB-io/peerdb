@@ -96,6 +96,7 @@ func (s *E2EPeerFlowTestSuite) setupBigQuery() error {
 // Implement SetupAllSuite interface to setup the test suite
 func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	// seed the random number generator with current time
+
 	rand.Seed(time.Now().UnixNano())
 
 	err := s.setupPostgres()
