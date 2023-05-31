@@ -1,4 +1,7 @@
+name: GolangCI-Lint
+
 on: [pull_request]
+
 jobs:
   golangci-lint:
     runs-on: ubuntu-latest

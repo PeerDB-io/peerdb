@@ -102,7 +102,11 @@ func (c *BigQueryConnector) SyncQRepRecords(
 
 	done, err := c.isPartitionSynced(partition.PartitionId)
 	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
+		return 0, fmt.Errorf(
+			"failed to check if partition %s is synced: %w",
+			partition.PartitionId,
+			err,
+		)
 	}
 
 	if done {
@@ -180,7 +184,11 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	appendStmt := fmt.Sprintf("INSERT INTO %s.%s %s", c.datasetID, destTable, paritionSelect)
 	stmts = append(stmts, appendStmt)
 
-	insertMetadataStmt, err := c.createMetadataInsertStatement(partition, config.FlowJobName, startTime)
+	insertMetadataStmt, err := c.createMetadataInsertStatement(
+		partition,
+		config.FlowJobName,
+		startTime,
+	)
 	if err != nil {
 		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
@@ -241,7 +249,11 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 	if err == nil {
 		// table exists, check if the schema matches
 		if !reflect.DeepEqual(meta.Schema, qRepMetadataSchema) {
-			return fmt.Errorf("table %s.%s already exists with different schema", c.datasetID, qRepMetadataTableName)
+			return fmt.Errorf(
+				"table %s.%s already exists with different schema",
+				c.datasetID,
+				qRepMetadataTableName,
+			)
 		} else {
 			return nil
 		}
@@ -252,7 +264,12 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 		Schema: qRepMetadataSchema,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, qRepMetadataTableName, err)
+		return fmt.Errorf(
+			"failed to create table %s.%s: %w",
+			c.datasetID,
+			qRepMetadataTableName,
+			err,
+		)
 	}
 
 	return nil

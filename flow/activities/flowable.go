@@ -26,7 +26,10 @@ type IFlowable interface {
 	SetupMetadataTables(ctx context.Context, config *protos.Peer) error
 	// GetLastSyncedID returns the last synced ID for the flowable.
 	// This typically corresponds to the LastLSN for Postgres and similar for other databases.
-	GetLastSyncedID(ctx context.Context, config *protos.GetLastSyncedIDInput) (*protos.LastSyncState, error)
+	GetLastSyncedID(
+		ctx context.Context,
+		config *protos.GetLastSyncedIDInput,
+	) (*protos.LastSyncState, error)
 	// EnsurePullability ensurses that the flowable is pullable, i.e, table exists and requisite
 	// slots and publications are set up.
 	EnsurePullability(ctx context.Context, config *protos.EnsurePullabilityInput) error
@@ -37,7 +40,10 @@ type IFlowable interface {
 	) (*protos.CreateRawTableOutput, error)
 	// Normalization Setup Methods
 	// GetTableSchema returns the schema of a table.
-	GetTableSchema(ctx context.Context, config *protos.GetTableSchemaInput) (*protos.TableSchema, error)
+	GetTableSchema(
+		ctx context.Context,
+		config *protos.GetTableSchemaInput,
+	) (*protos.TableSchema, error)
 	// CreateNormalizedTable sets up the normalized table on the flowable.
 	CreateNormalizedTable(ctx context.Context,
 		config *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error)
@@ -50,7 +56,10 @@ type IFlowable interface {
 	SetupQRepMetadataTables(ctx context.Context, config *protos.Peer) error
 
 	// GetQRepPartitions returns the partitions for a given QRepConfig.
-	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig) ([]*protos.QRepPartition, error)
+	GetQRepPartitions(
+		ctx context.Context,
+		config *protos.QRepConfig,
+	) ([]*protos.QRepPartition, error)
 
 	// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
 	ReplicateQRepPartition(ctx context.Context, partition *protos.QRepPartition) error
@@ -173,7 +182,10 @@ func (a *FlowableActivity) CreateNormalizedTable(
 }
 
 // StartFlow implements IFlowable.StartFlow.
-func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlowInput) (*model.SyncResponse, error) {
+func (a *FlowableActivity) StartFlow(
+	ctx context.Context,
+	input *protos.StartFlowInput,
+) (*model.SyncResponse, error) {
 	conn := input.FlowConnectionConfigs
 
 	src, err := connectors.GetConnector(ctx, conn.Source)
@@ -225,7 +237,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	return res, nil
 }
 
-func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.StartNormalizeInput) (*model.NormalizeResponse, error) {
+func (a *FlowableActivity) StartNormalize(
+	ctx context.Context,
+	input *protos.StartNormalizeInput,
+) (*model.NormalizeResponse, error) {
 	conn := input.FlowConnectionConfigs
 
 	src, err := connectors.GetConnector(ctx, conn.Source)
@@ -261,7 +276,10 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.Sta
 }
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.
-func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
+func (a *FlowableActivity) SetupQRepMetadataTables(
+	ctx context.Context,
+	config *protos.QRepConfig,
+) error {
 	conn, err := connectors.GetConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)

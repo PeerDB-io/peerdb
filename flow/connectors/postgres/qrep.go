@@ -121,7 +121,10 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 			val, _ := strconv.ParseBool(string(*rawBytes))
 			(*record)[fd.Name] = model.QValue{Kind: model.QValueKindBoolean, Value: val}
 		case pgtype.TextOID:
-			(*record)[fd.Name] = model.QValue{Kind: model.QValueKindString, Value: string(*rawBytes)}
+			(*record)[fd.Name] = model.QValue{
+				Kind:  model.QValueKindString,
+				Value: string(*rawBytes),
+			}
 		case pgtype.TimestampOID, pgtype.TimestamptzOID:
 			val, _ := time.Parse(time.RFC3339, string(*rawBytes))
 			et, err := model.NewExtendedTime(val, model.DateTimeKindType, "")

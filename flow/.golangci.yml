@@ -1,6 +1,7 @@
 run:
   skip-dirs:
     - generated
+  timeout: 15m
 linters:
   enable:
     - dogsled
