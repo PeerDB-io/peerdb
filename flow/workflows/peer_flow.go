@@ -186,7 +186,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, flowConnectionConfigs)
-		if err := setupFlowFuture.Get(setupFlowCtx, &flowConnectionConfigs.TableSchema); err != nil {
+		if err := setupFlowFuture.Get(setupFlowCtx, &flowConnectionConfigs); err != nil {
 			return &w.PeerFlowState, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
 

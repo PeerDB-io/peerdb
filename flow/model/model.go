@@ -9,14 +9,16 @@ import (
 type PullRecordsRequest struct {
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
-	// TableIdentifier is the identifier for the table.
-	SourceTableIdentifier string
 	// LastSyncedID is the last ID that was synced.
 	LastSyncState *protos.LastSyncState
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
+	//relId to name Mapping
+	SrcTableIdNameMapping map[uint32]string
+	// source to destination table name mapping
+	TableNameMapping map[string]string
 }
 
 type Record interface {
@@ -25,8 +27,12 @@ type Record interface {
 }
 
 type InsertRecord struct {
+	// Name of the destination table
+	DestinationTableName string
 	// CheckPointID is the ID of the record.
 	CheckPointID int64
+	// CommitID is the ID of the commit corresponding to this record.
+	CommitID int64
 	// Items is a map of column name to value.
 	Items map[string]interface{}
 }
@@ -39,6 +45,8 @@ func (r *InsertRecord) GetCheckPointID() int64 {
 type UpdateRecord struct {
 	// CheckPointID is the ID of the record.
 	CheckPointID int64
+	// Name of the destination table
+	DestinationTableName string
 	// OldItems is a map of column name to value.
 	OldItems map[string]interface{}
 	// NewItems is a map of column name to value.
@@ -51,6 +59,8 @@ func (r *UpdateRecord) GetCheckPointID() int64 {
 }
 
 type DeleteRecord struct {
+	// Name of the destination table
+	DestinationTableName string
 	// CheckPointID is the ID of the record.
 	CheckPointID int64
 	// Items is a map of column name to value.
@@ -67,10 +77,7 @@ type RecordBatch struct {
 	Records []Record
 	// FirstCheckPointID is the first ID that was pulled.
 	FirstCheckPointID int64
-	// LastCheckPointID is the last ID that was pulled.
-	// This is monotonically increasing, if a checkpoint with a greater ID is reached
-	// on the destination, that means that the destination has already processed all
-	// records up to this point.
+	// LastCheckPointID is the last ID of the commit that corresponds to this batch.
 	LastCheckPointID int64
 }
 
@@ -78,14 +85,10 @@ type SyncRecordsRequest struct {
 	Records *RecordBatch
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
-	// TableIdentifier is the identifier for the raw table.
-	DestinationTableIdentifier string
 }
 
 type NormalizeRecordsRequest struct {
 	FlowJobName string
-	// TableIdentifier is the identifier for the raw table.
-	DestinationTableIdentifier string
 }
 
 type SyncResponse struct {

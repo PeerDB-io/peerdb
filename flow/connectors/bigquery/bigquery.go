@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
@@ -49,6 +50,27 @@ type BigQueryServiceAccount struct {
 	TokenURI                string `json:"token_uri"`
 	AuthProviderX509CertURL string `json:"auth_provider_x509_cert_url"`
 	ClientX509CertURL       string `json:"client_x509_cert_url"`
+}
+
+// BigQueryConnector is a Connector implementation for BigQuery.
+type BigQueryConnector struct {
+	ctx                    context.Context
+	bqConfig               *protos.BigqueryConfig
+	client                 *bigquery.Client
+	tableNameSchemaMapping map[string]*protos.TableSchema
+	datasetID              string
+}
+
+type StagingBQRecord struct {
+	uid                  string    `bigquery:"_peerdb_uid"`
+	timestamp            time.Time `bigquery:"_peerdb_timestamp"`
+	timestampNanos       int64     `bigquery:"_peerdb_timestamp_nanos"`
+	destinationTableName string    `bigquery:"_peerdb_destination_table_name"`
+	data                 string    `bigquery:"_peerdb_data"`
+	recordType           int       `bigquery:"_peerdb_record_type"`
+	matchData            string    `bigquery:"_peerdb_match_data"`
+	batchID              int64     `bigquery:"_peerdb_batch_id"`
+	stagingBatchID       int64     `bigquery:"_peerdb_staging_batch_id"`
 }
 
 // Create BigQueryServiceAccount from BigqueryConfig
@@ -107,15 +129,6 @@ func (bqsa *BigQueryServiceAccount) CreateClient(ctx context.Context) (*bigquery
 	return client, nil
 }
 
-// BigQueryConnector is a Connector implementation for BigQuery.
-type BigQueryConnector struct {
-	ctx         context.Context
-	bqConfig    *protos.BigqueryConfig
-	client      *bigquery.Client
-	tableSchema *protos.TableSchema
-	datasetID   string
-}
-
 // NewBigQueryConnector creates a new BigQueryConnector from a PeerConnectionConfig.
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
 	bqsa, err := NewBigQueryServiceAccount(config)
@@ -156,8 +169,8 @@ func (c *BigQueryConnector) NeedsSetupMetadataTables() bool {
 }
 
 // InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
-func (c *BigQueryConnector) InitializeTableSchema(req *protos.TableSchema) error {
-	c.tableSchema = req
+func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
+	c.tableNameSchemaMapping = req
 	return nil
 }
 
@@ -264,33 +277,56 @@ func (c *BigQueryConnector) GetLastNormalizeBatchId(jobName string) (int64, erro
 	}
 }
 
+func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64, normalizeBatchID int64) ([]string, error) {
+	rawTableName := c.getRawTableName(flowJobName)
+
+	// Prepare the query to retrieve distinct tables in that batch
+	query := fmt.Sprintf("SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <=%d", c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
+	// Run the query
+	q := c.client.Query(query)
+	it, err := q.Read(c.ctx)
+	if err != nil {
+		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
+		return nil, err
+	}
+
+	// Store the distinct values in an array
+	var distinctTableNames []string
+	for {
+		var row []bigquery.Value
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(row) > 0 {
+			value := row[0].(string)
+			distinctTableNames = append(distinctTableNames, value)
+		}
+	}
+
+	return distinctTableNames, nil
+}
+
 // PullRecords pulls records from the source.
 func (c *BigQueryConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
 	panic("not implemented")
 }
 
-type StagingBQRecord struct {
-	uid            string    `bigquery:"_peerdb_uid"`
-	timestamp      time.Time `bigquery:"_peerdb_timestamp"`
-	timestampNanos int64     `bigquery:"_peerdb_timestamp_nanos"`
-	data           string    `bigquery:"_peerdb_data"`
-	recordType     int       `bigquery:"_peerdb_record_type"`
-	matchData      string    `bigquery:"_peerdb_match_data"`
-	batchID        int64     `bigquery:"_peerdb_batch_id"`
-	stagingBatchID int64     `bigquery:"_peerdb_staging_batch_id"`
-}
-
 // ValueSaver interface for bqRecord
 func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 	return map[string]bigquery.Value{
-		"_peerdb_uid":              r.uid,
-		"_peerdb_timestamp":        r.timestamp,
-		"_peerdb_timestamp_nanos":  r.timestampNanos,
-		"_peerdb_data":             r.data,
-		"_peerdb_record_type":      r.recordType,
-		"_peerdb_match_data":       r.matchData,
-		"_peerdb_batch_id":         r.batchID,
-		"_peerdb_staging_batch_id": r.stagingBatchID,
+		"_peerdb_uid":                    r.uid,
+		"_peerdb_timestamp":              r.timestamp,
+		"_peerdb_timestamp_nanos":        r.timestampNanos,
+		"_peerdb_destination_table_name": r.destinationTableName,
+		"_peerdb_data":                   r.data,
+		"_peerdb_record_type":            r.recordType,
+		"_peerdb_match_data":             r.matchData,
+		"_peerdb_batch_id":               r.batchID,
+		"_peerdb_staging_batch_id":       r.stagingBatchID,
 	}, bigquery.NoDedupeID, nil
 }
 
@@ -298,11 +334,11 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 // currently only supports inserts,updates and deletes
 // more record types will be added in the future.
 func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	rawTableName := c.getRawTableName(req.FlowJobName, req.DestinationTableIdentifier)
+	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	log.Printf("pushing %d records to %s.%s", len(req.Records.Records), c.datasetID, rawTableName)
 
-	stagingTableName := c.getStagingTableName(req.FlowJobName, req.DestinationTableIdentifier)
+	stagingTableName := c.getStagingTableName(req.FlowJobName)
 	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
 	err := c.truncateTable(stagingTableName)
 	if err != nil {
@@ -326,7 +362,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	first := true
 	var firstCP int64 = 0
-	var lastCP int64 = 0
+	lastCP := req.Records.LastCheckPointID
 
 	// loop over req.Records
 	for _, record := range req.Records.Records {
@@ -344,14 +380,15 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 			// append the row to the records
 			records = append(records, StagingBQRecord{
-				uid:            uuid.New().String(),
-				timestamp:      time.Now(),
-				timestampNanos: time.Now().UnixNano(),
-				data:           string(json),
-				recordType:     0,
-				matchData:      "",
-				batchID:        syncBatchID,
-				stagingBatchID: stagingBatchID,
+				uid:                  uuid.New().String(),
+				timestamp:            time.Now(),
+				timestampNanos:       time.Now().UnixNano(),
+				destinationTableName: r.DestinationTableName,
+				data:                 string(json),
+				recordType:           0,
+				matchData:            "",
+				batchID:              syncBatchID,
+				stagingBatchID:       stagingBatchID,
 			})
 		case *model.UpdateRecord:
 			// create the 5 required fields
@@ -373,14 +410,15 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 			// append the row to the records
 			records = append(records, StagingBQRecord{
-				uid:            uuid.New().String(),
-				timestamp:      time.Now(),
-				timestampNanos: time.Now().UnixNano(),
-				data:           string(newItemsJSON),
-				recordType:     1,
-				matchData:      string(oldItemsJSON),
-				batchID:        syncBatchID,
-				stagingBatchID: stagingBatchID,
+				uid:                  uuid.New().String(),
+				timestamp:            time.Now(),
+				timestampNanos:       time.Now().UnixNano(),
+				destinationTableName: r.DestinationTableName,
+				data:                 string(newItemsJSON),
+				recordType:           1,
+				matchData:            string(oldItemsJSON),
+				batchID:              syncBatchID,
+				stagingBatchID:       stagingBatchID,
 			})
 		case *model.DeleteRecord:
 			// create the 4 required fields
@@ -396,14 +434,15 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 			// append the row to the records
 			records = append(records, StagingBQRecord{
-				uid:            uuid.New().String(),
-				timestamp:      time.Now(),
-				timestampNanos: time.Now().UnixNano(),
-				data:           string(itemsJSON),
-				recordType:     2,
-				matchData:      string(itemsJSON),
-				batchID:        syncBatchID,
-				stagingBatchID: stagingBatchID,
+				uid:                  uuid.New().String(),
+				timestamp:            time.Now(),
+				timestampNanos:       time.Now().UnixNano(),
+				destinationTableName: r.DestinationTableName,
+				data:                 string(itemsJSON),
+				recordType:           2,
+				matchData:            string(itemsJSON),
+				batchID:              syncBatchID,
+				stagingBatchID:       stagingBatchID,
 			})
 		default:
 			return nil, fmt.Errorf("record type %T not supported", r)
@@ -413,7 +452,6 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			firstCP = record.GetCheckPointID()
 			first = false
 		}
-		lastCP = record.GetCheckPointID()
 	}
 
 	numRecords := len(records)
@@ -426,6 +464,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	// insert the records into the staging table
+	// TODO HANDLE SAI
 	stagingInserter := stagingTable.Inserter()
 	stagingInserter.IgnoreUnknownValues = true
 
@@ -482,9 +521,9 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 // NormalizeRecords normalizes raw table to destination table.
 func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	rawTableName := c.getRawTableName(req.FlowJobName, req.DestinationTableIdentifier)
+	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	// get last batchid that has been synced
+	// change this to getlastnormalizebatchid to separate states for sync and normalize [TODO/SAI]
 	syncBatchID, err := c.GetLastSyncBatchId(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
@@ -508,27 +547,32 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			Done: true,
 		}, nil
 	}
-
-	mergeGen := &MergeStmtGenerator{
-		Dataset:               c.datasetID,
-		NormalizedTable:       req.DestinationTableIdentifier,
-		RawTable:              rawTableName,
-		NormalizedTableSchema: c.tableSchema,
-		SyncBatchID:           syncBatchID,
-		NormalizeBatchID:      normalizeBatchID,
+	distinctTableNames, err := c.getDistinctTableNamesInBatch(req.FlowJobName, syncBatchID, normalizeBatchID)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
 	}
-	// normalize anything between last normalized batch id to last sync batchid
-	mergeStmts := mergeGen.GenerateMergeStmts()
+	stmts := []string{}
+	// append all the statements to one list
+	stmts = append(stmts, "BEGIN TRANSACTION;")
 
-	// update metadata to make the last normalized batch id to the recent last sync batch id.
+	for _, tableName := range distinctTableNames {
+		mergeGen := &MergeStmtGenerator{
+			Dataset:               c.datasetID,
+			NormalizedTable:       tableName,
+			RawTable:              rawTableName,
+			NormalizedTableSchema: c.tableNameSchemaMapping[tableName],
+			SyncBatchID:           syncBatchID,
+			NormalizeBatchID:      normalizeBatchID,
+		}
+		// normalize anything between last normalized batch id to last sync batchid
+		mergeStmts := mergeGen.GenerateMergeStmts()
+		stmts = append(stmts, mergeStmts...)
+	}
+	log.Printf("MERGE statement SAI %s", strings.Join(stmts, "\n"))
+	//update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
 		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name = '%s';",
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
-
-	// append all the statements to one list
-	stmts := []string{}
-	stmts = append(stmts, "BEGIN TRANSACTION;")
-	stmts = append(stmts, mergeStmts...)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 
@@ -541,7 +585,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, fmt.Errorf("failed to execute statements %s in a transaction: %v", strings.Join(stmts, "\n"), err)
 	}
 
-	log.Printf("merge raw records from %s.%s to %s", c.datasetID, rawTableName, req.DestinationTableIdentifier)
+	//log.Printf("merge raw records to corresponding tables", c.datasetID, rawTableName, req.DestinationTableIdentifier)
 
 	return &model.NormalizeResponse{
 		Done:         true,
@@ -558,12 +602,13 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 // _peerdb_record_type INT - 0 for insert, 1 for update, 2 for delete
 // _peerdb_match_data STRING - json of the match data (only for update and delete)
 func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	rawTableName := c.getRawTableName(req.FlowJobName, req.DestinationTableIdentifier)
+	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	schema := bigquery.Schema{
 		{Name: "_peerdb_uid", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_timestamp", Type: bigquery.TimestampFieldType},
 		{Name: "_peerdb_timestamp_nanos", Type: bigquery.IntegerFieldType},
+		{Name: "_peerdb_destination_table_name", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_data", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_record_type", Type: bigquery.IntegerFieldType},
 		{Name: "_peerdb_match_data", Type: bigquery.StringFieldType},
@@ -574,6 +619,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		{Name: "_peerdb_uid", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_timestamp", Type: bigquery.TimestampFieldType},
 		{Name: "_peerdb_timestamp_nanos", Type: bigquery.IntegerFieldType},
+		{Name: "_peerdb_destination_table_name", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_data", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_record_type", Type: bigquery.IntegerFieldType},
 		{Name: "_peerdb_match_data", Type: bigquery.StringFieldType},
@@ -606,7 +652,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	}
 
 	// also create a staging table for this raw table
-	stagingTableName := c.getStagingTableName(req.FlowJobName, req.DestinationTableIdentifier)
+	stagingTableName := c.getStagingTableName(req.FlowJobName)
 	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
 	err = stagingTable.Create(c.ctx, &bigquery.TableMetadata{
 		Schema: staging_schema,
@@ -645,7 +691,7 @@ func (c *BigQueryConnector) getAppendStagingToRawStmt(
 	rawTableName string, stagingTableName string, stagingBatchID int64,
 ) string {
 	return fmt.Sprintf(
-		"INSERT INTO %s.%s SELECT _peerdb_uid,_peerdb_timestamp,_peerdb_timestamp_nanos,_peerdb_data,_peerdb_record_type,_peerdb_match_data,_peerdb_batch_id FROM %s.%s WHERE _peerdb_staging_batch_id = %d;",
+		"INSERT INTO %s.%s SELECT _peerdb_uid,_peerdb_timestamp,_peerdb_timestamp_nanos,_peerdb_destination_table_name,_peerdb_data,_peerdb_record_type,_peerdb_match_data,_peerdb_batch_id FROM %s.%s WHERE _peerdb_staging_batch_id = %d;",
 		c.datasetID, rawTableName, c.datasetID, stagingTableName, stagingBatchID)
 }
 
@@ -727,26 +773,28 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 }
 
 // EnsurePullability ensures that the given table is pullable, implementing the Connector interface.
-func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityInput) error {
+func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityInput) (uint32, error) {
 	panic("not implemented")
 }
 
+// SetupReplication sets up replication for the source connector.
+func (c *BigQueryConnector) SetupReplication(req *protos.SetupReplicationInput) error {
+	log.Errorf("panicking at call to SetupReplication for Snowflake flow connector")
+	panic("SetupReplication is not implemented for the Snowflake flow connector")
+}
+
 // getRawTableName returns the raw table name for the given table identifier.
-func (c *BigQueryConnector) getRawTableName(flowJobName string, tableIdentifier string) string {
-	// replace all non-alphanumeric characters with _
-	tableIdentifier = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(tableIdentifier, "_")
+func (c *BigQueryConnector) getRawTableName(flowJobName string) string {
 	// replace all non-alphanumeric characters with _
 	flowJobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(flowJobName, "_")
-	return fmt.Sprintf("_peerdb_raw_%s_%s", flowJobName, tableIdentifier)
+	return fmt.Sprintf("_peerdb_raw_%s", flowJobName)
 }
 
 // getStagingTableName returns the staging table name for the given table identifier.
-func (c *BigQueryConnector) getStagingTableName(flowJobName string, tableIdentifier string) string {
-	// replace all non-alphanumeric characters with _
-	tableIdentifier = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(tableIdentifier, "_")
+func (c *BigQueryConnector) getStagingTableName(flowJobName string) string {
 	// replace all non-alphanumeric characters with _
 	flowJobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(flowJobName, "_")
-	return fmt.Sprintf("_peerdb_staging_%s_%s", flowJobName, tableIdentifier)
+	return fmt.Sprintf("_peerdb_staging_%s", flowJobName)
 }
 
 // truncateTable truncates a table.
@@ -815,7 +863,9 @@ func (m *MergeStmtGenerator) GenerateMergeStmts() []string {
 
 	mergeStmt := m.generateMergeStmt()
 
-	return []string{createTempTableStmt, mergeStmt}
+	dropTempTableStmt := "DROP TABLE _peerdb_de_duplicated_data;"
+
+	return []string{createTempTableStmt, mergeStmt, dropTempTableStmt}
 }
 
 // generateFlattenedCTE generates a flattened CTE.
@@ -833,8 +883,8 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	flattenedProjs = append(flattenedProjs, "_peerdb_record_type")
 
 	// normalize anything between last normalized batch id to last sync batchid
-	return fmt.Sprintf("WITH _peerdb_flattened AS (SELECT %s FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <=%d)",
-		strings.Join(flattenedProjs, ", "), m.Dataset, m.RawTable, m.NormalizeBatchID, m.SyncBatchID)
+	return fmt.Sprintf("WITH _peerdb_flattened AS (SELECT %s FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <=%d and _peerdb_destination_table_name='%s')",
+		strings.Join(flattenedProjs, ", "), m.Dataset, m.RawTable, m.NormalizeBatchID, m.SyncBatchID, m.NormalizedTable)
 }
 
 // generateDeDupedCTE generates a de-duped CTE.

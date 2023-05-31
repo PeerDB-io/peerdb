@@ -85,6 +85,9 @@ func (c *PostgresConnector) GetLastSyncBatchId(jobName string) (int64, error) {
 func (c *PostgresConnector) GetLastNormalizeBatchId(jobName string) (int64, error) {
 	panic("not implemented")
 }
+func (c *PostgresConnector) GetDistinctTableNamesInBatch(flowJobName string, syncBatchID int64, normalizeBatchID int64) ([]string, error) {
+	panic("not implemented")
+}
 
 // PullRecords pulls records from the source.
 func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
@@ -93,11 +96,6 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 
 	// Publication name would be the job name prefixed with "peerflow_pub_"
 	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
-
-	schemaTable, err := parseSchemaTable(req.SourceTableIdentifier)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing schema and table: %w", err)
-	}
 
 	// ensure that replication is set to database
 	connConfig, err := pgxpool.ParseConfig(c.connStr)
@@ -112,17 +110,13 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
-	relID, err := c.getRelIDForTable(schemaTable)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get relation id for table: %w", err)
-	}
-
 	cdc, err := NewPostgresCDCSource(&PostrgesCDCConfig{
-		AppContext:  c.ctx,
-		Connection:  replPool,
-		RelID:       relID,
-		Slot:        slotName,
-		Publication: publicationName,
+		AppContext:            c.ctx,
+		Connection:            replPool,
+		SrcTableIdNameMapping: req.SrcTableIdNameMapping,
+		Slot:                  slotName,
+		Publication:           publicationName,
+		TableNameMapping:      req.TableNameMapping,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
@@ -191,7 +185,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	s *SlotCheckResult,
 	slot string,
 	publication string,
-	schemaTable *SchemaTable,
+	tableNameMapping map[string]string,
 ) error {
 	if !s.SlotExists {
 		// Create the logical replication slot
@@ -202,10 +196,19 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return fmt.Errorf("error creating replication slot: %w", err)
 		}
 	}
+	/*
+		iterating through source tables and creating a publication.
+		expecting tablenames to be schema qualified
+	*/
+	srcTableNames := make([]string, 0, len(tableNameMapping))
+	for srcTableName := range tableNameMapping {
+		srcTableNames = append(srcTableNames, srcTableName)
+	}
+	tableNameString := strings.Join(srcTableNames, ", ")
 
 	if !s.PublicationExists {
-		// Create the publication
-		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, schemaTable)
+		// Create the publication to help filter changes only for the given tables
+		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
 		_, err := c.pool.Exec(c.ctx, stmt)
 		if err != nil {
 			return fmt.Errorf("error creating publication: %w", err)
@@ -299,22 +302,28 @@ func (c *PostgresConnector) SetupNormalizedTable(
 }
 
 // InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
-func (c *PostgresConnector) InitializeTableSchema(req *protos.TableSchema) error {
+func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
 	panic("not implemented")
 }
 
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
-func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput) error {
+func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput) (uint32, error) {
 	schemaTable, err := parseSchemaTable(req.SourceTableIdentifier)
 	if err != nil {
-		return fmt.Errorf("error parsing schema and table: %w", err)
+		return 0, fmt.Errorf("error parsing schema and table: %w", err)
 	}
 
 	// check if the table exists by getting the relation ID
-	_, err = c.getRelIDForTable(schemaTable)
+	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
-		return fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
+		return 0, fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
 	}
+	return relID, nil
+}
+
+// SetupReplication sets up replication for the source connector.
+func (c *PostgresConnector) SetupReplication(req *protos.SetupReplicationInput) error {
+	//schemaTable, err := parseSchemaTable(req.SourceTableIdentifier)
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
@@ -329,11 +338,10 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput
 	}
 
 	// Create the replication slot and publication
-	err = c.createSlotAndPublication(exists, slotName, publicationName, schemaTable)
+	err = c.createSlotAndPublication(exists, slotName, publicationName, req.TableNameMapping)
 	if err != nil {
 		return fmt.Errorf("error creating replication slot and publication: %w", err)
 	}
-
 	return nil
 }
 

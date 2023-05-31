@@ -16,34 +16,37 @@ import (
 )
 
 type PostgresCDCSource struct {
-	ctx         context.Context
-	conn        *pgxpool.Pool
-	relID       uint32
-	slot        string
-	publication string
-	relations   map[uint32]*pglogrepl.RelationMessage
-	typeMap     *pgtype.Map
-	startLSN    pglogrepl.LSN
+	ctx                   context.Context
+	conn                  *pgxpool.Pool
+	SrcTableIdNameMapping map[uint32]string
+	TableNameMapping      map[string]string
+	slot                  string
+	publication           string
+	relations             map[uint32]*pglogrepl.RelationMessage
+	typeMap               *pgtype.Map
+	startLSN              pglogrepl.LSN
 }
 
 type PostrgesCDCConfig struct {
-	AppContext  context.Context
-	Connection  *pgxpool.Pool
-	Slot        string
-	Publication string
-	RelID       uint32
+	AppContext            context.Context
+	Connection            *pgxpool.Pool
+	Slot                  string
+	Publication           string
+	SrcTableIdNameMapping map[uint32]string
+	TableNameMapping      map[string]string
 }
 
 // Create a new PostgresCDCSource
 func NewPostgresCDCSource(cdcConfing *PostrgesCDCConfig) (*PostgresCDCSource, error) {
 	return &PostgresCDCSource{
-		ctx:         cdcConfing.AppContext,
-		conn:        cdcConfing.Connection,
-		relID:       cdcConfing.RelID,
-		slot:        cdcConfing.Slot,
-		publication: cdcConfing.Publication,
-		relations:   make(map[uint32]*pglogrepl.RelationMessage),
-		typeMap:     pgtype.NewMap(),
+		ctx:                   cdcConfing.AppContext,
+		conn:                  cdcConfing.Connection,
+		SrcTableIdNameMapping: cdcConfing.SrcTableIdNameMapping,
+		TableNameMapping:      cdcConfing.TableNameMapping,
+		slot:                  cdcConfing.Slot,
+		publication:           cdcConfing.Publication,
+		relations:             make(map[uint32]*pglogrepl.RelationMessage),
+		typeMap:               pgtype.NewMap(),
 	}, nil
 }
 
@@ -167,7 +170,8 @@ func (p *PostgresCDCSource) consumeStream(
 
 			log.Debugf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime)
-			rec, err := p.processMessage(xld)
+			rec, err := p.processMessage(result, xld)
+
 			if err != nil {
 				return nil, fmt.Errorf("error processing message: %w", err)
 			}
@@ -188,7 +192,7 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 }
 
-func (p *PostgresCDCSource) processMessage(xld pglogrepl.XLogData) (model.Record, error) {
+func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogrepl.XLogData) (model.Record, error) {
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
@@ -204,7 +208,8 @@ func (p *PostgresCDCSource) processMessage(xld pglogrepl.XLogData) (model.Record
 	case *pglogrepl.DeleteMessage:
 		return p.processDeleteMessage(xld.WALStart, msg)
 	case *pglogrepl.CommitMessage:
-		log.Debugf("Ignoring CommitMessage")
+		// for a commit message, update the last checkpoint id for the record batch.
+		batch.LastCheckPointID = int64(xld.WALStart)
 	case *pglogrepl.RelationMessage:
 		// TODO (kaushik): consider persistent state for a mirror job
 		// to be stored somewhere in temporal state. We might need to persist
@@ -226,19 +231,14 @@ func (p *PostgresCDCSource) processInsertMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 ) (model.Record, error) {
-	if msg.RelationID != p.relID {
+
+	tableName, exists := p.SrcTableIdNameMapping[msg.RelationID]
+	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("InsertMessage => LSN: %d, RelationID: %d", lsn, msg.RelationID)
-
-	// TODO look at why we are even getting messages with LSN less than the startLSN
-	if lsn < p.startLSN {
-		// log that we are skipping this message
-		log.Warnf("Skipping message with LSN %d as it is less than minLSN %d", lsn, p.startLSN)
-		return nil, nil
-	}
+	log.Debugf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
 
 	rel, ok := p.relations[msg.RelationID]
 	if !ok {
@@ -252,8 +252,9 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	return &model.InsertRecord{
-		CheckPointID: int64(lsn),
-		Items:        items,
+		CheckPointID:         int64(lsn),
+		Items:                items,
+		DestinationTableName: p.TableNameMapping[tableName],
 	}, nil
 }
 
@@ -262,19 +263,14 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 ) (model.Record, error) {
-	if msg.RelationID != p.relID {
+
+	tableName, exists := p.SrcTableIdNameMapping[msg.RelationID]
+	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("UpdateMessage => LSN: %d, RelationID: %d", lsn, msg.RelationID)
-
-	// TODO look at why we are even getting messages with LSN less than the startLSN
-	if lsn < p.startLSN {
-		// log that we are skipping this message
-		log.Warnf("Skipping message with LSN %d as it is less than minLSN %d", lsn, p.startLSN)
-		return nil, nil
-	}
+	log.Debugf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
 
 	rel, ok := p.relations[msg.RelationID]
 	if !ok {
@@ -293,9 +289,10 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	return &model.UpdateRecord{
-		CheckPointID: int64(lsn),
-		OldItems:     oldItems,
-		NewItems:     newItems,
+		CheckPointID:         int64(lsn),
+		OldItems:             oldItems,
+		NewItems:             newItems,
+		DestinationTableName: p.TableNameMapping[tableName],
 	}, nil
 }
 
@@ -304,19 +301,14 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 ) (model.Record, error) {
-	if msg.RelationID != p.relID {
+
+	tableName, exists := p.SrcTableIdNameMapping[msg.RelationID]
+	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("DeleteMessage => LSN: %d, RelationID: %d", lsn, msg.RelationID)
-
-	// TODO look at why we are even getting messages with LSN less than the startLSN
-	if lsn < p.startLSN {
-		// log that we are skipping this message
-		log.Warnf("Skipping message with LSN %d as it is less than minLSN %d", lsn, p.startLSN)
-		return nil, nil
-	}
+	log.Debugf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
 
 	rel, ok := p.relations[msg.RelationID]
 	if !ok {
@@ -330,8 +322,9 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	return &model.DeleteRecord{
-		CheckPointID: int64(lsn),
-		Items:        items,
+		CheckPointID:         int64(lsn),
+		Items:                items,
+		DestinationTableName: p.TableNameMapping[tableName],
 	}, nil
 }
 

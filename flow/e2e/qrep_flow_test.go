@@ -38,7 +38,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow() {
 	err = s.bqHelper.RunCommand(dstTableCmd)
 	s.NoError(err)
 
-	connectionGen := FlowConnectionGenerationConfig{
+	connectionGen := QRepFlowConnectionGenerationConfig{
 		FlowJobName:                "test_complete_qrep_flow",
 		SourceTableIdentifier:      "e2e_test.test_qrep_flow",
 		DestinationTableIdentifier: "test_qrep_flow",

@@ -111,16 +111,34 @@ func (a *FlowableActivity) GetLastSyncedID(
 func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
 	config *protos.EnsurePullabilityInput,
-) error {
+) (uint32, error) {
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
 	defer connectors.CloseConnector(conn)
 
 	if err != nil {
+		return 0, fmt.Errorf("failed to get connector: %w", err)
+	}
+	relID, err := conn.EnsurePullability(config)
+	if err != nil {
+		return 0, fmt.Errorf("failed to ensure pullability: %w", err)
+	}
+
+	return relID, nil
+}
+
+func (a *FlowableActivity) SetupReplication(
+	ctx context.Context,
+	config *protos.SetupReplicationInput,
+) error {
+	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
+	defer connectors.CloseConnector(conn)
+	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	if err := conn.EnsurePullability(config); err != nil {
-		return fmt.Errorf("failed to ensure pullability: %w", err)
+	err = conn.SetupReplication(config)
+	if err != nil {
+		return fmt.Errorf("failed to setup replication: %w", err)
 	}
 
 	return nil
@@ -188,7 +206,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	}
 
 	log.Println("initializing table schema...")
-	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableSchema)
+	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
 	}
@@ -197,7 +215,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 
 	records, err := src.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:           input.FlowConnectionConfigs.FlowJobName,
-		SourceTableIdentifier: conn.SourceTableIdentifier,
+		SrcTableIdNameMapping: input.FlowConnectionConfigs.SrcTableIdNameMapping,
+		TableNameMapping:      input.FlowConnectionConfigs.TableNameMapping,
 		LastSyncState:         input.LastSyncState,
 		MaxBatchSize:          uint32(input.SyncFlowOptions.BatchSize),
 		IdleTimeout:           10 * time.Second,
@@ -210,9 +229,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	log.Printf("pulled %d records", len(records.Records))
 
 	res, err := dest.SyncRecords(&model.SyncRecordsRequest{
-		Records:                    records,
-		FlowJobName:                input.FlowConnectionConfigs.FlowJobName,
-		DestinationTableIdentifier: conn.DestinationTableIdentifier,
+		Records:     records,
+		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 	})
 
 	log.Println("pushed records")
@@ -240,14 +258,13 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.Sta
 	}
 
 	log.Println("initializing table schema...")
-	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableSchema)
+	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
 	}
 
 	res, err := dest.NormalizeRecords(&model.NormalizeRecordsRequest{
-		FlowJobName:                input.FlowConnectionConfigs.FlowJobName,
-		DestinationTableIdentifier: conn.DestinationTableIdentifier,
+		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
