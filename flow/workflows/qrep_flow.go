@@ -46,7 +46,8 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 
 // GetPartitions returns the partitions to replicate.
 func (q *QRepFlowExecution) GetPartitions(ctx workflow.Context,
-	last *protos.QRepPartition) (*protos.QRepParitionResult, error) {
+	last *protos.QRepPartition,
+) (*protos.QRepParitionResult, error) {
 	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -64,10 +65,7 @@ func (q *QRepFlowExecution) GetPartitions(ctx workflow.Context,
 }
 
 // ReplicateParititon replicates the given partition.
-func (q *QRepFlowExecution) ReplicatePartition(
-	ctx workflow.Context,
-	partition *protos.QRepPartition,
-) error {
+func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *protos.QRepPartition) error {
 	q.logger.Info("replicating partition - ", partition.PartitionId)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -137,8 +135,7 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 					MaximumAttempts: 10,
 				},
 			})
-			futures = append(futures, workflow.ExecuteChildWorkflow(partFlowCtx,
-				QRepPartitionWorkflow, config, partition))
+			futures = append(futures, workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, config, partition))
 		}
 
 		// wait for all the workflows to complete
@@ -163,11 +160,7 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 }
 
 // QRepPartitionWorkflow replicate a single partition.
-func QRepPartitionWorkflow(
-	ctx workflow.Context,
-	config *protos.QRepConfig,
-	partition *protos.QRepPartition,
-) error {
+func QRepPartitionWorkflow(ctx workflow.Context, config *protos.QRepConfig, partition *protos.QRepPartition) error {
 	q := NewQRepFlowExecution(ctx, config)
 	return q.ReplicatePartition(ctx, partition)
 }

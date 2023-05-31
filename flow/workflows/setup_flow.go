@@ -67,11 +67,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	}
 
 	// then check the destination peer connection
-	destConnStatusFuture := workflow.ExecuteActivity(
-		ctx,
-		flowable.CheckConnection,
-		config.Destination,
-	)
+	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Destination)
 	var destConnStatus activities.CheckConnectionResult
 	if err := destConnStatusFuture.Get(ctx, &destConnStatus); err != nil {
 		return fmt.Errorf("failed to check destination peer connection: %w", err)
@@ -120,11 +116,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	}
 
 	// ensure pullability
-	ensurePullFuture := workflow.ExecuteActivity(
-		ctx,
-		flowable.EnsurePullability,
-		ensurePullabilityInput,
-	)
+	ensurePullFuture := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
 	if err := ensurePullFuture.Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to ensure pullability: %w", err)
 	}
@@ -160,8 +152,7 @@ func (s *SetupFlowExecution) createRawTable(
 // fetchTableSchemaAndSetupNormalizedTables fetches the table schema for the source table and
 // sets up the normalized tables on the destination peer.
 func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
-	ctx workflow.Context,
-	flowConnectionConfigs *protos.FlowConnectionConfigs,
+	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs,
 ) (*protos.TableSchema, error) {
 	s.logger.Info("fetching table schema for peer flow - ", s.PeerFlowName)
 
@@ -190,11 +181,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		TableIdentifier:      flowConnectionConfigs.DestinationTableIdentifier,
 		SourceTableSchema:    srcTableSchema,
 	}
-	fSetupNormalizedTables := workflow.ExecuteActivity(
-		ctx,
-		flowable.CreateNormalizedTable,
-		setupConfig,
-	)
+	fSetupNormalizedTables := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
 
 	var setupOutput *protos.SetupNormalizedTableOutput
 	if err := fSetupNormalizedTables.Get(ctx, &setupOutput); err != nil {
@@ -240,10 +227,7 @@ func (s *SetupFlowExecution) executeSetupFlow(
 }
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
-func SetupFlowWorkflow(
-	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
-) (*protos.TableSchema, error) {
+func SetupFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) (*protos.TableSchema, error) {
 	setupFlowState := &SetupFlowState{
 		PeerFlowName: config.FlowJobName,
 		Progress:     []string{},

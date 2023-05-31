@@ -17,16 +17,14 @@ type Connector interface {
 	NeedsSetupMetadataTables() bool
 	SetupMetadataTables() error
 	GetLastOffset(jobName string) (*protos.LastSyncState, error)
-	GetLastSyncBatchID(jobName string) (int64, error)
-	GetLastNormalizeBatchID(jobName string) (int64, error)
+	GetLastSyncBatchId(jobName string) (int64, error)
+	GetLastNormalizeBatchId(jobName string) (int64, error)
 
 	// GetTableSchema returns the schema of a table.
 	GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error)
 
 	// SetupNormalizedTable sets up the normalized table on the connector.
-	SetupNormalizedTable(
-		req *protos.SetupNormalizedTableInput,
-	) (*protos.SetupNormalizedTableOutput, error)
+	SetupNormalizedTable(req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error)
 
 	// EnsurePullability ensures that the connector is pullable.
 	EnsurePullability(req *protos.EnsurePullabilityInput) error
@@ -34,22 +32,18 @@ type Connector interface {
 	// InitializeTableSchema initializes the table schema for the connector.
 	InitializeTableSchema(req *protos.TableSchema) error
 
-	// Methods related to retrieving and pusing records for this connector as a source and
-	// destination.
+	// Methods related to retrieving and pusing records for this connector as a source and destination.
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
-	// This method should be idempotent, and should be able to be called multiple times with the
-	// same request.
+	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error)
 
 	// SyncRecords pushes records to the destination peer and stores it in PeerDB specific tables.
-	// This method should be idempotent, and should be able to be called multiple times with the
-	// same request.
+	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error)
 
 	// NormalizeRecords merges records pushed earlier into the destination table.
-	// This method should be idempotent, and should be able to be called multiple times with the
-	// same request.
+	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
 
 	// CreateRawTable creates a raw table for the connector with a given name and a fixed schema.
@@ -61,24 +55,14 @@ type Connector interface {
 	SetupQRepMetadataTables(config *protos.QRepConfig) error
 
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
-	GetQRepPartitions(
-		config *protos.QRepConfig,
-		last *protos.QRepPartition,
-	) ([]*protos.QRepPartition, error)
+	GetQRepPartitions(config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
 	// GetQRepRecords returns the records for a given partition.
-	PullQRepRecords(
-		config *protos.QRepConfig,
-		partition *protos.QRepPartition,
-	) (*model.QRecordBatch, error)
+	PullQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
 
 	// SyncQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
-	SyncQRepRecords(
-		config *protos.QRepConfig,
-		partition *protos.QRepPartition,
-		records *model.QRecordBatch,
-	) (int, error)
+	SyncQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition, records *model.QRecordBatch) (int, error)
 }
 
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {

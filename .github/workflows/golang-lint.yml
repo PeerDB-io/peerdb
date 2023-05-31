@@ -16,3 +16,5 @@ jobs:
         uses: reviewdog/action-golangci-lint@v2
         with:
           workdir: ./flow
+          reporter: github-pr-review
+          github_token: ${{ secrets.GITHUB_TOKEN }}

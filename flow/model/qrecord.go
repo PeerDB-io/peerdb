@@ -55,11 +55,7 @@ var (
 	}
 )
 
-func NewExtendedTime(
-	t time.Time,
-	kindType ExtendedTimeKindType,
-	originalFormat string,
-) (*ExtendedTime, error) {
+func NewExtendedTime(t time.Time, kindType ExtendedTimeKindType, originalFormat string) (*ExtendedTime, error) {
 	var nk NestedKind
 
 	switch kindType {

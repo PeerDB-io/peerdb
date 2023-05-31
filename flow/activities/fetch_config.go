@@ -20,8 +20,7 @@ type FetchConfigActivityInput struct {
 
 // FetchConfigActivity is an activity that fetches the config for the specified peer flow.
 // This activity is invoked by the PeerFlowWorkflow.
-type FetchConfigActivity struct {
-}
+type FetchConfigActivity struct{}
 
 // FetchConfig retrieves the source and destination config.
 func (a *FetchConfigActivity) FetchConfig(
@@ -38,12 +37,7 @@ func (a *FetchConfigActivity) FetchConfig(
 		return nil, fmt.Errorf("failed to unmarshal source connection config: %w", err)
 	}
 
-	destinationConnectionConfig, err := fetchPeerConfig(
-		ctx,
-		pool,
-		input.PeerFlowName,
-		"destination_peer",
-	)
+	destinationConnectionConfig, err := fetchPeerConfig(ctx, pool, input.PeerFlowName, "destination_peer")
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal destination connection config: %w", err)
 	}
@@ -52,8 +46,7 @@ func (a *FetchConfigActivity) FetchConfig(
 	var dstTableIdentifier string
 
 	query := `SELECT source_table_identifier, destination_table_identifier FROM flows WHERE name = $1`
-	err = pool.QueryRow(ctx, query, input.PeerFlowName).
-		Scan(&srcTableIdentifier, &dstTableIdentifier)
+	err = pool.QueryRow(ctx, query, input.PeerFlowName).Scan(&srcTableIdentifier, &dstTableIdentifier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch table identifiers: %w", err)
 	}
@@ -69,20 +62,14 @@ func (a *FetchConfigActivity) FetchConfig(
 }
 
 // fetchPeerConfig retrieves the config for a given peer by join label.
-func fetchPeerConfig(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	flowName string,
-	label string,
-) (*protos.Peer, error) {
+func fetchPeerConfig(ctx context.Context, pool *pgxpool.Pool, flowName string, label string) (*protos.Peer, error) {
 	var name string
 	var dbtype int32
 	var opts []byte
 
 	query := fmt.Sprintf(
 		"SELECT e.name, e.type, e.options FROM flows f JOIN peers e ON f.%s = e.id WHERE f.name = $1",
-		label,
-	)
+		label)
 	err := pool.QueryRow(ctx, query, flowName).Scan(&name, &dbtype, &opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch config for %s: %w", label, err)

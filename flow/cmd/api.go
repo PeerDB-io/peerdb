@@ -42,20 +42,15 @@ func (a *APIServer) CheckTemporalHealth(reqCtx context.Context) string {
 }
 
 // ListAllWorkflows lists all workflows
-func (a *APIServer) ListAllWorkflows(
-	reqCtx context.Context,
-) ([]*workflow.WorkflowExecutionInfo, error) {
+func (a *APIServer) ListAllWorkflows(reqCtx context.Context) ([]*workflow.WorkflowExecutionInfo, error) {
 	var executions []*workflow.WorkflowExecutionInfo = make([]*workflow.WorkflowExecutionInfo, 0)
 	var nextPageToken []byte
 
 	for {
-		resp, err := a.temporalClient.ListWorkflow(
-			reqCtx,
-			&workflowservice.ListWorkflowExecutionsRequest{
-				PageSize:      100,
-				NextPageToken: nextPageToken,
-			},
-		)
+		resp, err := a.temporalClient.ListWorkflow(reqCtx, &workflowservice.ListWorkflowExecutionsRequest{
+			PageSize:      100,
+			NextPageToken: nextPageToken,
+		})
 		if err != nil {
 			return executions, fmt.Errorf("unable to list workflows: %w", err)
 		}
@@ -72,10 +67,7 @@ func (a *APIServer) ListAllWorkflows(
 }
 
 // StartPeerFlow starts a peer flow workflow
-func (a *APIServer) StartPeerFlow(
-	reqCtx context.Context,
-	input *peerflow.PeerFlowWorkflowInput,
-) (string, error) {
+func (a *APIServer) StartPeerFlow(reqCtx context.Context, input *peerflow.PeerFlowWorkflowInput) (string, error) {
 	workflowID := fmt.Sprintf("%s-peerflow-%s", input.PeerFlowName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,

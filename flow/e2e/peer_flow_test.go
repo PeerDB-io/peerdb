@@ -54,10 +54,7 @@ func (s *E2EPeerFlowTestSuite) setupPostgres() error {
 	}
 
 	// drop all open slots
-	_, err = s.pool.Exec(
-		context.Background(),
-		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots",
-	)
+	_, err = s.pool.Exec(context.Background(), "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots")
 	if err != nil {
 		return fmt.Errorf("failed to drop replication slots: %w", err)
 	}
@@ -99,6 +96,8 @@ func (s *E2EPeerFlowTestSuite) setupBigQuery() error {
 // Implement SetupAllSuite interface to setup the test suite
 func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	// seed the random number generator with current time
+
+
 	rand.Seed(time.Now().UnixNano())
 
 	err := s.setupPostgres()
@@ -225,7 +224,6 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
 
-
 	_, err := s.pool.Exec(context.Background(), `
 		CREATE TABLE e2e_test.test_char_table (
 			id SERIAL PRIMARY KEY,
@@ -308,10 +306,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 	go func() {
 		// wait for PeerFlowStatusQuery to finish setup
 		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
+			response, err := env.QueryWorkflow(peerflow.PeerFlowStatusQuery, connectionGen.FlowJobName)
 			if err == nil {
 				var state peerflow.PeerFlowState
 				err = response.Get(&state)
@@ -330,11 +325,11 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
-			testKey := fmt.Sprintf("test_key_%d", i)
-			testValue := fmt.Sprintf("test_value_%d", i)
+			test_key := fmt.Sprintf("test_key_%d", i)
+			test_value := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), `
 			INSERT INTO e2e_test.test_simple_flow (key, value) VALUES ($1, $2)
-		`, testKey, testValue)
+		`, test_key, test_value)
 			s.NoError(err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")

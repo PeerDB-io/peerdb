@@ -41,10 +41,7 @@ func NewSyncFlowExecution(ctx workflow.Context, state *SyncFlowState) *SyncFlowE
 	}
 }
 
-func NewNormalizeFlowExecution(
-	ctx workflow.Context,
-	state *NormalizeFlowState,
-) *NormalizeFlowExecution {
+func NewNormalizeFlowExecution(ctx workflow.Context, state *NormalizeFlowState) *NormalizeFlowExecution {
 	return &NormalizeFlowExecution{
 		NormalizeFlowState: *state,
 		executionID:        workflow.GetInfo(ctx).WorkflowExecution.ID,
@@ -110,7 +107,8 @@ func (s *SyncFlowExecution) executeSyncFlow(
 // and the checkpoint for the source peer is known.
 func SyncFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-	options *protos.SyncFlowOptions) (*model.SyncResponse, error) {
+	options *protos.SyncFlowOptions,
+) (*model.SyncResponse, error) {
 	s := NewSyncFlowExecution(ctx, &SyncFlowState{
 		PeerFlowName: config.FlowJobName,
 		Progress:     []string{},
@@ -120,7 +118,8 @@ func SyncFlowWorkflow(ctx workflow.Context,
 }
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
-	config *protos.FlowConnectionConfigs) (*model.NormalizeResponse, error) {
+	config *protos.FlowConnectionConfigs,
+) (*model.NormalizeResponse, error) {
 	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
 		PeerFlowName: config.FlowJobName,
 		Progress:     []string{},
@@ -131,7 +130,8 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 
 func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs) (*model.NormalizeResponse, error) {
+	config *protos.FlowConnectionConfigs,
+) (*model.NormalizeResponse, error) {
 	s.logger.Info("executing normalize flow - ", s.PeerFlowName)
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -145,11 +145,7 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	startNormalizeInput := &protos.StartNormalizeInput{
 		FlowConnectionConfigs: config,
 	}
-	fStartNormalize := workflow.ExecuteActivity(
-		normalizeFlowCtx,
-		flowable.StartNormalize,
-		startNormalizeInput,
-	)
+	fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
 
 	var normalizeResponse *model.NormalizeResponse
 	if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {

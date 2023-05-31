@@ -152,12 +152,8 @@ func (p *PostgresCDCSource) consumeStream(
 				return nil, fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			log.Debugf(
-				"Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
-				pkm.ServerWALEnd,
-				pkm.ServerTime,
-				pkm.ReplyRequested,
-			)
+			log.Debugf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
+				pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested)
 
 			if pkm.ReplyRequested {
 				nextStandbyMessageDeadline = time.Time{}
@@ -383,10 +379,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	return items, nil
 }
 
-func (p *PostgresCDCSource) decodeTextColumnData(
-	data []byte,
-	dataType uint32,
-) (interface{}, error) {
+func (p *PostgresCDCSource) decodeTextColumnData(data []byte, dataType uint32) (interface{}, error) {
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		return dt.Codec.DecodeValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
 	}
@@ -394,10 +387,7 @@ func (p *PostgresCDCSource) decodeTextColumnData(
 }
 
 // decodeBinaryColumnData decodes the binary data for a column
-func (p *PostgresCDCSource) decodeBinaryColumnData(
-	data []byte,
-	dataType uint32,
-) (interface{}, error) {
+func (p *PostgresCDCSource) decodeBinaryColumnData(data []byte, dataType uint32) (interface{}, error) {
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		return dt.Codec.DecodeValue(p.typeMap, dataType, pgtype.BinaryFormatCode, data)
 	}

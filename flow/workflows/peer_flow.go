@@ -65,10 +65,7 @@ type PeerFlowWorkflowExecution struct {
 }
 
 // NewPeerFlowWorkflowExecution creates a new instance of PeerFlowWorkflowExecution.
-func NewPeerFlowWorkflowExecution(
-	ctx workflow.Context,
-	state *PeerFlowState,
-) *PeerFlowWorkflowExecution {
+func NewPeerFlowWorkflowExecution(ctx workflow.Context, state *PeerFlowState) *PeerFlowWorkflowExecution {
 	return &PeerFlowWorkflowExecution{
 		PeerFlowState:   *state,
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
@@ -78,7 +75,8 @@ func NewPeerFlowWorkflowExecution(
 
 // fetchConnectionConfigs fetches the connection configs for source and destination peers.
 func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
-	ctx workflow.Context) (*protos.FlowConnectionConfigs, error) {
+	ctx workflow.Context,
+) (*protos.FlowConnectionConfigs, error) {
 	w.logger.Info("fetching connection configs for peer flow - ", w.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -90,11 +88,7 @@ func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
 		PeerFlowName:   w.PeerFlowName,
 	}
 
-	configsFuture := workflow.ExecuteActivity(
-		ctx,
-		fetchConfig.FetchConfig,
-		fetchConfigActivityInput,
-	)
+	configsFuture := workflow.ExecuteActivity(ctx, fetchConfig.FetchConfig, fetchConfigActivityInput)
 
 	flowConnectionConfigs := &protos.FlowConnectionConfigs{}
 	if err := configsFuture.Get(ctx, &flowConnectionConfigs); err != nil {
@@ -115,7 +109,8 @@ func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
 func (w *PeerFlowWorkflowExecution) getChildWorkflowID(
 	ctx workflow.Context,
 	prefix string,
-	peerFlowName string) (string, error) {
+	peerFlowName string,
+) (string, error) {
 	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		return fmt.Sprintf("%s-%s-%s", prefix, peerFlowName, uuid.New().String())
 	})
@@ -133,10 +128,7 @@ type PeerFlowWorkflowResult = PeerFlowState
 
 // PeerFlowWorkflow is the workflow that executes the specified peer flow.
 // This is the main entry point for the application.
-func PeerFlowWorkflow(
-	ctx workflow.Context,
-	input *PeerFlowWorkflowInput,
-) (*PeerFlowWorkflowResult, error) {
+func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*PeerFlowWorkflowResult, error) {
 	w := NewPeerFlowWorkflowExecution(ctx, &PeerFlowState{
 		PeerFlowWorkflowInput: *input,
 		Progress:              []string{"started"},
@@ -152,11 +144,7 @@ func PeerFlowWorkflow(
 		return w.PeerFlowState, nil
 	})
 	if err != nil {
-		return &w.PeerFlowState, fmt.Errorf(
-			"failed to set `%s` query handler: %w",
-			PeerFlowStatusQuery,
-			err,
-		)
+		return &w.PeerFlowState, fmt.Errorf("failed to set `%s` query handler: %w", PeerFlowStatusQuery, err)
 	}
 
 	selector := workflow.NewSelector(ctx)
@@ -197,11 +185,7 @@ func PeerFlowWorkflow(
 			},
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
-		setupFlowFuture := workflow.ExecuteChildWorkflow(
-			setupFlowCtx,
-			SetupFlowWorkflow,
-			flowConnectionConfigs,
-		)
+		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, flowConnectionConfigs)
 		if err := setupFlowFuture.Get(setupFlowCtx, &flowConnectionConfigs.TableSchema); err != nil {
 			return &w.PeerFlowState, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
