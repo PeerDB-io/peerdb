@@ -18,3 +18,5 @@ jobs:
           workdir: ./flow
           reporter: github-pr-review
           github_token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          REVIEWDOG_TOKEN: ${{ secrets.REVIEWDOG_TOKEN }}
