@@ -4,6 +4,10 @@ on: [pull_request]
 
 jobs:
   golangci-lint:
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - name: checkout
