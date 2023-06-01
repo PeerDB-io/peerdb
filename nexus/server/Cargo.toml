@@ -39,6 +39,7 @@ dashmap = "5.0"
 dotenvy = "0.15.7"
 flow-rs = { path = "../flow-rs" }
 futures = { version = "0.3.28", features = ["executor"] }
+gcp-bigquery-client = "0.14"
 peer-bigquery = { path = "../peer-bigquery" }
 peer-connections = { path = "../peer-connections" }
 peer-cursor = { path = "../peer-cursor" }
@@ -47,6 +48,8 @@ peerdb-parser = { path = "../parser" }
 pgwire = "0.14"
 prost = "0.11"
 pt = { path = "../pt" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }
 rand = "0.8"
 time = "0.3"

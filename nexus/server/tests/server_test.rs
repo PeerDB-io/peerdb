@@ -1,4 +1,5 @@
 use postgres::{Client, NoTls, SimpleQueryMessage};
+
 use std::{
     fs::{read_dir, File},
     io::{prelude::*, BufReader, Write},
@@ -7,6 +8,10 @@ use std::{
     thread,
     time::Duration,
 };
+
+mod helpers;
+
+use helpers::bq_helpers;
 
 fn input_files() -> Vec<String> {
     let sql_directory = read_dir("tests/sql").unwrap();
@@ -29,7 +34,6 @@ fn read_queries(filename: impl AsRef<Path>) -> Vec<String> {
         .map(|l| l.expect("Could not parse line"))
         .collect()
 }
-
 struct PeerDBServer {
     server: std::process::Child,
 }
