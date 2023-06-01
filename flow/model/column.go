@@ -12,4 +12,7 @@ const (
 	ColumnTypeFloat32   = "float32"
 	ColumnTypeFloat64   = "float64"
 	ColumnTypeString    = "string"
+	ColumnTypeUuid      = "uuid"
+	ColumnTypeNumeric   = "numeric"
+	ColumnTypeJSON      = "json"
 )

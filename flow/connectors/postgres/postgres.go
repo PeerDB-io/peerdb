@@ -458,6 +458,14 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 		return model.ColumnTypeString, nil
 	case "bpchar":
 		return model.ColumnTypeString, nil
+	case "numeric":
+		return model.ColumnTypeNumeric, nil
+	case "uuid":
+		return model.ColumnTypeUuid, nil
+	case "json":
+		return model.ColumnTypeJSON, nil
+	case "jsonb":
+		return model.ColumnTypeJSON, nil
 	default:
 		return "", fmt.Errorf("unsupported column type: %s", colType)
 	}

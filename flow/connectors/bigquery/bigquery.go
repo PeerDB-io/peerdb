@@ -843,20 +843,35 @@ func (c *BigQueryConnector) truncateTable(tableIdentifier string) error {
 
 func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
 	switch colType {
+	// boolean
 	case model.ColumnTypeBoolean:
 		return bigquery.BooleanFieldType
+	// integer types
+	case model.ColumnTypeInt16:
+		return bigquery.IntegerFieldType
 	case model.ColumnTypeInt32:
 		return bigquery.IntegerFieldType
 	case model.ColumnTypeInt64:
 		return bigquery.IntegerFieldType
+	// decimal types
+	case model.ColumnTypeFloat16:
+		return bigquery.FloatFieldType
 	case model.ColumnTypeFloat32:
 		return bigquery.FloatFieldType
 	case model.ColumnTypeFloat64:
 		return bigquery.FloatFieldType
+	case model.ColumnTypeNumeric:
+		return bigquery.NumericFieldType
+	// string related
 	case model.ColumnTypeString:
 		return bigquery.StringFieldType
+	// json also is stored as string for now
+	case model.ColumnTypeJSON:
+		return bigquery.StringFieldType
+	// time related
 	case model.ColumnTypeTimestamp:
 		return bigquery.TimestampFieldType
+	// rest will be strings - uuid, json
 	default:
 		return bigquery.StringFieldType
 	}
@@ -901,8 +916,13 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	// statement.
 	flattenedProjs := make([]string, 0)
 	for colName, colType := range m.NormalizedTableSchema.Columns {
+		bq_type := getBigQueryColumnTypeForGenericColType(colType)
+		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
+		if bq_type == bigquery.FloatFieldType {
+			bq_type = "FLOAT64"
+		}
 		castStmt := fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
-			colName, getBigQueryColumnTypeForGenericColType(colType), colName)
+			colName, bq_type, colName)
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
 	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp")
