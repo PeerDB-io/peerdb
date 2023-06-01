@@ -188,11 +188,10 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:                "test_complete_flow_no_data",
-		SourceTableIdentifier:      "e2e_test.test",
-		DestinationTableIdentifier: "test",
-		PostgresPort:               postgresPort,
-		BigQueryConfig:             s.bqHelper.Config,
+		FlowJobName:      "test_complete_flow_no_data",
+		TableNameMapping: map[string]string{"e2e_test.test": "test"},
+		PostgresPort:     postgresPort,
+		BigQueryConfig:   s.bqHelper.Config,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -233,11 +232,10 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:                "test_char_table",
-		SourceTableIdentifier:      "e2e_test.test_char_table",
-		DestinationTableIdentifier: "test",
-		PostgresPort:               postgresPort,
-		BigQueryConfig:             s.bqHelper.Config,
+		FlowJobName:      "test_char_table",
+		TableNameMapping: map[string]string{"e2e_test.test_char_table": "test"},
+		PostgresPort:     postgresPort,
+		BigQueryConfig:   s.bqHelper.Config,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -281,11 +279,10 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:                "test_complete_single_col_flow",
-		SourceTableIdentifier:      "e2e_test.test_simple_flow",
-		DestinationTableIdentifier: "test_simple_flow",
-		PostgresPort:               postgresPort,
-		BigQueryConfig:             s.bqHelper.Config,
+		FlowJobName:      "test_complete_single_col_flow",
+		TableNameMapping: map[string]string{"e2e_test.test_simple_flow": "test_simple_flow"},
+		PostgresPort:     postgresPort,
+		BigQueryConfig:   s.bqHelper.Config,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()

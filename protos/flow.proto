@@ -7,16 +7,26 @@ option go_package = "generated/protos";
 
 package peerdb.flow;
 
+message TableNameMapping {
+  string source_table_name = 1;
+  string destination_table_name = 2;
+}
+
 message FlowConnectionConfigs {
   peerdb.peers.Peer source = 1;
   peerdb.peers.Peer destination = 2;
   string flow_job_name = 3;
-  string source_table_identifier = 4;
-  string destination_table_identifier = 5;
-  TableSchema table_schema = 6;
+  TableSchema table_schema = 4;
+  map<string, string> table_name_mapping = 5;
+  map<uint32, string> src_table_id_name_mapping = 6;
+  map<string, TableSchema> table_name_schema_mapping = 7;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
+
+message NormalizeFlowOptions {
+  int32 batch_size = 1;
+}
 
 message LastSyncState {
   int64 checkpoint = 1;
@@ -44,10 +54,29 @@ message EnsurePullabilityInput {
   string source_table_identifier = 3;
 }
 
+message PostgresTableIdentifier {
+  uint32 rel_id = 1;
+}
+
+message TableIdentifier {
+  oneof table_identifier {
+    PostgresTableIdentifier postgres_table_identifier = 1;
+  }
+}
+
+message EnsurePullabilityOutput {
+  TableIdentifier table_identifier = 1;
+}
+
+message SetupReplicationInput {
+  peerdb.peers.Peer peer_connection_config = 1;
+  string flow_job_name = 2;
+  map<string, string> table_name_mapping = 3;
+}
+
 message CreateRawTableInput {
   peerdb.peers.Peer peer_connection_config = 1;
-  string destination_table_identifier = 2;
-  string flow_job_name = 3;
+  string flow_job_name = 2;
 }
 
 message CreateRawTableOutput { string table_identifier = 1; }
