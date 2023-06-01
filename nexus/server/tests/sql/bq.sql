@@ -86,6 +86,7 @@ SELECT user_id, os FROM bq_test.events WHERE ((os = ANY ('{macos,ios}'::text[]))
 -- fixing issues with unsupported BIGINT type for array flattening and cast
 SELECT * FROM bq_test.events WHERE id IN (1,2,3);
 SELECT * FROM bq_test.events WHERE id = ANY(CAST('{1,2,3}' AS BIGINT[]));
+SELECT * FROM bq_test.events WHERE id = ANY(CAST('{1,2,3}' AS BIGINT[])) LIMIT 1;
 
 -- fixing issues with ARRAY with WHERE
 SELECT * FROM bq_test.events WHERE id = ANY(CAST(ARRAY[1] AS BIGINT[]));
@@ -101,3 +102,18 @@ SELECT i FROM bq_test.test_array_string WHERE (test_dataset.array_intersect(i, '
 
 -- UNION (by itself) to UNION DISTINCT
 SELECT * FROM bq_test.transactions UNION SELECT * FROM bq_test.transactions;
+SELECT * FROM bq_test.transactions UNION DISTINCT SELECT * FROM bq_test.transactions;
+
+-- Array agg
+SELECT array_agg(c1) FROM bq_test.test_types LIMIT 1;
+SELECT array_agg(c2) FROM bq_test.test_types LIMIT 1;
+SELECT array_agg(c3) FROM bq_test.test_types LIMIT 1;
+SELECT array_agg(c13) FROM bq_test.test_types LIMIT 1;
+SELECT array_agg(c20) FROM bq_test.test_types LIMIT 1;
+SELECT array_agg(chain) FROM bq_test.transactions;
+
+SELECT count(*) FROM (bq_test.users r1 INNER JOIN bq_test.events r2 ON (((r2.user_id = 1)) AND ((r1.id = 1))));
+SELECT NULL FROM bq_test.transactions;
+
+SELECT COALESCE(chain,'sai'::text) FROM bq_test.transactions;
+SELECT date_trunc('month',tx_timestamp),count(*) FROM bq_test.transactions GROUP BY 1;

@@ -76,6 +76,25 @@ impl BigqueryAst {
             ControlFlow::<()>::Continue(())
         });
 
+        visit_function_arg_mut(query, |node| {
+            if let FunctionArgExpr::Expr(arg_expr) = node {
+                if let Expr::Cast { expr: _, data_type } = arg_expr {
+                    if let DataType::Array(_) = data_type {
+                        let list = self
+                            .flatten_expr_to_in_list(&arg_expr)
+                            .expect("failed to flatten in function");
+                        let rewritten_array = Array {
+                            elem: list,
+                            named: true,
+                        };
+                        *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
+                    }
+                }
+            }
+
+            ControlFlow::<()>::Continue(())
+        });
+
         visit_expressions_mut(query, |node| {
             // CAST AS Text to CAST AS String
             if let Expr::Cast {
@@ -209,27 +228,6 @@ impl BigqueryAst {
                     left: left.clone(),
                     right: right.clone(),
                 };
-            }
-
-            ControlFlow::<()>::Continue(())
-        });
-
-        visit_function_arg_mut(query, |node| {
-            if let FunctionArgExpr::Expr(arg_expr) = node {
-                if let Expr::Cast {
-                    expr: _,
-                    data_type: _,
-                } = arg_expr
-                {
-                    let list = self
-                        .flatten_expr_to_in_list(&arg_expr)
-                        .expect("failed to flatten in function");
-                    let rewritten_array = Array {
-                        elem: list,
-                        named: true,
-                    };
-                    *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
-                }
             }
 
             ControlFlow::<()>::Continue(())
