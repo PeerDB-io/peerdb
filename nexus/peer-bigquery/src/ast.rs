@@ -94,7 +94,6 @@ impl BigqueryAst {
 
             if let Expr::Function(Function {
                 name: ObjectName(v),
-                args,
                 ..
             }) = node
             {
