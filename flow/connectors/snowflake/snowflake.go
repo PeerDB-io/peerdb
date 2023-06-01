@@ -548,7 +548,8 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 }
 
 // EnsurePullability ensures that the table is pullable, implementing the Connector interface.
-func (c *SnowflakeConnector) EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error) {
+func (c *SnowflakeConnector) EnsurePullability(req *protos.EnsurePullabilityInput,
+) (*protos.EnsurePullabilityOutput, error) {
 	log.Errorf("panicking at call to EnsurePullability for Snowflake flow connector")
 	panic("EnsurePullability is not implemented for the Snowflake flow connector")
 }

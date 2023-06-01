@@ -311,7 +311,8 @@ func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSc
 }
 
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
-func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error) {
+func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput,
+) (*protos.EnsurePullabilityOutput, error) {
 	schemaTable, err := parseSchemaTable(req.SourceTableIdentifier)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing schema and table: %w", err)

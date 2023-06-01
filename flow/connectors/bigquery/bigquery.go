@@ -555,7 +555,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 
 	stmts := []string{}
 	// append all the statements to one list
-	log.Printf("merge raw records to corresponding tables", c.datasetID, rawTableName, distinctTableNames)
+	log.Printf("merge raw records to corresponding tables: %s %s %v", c.datasetID, rawTableName, distinctTableNames)
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 
 	for _, tableName := range distinctTableNames {
