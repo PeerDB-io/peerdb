@@ -467,7 +467,6 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	// insert the records into the staging table
-	// TODO HANDLE SAI
 	stagingInserter := stagingTable.Inserter()
 	stagingInserter.IgnoreUnknownValues = true
 
@@ -526,7 +525,6 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	// change this to getlastnormalizebatchid to separate states for sync and normalize [TODO/SAI]
 	syncBatchID, err := c.GetLastSyncBatchId(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
@@ -554,8 +552,10 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
 	}
+
 	stmts := []string{}
 	// append all the statements to one list
+	log.Printf("merge raw records to corresponding tables", c.datasetID, rawTableName, distinctTableNames)
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 
 	for _, tableName := range distinctTableNames {
@@ -571,7 +571,6 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		mergeStmts := mergeGen.GenerateMergeStmts()
 		stmts = append(stmts, mergeStmts...)
 	}
-	log.Printf("MERGE statement SAI %s", strings.Join(stmts, "\n"))
 	//update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
 		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name = '%s';",
@@ -587,8 +586,6 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements %s in a transaction: %v", strings.Join(stmts, "\n"), err)
 	}
-
-	//log.Printf("merge raw records to corresponding tables", c.datasetID, rawTableName, req.DestinationTableIdentifier)
 
 	return &model.NormalizeResponse{
 		Done:         true,
@@ -778,7 +775,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 }
 
 // EnsurePullability ensures that the given table is pullable, implementing the Connector interface.
-func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityInput) (uint32, error) {
+func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error) {
 	panic("not implemented")
 }
 

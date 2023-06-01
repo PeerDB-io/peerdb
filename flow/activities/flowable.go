@@ -111,16 +111,16 @@ func (a *FlowableActivity) GetLastSyncedID(
 func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
 	config *protos.EnsurePullabilityInput,
-) (uint32, error) {
+) (*protos.EnsurePullabilityOutput, error) {
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
 	defer connectors.CloseConnector(conn)
 
 	if err != nil {
-		return 0, fmt.Errorf("failed to get connector: %w", err)
+		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	relID, err := conn.EnsurePullability(config)
 	if err != nil {
-		return 0, fmt.Errorf("failed to ensure pullability: %w", err)
+		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
 
 	return relID, nil

@@ -114,7 +114,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	cdc, err := NewPostgresCDCSource(&PostrgesCDCConfig{
 		AppContext:            c.ctx,
 		Connection:            replPool,
-		SrcTableIdNameMapping: req.SrcTableIDNameMapping,
+		SrcTableIDNameMapping: req.SrcTableIDNameMapping,
 		Slot:                  slotName,
 		Publication:           publicationName,
 		TableNameMapping:      req.TableNameMapping,
@@ -203,6 +203,9 @@ func (c *PostgresConnector) createSlotAndPublication(
 	*/
 	srcTableNames := make([]string, 0, len(tableNameMapping))
 	for srcTableName := range tableNameMapping {
+		if len(strings.Split(srcTableName, ".")) != 2 {
+			return fmt.Errorf("source tables identifier is invalid: %v", srcTableName)
+		}
 		srcTableNames = append(srcTableNames, srcTableName)
 	}
 	tableNameString := strings.Join(srcTableNames, ", ")
@@ -308,18 +311,23 @@ func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSc
 }
 
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
-func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput) (uint32, error) {
+func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error) {
 	schemaTable, err := parseSchemaTable(req.SourceTableIdentifier)
 	if err != nil {
-		return 0, fmt.Errorf("error parsing schema and table: %w", err)
+		return nil, fmt.Errorf("error parsing schema and table: %w", err)
 	}
 
 	// check if the table exists by getting the relation ID
 	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
-		return 0, fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
+		return nil, fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
 	}
-	return relID, nil
+	return &protos.EnsurePullabilityOutput{TableIdentifier: &protos.TableIdentifier{
+		TableIdentifier: &protos.TableIdentifier_PostgresTableIdentifier{
+			PostgresTableIdentifier: &protos.PostgresTableIdentifier{
+				RelId: relID},
+		},
+	}}, nil
 }
 
 // SetupReplication sets up replication for the source connector.

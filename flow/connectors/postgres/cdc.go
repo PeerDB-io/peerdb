@@ -32,7 +32,7 @@ type PostrgesCDCConfig struct {
 	Connection            *pgxpool.Pool
 	Slot                  string
 	Publication           string
-	SrcTableIdNameMapping map[uint32]string
+	SrcTableIDNameMapping map[uint32]string
 	TableNameMapping      map[string]string
 }
 
@@ -41,7 +41,7 @@ func NewPostgresCDCSource(cdcConfing *PostrgesCDCConfig) (*PostgresCDCSource, er
 	return &PostgresCDCSource{
 		ctx:                   cdcConfing.AppContext,
 		conn:                  cdcConfing.Connection,
-		SrcTableIDNameMapping: cdcConfing.SrcTableIdNameMapping,
+		SrcTableIDNameMapping: cdcConfing.SrcTableIDNameMapping,
 		TableNameMapping:      cdcConfing.TableNameMapping,
 		slot:                  cdcConfing.Slot,
 		publication:           cdcConfing.Publication,

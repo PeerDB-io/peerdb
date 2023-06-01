@@ -1,15 +1,15 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
-import "./peers.proto";
+import "peers.proto";
 
 option go_package = "generated/protos";
 
 package peerdb.flow;
 
-message tableNameMapping {
-  string sourceTableName = 1;
-  string destinationTableName = 2;
+message TableNameMapping {
+  string source_table_Name = 1;
+  string destination_table_name = 2;
 }
 
 message FlowConnectionConfigs {
@@ -52,6 +52,20 @@ message EnsurePullabilityInput {
   peerdb.peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   string source_table_identifier = 3;
+}
+
+message PostgresTableIdentifier {
+  uint32 rel_id = 1;
+}
+
+message TableIdentifier {
+  oneof table_identifier {
+    PostgresTableIdentifier postgres_table_identifier = 1;
+  }
+}
+
+message EnsurePullabilityOutput {
+  TableIdentifier table_identifier = 1;
 }
 
 message SetupReplicationInput {

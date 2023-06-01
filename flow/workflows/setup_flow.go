@@ -119,13 +119,17 @@ func (s *SetupFlowExecution) ensurePullability(
 		}
 
 		// ensure pullability
-		var relID uint32
+		var ensurePullabilityOutput protos.EnsurePullabilityOutput
 		ensurePullFuture := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
-		if err := ensurePullFuture.Get(ctx, &relID); err != nil {
+		if err := ensurePullFuture.Get(ctx, &ensurePullabilityOutput); err != nil {
 			return fmt.Errorf("failed to ensure pullability: %w", err)
 		}
 
-		tmpMap[relID] = srcTableName
+		switch typedEnsurePullabilityOutput := ensurePullabilityOutput.TableIdentifier.TableIdentifier.(type) {
+		case *protos.TableIdentifier_PostgresTableIdentifier:
+			tmpMap[typedEnsurePullabilityOutput.PostgresTableIdentifier.RelId] = srcTableName
+		}
+
 	}
 	config.SrcTableIdNameMapping = tmpMap
 	return nil

@@ -27,7 +27,7 @@ type Connector interface {
 	SetupNormalizedTable(req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error)
 
 	// EnsurePullability ensures that the connector is pullable.
-	EnsurePullability(req *protos.EnsurePullabilityInput) (uint32, error)
+	EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error)
 
 	// SetupReplication sets up replication for the source connector
 	SetupReplication(req *protos.SetupReplicationInput) error
