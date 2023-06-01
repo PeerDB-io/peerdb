@@ -25,7 +25,7 @@ pub struct BQConfig {
 
 pub fn create_bq_peer_query() -> String {
     let bq_peer_query = format!(
-    "CREATE PEER my_bq_b FROM BIGQUERY WITH
+    "CREATE PEER bq_test FROM BIGQUERY WITH
     (
       type = '{}',
       project_id = '{}',
