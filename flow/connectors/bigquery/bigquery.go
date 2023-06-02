@@ -916,21 +916,21 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	// statement.
 	flattenedProjs := make([]string, 0)
 	for colName, colType := range m.NormalizedTableSchema.Columns {
-		bq_type := getBigQueryColumnTypeForGenericColType(colType)
+		bqType := getBigQueryColumnTypeForGenericColType(colType)
 		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
-		if bq_type == bigquery.FloatFieldType {
-			bq_type = "FLOAT64"
+		if bqType == bigquery.FloatFieldType {
+			bqType = "FLOAT64"
 		}
 		var castStmt string
 		castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
-			colName, bq_type, colName)
+			colName, bqType, colName)
 		/*
 			if the type is JSON, then JSON_EXTRACT_SCALAR doesn't work.
 			We are still CASTING JSON to string because for flexibility reasons
 		*/
 		if colType == model.ColumnTypeJSON {
 			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS %s",
-				colName, bq_type, colName)
+				colName, bqType, colName)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
