@@ -461,7 +461,7 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 	case "numeric":
 		return model.ColumnTypeNumeric, nil
 	case "uuid":
-		return model.ColumnTypeUuid, nil
+		return model.ColumnTypeUUID, nil
 	case "json":
 		return model.ColumnTypeJSON, nil
 	case "jsonb":
