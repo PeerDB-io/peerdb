@@ -921,8 +921,17 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 		if bq_type == bigquery.FloatFieldType {
 			bq_type = "FLOAT64"
 		}
-		castStmt := fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
+		var castStmt string
+		castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
 			colName, bq_type, colName)
+		/*
+			if the type is JSON, then JSON_EXTRACT_SCALAR doesn't work.
+			We are still CASTING JSON to string because for flexibility reasons
+		*/
+		if colType == model.ColumnTypeJSON {
+			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS %s",
+				colName, bq_type, colName)
+		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
 	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp")
