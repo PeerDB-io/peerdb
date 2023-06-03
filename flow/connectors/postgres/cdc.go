@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"time"
@@ -352,11 +353,11 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			}
 			items[colName] = data
 		case 'b': // binary
-			data, err := p.decodeBinaryColumnData(col.Data, rel.Columns[idx].DataType)
+			/*data, err := p.decodeBinaryColumnData(col.Data, rel.Columns[idx].DataType)
 			if err != nil {
 				return nil, fmt.Errorf("error decoding binary column data: %w", err)
-			}
-			items[colName] = data
+			}*/
+			items[colName] = base64.StdEncoding.EncodeToString(col.Data)
 		case 'u': // unchanged toast
 			// This TOAST value was not changed. TOAST values are not stored in the tuple,
 			// and logical replication doesn't want to spend a disk read to fetch its value for you.

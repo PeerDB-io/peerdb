@@ -944,6 +944,9 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 		if colType == model.ColumnTypeJSON {
 			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS %s",
 				colName, bqType, colName)
+		} else if colType == model.ColumnTypeBytes {
+			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS %s",
+				colName, colName)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
