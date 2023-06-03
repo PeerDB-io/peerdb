@@ -871,7 +871,20 @@ func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
 	// time related
 	case model.ColumnTypeTimestamp:
 		return bigquery.TimestampFieldType
-	// rest will be strings - uuid, json
+	case model.ColumnTypeTimeStampWithTimeZone:
+		return bigquery.TimestampFieldType
+	case model.ColumnTypeTime:
+		return bigquery.TimeFieldType
+	case model.ColumnTypeTimeWithTimeZone:
+		return bigquery.TimeFieldType
+	case model.ColumnTypeDate:
+		return bigquery.DateFieldType
+	case model.ColumnTypeInterval:
+		return bigquery.IntegerFieldType
+	// bytes
+	case model.ColumnTypeBytes:
+		return bigquery.BytesFieldType
+	// rest will be strings
 	default:
 		return bigquery.StringFieldType
 	}

@@ -444,14 +444,12 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 		return model.ColumnTypeBoolean, nil
 	case "text":
 		return model.ColumnTypeString, nil
-	case "bytea":
-		return model.ColumnTypeBytea, nil
 	case "date":
-		return model.ColumnTypeTimestamp, nil
+		return model.ColumnTypeDate, nil
 	case "timestamp":
 		return model.ColumnTypeTimestamp, nil
 	case "timestamptz":
-		return model.ColumnTypeTimestamp, nil
+		return model.ColumnTypeTimeStampWithTimeZone, nil
 	case "varchar":
 		return model.ColumnTypeString, nil
 	case "char":
@@ -461,11 +459,41 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 	case "numeric":
 		return model.ColumnTypeNumeric, nil
 	case "uuid":
-		return model.ColumnTypeUUID, nil
+		return model.ColumnTypeString, nil
 	case "json":
 		return model.ColumnTypeJSON, nil
 	case "jsonb":
 		return model.ColumnTypeJSON, nil
+	case "xml":
+		return model.ColumnTypeString, nil
+	case "tsvector":
+		return model.ColumnTypeString, nil
+	case "tsquery":
+		return model.ColumnTypeString, nil
+	case "bytea":
+		return model.ColumnTypeBytes, nil
+	case "bit":
+		return model.ColumnTypeBytes, nil
+	case "varbit":
+		return model.ColumnTypeBytes, nil
+	case "cidr":
+		return model.ColumnTypeString, nil
+	case "inet":
+		return model.ColumnTypeString, nil
+	case "interval":
+		return model.ColumnTypeInterval, nil
+	case "macaddr":
+		return model.ColumnTypeString, nil
+	case "money":
+		return model.ColumnTypeFloat64, nil
+	case "oid":
+		return model.ColumnTypeInt64, nil
+	case "time":
+		return model.ColumnTypeTime, nil
+	case "timetz":
+		return model.ColumnTypeTimeWithTimeZone, nil
+	case "txid_snapshot":
+		return model.ColumnTypeString, nil
 	default:
 		return "", fmt.Errorf("unsupported column type: %s", colType)
 	}
