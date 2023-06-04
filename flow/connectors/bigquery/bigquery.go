@@ -952,7 +952,8 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 				colName, colName)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
-		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added, this needs to be handled again
+		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
+		// this needs to be handled again
 		case model.ColumnTypeInterval:
 			castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
 				"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
@@ -964,7 +965,8 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Bytes')) AS %s",
 				colName, colName)
 		case model.ColumnTypeTime:
-			castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds') AS int64))) AS %s",
+			castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds')"+
+				" AS int64))) AS %s",
 				colName, colName)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
