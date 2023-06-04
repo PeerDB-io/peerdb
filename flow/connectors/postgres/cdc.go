@@ -375,6 +375,10 @@ func (p *PostgresCDCSource) convertTupleToMap(
 
 func (p *PostgresCDCSource) decodeTextColumnData(data []byte, dataType uint32) (interface{}, error) {
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
+		if dt.Name == "uuid" {
+			// below is required to decode uuid to string
+			return dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
+		}
 		return dt.Codec.DecodeValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
 	}
 	return string(data), nil
