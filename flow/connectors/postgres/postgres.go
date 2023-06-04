@@ -476,11 +476,11 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 	case "tsquery":
 		return model.ColumnTypeString, nil
 	case "bytea":
-		return model.ColumnHexBytesString, nil
+		return model.ColumnHexBytes, nil
 	case "bit":
-		return model.ColumnHexBytesString, nil
+		return model.ColumnHexBit, nil
 	case "varbit":
-		return model.ColumnHexBytesString, nil
+		return model.ColumnHexBit, nil
 	case "cidr":
 		return model.ColumnTypeString, nil
 	case "inet":

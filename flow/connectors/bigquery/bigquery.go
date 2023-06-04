@@ -546,7 +546,9 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if !hasJob || normalizeBatchID == syncBatchID {
 		log.Printf("waiting for sync to catch up for job %s, so finishing", req.FlowJobName)
 		return &model.NormalizeResponse{
-			Done: true,
+			Done:         true,
+			StartBatchID: normalizeBatchID,
+			EndBatchID:   syncBatchID,
 		}, nil
 	}
 	distinctTableNames, err := c.getDistinctTableNamesInBatch(req.FlowJobName, syncBatchID, normalizeBatchID)
@@ -883,7 +885,9 @@ func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
 	case model.ColumnTypeInterval:
 		return bigquery.IntervalFieldType
 	// bytes
-	case model.ColumnHexBytesString:
+	case model.ColumnHexBytes:
+		return bigquery.BytesFieldType
+	case model.ColumnHexBit:
 		return bigquery.BytesFieldType
 	// rest will be strings
 	default:
@@ -943,7 +947,7 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS %s",
 				colName, bqType, colName)
 		// expecting data in BASE64 format
-		case model.ColumnHexBytesString:
+		case model.ColumnHexBytes:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS %s",
 				colName, colName)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
@@ -954,6 +958,11 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 				"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
 				"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
 				colName, colName, colName, colName)
+		case model.ColumnHexBit:
+			// sample raw data for BIT {"a":{"Bytes":"oA==","Len":3,"Valid":true},"id":1}
+			// need to check correctness TODO
+			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Bytes')) AS %s",
+				colName, colName)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
 				colName, bqType, colName)
