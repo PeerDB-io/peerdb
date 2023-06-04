@@ -5,7 +5,7 @@ const (
 	ColumnTypeInt16                 = "int16"
 	ColumnTypeInt32                 = "int32"
 	ColumnTypeInt64                 = "int64"
-	ColumnTypeBytes                 = "bytes"
+	ColumnHexBytesString            = "bytes"
 	ColumnTypeBoolean               = "bool"
 	ColumnTypeFloat16               = "float16"
 	ColumnTypeFloat32               = "float32"

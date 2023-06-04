@@ -7,7 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 )
@@ -106,6 +106,11 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	}
 
 	connConfig.ConnConfig.RuntimeParams["replication"] = "database"
+	/*
+		setting bytea read output to hex. Postgres defaults to this,
+		however for extra safety as PullRecords and SyncRecords expects hex string.
+	*/
+	connConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
 
 	replPool, err := pgxpool.NewWithConfig(c.ctx, connConfig)
 	if err != nil {
@@ -471,11 +476,11 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 	case "tsquery":
 		return model.ColumnTypeString, nil
 	case "bytea":
-		return model.ColumnTypeBytes, nil
+		return model.ColumnHexBytesString, nil
 	case "bit":
-		return model.ColumnTypeBytes, nil
+		return model.ColumnHexBytesString, nil
 	case "varbit":
-		return model.ColumnTypeBytes, nil
+		return model.ColumnHexBytesString, nil
 	case "cidr":
 		return model.ColumnTypeString, nil
 	case "inet":
