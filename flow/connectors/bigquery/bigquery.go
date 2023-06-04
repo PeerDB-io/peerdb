@@ -879,9 +879,9 @@ func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
 	case model.ColumnTypeTime:
 		return bigquery.TimeFieldType
 	case model.ColumnTypeTimeWithTimeZone:
-		return bigquery.TimeFieldType
+		return bigquery.StringFieldType
 	case model.ColumnTypeDate:
-		return bigquery.DateFieldType
+		return bigquery.TimestampFieldType
 	case model.ColumnTypeInterval:
 		return bigquery.IntervalFieldType
 	// bytes
@@ -962,6 +962,9 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 			// sample raw data for BIT {"a":{"Bytes":"oA==","Len":3,"Valid":true},"id":1}
 			// need to check correctness TODO
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Bytes')) AS %s",
+				colName, colName)
+		case model.ColumnTypeTime:
+			castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds') AS int64))) AS %s",
 				colName, colName)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",

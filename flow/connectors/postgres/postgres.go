@@ -490,7 +490,7 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 	case "macaddr":
 		return model.ColumnTypeString, nil
 	case "money":
-		return model.ColumnTypeFloat64, nil
+		return model.ColumnTypeString, nil
 	case "oid":
 		return model.ColumnTypeInt64, nil
 	case "time":
