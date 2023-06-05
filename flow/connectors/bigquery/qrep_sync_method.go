@@ -2,11 +2,11 @@ package connbigquery
 
 import (
 	"fmt"
-	"math/rand"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/PeerDB-io/peer-flow/flowutils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
@@ -36,7 +36,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	startTime := time.Now()
 
 	// generate a 128 bit random runID for this run
-	runID := rand.Int63()
+	runID := flowutils.GetRandomInt64()
 
 	// create a staging table with the same schema as the destination table if it doesn't exist
 	stagingTable := fmt.Sprintf("%s_staging", dstTableName)

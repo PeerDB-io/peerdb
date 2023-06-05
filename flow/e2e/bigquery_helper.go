@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"strings"
 
 	"cloud.google.com/go/bigquery"
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
+	"github.com/PeerDB-io/peer-flow/flowutils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"google.golang.org/api/iterator"
 )
@@ -28,7 +28,7 @@ type BigQueryTestHelper struct {
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
 func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	// random 64 bit int to namespace stateful schemas.
-	runID := rand.Int63()
+	runID := flowutils.GetRandomInt64()
 
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {

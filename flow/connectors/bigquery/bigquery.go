@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"reflect"
 	"regexp"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/PeerDB-io/peer-flow/flowutils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
@@ -350,7 +350,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// separate staging batchID which is random/unique
 	// to handle the case where ingestion into staging passes but raw fails
 	// helps avoid duplicates in the raw table
-	stagingBatchID := rand.Int63()
+	stagingBatchID := flowutils.GetRandomInt64()
 
 	// generate a sequential number for the last synced batch
 	// this sequence will be used to keep track of records that are normalized
