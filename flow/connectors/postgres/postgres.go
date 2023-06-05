@@ -106,6 +106,11 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	}
 
 	connConfig.ConnConfig.RuntimeParams["replication"] = "database"
+	/*
+		setting bytea read output to hex.
+		Postgres defaults to this, however for extra safety as PullRecords and SyncRecords
+	*/
+	connConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
 
 	replPool, err := pgxpool.NewWithConfig(c.ctx, connConfig)
 	if err != nil {
@@ -444,19 +449,55 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 		return model.ColumnTypeBoolean, nil
 	case "text":
 		return model.ColumnTypeString, nil
-	case "bytea":
-		return model.ColumnTypeBytea, nil
 	case "date":
-		return model.ColumnTypeTimestamp, nil
+		return model.ColumnTypeDate, nil
 	case "timestamp":
 		return model.ColumnTypeTimestamp, nil
 	case "timestamptz":
-		return model.ColumnTypeTimestamp, nil
+		return model.ColumnTypeTimeStampWithTimeZone, nil
 	case "varchar":
 		return model.ColumnTypeString, nil
 	case "char":
 		return model.ColumnTypeString, nil
 	case "bpchar":
+		return model.ColumnTypeString, nil
+	case "numeric":
+		return model.ColumnTypeNumeric, nil
+	case "uuid":
+		return model.ColumnTypeString, nil
+	case "json":
+		return model.ColumnTypeJSON, nil
+	case "jsonb":
+		return model.ColumnTypeJSON, nil
+	case "xml":
+		return model.ColumnTypeString, nil
+	case "tsvector":
+		return model.ColumnTypeString, nil
+	case "tsquery":
+		return model.ColumnTypeString, nil
+	case "bytea":
+		return model.ColumnHexBytes, nil
+	case "bit":
+		return model.ColumnHexBit, nil
+	case "varbit":
+		return model.ColumnHexBit, nil
+	case "cidr":
+		return model.ColumnTypeString, nil
+	case "inet":
+		return model.ColumnTypeString, nil
+	case "interval":
+		return model.ColumnTypeInterval, nil
+	case "macaddr":
+		return model.ColumnTypeString, nil
+	case "money":
+		return model.ColumnTypeString, nil
+	case "oid":
+		return model.ColumnTypeInt64, nil
+	case "time":
+		return model.ColumnTypeTime, nil
+	case "timetz":
+		return model.ColumnTypeTimeWithTimeZone, nil
+	case "txid_snapshot":
 		return model.ColumnTypeString, nil
 	default:
 		return "", fmt.Errorf("unsupported column type: %s", colType)

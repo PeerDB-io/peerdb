@@ -430,6 +430,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			//   3. _peerdb_record_type - 2
 			//   4. _peerdb_match_data - json of `r.Items`
 
+			// json.Marshal converts bytes in Hex automatically to BASE64 string.
 			itemsJSON, err := json.Marshal(r.Items)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create items to json: %v", err)
@@ -545,7 +546,9 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if !hasJob || normalizeBatchID == syncBatchID {
 		log.Printf("waiting for sync to catch up for job %s, so finishing", req.FlowJobName)
 		return &model.NormalizeResponse{
-			Done: true,
+			Done:         true,
+			StartBatchID: normalizeBatchID,
+			EndBatchID:   syncBatchID,
 		}, nil
 	}
 	distinctTableNames, err := c.getDistinctTableNamesInBatch(req.FlowJobName, syncBatchID, normalizeBatchID)
@@ -843,20 +846,50 @@ func (c *BigQueryConnector) truncateTable(tableIdentifier string) error {
 
 func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
 	switch colType {
+	// boolean
 	case model.ColumnTypeBoolean:
 		return bigquery.BooleanFieldType
+	// integer types
+	case model.ColumnTypeInt16:
+		return bigquery.IntegerFieldType
 	case model.ColumnTypeInt32:
 		return bigquery.IntegerFieldType
 	case model.ColumnTypeInt64:
 		return bigquery.IntegerFieldType
+	// decimal types
+	case model.ColumnTypeFloat16:
+		return bigquery.FloatFieldType
 	case model.ColumnTypeFloat32:
 		return bigquery.FloatFieldType
 	case model.ColumnTypeFloat64:
 		return bigquery.FloatFieldType
+	case model.ColumnTypeNumeric:
+		return bigquery.NumericFieldType
+	// string related
 	case model.ColumnTypeString:
 		return bigquery.StringFieldType
+	// json also is stored as string for now
+	case model.ColumnTypeJSON:
+		return bigquery.StringFieldType
+	// time related
 	case model.ColumnTypeTimestamp:
 		return bigquery.TimestampFieldType
+	case model.ColumnTypeTimeStampWithTimeZone:
+		return bigquery.TimestampFieldType
+	case model.ColumnTypeTime:
+		return bigquery.TimeFieldType
+	case model.ColumnTypeTimeWithTimeZone:
+		return bigquery.StringFieldType
+	case model.ColumnTypeDate:
+		return bigquery.TimestampFieldType
+	case model.ColumnTypeInterval:
+		return bigquery.IntervalFieldType
+	// bytes
+	case model.ColumnHexBytes:
+		return bigquery.BytesFieldType
+	case model.ColumnHexBit:
+		return bigquery.BytesFieldType
+	// rest will be strings
 	default:
 		return bigquery.StringFieldType
 	}
@@ -901,8 +934,44 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	// statement.
 	flattenedProjs := make([]string, 0)
 	for colName, colType := range m.NormalizedTableSchema.Columns {
-		castStmt := fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
-			colName, getBigQueryColumnTypeForGenericColType(colType), colName)
+		bqType := getBigQueryColumnTypeForGenericColType(colType)
+		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
+		if bqType == bigquery.FloatFieldType {
+			bqType = "FLOAT64"
+		}
+		var castStmt string
+
+		switch colType {
+		case model.ColumnTypeJSON:
+			//if the type is JSON, then just extract JSON
+			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS %s",
+				colName, bqType, colName)
+		// expecting data in BASE64 format
+		case model.ColumnHexBytes:
+			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS %s",
+				colName, colName)
+		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
+		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
+		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
+		// this needs to be handled again
+		case model.ColumnTypeInterval:
+			castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
+				"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
+				"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
+				colName, colName, colName, colName)
+		case model.ColumnHexBit:
+			// sample raw data for BIT {"a":{"Bytes":"oA==","Len":3,"Valid":true},"id":1}
+			// need to check correctness TODO
+			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Bytes')) AS %s",
+				colName, colName)
+		case model.ColumnTypeTime:
+			castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds')"+
+				" AS int64))) AS %s",
+				colName, colName)
+		default:
+			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
+				colName, bqType, colName)
+		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
 	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp")
