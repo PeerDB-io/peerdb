@@ -1,6 +1,6 @@
-use std::{any, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use flow_rs::FlowJob;
 use peer_cursor::QueryExecutor;
 use peer_postgres::PostgresQueryExecutor;
@@ -87,7 +87,7 @@ impl Catalog {
     pub async fn new(catalog_config: &CatalogConfig) -> anyhow::Result<Self> {
         let connection_string = catalog_config.get_connection_string();
 
-        let (mut client, connection) =
+        let (client, connection) =
             tokio_postgres::connect(&connection_string, tokio_postgres::NoTls)
                 .await
                 .context("Failed to connect to catalog database")?;
@@ -239,7 +239,7 @@ impl Catalog {
         Ok(peers)
     }
 
-    pub async fn create_flow_job(&self, job: &FlowJob) -> anyhow::Result<()> {
+    pub async fn create_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
         let source_peer_id = self
             .get_peer_id_i32(&job.source_peer)
             .await
@@ -253,8 +253,10 @@ impl Catalog {
         let stmt = self
             .pg
             .prepare_typed(
-                "INSERT INTO flows (name, source_peer, destination_peer, description, source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6)",
-                &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT, types::Type::TEXT, types::Type::TEXT],
+                "INSERT INTO flows (name, source_peer, destination_peer, description,
+                     source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6)",
+                &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT,
+                 types::Type::TEXT, types::Type::TEXT],
             )
             .await?;
 
@@ -273,6 +275,55 @@ impl Catalog {
             )
             .await?;
 
+        Ok(())
+    }
+
+    pub async fn update_workflow_id_for_flow_job(
+        &self,
+        flow_job_name: &str,
+        workflow_id: &str,
+    ) -> anyhow::Result<()> {
+        let rows = self
+            .pg
+            .execute(
+                "UPDATE FLOWS SET WORKFLOW_ID = $1 WHERE NAME = $2",
+                &[&workflow_id, &flow_job_name],
+            )
+            .await?;
+        if rows != 1 {
+            return Err(anyhow!("unable to find metadata for flow"));
+        }
+        Ok(())
+    }
+
+
+    pub async fn get_workflow_id_for_flow_job(
+        &self,
+        flow_job_name: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let rows = self
+            .pg
+            .query(
+                "SELECT WORKFLOW_ID FROM FLOWS WHERE NAME = $1",
+                &[&flow_job_name],
+            )
+            .await?;
+        if rows.len() != 1 {
+            tracing::info!("no workflow id found for flow job {}", flow_job_name);
+            return Ok(None);
+        }
+        let first_row = rows.get(0).unwrap();
+        Ok(Some(first_row.get(0)))
+    }
+
+    pub async fn delete_flow_job_entry(&self, flow_job_name: &str) -> anyhow::Result<()> {
+        let rows = self
+            .pg
+            .execute("DELETE FROM FLOWS WHERE NAME = $1", &[&flow_job_name])
+            .await?;
+        if rows != 1 {
+            return Err(anyhow!("unable to delete flow job metadata"));
+        }
         Ok(())
     }
 }

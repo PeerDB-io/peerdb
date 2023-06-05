@@ -54,6 +54,8 @@ type IFlowable interface {
 
 	// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
 	ReplicateQRepPartition(ctx context.Context, partition *protos.QRepPartition) error
+
+	DropFlow(ctx context.Context, config *protos.DropFlowInput) error
 }
 
 // FlowableActivity is the activity implementation for IFlowable.
@@ -340,5 +342,29 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	}
 
 	log.Printf("pushed %d records\n", res)
+	return nil
+}
+
+func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.FlowConnectionConfigs) error {
+	src, err := connectors.GetConnector(ctx, config.Source)
+	defer connectors.CloseConnector(src)
+	if err != nil {
+		return fmt.Errorf("failed to get source connector: %w", err)
+	}
+
+	dest, err := connectors.GetConnector(ctx, config.Destination)
+	defer connectors.CloseConnector(dest)
+	if err != nil {
+		return fmt.Errorf("failed to get destination connector: %w", err)
+	}
+
+	err = src.PullFlowCleanup(config.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup source: %w", err)
+	}
+	err = dest.SyncFlowCleanup(config.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup destination: %w", err)
+	}
 	return nil
 }

@@ -17,8 +17,8 @@ type Connector interface {
 	NeedsSetupMetadataTables() bool
 	SetupMetadataTables() error
 	GetLastOffset(jobName string) (*protos.LastSyncState, error)
-	GetLastSyncBatchId(jobName string) (int64, error)
-	GetLastNormalizeBatchId(jobName string) (int64, error)
+	GetLastSyncBatchID(jobName string) (int64, error)
+	GetLastNormalizeBatchID(jobName string) (int64, error)
 
 	// GetTableSchema returns the schema of a table.
 	GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error)
@@ -66,6 +66,9 @@ type Connector interface {
 	// SyncQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
 	SyncQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition, records *model.QRecordBatch) (int, error)
+
+	PullFlowCleanup(jobName string) error
+	SyncFlowCleanup(jobName string) error
 }
 
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {

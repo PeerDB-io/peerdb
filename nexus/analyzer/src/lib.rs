@@ -78,6 +78,10 @@ pub enum PeerDDL {
     CreateMirror {
         flow_job: FlowJob,
     },
+    DropMirror {
+        if_exists: bool,
+        flow_job_name: String,
+    },
 }
 
 impl StatementAnalyzer for PeerDDLAnalyzer {
@@ -94,7 +98,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                 let db_type = DbType::from(peer_type.clone());
                 let config = parse_db_options(db_type, with_options.clone())?;
                 let peer = Peer {
-                    name: peer_name.to_string(),
+                    name: peer_name.to_string().to_lowercase(),
                     r#type: db_type as i32,
                     config,
                 };
@@ -110,9 +114,9 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                 target_table,
                 with_options: _,
             } => {
-                let source_table = source_table.to_string();
-                let target_table = target_table.to_string();
-                let mirror_name = mirror_name.to_string();
+                let source_table = source_table.to_string().to_lowercase();
+                let target_table = target_table.to_string().to_lowercase();
+                let mirror_name = mirror_name.to_string().to_lowercase();
 
                 // get first part of the '.' separated part from the source table as peer name
                 // and rest as the table name with schema
@@ -137,6 +141,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                 Ok(Some(PeerDDL::CreateMirror { flow_job }))
             }
+            Statement::DropMirror {
+                if_exists,
+                mirror_name,
+            } => Ok(Some(PeerDDL::DropMirror {
+                if_exists: *if_exists,
+                flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
             _ => Ok(None),
         }
     }

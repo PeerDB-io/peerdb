@@ -229,7 +229,7 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	}
 }
 
-func (c *BigQueryConnector) GetLastSyncBatchId(jobName string) (int64, error) {
+func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	query := fmt.Sprintf("SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
@@ -253,7 +253,7 @@ func (c *BigQueryConnector) GetLastSyncBatchId(jobName string) (int64, error) {
 	}
 }
 
-func (c *BigQueryConnector) GetLastNormalizeBatchId(jobName string) (int64, error) {
+func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
 	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
@@ -355,7 +355,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// generate a sequential number for the last synced batch
 	// this sequence will be used to keep track of records that are normalized
 	// in the NormalizeFlowWorkflow
-	syncBatchID, err := c.GetLastSyncBatchId(req.FlowJobName)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
@@ -525,13 +525,13 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	syncBatchID, err := c.GetLastSyncBatchId(req.FlowJobName)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
 
 	// get last batchid that has been normalize
-	normalizeBatchID, err := c.GetLastNormalizeBatchId(req.FlowJobName)
+	normalizeBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
@@ -783,6 +783,31 @@ func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityInput) (*
 func (c *BigQueryConnector) SetupReplication(req *protos.SetupReplicationInput) error {
 	log.Errorf("panicking at call to SetupReplication for Snowflake flow connector")
 	panic("SetupReplication is not implemented for the Snowflake flow connector")
+}
+
+func (c *BigQueryConnector) PullFlowCleanup(jobName string) error {
+	panic("not implemented")
+}
+
+func (c *BigQueryConnector) SyncFlowCleanup(jobName string) error {
+	dataset := c.client.Dataset(c.datasetID)
+	// deleting PeerDB specific tables
+	err := dataset.Table(c.getRawTableName(jobName)).Delete(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete raw table: %w", err)
+	}
+	err = dataset.Table(c.getStagingTableName(jobName)).Delete(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete staging table: %w", err)
+	}
+
+	// deleting job from metadata table
+	query := fmt.Sprintf("DELETE FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
+	_, err = c.client.Query(query).Read(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete job from metadata table: %w", err)
+	}
+	return nil
 }
 
 // getRawTableName returns the raw table name for the given table identifier.

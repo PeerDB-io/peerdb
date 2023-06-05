@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	log "github.com/sirupsen/logrus"
 )
 
 // PostgresConnector is a Connector implementation for Postgres.
@@ -78,11 +79,11 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	panic("not implemented")
 }
 
-func (c *PostgresConnector) GetLastSyncBatchId(jobName string) (int64, error) {
+func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	panic("not implemented")
 }
 
-func (c *PostgresConnector) GetLastNormalizeBatchId(jobName string) (int64, error) {
+func (c *PostgresConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
 	panic("not implemented")
 }
 func (c *PostgresConnector) GetDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -353,6 +354,43 @@ func (c *PostgresConnector) SetupReplication(req *protos.SetupReplicationInput) 
 		return fmt.Errorf("error creating replication slot and publication: %w", err)
 	}
 	return nil
+}
+
+func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
+	// Slotname would be the job name prefixed with "peerflow_slot_"
+	slotName := fmt.Sprintf("peerflow_slot_%s", jobName)
+
+	// Publication name would be the job name prefixed with "peerflow_pub_"
+	publicationName := fmt.Sprintf("peerflow_pub_%s", jobName)
+
+	pullFlowCleanupTx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for flow cleanup: %w", err)
+	}
+	defer func() {
+		deferErr := pullFlowCleanupTx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
+		}
+	}()
+	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("DROP PUBLICATION %s", publicationName))
+	if err != nil {
+		return fmt.Errorf("error dropping publication: %w", err)
+	}
+	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slotName))
+	if err != nil {
+		return fmt.Errorf("error dropping replication slot: %w", err)
+	}
+	err = pullFlowCleanupTx.Commit(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error committing transaction for flow cleanup: %w", err)
+	}
+
+	return nil
+}
+
+func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
+	panic("not implemented")
 }
 
 // parseSchemaTable parses a table name into schema and table name.

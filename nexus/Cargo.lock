@@ -1778,6 +1778,7 @@ dependencies = [
  "peer-cursor",
  "peer-postgres",
  "peerdb-parser",
+ "pgerror",
  "pgwire",
  "postgres",
  "prost",
