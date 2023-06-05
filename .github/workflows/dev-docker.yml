@@ -37,3 +37,23 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/peerdb-io/peerdb-server:dev
+
+      - name: Build (optionally publish) Flow API Dev Image
+        uses: depot/build-push-action@v1
+        with:
+          token: ${{ secrets.DEPOT_TOKEN }}
+          context: .
+          file: stacks/flow-api.Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/peerdb-io/peerdb-flow-api:dev
+
+      - name: Build (optionally publish) Flow Worker Dev Image
+        uses: depot/build-push-action@v1
+        with:
+          token: ${{ secrets.DEPOT_TOKEN }}
+          context: .
+          file: stacks/flow-worker.Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/peerdb-io/peerdb-flow-worker:dev

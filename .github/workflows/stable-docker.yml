@@ -18,11 +18,7 @@ jobs:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+      - uses: depot/setup-action@v1
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2.1.0
@@ -32,10 +28,28 @@ jobs:
           password: ${{secrets.GITHUB_TOKEN}}
 
       - name: Publish PeerDB Stable Image
-        uses: docker/build-push-action@v4.0.0
+        uses: depot/build-push-action@v1
         with:
           context: .
           file: stacks/nexus.Dockerfile
           push: true
           tags: |
             ghcr.io/peerdb-io/peerdb-server:${{ github.ref_name }}
+
+      - name: Publish Flow API Image
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          file: stacks/flow-api.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/peerdb-io/peerdb-flow-api:${{ github.ref_name }}
+
+      - name: Publish Flow Worker Stable Image
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          file: stacks/flow-worker.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/peerdb-io/peerdb-flow-worker:${{ github.ref_name }}
