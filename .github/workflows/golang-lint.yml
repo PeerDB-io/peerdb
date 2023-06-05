@@ -16,12 +16,13 @@ jobs:
           submodules: recursive
           token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
-      - uses: actions/setup-go@v4
-        with:
-          go-version: '>=1.20.0'
-
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: reviewdog/action-golangci-lint@v2
         with:
-          working-directory: ${{ github.workspace }}/flow
-          only-new-issues: true
+          workdir: ./flow
+          reporter: github-pr-review
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          golangci_lint_flags: "--timeout 10m"
+          fail_on_error: true
+        env:
+          REVIEWDOG_TOKEN: ${{ secrets.REVIEWDOG_TOKEN }}
