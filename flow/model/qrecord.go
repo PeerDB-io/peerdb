@@ -3,6 +3,8 @@ package model
 import (
 	"fmt"
 	"time"
+
+	"github.com/linkedin/goavro"
 )
 
 type QValueKind string
@@ -85,7 +87,7 @@ type QValue struct {
 
 type QRecord map[string]QValue
 
-func (q *QRecord) ToAvroCompatibleMap() (map[string]interface{}, error) {
+func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
 	for key, qValue := range *q {
@@ -110,13 +112,30 @@ func (q *QRecord) ToAvroCompatibleMap() (map[string]interface{}, error) {
 				return nil, fmt.Errorf("unsupported ExtendedTimeKindType: %s", et.NestedKind.Type)
 			}
 			m[key] = v
-		// case QValueKindInteger:
-		// 	m[key] = goavro.Union("long", qValue.Value)
-		// case QValueKindString:
-		// 	m[key] = goavro.Union("string", qValue.Value)
 		default:
-			// For all other types, we just copy the value
-			m[key] = qValue.Value
+			// For all other types, we just copy the value and wrap with goavro.Union
+			// if the field is nullable.
+			if nullable, ok := (*nullableFields)[key]; ok && nullable {
+				switch qValue.Kind {
+				case QValueKindString:
+					m[key] = goavro.Union("string", qValue.Value)
+				case QValueKindFloat:
+					m[key] = goavro.Union("float", qValue.Value)
+				case QValueKindInteger:
+					m[key] = goavro.Union("long", qValue.Value)
+				case QValueKindBoolean:
+					m[key] = goavro.Union("boolean", qValue.Value)
+				case QValueKindArray:
+					m[key] = goavro.Union("array", qValue.Value)
+				case QValueKindStruct:
+					m[key] = goavro.Union("map", qValue.Value)
+				// TODO(kaushik/sai): Add more cases as needed
+				default:
+					return nil, fmt.Errorf("unsupported QValueKind: %s", qValue.Kind)
+				}
+			} else {
+				m[key] = qValue.Value
+			}
 		}
 	}
 

@@ -38,7 +38,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	startTime := time.Now()
 
 	// You will need to define your Avro schema as a string
-	avroSchema, err := DefineAvroSchema(dstTableName, dstTableMetadata)
+	avroSchema, nullable, err := DefineAvroSchema(dstTableName, dstTableMetadata)
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -65,7 +65,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 
 	// Write each QRecord to the OCF file
 	for _, qRecord := range records.Records {
-		avroMap, err := qRecord.ToAvroCompatibleMap()
+		avroMap, err := qRecord.ToAvroCompatibleMap(&nullable)
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}
@@ -152,19 +152,21 @@ type AvroSchema struct {
 	Fields []AvroField `json:"fields"`
 }
 
-func DefineAvroSchema(dstTableName string, dstTableMetadata *bigquery.TableMetadata) (string, error) {
+func DefineAvroSchema(dstTableName string, dstTableMetadata *bigquery.TableMetadata) (string, map[string]bool, error) {
 	avroFields := []AvroField{}
+	nullableFields := map[string]bool{}
 
 	for _, bqField := range dstTableMetadata.Schema {
 		avroType, err := GetAvroType(bqField)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		// If a field is nullable, its Avro type should be ["null", actualType]
-		// if !bqField.Required {
-		// 	avroType = []interface{}{"null", avroType}
-		// }
+		if !bqField.Required {
+			avroType = []interface{}{"null", avroType}
+			nullableFields[bqField.Name] = true
+		}
 
 		avroFields = append(avroFields, AvroField{
 			Name: bqField.Name,
@@ -180,10 +182,10 @@ func DefineAvroSchema(dstTableName string, dstTableMetadata *bigquery.TableMetad
 
 	avroSchemaJSON, err := json.Marshal(avroSchema)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal Avro schema to JSON: %v", err)
+		return "", nil, fmt.Errorf("failed to marshal Avro schema to JSON: %v", err)
 	}
 
-	return string(avroSchemaJSON), nil
+	return string(avroSchemaJSON), nullableFields, nil
 }
 
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
