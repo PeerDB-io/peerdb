@@ -77,18 +77,19 @@ Existing ETL tools primarily focus on supporting a wide range of data-stores. Ho
 
 #### **Data-store nativity at it’s core, enabling scalable ETL**
 
-PeerDB takes a data-store first approach to ETL. It supports a set of highly adopted stores, implements multiple infrastructural and data-store native optimizations, to provide a highly scalable and feature-rich ETL experience for you. For example, in a sync from Postgres to BigQuery or Snowflake, PeerDB is 10 times faster than other tools.
+PeerDB takes a data-store first approach to ETL. It supports a set of highly adopted stores, implements multiple infrastructural and data-store native optimizations, to provide a highly scalable and feature-rich ETL experience for you. For example, in a sync from Postgres to BigQuery or Snowflake, PeerDB is 10 times faster than other tools. We are database experts and believe that an ETL toolshould be datastore centric, than a hodge-podge of too many connectors.
 
 #### **Postgres-compatible SQL interface to do ETL**
 
-The Postgres-compatible interface for ETL is unique to PeerDB and enables you to operate in a language they are familiar with. The idea is that you do ETL the same way you work with your databases. 
+The Postgres-compatible SQL interface for ETL is unique to PeerDB and enables you to operate in a language you are familiar with. The idea is that you do ETL the same way you work with your databases. 
 
 You can use Postgres’ eco-system to manage your ETL — 
 
-1. Client tools like pgadmin, psql to build ETL pipelines.
+1. Client tools like pgadmin, psql to run SQL commands.
 2. BI tools like grafana, tableau to visually monitor syncs and transforms.
 3. Database migration and versioning tools like Flyway to manage your ETL.
-4. Any language (Python, Go, Node.JS etc) for development etc.
+4. Any language (Python, Go, Node.JS etc) and Scheduler (AirFlow) for development.
+5. And many more
 
 ## License
 
