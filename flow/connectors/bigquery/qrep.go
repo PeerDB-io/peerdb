@@ -50,7 +50,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	}
 
 	stagingTableSync := &QRepStagingTableSync{connector: c}
-	return stagingTableSync.SyncQRepRecords(config.FlowJobName, partition, tblMetadata, records)
+	return stagingTableSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, records)
 }
 
 func (c *BigQueryConnector) createMetadataInsertStatement(

@@ -15,6 +15,7 @@ import (
 type QRepSyncMethod interface {
 	SyncQRepRecords(
 		flowJobName string,
+		dstTableName string,
 		partition *protos.QRepPartition,
 		dstTableMetadata *bigquery.TableMetadata,
 		records *model.QRecordBatch) (int, error)
@@ -26,10 +27,10 @@ type QRepStagingTableSync struct {
 
 func (s *QRepStagingTableSync) SyncQRepRecords(
 	flowJobName string,
+	dstTableName string,
 	partition *protos.QRepPartition,
 	dstTableMetadata *bigquery.TableMetadata,
 	records *model.QRecordBatch) (int, error) {
-	destTable := dstTableMetadata.Name
 	partitionID := partition.PartitionId
 
 	startTime := time.Now()
@@ -38,7 +39,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	runID := rand.Int63()
 
 	// create a staging table with the same schema as the destination table if it doesn't exist
-	stagingTable := fmt.Sprintf("%s_staging", destTable)
+	stagingTable := fmt.Sprintf("%s_staging", dstTableName)
 	stagingBQTable := s.connector.client.Dataset(s.connector.datasetID).Table(stagingTable)
 	if _, err := stagingBQTable.Metadata(s.connector.ctx); err != nil {
 		metadata := &bigquery.TableMetadata{
@@ -99,7 +100,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 	paritionSelect := fmt.Sprintf("SELECT %s FROM %s.%s WHERE partitionID = '%s' AND runID = %d;",
 		colNamesStr, s.connector.datasetID, stagingTable, partitionID, runID)
-	appendStmt := fmt.Sprintf("INSERT INTO %s.%s %s", s.connector.datasetID, destTable, paritionSelect)
+	appendStmt := fmt.Sprintf("INSERT INTO %s.%s %s", s.connector.datasetID, dstTableName, paritionSelect)
 	stmts = append(stmts, appendStmt)
 
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
@@ -116,6 +117,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 
-	log.Printf("pushed %d records to %s.%s", numRowsInserted, s.connector.datasetID, destTable)
+	log.Printf("pushed %d records to %s.%s", numRowsInserted, s.connector.datasetID, dstTableName)
 	return numRowsInserted, nil
 }
