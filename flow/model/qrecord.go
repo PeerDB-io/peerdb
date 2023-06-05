@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -83,6 +84,44 @@ type QValue struct {
 }
 
 type QRecord map[string]QValue
+
+func (q *QRecord) ToAvroCompatibleMap() (map[string]interface{}, error) {
+	m := map[string]interface{}{}
+
+	for key, qValue := range *q {
+		switch qValue.Kind {
+		case QValueKindETime:
+			et, ok := qValue.Value.(*ExtendedTime)
+			if !ok {
+				return nil, fmt.Errorf("invalid ExtendedTime value")
+			}
+			var v interface{}
+			switch et.NestedKind.Type {
+			case DateTimeKindType:
+				// Convert to timestamp (milliseconds since epoch)
+				v = et.Time.UnixNano() / int64(time.Millisecond)
+			case DateKindType:
+				// Extract date in YYYY-MM-DD format
+				v = et.Time.Format("2006-01-02")
+			case TimeKindType:
+				// Extract time in HH:MM:SS.ffffff format
+				v = et.Time.Format("15:04:05.999999")
+			default:
+				return nil, fmt.Errorf("unsupported ExtendedTimeKindType: %s", et.NestedKind.Type)
+			}
+			m[key] = v
+		// case QValueKindInteger:
+		// 	m[key] = goavro.Union("long", qValue.Value)
+		// case QValueKindString:
+		// 	m[key] = goavro.Union("string", qValue.Value)
+		default:
+			// For all other types, we just copy the value
+			m[key] = qValue.Value
+		}
+	}
+
+	return m, nil
+}
 
 // QRecordBatch holds a batch of QRecord objects.
 type QRecordBatch struct {

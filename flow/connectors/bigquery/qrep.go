@@ -49,8 +49,17 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		return 0, nil
 	}
 
-	stagingTableSync := &QRepStagingTableSync{connector: c}
-	return stagingTableSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, records)
+	syncMode := config.SyncMode
+	switch syncMode {
+	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
+		stagingTableSync := &QRepStagingTableSync{connector: c}
+		return stagingTableSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, records)
+	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
+		avroSync := &QRepAvroSyncMethod{connector: c, gcsBucket: "peerdb_staging"}
+		return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, records)
+	default:
+		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
+	}
 }
 
 func (c *BigQueryConnector) createMetadataInsertStatement(

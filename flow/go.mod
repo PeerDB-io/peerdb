@@ -4,11 +4,14 @@ go 1.19
 
 require (
 	cloud.google.com/go/bigquery v1.51.2
+	cloud.google.com/go/storage v1.29.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jackc/pglogrepl v0.0.0-20230428004623-0c5b98f52784
 	github.com/jackc/pgx/v5 v5.3.1
+	github.com/linkedin/goavro v2.1.0+incompatible
+	github.com/linkedin/goavro/v2 v2.12.0
 	github.com/sirupsen/logrus v1.9.2
 	github.com/snowflakedb/gosnowflake v1.6.21
 	github.com/stretchr/testify v1.8.4

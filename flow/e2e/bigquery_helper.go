@@ -54,7 +54,7 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
 	}
 
-	client, err := bqsa.CreateClient(context.Background())
+	client, err := bqsa.CreateBigQueryClient(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}
