@@ -94,7 +94,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 
 // GenerateQRepConfig generates a qrep config for testing.
 func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
-	query string, watermark string) (*protos.QRepConfig, error) {
+	query string, watermark string, syncMode protos.QRepSyncMode) (*protos.QRepConfig, error) {
 	ret := &protos.QRepConfig{}
 
 	ret.FlowJobName = c.FlowJobName
@@ -112,6 +112,8 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 
 	ret.Query = query
 	ret.WatermarkColumn = watermark
+
+	ret.SyncMode = syncMode
 
 	return ret, nil
 }
