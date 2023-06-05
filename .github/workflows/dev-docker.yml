@@ -46,7 +46,7 @@ jobs:
           file: stacks/flow-api.Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
-            ghcr.io/peerdb-io/peerdb-flow-api:dev
+            ghcr.io/peerdb-io/flow-api:dev
 
       - name: Build (optionally publish) Flow Worker Dev Image
         uses: depot/build-push-action@v1
@@ -56,4 +56,4 @@ jobs:
           file: stacks/flow-worker.Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
-            ghcr.io/peerdb-io/peerdb-flow-worker:dev
+            ghcr.io/peerdb-io/flow-worker:dev
