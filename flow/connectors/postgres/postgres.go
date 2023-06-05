@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	log "github.com/sirupsen/logrus"
 )
 
 // PostgresConnector is a Connector implementation for Postgres.
@@ -366,7 +367,12 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	if err != nil {
 		return fmt.Errorf("error starting transaction for flow cleanup: %w", err)
 	}
-	defer pullFlowCleanupTx.Rollback(c.ctx)
+	defer func() {
+		deferErr := pullFlowCleanupTx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
+		}
+	}()
 	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("DROP PUBLICATION %s", publicationName))
 	if err != nil {
 		return fmt.Errorf("error dropping publication: %w", err)

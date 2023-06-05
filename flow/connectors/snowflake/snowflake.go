@@ -422,7 +422,12 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		return nil, err
 	}
 	// in case we return after error, ensure transaction is rolled back
-	defer syncRecordsTx.Rollback()
+	defer func() {
+		deferErr := syncRecordsTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for SyncRecords: %v", deferErr)
+		}
+	}()
 
 	// inserting records into raw table.
 	numRecords := len(records)
@@ -494,7 +499,12 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, fmt.Errorf("unable to begin transactions for NormalizeRecords: %w", err)
 	}
 	// in case we return after error, ensure transaction is rolled back
-	defer normalizeRecordsTx.Rollback()
+	defer func() {
+		deferErr := normalizeRecordsTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for NormalizeRecords: %v", deferErr)
+		}
+	}()
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
 	for _, destinationTableName := range destinationTableNames {
 		err = c.generateAndExecuteMergeStatement(destinationTableName,
@@ -572,7 +582,12 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
 	}
-	defer syncFlowCleanupTx.Rollback()
+	defer func() {
+		deferErr := syncFlowCleanupTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
+		}
+	}()
 
 	_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
 		getRawTableIdentifier(jobName)))

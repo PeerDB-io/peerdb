@@ -109,6 +109,7 @@ impl FlowHandler {
         };
 
         let mut job_req = HashMap::new();
+        // these two should refer to the same job for shutdown to work
         job_req.insert("flow_job_name", flow_job_name.clone());
         job_req.insert("workflow_id", workflow_id.clone());
 
@@ -118,9 +119,9 @@ impl FlowHandler {
             .post(&shutdown_flow_endpoint)
             .json(&job_req)
             .send()
-            .await?
+            .await.context("failed to receive response for shutdown request")?
             .json()
-            .await?;
+            .await.context("failed to parse response data from shutdown request")?;
         if response["status"] != "ok" {
             let err = format!("failed to shutdown flow job: {:?}", response);
             tracing::error!(err);

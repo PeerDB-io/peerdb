@@ -239,7 +239,7 @@ impl Catalog {
         Ok(peers)
     }
 
-    pub async fn create_flow_job_metadata(&self, job: &FlowJob) -> anyhow::Result<()> {
+    pub async fn create_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
         let source_peer_id = self
             .get_peer_id_i32(&job.source_peer)
             .await
@@ -282,7 +282,7 @@ impl Catalog {
         &self,
         flow_job_name: &str,
         workflow_id: &str,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<()> {
         let rows = self
             .pg
             .execute(
@@ -291,10 +291,11 @@ impl Catalog {
             )
             .await?;
         if rows != 1 {
-            return Ok(false);
+            return Err(anyhow!("unable to find metadata for flow"));
         }
-        Ok(true)
+        Ok(())
     }
+
 
     pub async fn get_workflow_id_for_flow_job(
         &self,
@@ -308,13 +309,14 @@ impl Catalog {
             )
             .await?;
         if rows.len() != 1 {
+            tracing::info!("no workflow id found for flow job {}", flow_job_name);
             return Ok(None);
         }
         let first_row = rows.get(0).unwrap();
         Ok(Some(first_row.get(0)))
     }
 
-    pub async fn delete_flow_job_metadata(&self, flow_job_name: &str) -> anyhow::Result<bool> {
+    pub async fn delete_flow_job_entry(&self, flow_job_name: &str) -> anyhow::Result<()> {
         let rows = self
             .pg
             .execute("DELETE FROM FLOWS WHERE NAME = $1", &[&flow_job_name])
@@ -322,6 +324,6 @@ impl Catalog {
         if rows != 1 {
             return Err(anyhow!("unable to delete flow job metadata"));
         }
-        Ok(true)
+        Ok(())
     }
 }
