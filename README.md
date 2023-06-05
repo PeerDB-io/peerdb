@@ -1,8 +1,11 @@
-# PeerDB Github README
+# PeerDB
 
-![logo-light-transparent copy 2.png](images/logo-light-transparent_copy_2.png)
+<p align="center">
+<img class="img-fluid" src="images/logo-light-transparent_copy_2.png" alt="img-verification" width="100" height="100">
+</p>
 
-## PeerDB - Modern ETL in minutes, with SQL.
+
+## Modern ETL in minutes, with SQL.
 
 PeerDB is a Postgres-compatible SQL interface to seamlessly integrate multiple data-stores. It enables you to **sync**, **transform** and **query** data across your stores using simple SQL commands. It takes a datastore native approach in engineering — enabling 10x faster and a highly reliable ETL experience for you.
 
