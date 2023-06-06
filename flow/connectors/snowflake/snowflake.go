@@ -344,6 +344,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	for _, record := range req.Records.Records {
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
+			// json.Marshal converts bytes in Hex automatically to BASE64 string.
 			itemsJSON, err := json.Marshal(typedRecord.Items)
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
