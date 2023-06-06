@@ -29,6 +29,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	w.RegisterWorkflow(peerflow.SetupFlowWorkflow)
 	w.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
+	w.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterActivity(&activities.FetchConfigActivity{})
 	w.RegisterActivity(&activities.FlowableActivity{})
