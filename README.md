@@ -82,7 +82,7 @@ Real-time syncing of data from source to target based on change-feed or CDC (log
 
 **MIRROR for SELECTs**
 
-Continuous syncing of data from source to target based on any SELECT query on the source. So this is basically 
+Continuous syncing of data from source to target based on any SELECT query on the source. So this is basically a pre-transform - i.e. transform data on the source before syncing it to the target.
 
 | Source | Target | Status |
 | --- | --- | --- |
@@ -91,4 +91,4 @@ Continuous syncing of data from source to target based on any SELECT query on th
 
 ## License
 
-PeerDB is licensed under ELv2. Please see the LICENSE file for additional information. If you have any licensing questions please email **founders@peerdb.io**
+PeerDB is licensed under Elastic License 2.0 (ELv2). Please see the LICENSE file for additional information. If you have any licensing questions please email **founders@peerdb.io**
