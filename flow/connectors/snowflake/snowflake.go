@@ -626,19 +626,51 @@ func getSnowflakeTypeForGenericColumnType(colType string) string {
 	switch colType {
 	case model.ColumnTypeBoolean:
 		return "BOOLEAN"
+	// integer types
+	case model.ColumnTypeInt16:
+		return "INTEGER"
 	case model.ColumnTypeInt32:
-		return "INT"
+		return "INTEGER"
 	case model.ColumnTypeInt64:
-		return "INT"
+		return "INTEGER"
+	// decimal types
+	// The names FLOAT, FLOAT4, and FLOAT8 are for compatibility with other systems;
+	// Snowflake treats all three as 64-bit floating-point numbers.
+	case model.ColumnTypeFloat16:
+		return "FLOAT"
 	case model.ColumnTypeFloat32:
 		return "FLOAT"
 	case model.ColumnTypeFloat64:
 		return "FLOAT"
+	case model.ColumnTypeNumeric:
+		return "NUMBER"
+	// string related STRING , TEXT , NVARCHAR ,
+	// NVARCHAR2 , CHAR VARYING , NCHAR VARYING
+	//Synonymous with VARCHAR.
 	case model.ColumnTypeString:
 		return "STRING"
+	// json also is stored as string for now
+	case model.ColumnTypeJSON:
+		return "STRING"
+	// time related
 	case model.ColumnTypeTimestamp:
-		// making an assumption that ColumnTypeTimestamp refers to a timestamp without timezone.
 		return "TIMESTAMP_NTZ"
+	case model.ColumnTypeTimeStampWithTimeZone:
+		return "TIMESTAMP_TZ"
+	case model.ColumnTypeTime:
+		return "TIME"
+	case model.ColumnTypeTimeWithTimeZone:
+		return "STRING"
+	case model.ColumnTypeDate:
+		return "TIMESTAMP_NTZ"
+	case model.ColumnTypeInterval:
+		return "STRING"
+	// bytes
+	case model.ColumnHexBytes:
+		return "BINARY"
+	case model.ColumnHexBit:
+		return "BINARY"
+	// rest will be strings
 	default:
 		return "STRING"
 	}
@@ -699,8 +731,22 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,", toVariantColumnName,
-			columnName, getSnowflakeTypeForGenericColumnType(genericColumnType), columnName))
+		sfType := getSnowflakeTypeForGenericColumnType(genericColumnType)
+		switch genericColumnType {
+		case model.ColumnHexBytes:
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
+				"AS %s,", toVariantColumnName, columnName, columnName))
+		case model.ColumnHexBit:
+			// "c2": {"Bytes": "gA==", "Len": 1,"Valid": true}
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s:Bytes) "+
+				"AS %s,", toVariantColumnName, columnName, columnName))
+		case model.ColumnTypeTime:
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:Microseconds*1000) "+
+				"AS %s,", toVariantColumnName, columnName, columnName))
+		default:
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,", toVariantColumnName,
+				columnName, sfType, columnName))
+		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")
 
