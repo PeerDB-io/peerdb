@@ -876,18 +876,10 @@ func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
 	case model.ColumnTypeBoolean:
 		return bigquery.BooleanFieldType
 	// integer types
-	case model.ColumnTypeInt16:
-		return bigquery.IntegerFieldType
-	case model.ColumnTypeInt32:
-		return bigquery.IntegerFieldType
-	case model.ColumnTypeInt64:
+	case model.ColumnTypeInt16, model.ColumnTypeInt32, model.ColumnTypeInt64:
 		return bigquery.IntegerFieldType
 	// decimal types
-	case model.ColumnTypeFloat16:
-		return bigquery.FloatFieldType
-	case model.ColumnTypeFloat32:
-		return bigquery.FloatFieldType
-	case model.ColumnTypeFloat64:
+	case model.ColumnTypeFloat16, model.ColumnTypeFloat32, model.ColumnTypeFloat64:
 		return bigquery.FloatFieldType
 	case model.ColumnTypeNumeric:
 		return bigquery.NumericFieldType
@@ -898,9 +890,7 @@ func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
 	case model.ColumnTypeJSON:
 		return bigquery.StringFieldType
 	// time related
-	case model.ColumnTypeTimestamp:
-		return bigquery.TimestampFieldType
-	case model.ColumnTypeTimeStampWithTimeZone:
+	case model.ColumnTypeTimestamp, model.ColumnTypeTimeStampWithTimeZone:
 		return bigquery.TimestampFieldType
 	case model.ColumnTypeTime:
 		return bigquery.TimeFieldType
@@ -911,9 +901,7 @@ func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
 	case model.ColumnTypeInterval:
 		return bigquery.IntervalFieldType
 	// bytes
-	case model.ColumnHexBytes:
-		return bigquery.BytesFieldType
-	case model.ColumnHexBit:
+	case model.ColumnHexBytes, model.ColumnHexBit:
 		return bigquery.BytesFieldType
 	// rest will be strings
 	default:
