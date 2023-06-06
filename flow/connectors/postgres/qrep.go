@@ -19,78 +19,78 @@ func (c *PostgresConnector) GetQRepPartitions(config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 	// For the table `config.SourceTableIdentifier`
-	// Get the min, max value (inclusive) of `config.WatermarkColumn`
-	extremaQuery := fmt.Sprintf("SELECT MIN(%s), MAX(%s) FROM %s",
-		config.WatermarkColumn, config.WatermarkColumn, config.SourceTableIdentifier)
-	row := c.pool.QueryRow(c.ctx, extremaQuery)
+	// Get the start and end values for each group of rows
+	partitionQuery := fmt.Sprintf(`
+		SELECT MIN(%[1]s) AS Start, MAX(%[1]s) AS End
+		FROM (
+		    SELECT %[1]s, ROW_NUMBER() OVER (ORDER BY %[1]s) as row
+		    FROM %[2]s
+		) sub
+		GROUP BY (row - 1) / %[3]d`,
+		config.WatermarkColumn, config.SourceTableIdentifier, config.RowsPerPartition)
 
-	var minValue, maxValue interface{}
-	if err := row.Scan(&minValue, &maxValue); err != nil {
-		return nil, fmt.Errorf("failed to get min, max value: %w", err)
+	rows, err := c.pool.Query(c.ctx, partitionQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
+	defer rows.Close()
 
-	// log the min, max value
-	fmt.Printf("minValue: %v, maxValue: %v\n", minValue, maxValue)
+	var partitions []*protos.QRepPartition
+	for rows.Next() {
+		var startValue, endValue interface{}
+		if err := rows.Scan(&startValue, &endValue); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
 
-	// Depending on the type of the minValue and maxValue, convert them into
-	// protos.TimestampPartitionRange or protos.IntPartitionRange
-	var rangePartition protos.PartitionRange
-	switch v := minValue.(type) {
-	case int32:
-		rangePartition = protos.PartitionRange{
-			Range: &protos.PartitionRange_IntRange{
-				IntRange: &protos.IntPartitionRange{
-					Start: int64(v),
-					End:   int64(maxValue.(int32)),
+		// Depending on the type of the startValue and endValue, convert them into
+		// protos.TimestampPartitionRange or protos.IntPartitionRange
+		var rangePartition protos.PartitionRange
+		switch v := startValue.(type) {
+		case int32:
+			rangePartition = protos.PartitionRange{
+				Range: &protos.PartitionRange_IntRange{
+					IntRange: &protos.IntPartitionRange{
+						Start: int64(v),
+						End:   int64(endValue.(int32)),
+					},
 				},
-			},
-		}
-	case int64:
-		rangePartition = protos.PartitionRange{
-			Range: &protos.PartitionRange_IntRange{
-				IntRange: &protos.IntPartitionRange{
-					Start: v,
-					End:   maxValue.(int64),
-				},
-			},
-		}
-	case time.Time:
-		rangePartition = protos.PartitionRange{
-			Range: &protos.PartitionRange_TimestampRange{
-				TimestampRange: &protos.TimestampPartitionRange{
-					Start: timestamppb.New(v),
-					End:   timestamppb.New(maxValue.(time.Time)),
-				},
-			},
-		}
-	default:
-		return nil, fmt.Errorf("unsupported type: %T", v)
-	}
-
-	// If last is not nil, then return partitions between last partition's max and current max
-	if last.Range != nil {
-		switch lastRange := last.Range.Range.(type) {
-		case *protos.PartitionRange_IntRange:
-			if _, ok := maxValue.(int64); ok {
-				lastRange.IntRange.End = maxValue.(int64)
-			} else if _, ok := maxValue.(int32); ok {
-				lastRange.IntRange.End = int64(maxValue.(int32))
 			}
-		case *protos.PartitionRange_TimestampRange:
-			lastRange.TimestampRange.End = timestamppb.New(maxValue.(time.Time))
+		case int64:
+			rangePartition = protos.PartitionRange{
+				Range: &protos.PartitionRange_IntRange{
+					IntRange: &protos.IntPartitionRange{
+						Start: v,
+						End:   endValue.(int64),
+					},
+				},
+			}
+		case time.Time:
+			rangePartition = protos.PartitionRange{
+				Range: &protos.PartitionRange_TimestampRange{
+					TimestampRange: &protos.TimestampPartitionRange{
+						Start: timestamppb.New(v),
+						End:   timestamppb.New(endValue.(time.Time)),
+					},
+				},
+			}
+		default:
+			return nil, fmt.Errorf("unsupported type: %T", v)
 		}
-	}
 
-	// TODO I am currently returning only one partition for the entire range,
-	// but this can be changed to return multiple partitions for the range
-	// if this is past the max partition size which needs to be taken in as a
-	// configuration parameter
-	return []*protos.QRepPartition{
-		{
+		partitions = append(partitions, &protos.QRepPartition{
 			PartitionId: uuid.New().String(), // generate a new UUID as partition ID
 			Range:       &rangePartition,
-		},
-	}, nil
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate over rows: %w", err)
+	}
+
+	// log the partitions for debugging
+	fmt.Printf("partitions: %v\n", partitions)
+
+	return partitions, nil
 }
 
 func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord, error) {
