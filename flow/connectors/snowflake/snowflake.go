@@ -630,20 +630,12 @@ func getSnowflakeTypeForGenericColumnType(colType string) string {
 	case model.ColumnTypeBoolean:
 		return "BOOLEAN"
 	// integer types
-	case model.ColumnTypeInt16:
-		return "INTEGER"
-	case model.ColumnTypeInt32:
-		return "INTEGER"
-	case model.ColumnTypeInt64:
+	case model.ColumnTypeInt16, model.ColumnTypeInt32, model.ColumnTypeInt64:
 		return "INTEGER"
 	// decimal types
-	// The names FLOAT, FLOAT4, and FLOAT8 are for compatibility with other systems;
+	// The names FLOAT, FLOAT4, and FLOAT8 are for compatibility with other systems
 	// Snowflake treats all three as 64-bit floating-point numbers.
-	case model.ColumnTypeFloat16:
-		return "FLOAT"
-	case model.ColumnTypeFloat32:
-		return "FLOAT"
-	case model.ColumnTypeFloat64:
+	case model.ColumnTypeFloat16, model.ColumnTypeFloat32, model.ColumnTypeFloat64:
 		return "FLOAT"
 	case model.ColumnTypeNumeric:
 		return "NUMBER"
@@ -662,16 +654,12 @@ func getSnowflakeTypeForGenericColumnType(colType string) string {
 		return "TIMESTAMP_TZ"
 	case model.ColumnTypeTime:
 		return "TIME"
-	case model.ColumnTypeTimeWithTimeZone:
-		return "STRING"
 	case model.ColumnTypeDate:
 		return "TIMESTAMP_NTZ"
-	case model.ColumnTypeInterval:
+	case model.ColumnTypeTimeWithTimeZone, model.ColumnTypeInterval:
 		return "STRING"
 	// bytes
-	case model.ColumnHexBytes:
-		return "BINARY"
-	case model.ColumnHexBit:
+	case model.ColumnHexBytes, model.ColumnHexBit:
 		return "BINARY"
 	// rest will be strings
 	default:
