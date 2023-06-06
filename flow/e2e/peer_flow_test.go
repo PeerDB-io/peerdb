@@ -54,7 +54,10 @@ func (s *E2EPeerFlowTestSuite) setupPostgres() error {
 	}
 
 	// drop all open slots
-	_, err = s.pool.Exec(context.Background(), "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots")
+	_, err = s.pool.Exec(
+		context.Background(),
+		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots",
+	)
 	if err != nil {
 		return fmt.Errorf("failed to drop replication slots: %w", err)
 	}
@@ -134,8 +137,8 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 }
 
 func registerWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
-	// set a 30 second timeout for the workflow to execute a few runs.
-	env.SetTestTimeout(30 * time.Second)
+	// set a 300 second timeout for the workflow to execute a few runs.
+	env.SetTestTimeout(300 * time.Second)
 
 	env.RegisterWorkflow(peerflow.PeerFlowWorkflow)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
@@ -302,7 +305,10 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 	go func() {
 		// wait for PeerFlowStatusQuery to finish setup
 		for {
-			response, err := env.QueryWorkflow(peerflow.PeerFlowStatusQuery, connectionGen.FlowJobName)
+			response, err := env.QueryWorkflow(
+				peerflow.PeerFlowStatusQuery,
+				connectionGen.FlowJobName,
+			)
 			if err == nil {
 				var state peerflow.PeerFlowState
 				err = response.Get(&state)

@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/linkedin/goavro"
@@ -18,6 +19,8 @@ const (
 	QValueKindStruct  QValueKind = "struct"
 	QValueKindString  QValueKind = "string"
 	QValueKindETime   QValueKind = "extended_time"
+	QValueKindNumeric QValueKind = "numeric"
+	QValueKindBytes   QValueKind = "bytes"
 )
 
 type ExtendedTimeKindType string
@@ -101,7 +104,9 @@ func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[stri
 			switch et.NestedKind.Type {
 			case DateTimeKindType:
 				// Convert to timestamp (milliseconds since epoch)
-				v = et.Time.UnixNano() / int64(time.Millisecond)
+				timestampMillis := et.Time.UnixNano() / int64(time.Millisecond)
+				// v = map[string]interface{}{"long.timestamp-millis": timestampMillis}
+				v = timestampMillis
 			case DateKindType:
 				// Extract date in YYYY-MM-DD format
 				v = et.Time.Format("2006-01-02")
@@ -120,7 +125,7 @@ func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[stri
 				case QValueKindString:
 					m[key] = goavro.Union("string", qValue.Value)
 				case QValueKindFloat:
-					m[key] = goavro.Union("float", qValue.Value)
+					m[key] = goavro.Union("double", qValue.Value)
 				case QValueKindInteger:
 					m[key] = goavro.Union("long", qValue.Value)
 				case QValueKindBoolean:
@@ -129,6 +134,29 @@ func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[stri
 					m[key] = goavro.Union("array", qValue.Value)
 				case QValueKindStruct:
 					m[key] = goavro.Union("map", qValue.Value)
+				case QValueKindNumeric:
+					if strNum, ok := qValue.Value.(string); ok {
+						//nolint:gosec
+						num, ok := new(big.Rat).SetString(strNum)
+						if !ok {
+							return nil, fmt.Errorf("invalid Numeric value")
+						}
+
+						// If the field is nullable, wrap the *big.Rat in a union
+						if nullable, ok := (*nullableFields)[key]; ok && nullable {
+							m[key] = goavro.Union("bytes.decimal", num)
+						} else {
+							m[key] = num
+						}
+					} else {
+						return nil, fmt.Errorf("invalid Numeric value")
+					}
+				case QValueKindBytes:
+					if byteData, ok := qValue.Value.([]byte); ok {
+						m[key] = goavro.Union("bytes", byteData)
+					} else {
+						return nil, fmt.Errorf("invalid Bytes value")
+					}
 				// TODO(kaushik/sai): Add more cases as needed
 				default:
 					return nil, fmt.Errorf("unsupported QValueKind: %s", qValue.Kind)

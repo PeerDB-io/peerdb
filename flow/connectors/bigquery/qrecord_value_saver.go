@@ -53,6 +53,20 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			}
 			bqValues[k] = val.Time
 
+		case model.QValueKindNumeric:
+			val, ok := v.Value.(string)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to float64", v.Value)
+			}
+			bqValues[k] = val
+
+		case model.QValueKindBytes:
+			val, ok := v.Value.([]byte)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to []byte", v.Value)
+			}
+			bqValues[k] = val
+
 		default:
 			// Skip invalid QValueKind
 		}
