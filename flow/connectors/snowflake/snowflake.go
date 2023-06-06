@@ -474,7 +474,9 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	// normalize has caught up with sync, chill until more records are loaded.
 	if syncBatchID == normalizeBatchID {
 		return &model.NormalizeResponse{
-			Done: true,
+			Done:         true,
+			StartBatchID: normalizeBatchID,
+			EndBatchID:   syncBatchID,
 		}, nil
 	}
 
@@ -741,10 +743,12 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s:Bytes) "+
 				"AS %s,", toVariantColumnName, columnName, columnName))
 		case model.ColumnTypeTime:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:Microseconds*1000) "+
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
+				"Microseconds*1000) "+
 				"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,", toVariantColumnName,
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,",
+				toVariantColumnName,
 				columnName, sfType, columnName))
 		}
 	}
