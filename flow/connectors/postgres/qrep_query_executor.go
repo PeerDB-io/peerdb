@@ -63,23 +63,23 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 	for i := range scanArgs {
 		switch fds[i].DataTypeOID {
 		case pgtype.BoolOID:
-			scanArgs[i] = new(sql.NullBool)
+			scanArgs[i] = new(pgtype.Bool)
 		case pgtype.TimestampOID, pgtype.TimestamptzOID:
-			scanArgs[i] = new(sql.NullTime)
+			scanArgs[i] = new(pgtype.Timestamp)
 		case pgtype.Int4OID, pgtype.Int8OID:
-			scanArgs[i] = new(sql.NullInt64)
+			scanArgs[i] = new(pgtype.Int8)
 		case pgtype.Float4OID, pgtype.Float8OID:
-			scanArgs[i] = new(sql.NullFloat64)
+			scanArgs[i] = new(pgtype.Float8)
 		case pgtype.TextOID, pgtype.VarcharOID:
-			scanArgs[i] = new(sql.NullString)
+			scanArgs[i] = new(pgtype.Text)
 		case pgtype.NumericOID:
-			scanArgs[i] = new(sql.NullString)
+			scanArgs[i] = new(pgtype.Numeric)
 		case pgtype.UUIDOID:
 			scanArgs[i] = new(pgtype.UUID)
 		case pgtype.ByteaOID:
 			scanArgs[i] = new(sql.RawBytes)
 		default:
-			scanArgs[i] = new(sql.RawBytes)
+			scanArgs[i] = new(pgtype.Text)
 		}
 	}
 
@@ -100,45 +100,45 @@ func parseField(oid uint32, value interface{}) model.QValue {
 
 	switch oid {
 	case pgtype.TimestampOID, pgtype.TimestamptzOID:
-		nullTime := value.(*sql.NullTime)
-		if nullTime.Valid {
-			et := model.NewExtendedTime(nullTime.Time, model.DateTimeKindType, "")
+		time := value.(*pgtype.Timestamp)
+		if time.Valid {
+			et := model.NewExtendedTime(time.Time, model.DateTimeKindType, "")
 			val = model.QValue{Kind: model.QValueKindETime, Value: et}
 		} else {
 			val = model.QValue{Kind: model.QValueKindETime, Value: nil}
 		}
 	case pgtype.BoolOID:
-		nullBool := value.(*sql.NullBool)
-		if nullBool.Valid {
-			val = model.QValue{Kind: model.QValueKindBoolean, Value: nullBool.Bool}
+		boolVal := value.(*pgtype.Bool)
+		if boolVal.Valid {
+			val = model.QValue{Kind: model.QValueKindBoolean, Value: boolVal.Bool}
 		} else {
 			val = model.QValue{Kind: model.QValueKindBoolean, Value: nil}
 		}
 	case pgtype.Int4OID, pgtype.Int8OID:
-		nullInt := value.(*sql.NullInt64)
-		if nullInt.Valid {
-			val = model.QValue{Kind: model.QValueKindInteger, Value: nullInt.Int64}
+		intVal := value.(*pgtype.Int8)
+		if intVal.Valid {
+			val = model.QValue{Kind: model.QValueKindInteger, Value: intVal.Int64}
 		} else {
 			val = model.QValue{Kind: model.QValueKindInteger, Value: nil}
 		}
 	case pgtype.Float4OID, pgtype.Float8OID:
-		nullFloat := value.(*sql.NullFloat64)
-		if nullFloat.Valid {
-			val = model.QValue{Kind: model.QValueKindFloat, Value: nullFloat.Float64}
+		floatVal := value.(*pgtype.Float8)
+		if floatVal.Valid {
+			val = model.QValue{Kind: model.QValueKindFloat, Value: floatVal.Float64}
 		} else {
 			val = model.QValue{Kind: model.QValueKindFloat, Value: nil}
 		}
 	case pgtype.TextOID, pgtype.VarcharOID:
-		nullStr := value.(*sql.NullString)
-		if nullStr.Valid {
-			val = model.QValue{Kind: model.QValueKindString, Value: nullStr.String}
+		textVal := value.(*pgtype.Text)
+		if textVal.Valid {
+			val = model.QValue{Kind: model.QValueKindString, Value: textVal.String}
 		} else {
 			val = model.QValue{Kind: model.QValueKindString, Value: nil}
 		}
 	case pgtype.UUIDOID:
-		uuid := value.(*pgtype.UUID)
-		if uuid.Valid {
-			val = model.QValue{Kind: model.QValueKindUUID, Value: uuid.Bytes}
+		uuidVal := value.(*pgtype.UUID)
+		if uuidVal.Valid {
+			val = model.QValue{Kind: model.QValueKindUUID, Value: uuidVal.Bytes}
 		} else {
 			val = model.QValue{Kind: model.QValueKindUUID, Value: nil}
 		}
@@ -146,9 +146,10 @@ func parseField(oid uint32, value interface{}) model.QValue {
 		rawBytes := value.(*sql.RawBytes)
 		val = model.QValue{Kind: model.QValueKindBytes, Value: []byte(*rawBytes)}
 	case pgtype.NumericOID:
-		nullStr := value.(*sql.NullString)
-		if nullStr.Valid {
-			val = model.QValue{Kind: model.QValueKindNumeric, Value: nullStr.String}
+		numVal := value.(*pgtype.Numeric)
+		if numVal.Valid {
+			str := numVal.Int.String()
+			val = model.QValue{Kind: model.QValueKindNumeric, Value: str}
 		} else {
 			val = model.QValue{Kind: model.QValueKindNumeric, Value: nil}
 		}
