@@ -1,6 +1,14 @@
 version: '3.9'
 
+name: 'peerdb-stack'
+
 services:
+  temporalite:
+    image: slamdev/temporalite:0.3.0
+    ports:
+      - 7233:7233
+      - 8233:8233
+
   catalog:
     image: debezium/postgres:14-alpine
     ports:
@@ -21,10 +29,32 @@ services:
         "log_destination=stderr"
       ]
 
+  flow_api:
+    build:
+      context: ../
+      dockerfile: stacks/flow-api.Dockerfile
+    ports:
+      - 8112:8112
+    environment:
+      CATALOG_DSN: postgres://postgres:postgres@catalog:5432/postgres?sslmode=disable
+      TEMPORAL_HOST_PORT: temporalite:7233
+    depends_on:
+      - catalog
+      - temporalite
+
+  flow_worker:
+    build:
+      context: ../
+      dockerfile: stacks/flow-worker.Dockerfile
+    environment:
+      TEMPORAL_HOST_PORT: temporalite:7233
+    depends_on:
+      - temporalite
+
   peerdb:
     build:
       context: ../
-      dockerfile: stacks/Dockerfile
+      dockerfile: stacks/nexus.Dockerfile
     environment:
       PEERDB_LOG_DIR: /var/log/peerdb
       PEERDB_CATALOG_HOST: catalog
@@ -33,6 +63,6 @@ services:
       PEERDB_CATALOG_PASSWORD: postgres
       PEERDB_CATALOG_DB: postgres
     ports:
-      - 9901:9900
+      - 9900:9900
     depends_on:
       - catalog

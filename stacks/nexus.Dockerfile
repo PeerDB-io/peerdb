@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM rust:1.69-slim-bullseye as builder
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive \
