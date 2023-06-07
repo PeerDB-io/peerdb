@@ -20,26 +20,6 @@ import (
 	"github.com/snowflakedb/gosnowflake"
 )
 
-type ArrayString []string
-
-func (a *ArrayString) Scan(src interface{}) error {
-
-	switch v := src.(type) {
-	case string:
-		return json.Unmarshal([]byte(v), a)
-	case []byte:
-		return json.Unmarshal(v, a)
-	default:
-		return errors.New("invalid type")
-	}
-
-}
-
-type Result struct {
-	TableName             string
-	UnchangedToastColumns ArrayString
-}
-
 //nolint:stylecheck
 const (
 	// all PeerDB specific tables should go in the internal schema.
@@ -68,8 +48,7 @@ const (
 		 RANKED WHERE RANK=1)
 		 SELECT * FROM DEDUPLICATED_FLATTENED) SOURCE ON TARGET.ID=SOURCE.ID
 		 WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE != 2) THEN INSERT (%s) VALUES(%s)
-		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE != 2)
-		 AND _PEERDB_UNCHANGED_TOAST_COLUMNS='' THEN UPDATE SET %s %s
+		 %s
 		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN DELETE`
 	getDistinctDestinationTableNames = `SELECT DISTINCT _PEERDB_DESTINATION_TABLE_NAME FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d`
@@ -113,6 +92,27 @@ type snowflakeRawRecord struct {
 	batchID               int64
 	items                 map[string]interface{}
 	unchangedToastColumns string
+}
+
+// creating this to capture array results from snowflake.
+type ArrayString []string
+
+func (a *ArrayString) Scan(src interface{}) error {
+
+	switch v := src.(type) {
+	case string:
+		return json.Unmarshal([]byte(v), a)
+	case []byte:
+		return json.Unmarshal(v, a)
+	default:
+		return errors.New("invalid type")
+	}
+
+}
+
+type UnchangedToastColumnResult struct {
+	TableName             string
+	UnchangedToastColumns ArrayString
 }
 
 // reads the PKCS8 private key from the received config and converts it into something that gosnowflake wants.
@@ -321,7 +321,7 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	resultMap := make(map[string][]string)
 	// Process the rows and populate the map
 	for rows.Next() {
-		var r Result
+		var r UnchangedToastColumnResult
 		err := rows.Scan(&r.TableName, &r.UnchangedToastColumns)
 		if err != nil {
 			log.Fatalf("Failed to scan row: %v", err)
@@ -557,7 +557,6 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	if err != nil {
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
-	log.Printf("TOAST COLS SAI %s", tableNametoUnchangedToastCols)
 
 	// transaction for NormalizeRecords
 	normalizeRecordsTx, err := c.database.BeginTx(c.ctx, nil)
@@ -815,20 +814,13 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	}
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
-	udateStatementsforToastCols := c.handleToastCols(unchangedToastColumns, columnNames)
+	udateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
-
-	updateValuesSQLArray := make([]string, 0, len(columnNames))
-	for _, columnName := range columnNames {
-		updateValuesSQLArray = append(updateValuesSQLArray, fmt.Sprintf("%s=SOURCE.%s,", columnName, columnName))
-	}
-	updateValuesSQL := strings.TrimSuffix(strings.Join(updateValuesSQLArray, ""), ",")
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
 		strings.ToUpper(normalizedTableSchema.PrimaryKeyColumn), insertColumnsSQL, insertValuesSQL,
-		updateValuesSQL, updateStringToastCols)
-	log.Printf("MERGE SAI %s", mergeStatement)
+		updateStringToastCols)
 
 	_, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
@@ -919,7 +911,21 @@ func (c *SnowflakeConnector) createPeerDBInternalSchema(createsSchemaTx *sql.Tx)
 	return nil
 }
 
-func (c *SnowflakeConnector) handleToastCols(unchangedToastCols []string, allCols []string) []string {
+/*
+This function takes
+1. all column names
+2. array capturing unique set of unchanged toast column groups "c2,c3", "c2","c3"
+and returns suitable UPDATE statements as a part of MERGE.
+Algorithm to generate the UPDATE statements:
+Generate multiple UPDATE without updating unchanged toast
+column values matching each element of arg 1
+If ["","c2,c3", "c2","c3"] is arg1 and ["c1","c2","c3"] is arg2
+WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2,c3' UPDATE c1
+WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2' UPDATE c1,c3
+WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns=” UPDATE c1,c2,c3
+and so on.
+*/
+func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
 
 	updateStmts := make([]string, 0)
 
