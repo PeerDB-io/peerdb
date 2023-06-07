@@ -103,6 +103,11 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 	//	 4. Wait for all the workflows to complete.
 	//   5. Sleep for a while and repeat the loop.
 
+	if config.RowsPerPartition == 0 {
+		fmt.Printf("RowsPerPartition is not set. Defaulting to 10000.\n")
+		config.RowsPerPartition = 10000
+	}
+
 	lastPartition := &protos.QRepPartition{
 		PartitionId: "not-application-partition",
 		Range:       nil,
