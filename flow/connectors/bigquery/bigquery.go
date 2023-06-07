@@ -1085,10 +1085,7 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 
 	//log.Printf("Unchanged cols SAI %s %d", m.UnchangedToastColumns, len(m.UnchangedToastColumns))
 
-	udateStatementsforToastCols, err := m.handleToastCols(m.UnchangedToastColumns, colNames)
-	if err != nil {
-		fmt.Errorf("failed to get update statements for toast cols %w", err)
-	}
+	udateStatementsforToastCols, _ := m.handleToastCols(m.UnchangedToastColumns, colNames)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
 	return fmt.Sprintf(`
