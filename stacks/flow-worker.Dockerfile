@@ -1,12 +1,15 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.19-bullseye
+FROM golang:1.20-alpine AS builder
 WORKDIR /root/
 COPY flow .
 # fetch all dependencies
 RUN go mod download
 # build the binary from cmd folder
 WORKDIR /root/cmd
-RUN CGO_ENABLED=0 go build -o /root/peer-flow .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /root/peer-flow .
+
+FROM gcr.io/distroless/static-debian11 AS peer-flow-worker
+COPY --from=builder /root/peer-flow .
 EXPOSE 8112
-ENTRYPOINT ["/root/peer-flow", "worker"]
+ENTRYPOINT ["./peer-flow", "worker"]
