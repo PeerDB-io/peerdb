@@ -79,19 +79,22 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 }
 
 func (c *BigQueryConnector) GetQRepPartitions(config *protos.QRepConfig,
-	last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
+	last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
 	panic("not implemented")
 }
 
 func (c *BigQueryConnector) PullQRepRecords(config *protos.QRepConfig,
-	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+	partition *protos.QRepPartition,
+) (*model.QRecordBatch, error) {
 	panic("not implemented")
 }
 
 func (c *BigQueryConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	records *model.QRecordBatch) (int, error) {
+	records *model.QRecordBatch,
+) (int, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
@@ -201,7 +204,8 @@ func (c *BigQueryConnector) SyncQRepRecords(
 func (c *BigQueryConnector) createMetadataInsertStatement(
 	partition *protos.QRepPartition,
 	jobName string,
-	startTime time.Time) (string, error) {
+	startTime time.Time,
+) (string, error) {
 	// marshal the partition to json using protojson
 	pbytes, err := protojson.Marshal(partition)
 	if err != nil {

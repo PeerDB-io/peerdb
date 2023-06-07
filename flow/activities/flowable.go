@@ -57,8 +57,7 @@ type IFlowable interface {
 }
 
 // FlowableActivity is the activity implementation for IFlowable.
-type FlowableActivity struct {
-}
+type FlowableActivity struct{}
 
 // CheckConnection implements IFlowable.CheckConnection.
 func (a *FlowableActivity) CheckConnection(
@@ -274,7 +273,8 @@ func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *
 // GetQRepPartitions returns the partitions for a given QRepConfig.
 func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	config *protos.QRepConfig,
-	last *protos.QRepPartition) (*protos.QRepParitionResult, error) {
+	last *protos.QRepPartition,
+) (*protos.QRepParitionResult, error) {
 	conn, err := connectors.GetConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -294,7 +294,8 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 // ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
 func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	config *protos.QRepConfig,
-	partition *protos.QRepPartition) error {
+	partition *protos.QRepPartition,
+) error {
 	srcConn, err := connectors.GetConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)

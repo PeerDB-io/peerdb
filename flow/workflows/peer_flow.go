@@ -75,7 +75,8 @@ func NewPeerFlowWorkflowExecution(ctx workflow.Context, state *PeerFlowState) *P
 
 // fetchConnectionConfigs fetches the connection configs for source and destination peers.
 func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
-	ctx workflow.Context) (*protos.FlowConnectionConfigs, error) {
+	ctx workflow.Context,
+) (*protos.FlowConnectionConfigs, error) {
 	w.logger.Info("fetching connection configs for peer flow - ", w.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -108,7 +109,8 @@ func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
 func (w *PeerFlowWorkflowExecution) getChildWorkflowID(
 	ctx workflow.Context,
 	prefix string,
-	peerFlowName string) (string, error) {
+	peerFlowName string,
+) (string, error) {
 	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		return fmt.Sprintf("%s-%s-%s", prefix, peerFlowName, uuid.New().String())
 	})
