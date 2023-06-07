@@ -95,3 +95,6 @@ SELECT * FROM bq_test.events WHERE id = ANY(CAST('{1}' AS BIGINT[]));
 SELECT * FROM bq_test.events WHERE os = ANY(ARRAY['mac']::text[]);
 SELECT * FROM bq_test.events WHERE os = ANY(CAST(ARRAY['mac'] as text[]));
 SELECT i FROM bq_test.test_array WHERE (test_dataset.array_intersect(i, '{1,2}'::integer[]));
+
+-- UNION (by itself) to UNION DISTINCT
+SELECT * FROM bq_test.transactions UNION SELECT * FROM bq_test.transactions;
