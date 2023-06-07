@@ -1,0 +1,56 @@
+name: Publish docker images
+
+on: 
+  push:
+    branches: [main]
+    tags:
+      - 'v[0-9]+.[0-9]+'
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_CHECKOUT }}
+          
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2.1.0
+        with:
+          registry: ghcr.io
+          username: ${{github.actor}}
+          password: ${{secrets.GITHUB_TOKEN}}
+
+      - name: Publish PeerDB Dev Image
+        uses: docker/build-push-action@v4.0.0
+        with:
+          context: .
+          file: stacks/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/peerdb-io/peerdb-server:dev
+
+      - name: Get tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: "echo \"DOCKER_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
+
+      - name: Publish PeerDB Stable Image
+        uses: docker/build-push-action@v4.0.0
+        with:
+          context: .
+          file: stacks/Dockerfile
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: |
+            ${{ format('ghcr.io/peerdb-io/peerdb-server:{0}', env.DOCKER_TAG) }}
+            
