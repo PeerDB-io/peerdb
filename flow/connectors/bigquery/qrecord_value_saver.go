@@ -8,15 +8,17 @@ import (
 )
 
 type QRecordValueSaver struct {
+	ColumnNames []string
 	Record      *model.QRecord
 	PartitionID string
 	RunID       int64
 }
 
 func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
-	bqValues := make(map[string]bigquery.Value, len(*q.Record))
+	bqValues := make(map[string]bigquery.Value, q.Record.NumEntries)
 
-	for k, v := range *q.Record {
+	for i, v := range q.Record.Entries {
+		k := q.ColumnNames[i]
 		switch v.Kind {
 		case model.QValueKindFloat:
 			val, ok := v.Value.(float64)

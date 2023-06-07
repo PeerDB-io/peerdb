@@ -53,9 +53,16 @@ func (qe *QRepQueryExecutor) ProcessRows(
 		return nil, fmt.Errorf("row iteration failed: %w", rows.Err())
 	}
 
+	// get col names from fieldDescriptions
+	colNames := make([]string, len(fieldDescriptions))
+	for i, fd := range fieldDescriptions {
+		colNames[i] = fd.Name
+	}
+
 	batch := &model.QRecordBatch{
-		NumRecords: uint32(len(records)),
-		Records:    records,
+		NumRecords:  uint32(len(records)),
+		Records:     records,
+		ColumnNames: colNames,
 	}
 
 	return batch, nil

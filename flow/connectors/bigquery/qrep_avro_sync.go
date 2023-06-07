@@ -65,7 +65,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 
 	// Write each QRecord to the OCF file
 	for _, qRecord := range records.Records {
-		avroMap, err := qRecord.ToAvroCompatibleMap(&nullable)
+		avroMap, err := qRecord.ToAvroCompatibleMap(&nullable, records.ColumnNames)
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}

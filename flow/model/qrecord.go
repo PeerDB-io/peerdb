@@ -91,19 +91,21 @@ type QValue struct {
 }
 
 type QRecord struct {
-	entries []QValue
+	NumEntries int
+	Entries    []QValue
 }
 
 // create a new QRecord with n values
 func NewQRecord(n int) *QRecord {
 	return &QRecord{
-		entries: make([]QValue, n),
+		NumEntries: n,
+		Entries:    make([]QValue, n),
 	}
 }
 
 // Sets the value at the given index
 func (q *QRecord) Set(idx int, value QValue) {
-	q.entries[idx] = value
+	q.Entries[idx] = value
 }
 
 func (q *QRecord) ToAvroCompatibleMap(
@@ -112,7 +114,7 @@ func (q *QRecord) ToAvroCompatibleMap(
 ) (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
-	for idx, qValue := range q.entries {
+	for idx, qValue := range q.Entries {
 		key := colNames[idx]
 		switch qValue.Kind {
 		case QValueKindETime:
