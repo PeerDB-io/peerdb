@@ -95,7 +95,7 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 	return childWorkflowID, nil
 }
 
-const maxParallelism = 16
+const maxParallelism = 64
 
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
