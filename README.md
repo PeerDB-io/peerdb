@@ -1,9 +1,11 @@
 
-<p align="center">
-<img class="img-fluid" src="images/logo-light-transparent_copy_2.png" alt="img-verification" width="100" height="100"> <br \>
+<div align="center">
+<img class="img-fluid" src="images/logo-light-transparent_copy_2.png" alt="img-verification" width="140" height="140">
+<h3>PeerDB</h3>
+<p>Modern ETL in minutes, with SQL</p>
 <a href="https://github.com/PeerDB-io/peerdb/blob/main/LICENSE.md"><img src="https://badgen.net/badge/License/Elv2/green?icon=github"/></a>
-<a href="https://github.com/PeerDB-io/peerdb/actions"><img src="https://github.com/PEerDB-io/peerdb/actions/workflows/ci.yml/badge.svg"/></a>
-</p>
+<a href="https://github.com/Peerdb-io/peerdb/actions/workflows/ci.yml"><img src="https://github.com/PEerDB-io/peerdb/actions/workflows/ci.yml/badge.svg"/></a>
+</div>
 
 
 ## PeerDB - Modern ETL in minutes, with SQL.
