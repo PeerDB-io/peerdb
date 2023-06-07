@@ -46,7 +46,7 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
         let mut peers_touched: HashSet<String> = HashSet::new();
 
         visit_relations(statement, |relation| {
-            let peer_name = &relation.0[0].value;
+            let peer_name = &relation.0[0].value.to_lowercase();
             if peer_map.contains_key(peer_name) {
                 peers_touched.insert(peer_name.into());
             }

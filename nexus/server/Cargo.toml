@@ -10,6 +10,7 @@ anyhow = "1"
 async-trait = "0.1"
 catalog = { path = "../catalog" }
 clap = { version = "4.0", features = ["derive", "env"] }
+dotenvy = "0.15.7"
 futures = { version = "0.3.28", features = ["executor"] }
 peer-bigquery = { path = "../peer-bigquery" }
 peer-cursor = { path = "../peer-cursor" }
@@ -20,3 +21,7 @@ pt = { path = "../pt" }
 rand = "0.8"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+postgres = "0.19.4"
+sha256 = "1.0.3"
