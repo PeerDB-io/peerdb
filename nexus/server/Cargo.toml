@@ -9,6 +9,7 @@ anyhow = "1"
 async-trait = "0.1"
 catalog = { path = "../catalog" }
 clap = { version = "4.0", features = ["derive", "env"] }
+futures = { version = "0.3.28", features = ["executor"] }
 peerdb-parser = { path = "../parser" }
 pgwire = "0.13"
 prost = "0.11"
