@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/linkedin/goavro"
 )
 
@@ -21,6 +22,7 @@ const (
 	QValueKindETime   QValueKind = "extended_time"
 	QValueKindNumeric QValueKind = "numeric"
 	QValueKindBytes   QValueKind = "bytes"
+	QValueKindUUID    QValueKind = "uuid"
 )
 
 type ExtendedTimeKindType string
@@ -61,7 +63,7 @@ var (
 	}
 )
 
-func NewExtendedTime(t time.Time, kindType ExtendedTimeKindType, originalFormat string) (*ExtendedTime, error) {
+func NewExtendedTime(t time.Time, kindType ExtendedTimeKindType, originalFormat string) *ExtendedTime {
 	var nk NestedKind
 
 	switch kindType {
@@ -80,7 +82,7 @@ func NewExtendedTime(t time.Time, kindType ExtendedTimeKindType, originalFormat 
 	return &ExtendedTime{
 		Time:       t,
 		NestedKind: nk,
-	}, nil
+	}
 }
 
 type QValue struct {
@@ -88,12 +90,32 @@ type QValue struct {
 	Value interface{}
 }
 
-type QRecord map[string]QValue
+type QRecord struct {
+	NumEntries int
+	Entries    []QValue
+}
 
-func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[string]interface{}, error) {
+// create a new QRecord with n values
+func NewQRecord(n int) *QRecord {
+	return &QRecord{
+		NumEntries: n,
+		Entries:    make([]QValue, n),
+	}
+}
+
+// Sets the value at the given index
+func (q *QRecord) Set(idx int, value QValue) {
+	q.Entries[idx] = value
+}
+
+func (q *QRecord) ToAvroCompatibleMap(
+	nullableFields *map[string]bool,
+	colNames []string,
+) (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
-	for key, qValue := range *q {
+	for idx, qValue := range q.Entries {
+		key := colNames[idx]
 		switch qValue.Kind {
 		case QValueKindETime:
 			et, ok := qValue.Value.(*ExtendedTime)
@@ -157,6 +179,24 @@ func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[stri
 					} else {
 						return nil, fmt.Errorf("invalid Bytes value")
 					}
+				case QValueKindUUID:
+					if byteData, ok := qValue.Value.([16]byte); ok {
+						// Convert [16]byte to UUID
+						u, err := uuid.FromBytes(byteData[:])
+						if err != nil {
+							return nil, fmt.Errorf("conversion of invalid UUID value: %v", err)
+						}
+
+						// Convert UUID to string
+						uuidString := u.String()
+
+						m[key] = goavro.Union("string", uuidString)
+					} else {
+						// log the value for debugging
+						// fmt.Printf("value type: %T\n", qValue.Value)
+						// fmt.Printf("invalid UUID value: %v\n", qValue.Value)
+						return nil, fmt.Errorf("invalid UUID value")
+					}
 				// TODO(kaushik/sai): Add more cases as needed
 				default:
 					return nil, fmt.Errorf("unsupported QValueKind: %s", qValue.Kind)
@@ -172,6 +212,7 @@ func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[stri
 
 // QRecordBatch holds a batch of QRecord objects.
 type QRecordBatch struct {
-	NumRecords uint32     // NumRecords represents the number of records in the batch.
-	Records    []*QRecord // Records is a slice of pointers to QRecord objects.
+	NumRecords  uint32     // NumRecords represents the number of records in the batch.
+	Records     []*QRecord // Records is a slice of pointers to QRecord objects.
+	ColumnNames []string   // ColumnNames is a slice of column names.
 }

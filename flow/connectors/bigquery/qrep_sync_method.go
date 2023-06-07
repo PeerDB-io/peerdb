@@ -72,6 +72,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	numRowsInserted := 0
 	for _, qRecord := range records.Records {
 		toPut := QRecordValueSaver{
+			ColumnNames: records.ColumnNames,
 			Record:      qRecord,
 			PartitionID: partitionID,
 			RunID:       runID,

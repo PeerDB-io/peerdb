@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
-	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pgx/v5"
@@ -37,7 +35,7 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 func (qe *QRepQueryExecutor) ProcessRows(
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
-) ([]*model.QRecord, error) {
+) (*model.QRecordBatch, error) {
 	// Initialize the record slice
 	records := make([]*model.QRecord, 0)
 
@@ -55,20 +53,46 @@ func (qe *QRepQueryExecutor) ProcessRows(
 		return nil, fmt.Errorf("row iteration failed: %w", rows.Err())
 	}
 
-	return records, nil
+	// get col names from fieldDescriptions
+	colNames := make([]string, len(fieldDescriptions))
+	for i, fd := range fieldDescriptions {
+		colNames[i] = fd.Name
+	}
+
+	batch := &model.QRecordBatch{
+		NumRecords:  uint32(len(records)),
+		Records:     records,
+		ColumnNames: colNames,
+	}
+
+	return batch, nil
 }
 
 func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord, error) {
-	record := &model.QRecord{}
+	// make vals an empty array of QValue of size len(fds)
+	record := model.NewQRecord(len(fds))
 
 	scanArgs := make([]interface{}, len(fds))
 	for i := range scanArgs {
-		if fds[i].DataTypeOID == pgtype.BoolOID {
-			scanArgs[i] = new(sql.NullBool)
-		} else if fds[i].DataTypeOID == pgtype.TimestampOID || fds[i].DataTypeOID == pgtype.TimestamptzOID {
-			scanArgs[i] = new(sql.NullTime)
-		} else {
+		switch fds[i].DataTypeOID {
+		case pgtype.BoolOID:
+			scanArgs[i] = new(pgtype.Bool)
+		case pgtype.TimestampOID, pgtype.TimestamptzOID:
+			scanArgs[i] = new(pgtype.Timestamp)
+		case pgtype.Int4OID, pgtype.Int8OID:
+			scanArgs[i] = new(pgtype.Int8)
+		case pgtype.Float4OID, pgtype.Float8OID:
+			scanArgs[i] = new(pgtype.Float8)
+		case pgtype.TextOID, pgtype.VarcharOID:
+			scanArgs[i] = new(pgtype.Text)
+		case pgtype.NumericOID:
+			scanArgs[i] = new(pgtype.Numeric)
+		case pgtype.UUIDOID:
+			scanArgs[i] = new(pgtype.UUID)
+		case pgtype.ByteaOID:
 			scanArgs[i] = new(sql.RawBytes)
+		default:
+			scanArgs[i] = new(pgtype.Text)
 		}
 	}
 
@@ -78,84 +102,76 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 	}
 
 	for i, fd := range fds {
-		oid := fd.DataTypeOID
-		var val model.QValue
-		var err error
-
-		switch oid {
-		case pgtype.TimestampOID, pgtype.TimestamptzOID:
-			nullTime := scanArgs[i].(*sql.NullTime)
-			if nullTime.Valid {
-				et, err := model.NewExtendedTime(nullTime.Time, model.DateTimeKindType, "")
-				if err != nil {
-					return nil, fmt.Errorf("failed to create extended time: %w", err)
-				}
-				val = model.QValue{Kind: model.QValueKindETime, Value: et}
-			} else {
-				val = model.QValue{Kind: model.QValueKindETime, Value: nil}
-			}
-		case pgtype.BoolOID:
-			nullBool := scanArgs[i].(*sql.NullBool)
-			if nullBool.Valid {
-				val = model.QValue{Kind: model.QValueKindBoolean, Value: nullBool.Bool}
-			} else {
-				val = model.QValue{Kind: model.QValueKindBoolean, Value: nil}
-			}
-		default:
-			rawBytes := scanArgs[i].(*sql.RawBytes)
-			val, err = parseField(oid, rawBytes)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse field: %w", err)
-			}
-		}
-
-		(*record)[fd.Name] = val
+		tmp := parseField(fd.DataTypeOID, scanArgs[i])
+		record.Set(i, tmp)
 	}
 
 	return record, nil
 }
 
-func parseField(oid uint32, rawBytes *sql.RawBytes) (model.QValue, error) {
+func parseField(oid uint32, value interface{}) model.QValue {
+	var val model.QValue
+
 	switch oid {
-	case pgtype.Int4OID, pgtype.Int8OID:
-		val, err := strconv.ParseInt(string(*rawBytes), 10, 64)
-		if err != nil {
-			return model.QValue{}, err
-		}
-		return model.QValue{Kind: model.QValueKindInteger, Value: val}, nil
-	case pgtype.Float4OID, pgtype.Float8OID:
-		val, err := strconv.ParseFloat(string(*rawBytes), 64)
-		if err != nil {
-			return model.QValue{}, err
-		}
-		return model.QValue{Kind: model.QValueKindFloat, Value: val}, nil
-	case pgtype.BoolOID:
-		val, err := strconv.ParseBool(string(*rawBytes))
-		if err != nil {
-			return model.QValue{}, err
-		}
-		return model.QValue{Kind: model.QValueKindBoolean, Value: val}, nil
-	case pgtype.TextOID, pgtype.VarcharOID:
-		return model.QValue{Kind: model.QValueKindString, Value: string(*rawBytes)}, nil
 	case pgtype.TimestampOID, pgtype.TimestamptzOID:
-		val, err := time.Parse(time.RFC3339, string(*rawBytes))
-		if err != nil {
-			return model.QValue{}, err
+		time := value.(*pgtype.Timestamp)
+		if time.Valid {
+			et := model.NewExtendedTime(time.Time, model.DateTimeKindType, "")
+			val = model.QValue{Kind: model.QValueKindETime, Value: et}
+		} else {
+			val = model.QValue{Kind: model.QValueKindETime, Value: nil}
 		}
-		et, err := model.NewExtendedTime(val, model.DateTimeKindType, "")
-		if err != nil {
-			return model.QValue{}, fmt.Errorf("failed to create extended time: %w", err)
+	case pgtype.BoolOID:
+		boolVal := value.(*pgtype.Bool)
+		if boolVal.Valid {
+			val = model.QValue{Kind: model.QValueKindBoolean, Value: boolVal.Bool}
+		} else {
+			val = model.QValue{Kind: model.QValueKindBoolean, Value: nil}
 		}
-		return model.QValue{Kind: model.QValueKindETime, Value: et}, nil
-	case pgtype.NumericOID:
-		return model.QValue{Kind: model.QValueKindNumeric, Value: string(*rawBytes)}, nil
+	case pgtype.Int4OID, pgtype.Int8OID:
+		intVal := value.(*pgtype.Int8)
+		if intVal.Valid {
+			val = model.QValue{Kind: model.QValueKindInteger, Value: intVal.Int64}
+		} else {
+			val = model.QValue{Kind: model.QValueKindInteger, Value: nil}
+		}
+	case pgtype.Float4OID, pgtype.Float8OID:
+		floatVal := value.(*pgtype.Float8)
+		if floatVal.Valid {
+			val = model.QValue{Kind: model.QValueKindFloat, Value: floatVal.Float64}
+		} else {
+			val = model.QValue{Kind: model.QValueKindFloat, Value: nil}
+		}
+	case pgtype.TextOID, pgtype.VarcharOID:
+		textVal := value.(*pgtype.Text)
+		if textVal.Valid {
+			val = model.QValue{Kind: model.QValueKindString, Value: textVal.String}
+		} else {
+			val = model.QValue{Kind: model.QValueKindString, Value: nil}
+		}
 	case pgtype.UUIDOID:
-		return model.QValue{Kind: model.QValueKindString, Value: string(*rawBytes)}, nil
+		uuidVal := value.(*pgtype.UUID)
+		if uuidVal.Valid {
+			val = model.QValue{Kind: model.QValueKindUUID, Value: uuidVal.Bytes}
+		} else {
+			val = model.QValue{Kind: model.QValueKindUUID, Value: nil}
+		}
 	case pgtype.ByteaOID:
-		return model.QValue{Kind: model.QValueKindBytes, Value: []byte(*rawBytes)}, nil
+		rawBytes := value.(*sql.RawBytes)
+		val = model.QValue{Kind: model.QValueKindBytes, Value: []byte(*rawBytes)}
+	case pgtype.NumericOID:
+		numVal := value.(*pgtype.Numeric)
+		if numVal.Valid {
+			str := numVal.Int.String()
+			val = model.QValue{Kind: model.QValueKindNumeric, Value: str}
+		} else {
+			val = model.QValue{Kind: model.QValueKindNumeric, Value: nil}
+		}
 	default:
 		typ, _ := pgtype.NewMap().TypeForOID(oid)
 		fmt.Printf("QValueKindInvalid => oid: %v, typename: %v\n", oid, typ)
-		return model.QValue{Kind: model.QValueKindInvalid, Value: nil}, nil
+		val = model.QValue{Kind: model.QValueKindInvalid, Value: nil}
 	}
+
+	return val
 }

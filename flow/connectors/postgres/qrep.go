@@ -126,18 +126,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	fmt.Printf("field descriptions: %v\n", fieldDescriptions)
 
 	// Process the rows and retrieve the records
-	records, err := executor.ProcessRows(rows, fieldDescriptions)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the record batch
-	batch := &model.QRecordBatch{
-		NumRecords: uint32(len(records)),
-		Records:    records,
-	}
-
-	return batch, nil
+	return executor.ProcessRows(rows, fieldDescriptions)
 }
 
 func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,

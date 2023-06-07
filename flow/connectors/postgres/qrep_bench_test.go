@@ -9,7 +9,7 @@ import (
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
 	connectionString := "postgres://postgres:postgres@localhost:7132/postgres"
-	query := "SELECT * FROM bench.large_table LIMIT 1000000"
+	query := "SELECT * FROM bench.large_table"
 
 	ctx := context.Background()
 
