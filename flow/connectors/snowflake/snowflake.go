@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -19,6 +20,26 @@ import (
 	"github.com/snowflakedb/gosnowflake"
 )
 
+type ArrayString []string
+
+func (a *ArrayString) Scan(src interface{}) error {
+
+	switch v := src.(type) {
+	case string:
+		return json.Unmarshal([]byte(v), a)
+	case []byte:
+		return json.Unmarshal(v, a)
+	default:
+		return errors.New("invalid type")
+	}
+
+}
+
+type Result struct {
+	TableName             string
+	UnchangedToastColumns ArrayString
+}
+
 //nolint:stylecheck
 const (
 	// all PeerDB specific tables should go in the internal schema.
@@ -30,25 +51,31 @@ const (
 	createPeerDBInternalSchemaSQL = "CREATE TRANSIENT SCHEMA IF NOT EXISTS %s"
 	createRawTableSQL             = `CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_UID STRING NOT NULL,
 		_PEERDB_TIMESTAMP INT NOT NULL,_PEERDB_DESTINATION_TABLE_NAME STRING NOT NULL,_PEERDB_DATA STRING NOT NULL,
-		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT)`
+		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
 	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	toVariantColumnName         = "VAR_COLS"
 
 	mergeStatementSQL = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,
-		TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID FROM
+		TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
+		_PEERDB_UNCHANGED_TOAST_COLUMNS FROM
 		 _PEERDB_INTERNAL.%s WHERE _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND
 		 _PEERDB_DESTINATION_TABLE_NAME = ?), FLATTENED AS
-		 (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,%s
+		 (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
+			_PEERDB_UNCHANGED_TOAST_COLUMNS,%s
 		 FROM VARIANT_CONVERTED), DEDUPLICATED_FLATTENED AS (SELECT RANKED.* FROM
 		 (SELECT RANK() OVER (PARTITION BY %s ORDER BY _PEERDB_TIMESTAMP DESC) AS RANK,* FROM FLATTENED)
 		 RANKED WHERE RANK=1)
 		 SELECT * FROM DEDUPLICATED_FLATTENED) SOURCE ON TARGET.ID=SOURCE.ID
 		 WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE != 2) THEN INSERT (%s) VALUES(%s)
-		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE != 2) THEN UPDATE SET %s
+		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE != 2)
+		 AND _PEERDB_UNCHANGED_TOAST_COLUMNS='' THEN UPDATE SET %s %s
 		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN DELETE`
 	getDistinctDestinationTableNames = `SELECT DISTINCT _PEERDB_DESTINATION_TABLE_NAME FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d`
+	getTableNametoUnchangedCols = `SELECT _PEERDB_DESTINATION_TABLE_NAME,
+	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
+	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
 	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET OFFSET=?, SYNC_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
@@ -77,14 +104,15 @@ type SnowflakeConnector struct {
 }
 
 type snowflakeRawRecord struct {
-	uid                  string
-	timestamp            int64
-	destinationTableName string
-	data                 string
-	recordType           int
-	matchData            string
-	batchID              int64
-	items                map[string]interface{}
+	uid                   string
+	timestamp             int64
+	destinationTableName  string
+	data                  string
+	recordType            int
+	matchData             string
+	batchID               int64
+	items                 map[string]interface{}
+	unchangedToastColumns string
 }
 
 // reads the PKCS8 private key from the received config and converts it into something that gosnowflake wants.
@@ -280,6 +308,32 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 	return destinationTableNames, nil
 }
 
+func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
+	normalizeBatchID int64) (map[string][]string, error) {
+	rawTableIdentifier := getRawTableIdentifier(flowJobName)
+
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNametoUnchangedCols, peerDBInternalSchema,
+		rawTableIdentifier, normalizeBatchID, syncBatchID))
+	if err != nil {
+		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
+	}
+	// Create a map to store the results
+	resultMap := make(map[string][]string)
+	// Process the rows and populate the map
+	for rows.Next() {
+		var r Result
+		err := rows.Scan(&r.TableName, &r.UnchangedToastColumns)
+		if err != nil {
+			log.Fatalf("Failed to scan row: %v", err)
+		}
+		resultMap[r.TableName] = r.UnchangedToastColumns
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatalf("Error iterating over rows: %v", err)
+	}
+	return resultMap, nil
+}
+
 func (c *SnowflakeConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
 	log.Errorf("panicking at call to GetTableSchema for Snowflake flow connector")
 	panic("GetTableSchema is not implemented for the Snowflake flow connector")
@@ -352,14 +406,15 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 			// add insert record to the raw table
 			records = append(records, snowflakeRawRecord{
-				uid:                  uuid.New().String(),
-				timestamp:            time.Now().UnixNano(),
-				destinationTableName: typedRecord.DestinationTableName,
-				data:                 string(itemsJSON),
-				recordType:           0,
-				matchData:            "",
-				batchID:              syncBatchID,
-				items:                typedRecord.Items,
+				uid:                   uuid.New().String(),
+				timestamp:             time.Now().UnixNano(),
+				destinationTableName:  typedRecord.DestinationTableName,
+				data:                  string(itemsJSON),
+				recordType:            0,
+				matchData:             "",
+				batchID:               syncBatchID,
+				items:                 typedRecord.Items,
+				unchangedToastColumns: strings.ToUpper(typedRecord.UnchangedToastColumns),
 			})
 		case *model.UpdateRecord:
 			newItemsJSON, err := json.Marshal(typedRecord.NewItems)
@@ -373,14 +428,15 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 			// add update record to the raw table
 			records = append(records, snowflakeRawRecord{
-				uid:                  uuid.New().String(),
-				timestamp:            time.Now().UnixNano(),
-				destinationTableName: typedRecord.DestinationTableName,
-				data:                 string(newItemsJSON),
-				recordType:           1,
-				matchData:            string(oldItemsJSON),
-				batchID:              syncBatchID,
-				items:                typedRecord.NewItems,
+				uid:                   uuid.New().String(),
+				timestamp:             time.Now().UnixNano(),
+				destinationTableName:  typedRecord.DestinationTableName,
+				data:                  string(newItemsJSON),
+				recordType:            1,
+				matchData:             string(oldItemsJSON),
+				batchID:               syncBatchID,
+				items:                 typedRecord.NewItems,
+				unchangedToastColumns: strings.ToUpper(typedRecord.UnchangedToastColumns),
 			})
 		case *model.DeleteRecord:
 			itemsJSON, err := json.Marshal(typedRecord.Items)
@@ -390,14 +446,15 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 			// append delete record to the raw table
 			records = append(records, snowflakeRawRecord{
-				uid:                  uuid.New().String(),
-				timestamp:            time.Now().UnixNano(),
-				destinationTableName: typedRecord.DestinationTableName,
-				data:                 string(itemsJSON),
-				recordType:           2,
-				matchData:            string(itemsJSON),
-				batchID:              syncBatchID,
-				items:                typedRecord.Items,
+				uid:                   uuid.New().String(),
+				timestamp:             time.Now().UnixNano(),
+				destinationTableName:  typedRecord.DestinationTableName,
+				data:                  string(itemsJSON),
+				recordType:            2,
+				matchData:             string(itemsJSON),
+				batchID:               syncBatchID,
+				items:                 typedRecord.Items,
+				unchangedToastColumns: strings.ToUpper(typedRecord.UnchangedToastColumns),
 			})
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
@@ -496,6 +553,12 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, err
 	}
 
+	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, syncBatchID, normalizeBatchID)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
+	}
+	log.Printf("TOAST COLS SAI %s", tableNametoUnchangedToastCols)
+
 	// transaction for NormalizeRecords
 	normalizeRecordsTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
@@ -511,6 +574,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
 	for _, destinationTableName := range destinationTableNames {
 		err = c.generateAndExecuteMergeStatement(destinationTableName,
+			tableNametoUnchangedToastCols[destinationTableName],
 			getRawTableIdentifier(req.FlowJobName),
 			syncBatchID, normalizeBatchID, normalizeRecordsTx)
 		if err != nil {
@@ -701,7 +765,7 @@ func (c *SnowflakeConnector) insertRecordsInRawTable(rawTableIdentifier string,
 
 	for _, record := range snowflakeRawRecords {
 		rawRecordsData = append(rawRecordsData, record.uid, record.timestamp, record.destinationTableName,
-			record.data, record.recordType, record.matchData, record.batchID)
+			record.data, record.recordType, record.matchData, record.batchID, record.unchangedToastColumns)
 	}
 	_, err := syncRecordsTx.ExecContext(c.ctx,
 		generateMultiValueInsertSQL(rawTableIdentifier, len(snowflakeRawRecords)), rawRecordsData...)
@@ -712,6 +776,7 @@ func (c *SnowflakeConnector) insertRecordsInRawTable(rawTableIdentifier string,
 }
 
 func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableIdentifier string,
+	unchangedToastColumns []string,
 	rawTableIdentifier string, syncBatchID int64, normalizeBatchID int64, normalizeRecordsTx *sql.Tx) error {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
@@ -750,6 +815,9 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	}
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
+	udateStatementsforToastCols := c.handleToastCols(unchangedToastColumns, columnNames)
+	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
+
 	updateValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
 		updateValuesSQLArray = append(updateValuesSQLArray, fmt.Sprintf("%s=SOURCE.%s,", columnName, columnName))
@@ -758,7 +826,9 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
-		strings.ToUpper(normalizedTableSchema.PrimaryKeyColumn), insertColumnsSQL, insertValuesSQL, updateValuesSQL)
+		strings.ToUpper(normalizedTableSchema.PrimaryKeyColumn), insertColumnsSQL, insertValuesSQL,
+		updateValuesSQL, updateStringToastCols)
+	log.Printf("MERGE SAI %s", mergeStatement)
 
 	_, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
@@ -847,4 +917,41 @@ func (c *SnowflakeConnector) createPeerDBInternalSchema(createsSchemaTx *sql.Tx)
 		return fmt.Errorf("error while creating internal schema for PeerDB: %w", err)
 	}
 	return nil
+}
+
+func (c *SnowflakeConnector) handleToastCols(unchangedToastCols []string, allCols []string) []string {
+
+	updateStmts := make([]string, 0)
+
+	for _, cols := range unchangedToastCols {
+		unchangedColsArray := strings.Split(cols, ", ")
+		otherCols := c.arrayMinus(allCols, unchangedColsArray)
+		tmpArray := make([]string, 0)
+		for _, colName := range otherCols {
+			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", colName, colName))
+		}
+		ssep := strings.Join(tmpArray, ", ")
+		updateStmt := fmt.Sprintf(`WHEN MATCHED AND 
+		(SOURCE._PEERDB_RECORD_TYPE != 2) AND _PEERDB_UNCHANGED_TOAST_COLUMNS='%s'
+		THEN UPDATE SET %s `, cols, ssep)
+		updateStmts = append(updateStmts, updateStmt)
+	}
+	return updateStmts
+}
+
+func (c *SnowflakeConnector) arrayMinus(first []string,
+	second []string) []string {
+	lookup := make(map[string]bool)
+	// Add elements from arrayB to the lookup map
+	for _, element := range second {
+		lookup[element] = true
+	}
+	// Iterate over arrayA and check if the element is present in the lookup map
+	var result []string
+	for _, element := range first {
+		if !lookup[element] {
+			result = append(result, element)
+		}
+	}
+	return result
 }
