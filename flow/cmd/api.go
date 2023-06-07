@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/gin-gonic/gin"
 	"go.temporal.io/api/workflow/v1"
@@ -82,6 +84,26 @@ func (a *APIServer) StartPeerFlow(reqCtx context.Context, input *peerflow.PeerFl
 	)
 	if err != nil {
 		return "", fmt.Errorf("unable to start PeerFlow workflow: %w", err)
+	}
+
+	return workflowID, nil
+}
+
+func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepConfig) (string, error) {
+	workflowID := fmt.Sprintf("%s-qrepflow-%s", config.FlowJobName, uuid.New())
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: shared.PeerFlowTaskQueue,
+	}
+
+	_, err := a.temporalClient.ExecuteWorkflow(
+		reqCtx,                    // context
+		workflowOptions,           // workflow start options
+		peerflow.QRepFlowWorkflow, // workflow function
+		config,                    // workflow input
+	)
+	if err != nil {
+		return "", fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
 	return workflowID, nil
@@ -224,6 +246,30 @@ func APIMain(args *APIServerParams) error {
 		} else {
 			c.JSON(http.StatusOK, gin.H{
 				"status": "ok",
+			})
+		}
+	})
+
+	r.POST("/qrep/start", func(c *gin.Context) {
+		var reqJSON protos.QRepConfig
+		data, _ := c.GetRawData()
+
+		if err := protojson.Unmarshal(data, &reqJSON); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		ctx := c.Request.Context()
+		if id, err := apiServer.StartQRepFlow(ctx, &reqJSON); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"status":      "ok",
+				"workflow_id": id,
 			})
 		}
 	})
