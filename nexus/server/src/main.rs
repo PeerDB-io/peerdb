@@ -78,6 +78,7 @@ pub struct NexusBackend {
     peer_cursors: Arc<Mutex<PeerCursors>>,
     executors: Arc<DashMap<String, Arc<Box<dyn QueryExecutor>>>>,
     flow_handler: Arc<FlowHandler>,
+    peerdb_fdw_mode: bool,
 }
 
 impl NexusBackend {
@@ -85,6 +86,7 @@ impl NexusBackend {
         catalog: Arc<Mutex<Catalog>>,
         peer_connections: Arc<PeerConnectionTracker>,
         flow_api_server_addr: Option<String>,
+        peerdb_fdw_mode: bool,
     ) -> Self {
         let query_parser = NexusQueryParser::new(catalog.clone());
         let flow_handler = Arc::new(FlowHandler::new(flow_api_server_addr));
@@ -96,6 +98,7 @@ impl NexusBackend {
             peer_cursors: Arc::new(Mutex::new(PeerCursors::new())),
             executors: Arc::new(DashMap::new()),
             flow_handler,
+            peerdb_fdw_mode
         }
     }
 
@@ -408,8 +411,15 @@ impl ExtendedQueryHandler for NexusBackend {
                         executor.describe(stmt).await?
                     }
                 };
-                if let Some(_schema) = schema {
-                    Ok(DescribeResponse::no_data())
+                if let Some(described_schema) = schema {
+                    if self.peerdb_fdw_mode {
+                        Ok(DescribeResponse::no_data())
+                    } else {
+                        Ok(DescribeResponse::new(
+                            param_types,
+                            described_schema.fields.clone(),
+                        ))
+                    }
                 } else {
                     Ok(DescribeResponse::no_data())
                 }
@@ -422,6 +432,7 @@ struct MakeNexusBackend {
     catalog: Arc<Mutex<Catalog>>,
     peer_connections: Arc<PeerConnectionTracker>,
     flow_server_addr: Option<String>,
+    peerdb_fdw_mode: bool,
 }
 
 impl MakeNexusBackend {
@@ -429,11 +440,13 @@ impl MakeNexusBackend {
         catalog: Catalog,
         peer_connections: Arc<PeerConnectionTracker>,
         flow_server_addr: Option<String>,
+        peerdb_fdw_mode: bool,
     ) -> Self {
         Self {
             catalog: Arc::new(Mutex::new(catalog)),
             peer_connections,
             flow_server_addr,
+            peerdb_fdw_mode,
         }
     }
 }
@@ -446,6 +459,7 @@ impl MakeHandler for MakeNexusBackend {
             self.catalog.clone(),
             self.peer_connections.clone(),
             self.flow_server_addr.clone(),
+            self.peerdb_fdw_mode.clone(),
         ))
     }
 }
@@ -513,6 +527,9 @@ struct Args {
     /// This is an optional parameter. If not provided, the MIRROR commands will not be supported.
     #[clap(long, env = "PEERDB_FLOW_SERVER_ADDRESS")]
     flow_api_url: Option<String>,
+
+    #[clap(long, env = "PEERDB_FDW_MODE", default_value = "false")]
+    peerdb_fwd_mode: String,
 }
 
 // Get catalog config from args
@@ -606,7 +623,6 @@ pub async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let args = Args::parse();
-
     let _guard = setup_tracing(&args.log_dir);
 
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
@@ -665,10 +681,17 @@ pub async fn main() -> anyhow::Result<()> {
         let tracker = PeerConnectionTracker::new(conn_uuid, peer_conns.clone());
 
         let authenticator_ref = authenticator.make();
+
+        let peerdb_fdw_mode = match args.peerdb_fwd_mode.as_str() {
+            "true" => true,
+            _ => false
+        };
+
         let processor = Arc::new(MakeNexusBackend::new(
             catalog,
             Arc::new(tracker),
             flow_server_addr.clone(),
+            peerdb_fdw_mode,
         ));
         let processor_ref = processor.make();
         tokio::task::Builder::new()
