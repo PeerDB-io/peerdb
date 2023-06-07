@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -246,15 +247,16 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// create empty map of string to interface{}
-	items, err := p.convertTupleToMap(msg.Tuple, rel)
+	items, unchangedToastColumns, err := p.convertTupleToMap(msg.Tuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.InsertRecord{
-		CheckPointID:         int64(lsn),
-		Items:                items,
-		DestinationTableName: p.TableNameMapping[tableName],
+		CheckPointID:          int64(lsn),
+		Items:                 items,
+		DestinationTableName:  p.TableNameMapping[tableName],
+		UnchangedToastColumns: strings.Join(unchangedToastColumns, ", "),
 	}, nil
 }
 
@@ -278,21 +280,22 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	// create empty map of string to interface{}
-	oldItems, err := p.convertTupleToMap(msg.OldTuple, rel)
+	oldItems, _, err := p.convertTupleToMap(msg.OldTuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting old tuple to map: %w", err)
 	}
 
-	newItems, err := p.convertTupleToMap(msg.NewTuple, rel)
+	newItems, unchangedToastColumns, err := p.convertTupleToMap(msg.NewTuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
 	}
 
 	return &model.UpdateRecord{
-		CheckPointID:         int64(lsn),
-		OldItems:             oldItems,
-		NewItems:             newItems,
-		DestinationTableName: p.TableNameMapping[tableName],
+		CheckPointID:          int64(lsn),
+		OldItems:              oldItems,
+		NewItems:              newItems,
+		DestinationTableName:  p.TableNameMapping[tableName],
+		UnchangedToastColumns: strings.Join(unchangedToastColumns, ", "),
 	}, nil
 }
 
@@ -316,15 +319,16 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	// create empty map of string to interface{}
-	items, err := p.convertTupleToMap(msg.OldTuple, rel)
+	items, unchangedToastColumns, err := p.convertTupleToMap(msg.OldTuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.DeleteRecord{
-		CheckPointID:         int64(lsn),
-		Items:                items,
-		DestinationTableName: p.TableNameMapping[tableName],
+		CheckPointID:          int64(lsn),
+		Items:                 items,
+		DestinationTableName:  p.TableNameMapping[tableName],
+		UnchangedToastColumns: strings.Join(unchangedToastColumns, ", "),
 	}, nil
 }
 
@@ -332,14 +336,16 @@ func (p *PostgresCDCSource) processDeleteMessage(
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
-) (map[string]interface{}, error) {
+) (map[string]interface{}, []string, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return make(map[string]interface{}), nil
+		return make(map[string]interface{}), make([]string, 0), nil
 	}
 
 	// create empty map of string to interface{}
 	items := make(map[string]interface{})
+	var unchangeToastColumns []string
+
 	for idx, col := range tuple.Columns {
 		colName := rel.Columns[idx].Name
 		switch col.DataType {
@@ -349,13 +355,13 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			/* bytea also appears here as a hex */
 			data, err := p.decodeTextColumnData(col.Data, rel.Columns[idx].DataType)
 			if err != nil {
-				return nil, fmt.Errorf("error decoding text column data: %w", err)
+				return nil, nil, fmt.Errorf("error decoding text column data: %w", err)
 			}
 			items[colName] = data
 		case 'b': // binary
 			data, err := p.decodeBinaryColumnData(col.Data, rel.Columns[idx].DataType)
 			if err != nil {
-				return nil, fmt.Errorf("error decoding binary column data: %w", err)
+				return nil, nil, fmt.Errorf("error decoding binary column data: %w", err)
 			}
 			items[colName] = data
 		case 'u': // unchanged toast
@@ -365,12 +371,13 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			// to fetch the value yourself.
 
 			// TODO (kaushik): support TOAST values
+			unchangeToastColumns = append(unchangeToastColumns, colName)
 		default:
-			return nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
+			return nil, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
 		}
 	}
 
-	return items, nil
+	return items, unchangeToastColumns, nil
 }
 
 func (p *PostgresCDCSource) decodeTextColumnData(data []byte, dataType uint32) (interface{}, error) {

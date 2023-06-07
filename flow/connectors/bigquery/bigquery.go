@@ -64,15 +64,16 @@ type BigQueryConnector struct {
 }
 
 type StagingBQRecord struct {
-	uid                  string    `bigquery:"_peerdb_uid"`
-	timestamp            time.Time `bigquery:"_peerdb_timestamp"`
-	timestampNanos       int64     `bigquery:"_peerdb_timestamp_nanos"`
-	destinationTableName string    `bigquery:"_peerdb_destination_table_name"`
-	data                 string    `bigquery:"_peerdb_data"`
-	recordType           int       `bigquery:"_peerdb_record_type"`
-	matchData            string    `bigquery:"_peerdb_match_data"`
-	batchID              int64     `bigquery:"_peerdb_batch_id"`
-	stagingBatchID       int64     `bigquery:"_peerdb_staging_batch_id"`
+	uid                   string    `bigquery:"_peerdb_uid"`
+	timestamp             time.Time `bigquery:"_peerdb_timestamp"`
+	timestampNanos        int64     `bigquery:"_peerdb_timestamp_nanos"`
+	destinationTableName  string    `bigquery:"_peerdb_destination_table_name"`
+	data                  string    `bigquery:"_peerdb_data"`
+	recordType            int       `bigquery:"_peerdb_record_type"`
+	matchData             string    `bigquery:"_peerdb_match_data"`
+	batchID               int64     `bigquery:"_peerdb_batch_id"`
+	stagingBatchID        int64     `bigquery:"_peerdb_staging_batch_id"`
+	unchangedToastColumns string    `bigquery:"_peerdb_unchanged_toast_columns"`
 }
 
 // Create BigQueryServiceAccount from BigqueryConfig
@@ -339,6 +340,45 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syn
 	return distinctTableNames, nil
 }
 
+func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
+	normalizeBatchID int64) (map[string][]string, error) {
+	rawTableName := c.getRawTableName(flowJobName)
+
+	// Prepare the query to retrieve distinct tables in that batch
+	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
+	array_agg(_peerdb_unchanged_toast_columns) as c_array FROM %s.%s
+	 WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d GROUP BY _peerdb_destination_table_name`,
+		c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
+	// Run the query
+	q := c.client.Query(query)
+	it, err := q.Read(c.ctx)
+	if err != nil {
+		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
+		return nil, err
+	}
+	// Create a map to store the results.
+	resultMap := make(map[string][]string)
+
+	// Process the query results using an iterator.
+	var row struct {
+		Tablename string   `bigquery:"_peerdb_destination_table_name"`
+		CArray    []string `bigquery:"c_array"`
+	}
+	for {
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			fmt.Printf("Error while iterating through results: %v\n", err)
+			return nil, err
+		}
+
+		resultMap[row.Tablename] = row.CArray
+	}
+	return resultMap, nil
+}
+
 // PullRecords pulls records from the source.
 func (c *BigQueryConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
 	panic("not implemented")
@@ -347,15 +387,16 @@ func (c *BigQueryConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 // ValueSaver interface for bqRecord
 func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 	return map[string]bigquery.Value{
-		"_peerdb_uid":                    r.uid,
-		"_peerdb_timestamp":              r.timestamp,
-		"_peerdb_timestamp_nanos":        r.timestampNanos,
-		"_peerdb_destination_table_name": r.destinationTableName,
-		"_peerdb_data":                   r.data,
-		"_peerdb_record_type":            r.recordType,
-		"_peerdb_match_data":             r.matchData,
-		"_peerdb_batch_id":               r.batchID,
-		"_peerdb_staging_batch_id":       r.stagingBatchID,
+		"_peerdb_uid":                     r.uid,
+		"_peerdb_timestamp":               r.timestamp,
+		"_peerdb_timestamp_nanos":         r.timestampNanos,
+		"_peerdb_destination_table_name":  r.destinationTableName,
+		"_peerdb_data":                    r.data,
+		"_peerdb_record_type":             r.recordType,
+		"_peerdb_match_data":              r.matchData,
+		"_peerdb_batch_id":                r.batchID,
+		"_peerdb_staging_batch_id":        r.stagingBatchID,
+		"_peerdb_unchanged_toast_columns": r.unchangedToastColumns,
 	}, bigquery.NoDedupeID, nil
 }
 
@@ -409,15 +450,16 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 			// append the row to the records
 			records = append(records, StagingBQRecord{
-				uid:                  uuid.New().String(),
-				timestamp:            time.Now(),
-				timestampNanos:       time.Now().UnixNano(),
-				destinationTableName: r.DestinationTableName,
-				data:                 string(json),
-				recordType:           0,
-				matchData:            "",
-				batchID:              syncBatchID,
-				stagingBatchID:       stagingBatchID,
+				uid:                   uuid.New().String(),
+				timestamp:             time.Now(),
+				timestampNanos:        time.Now().UnixNano(),
+				destinationTableName:  r.DestinationTableName,
+				data:                  string(json),
+				recordType:            0,
+				matchData:             "",
+				batchID:               syncBatchID,
+				stagingBatchID:        stagingBatchID,
+				unchangedToastColumns: r.UnchangedToastColumns,
 			})
 		case *model.UpdateRecord:
 			// create the 5 required fields
@@ -439,15 +481,16 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 			// append the row to the records
 			records = append(records, StagingBQRecord{
-				uid:                  uuid.New().String(),
-				timestamp:            time.Now(),
-				timestampNanos:       time.Now().UnixNano(),
-				destinationTableName: r.DestinationTableName,
-				data:                 string(newItemsJSON),
-				recordType:           1,
-				matchData:            string(oldItemsJSON),
-				batchID:              syncBatchID,
-				stagingBatchID:       stagingBatchID,
+				uid:                   uuid.New().String(),
+				timestamp:             time.Now(),
+				timestampNanos:        time.Now().UnixNano(),
+				destinationTableName:  r.DestinationTableName,
+				data:                  string(newItemsJSON),
+				recordType:            1,
+				matchData:             string(oldItemsJSON),
+				batchID:               syncBatchID,
+				stagingBatchID:        stagingBatchID,
+				unchangedToastColumns: r.UnchangedToastColumns,
 			})
 		case *model.DeleteRecord:
 			// create the 4 required fields
@@ -464,15 +507,16 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 			// append the row to the records
 			records = append(records, StagingBQRecord{
-				uid:                  uuid.New().String(),
-				timestamp:            time.Now(),
-				timestampNanos:       time.Now().UnixNano(),
-				destinationTableName: r.DestinationTableName,
-				data:                 string(itemsJSON),
-				recordType:           2,
-				matchData:            string(itemsJSON),
-				batchID:              syncBatchID,
-				stagingBatchID:       stagingBatchID,
+				uid:                   uuid.New().String(),
+				timestamp:             time.Now(),
+				timestampNanos:        time.Now().UnixNano(),
+				destinationTableName:  r.DestinationTableName,
+				data:                  string(itemsJSON),
+				recordType:            2,
+				matchData:             string(itemsJSON),
+				batchID:               syncBatchID,
+				stagingBatchID:        stagingBatchID,
+				unchangedToastColumns: r.UnchangedToastColumns,
 			})
 		default:
 			return nil, fmt.Errorf("record type %T not supported", r)
@@ -582,12 +626,18 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
 	}
 
+	tableNametoUnchangedCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, syncBatchID, normalizeBatchID)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
+	}
 	stmts := []string{}
 	// append all the statements to one list
 	log.Printf("merge raw records to corresponding tables: %s %s %v", c.datasetID, rawTableName, distinctTableNames)
+
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 
 	for _, tableName := range distinctTableNames {
+		log.Printf("SAI UnchangedToastCols %s", tableNametoUnchangedCols[tableName])
 		mergeGen := &MergeStmtGenerator{
 			Dataset:               c.datasetID,
 			NormalizedTable:       tableName,
@@ -595,6 +645,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			NormalizedTableSchema: c.tableNameSchemaMapping[tableName],
 			SyncBatchID:           syncBatchID,
 			NormalizeBatchID:      normalizeBatchID,
+			UnchangedToastColumns: tableNametoUnchangedCols[tableName],
 		}
 		// normalize anything between last normalized batch id to last sync batchid
 		mergeStmts := mergeGen.GenerateMergeStmts()
@@ -642,6 +693,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		{Name: "_peerdb_record_type", Type: bigquery.IntegerFieldType},
 		{Name: "_peerdb_match_data", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_batch_id", Type: bigquery.IntegerFieldType},
+		{Name: "_peerdb_unchanged_toast_columns", Type: bigquery.StringFieldType},
 	}
 
 	staging_schema := bigquery.Schema{
@@ -654,6 +706,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		{Name: "_peerdb_match_data", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_batch_id", Type: bigquery.IntegerFieldType},
 		{Name: "_peerdb_staging_batch_id", Type: bigquery.IntegerFieldType},
+		{Name: "_peerdb_unchanged_toast_columns", Type: bigquery.StringFieldType},
 	}
 
 	// create the table
@@ -722,7 +775,7 @@ func (c *BigQueryConnector) getAppendStagingToRawStmt(
 	return fmt.Sprintf(
 		`INSERT INTO %s.%s SELECT _peerdb_uid,_peerdb_timestamp,_peerdb_timestamp_nanos,
 		_peerdb_destination_table_name,_peerdb_data,_peerdb_record_type,_peerdb_match_data,
-		_peerdb_batch_id FROM %s.%s WHERE _peerdb_staging_batch_id = %d;`,
+		_peerdb_batch_id,_peerdb_unchanged_toast_columns FROM %s.%s WHERE _peerdb_staging_batch_id = %d;`,
 		c.datasetID, rawTableName, c.datasetID, stagingTableName, stagingBatchID)
 }
 
@@ -922,6 +975,8 @@ type MergeStmtGenerator struct {
 	NormalizeBatchID int64
 	// the schema of the table to merge into
 	NormalizedTableSchema *protos.TableSchema
+	// array of toast column combinations that are unchanged
+	UnchangedToastColumns []string
 }
 
 // GenerateMergeStmt generates a merge statements.
@@ -991,6 +1046,7 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp")
 	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp_nanos")
 	flattenedProjs = append(flattenedProjs, "_peerdb_record_type")
+	flattenedProjs = append(flattenedProjs, "_peerdb_unchanged_toast_columns")
 
 	// normalize anything between last normalized batch id to last sync batchid
 	return fmt.Sprintf(`WITH _peerdb_flattened AS
@@ -1027,14 +1083,62 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 	csep := strings.Join(colNames, ", ")
 	ssep := strings.Join(setValues, ", ")
 
+	udateStatementsforToastCols, err := m.getUpdateStatementsforToastCols(m.UnchangedToastColumns, colNames)
+	if err != nil {
+		fmt.Errorf("failed to get update statements for toast cols %w", err)
+	}
+	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
+
 	return fmt.Sprintf(`
 	MERGE %s.%s _peerdb_target USING _peerdb_de_duplicated_data _peerdb_deduped
 	ON _peerdb_target.%s = _peerdb_deduped.%s
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
-		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type != 2) THEN
-			UPDATE SET %s
+		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type != 2) AND _peerdb_unchanged_toast_columns='' THEN
+			UPDATE SET %s 
+		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	DELETE;
-	`, m.Dataset, m.NormalizedTable, pkey, pkey, csep, csep, ssep)
+	`, m.Dataset, m.NormalizedTable, pkey, pkey, csep, csep, ssep, updateStringToastCols)
+}
+
+func (m *MergeStmtGenerator) getUpdateStatementsforToastCols(unchangedToastCols []string, allCols []string) ([]string, error) {
+
+	updateStmts := make([]string, 0)
+
+	for _, cols := range unchangedToastCols {
+		if len(cols) == 0 {
+			return updateStmts, nil
+		}
+		unchangedColsArray := strings.Split(cols, ", ")
+		otherCols := m.arrayMinus(allCols, unchangedColsArray)
+		tmpArray := make([]string, 0)
+		for _, colName := range otherCols {
+			tmpArray = append(tmpArray, fmt.Sprintf("%s = _peerdb_deduped.%s", colName, colName))
+		}
+		ssep := strings.Join(tmpArray, ", ")
+		updateStmt := fmt.Sprintf(`WHEN MATCHED AND 
+		(_peerdb_deduped._peerdb_record_type != 2) AND _peerdb_unchanged_toast_columns='%s'
+		THEN UPDATE SET %s `, cols, ssep)
+		updateStmts = append(updateStmts, updateStmt)
+	}
+	return updateStmts, nil
+}
+
+func (m *MergeStmtGenerator) arrayMinus(first []string,
+	second []string) []string {
+	lookup := make(map[string]bool)
+	// Add elements from arrayB to the lookup map
+	for _, element := range second {
+		lookup[element] = true
+	}
+
+	// Iterate over arrayA and check if the element is present in the lookup map
+	var result []string
+	for _, element := range first {
+		if !lookup[element] {
+			result = append(result, element)
+		}
+	}
+	return result
 }
