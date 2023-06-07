@@ -5,12 +5,11 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pkg/profile"
 )
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
 	connectionString := "postgres://postgres:postgres@localhost:7132/postgres"
-	query := "SELECT * FROM e2e_test.test_table"
+	query := "SELECT * FROM bench.large_table LIMIT 1000000"
 
 	ctx := context.Background()
 
@@ -24,11 +23,12 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	// Create a new QRepQueryExecutor instance
 	qe := NewQRepQueryExecutor(pool, context.Background())
 
-	defer profile.Start(profile.CPUProfile, profile.ProfilePath(".")).Stop()
-
 	// Run the benchmark
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		// log the iteration
+		b.Logf("iteration %d", i)
+
 		// Execute the query and process the rows
 		rows, err := qe.ExecuteQuery(query)
 		if err != nil {
