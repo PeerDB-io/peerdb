@@ -137,7 +137,7 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 				WorkflowID:        wid,
 				ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 				RetryPolicy: &temporal.RetryPolicy{
-					MaximumAttempts: 10,
+					MaximumAttempts: 2,
 				},
 			})
 			futures = append(futures, workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, config, partition))

@@ -93,6 +93,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	stagingTable := fmt.Sprintf("%s_%s_staging", dstTableName, strings.ReplaceAll(partition.PartitionId, "-", "_"))
 
 	loader := bqClient.Dataset(datasetID).Table(stagingTable).LoaderFrom(gcsRef)
+	loader.UseAvroLogicalTypes = true
+
 	job, err := loader.Run(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to run BigQuery load job: %w", err)
@@ -163,7 +165,7 @@ func DefineAvroSchema(dstTableName string, dstTableMetadata *bigquery.TableMetad
 		}
 
 		// If a field is nullable, its Avro type should be ["null", actualType]
-		if !bqField.Required {
+		if !bqField.Required && bqField.Type != bigquery.TimestampFieldType {
 			avroType = []interface{}{"null", avroType}
 			nullableFields[bqField.Name] = true
 		}
@@ -233,9 +235,11 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 			},
 		}, nil
 	case bigquery.NumericFieldType:
-		return map[string]string{
-			"type":        "string",
-			"logicalType": "number",
+		return map[string]interface{}{
+			"type":        "bytes",
+			"logicalType": "decimal",
+			"precision":   39,
+			"scale":       9,
 		}, nil
 	case bigquery.RecordFieldType:
 		avroFields := []map[string]interface{}{}

@@ -3,36 +3,125 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/google/uuid"
 )
 
 func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) {
+	tblFields := []string{
+		"id UUID NOT NULL PRIMARY KEY",
+		"card_id UUID",
+		`from_v TIMESTAMP NOT NULL`,
+		"price NUMERIC",
+		"created_at TIMESTAMP NOT NULL",
+		"updated_at TIMESTAMP NOT NULL",
+		"transaction_hash BYTEA",
+		"ownerable_type VARCHAR",
+		"ownerable_id UUID",
+		"user_nonce INTEGER",
+		"transfer_type INTEGER DEFAULT 0 NOT NULL",
+		"blockchain INTEGER NOT NULL",
+		"deal_type VARCHAR",
+		"deal_id UUID",
+		"ethereum_transaction_id UUID",
+		"ignore_price BOOLEAN DEFAULT false",
+		"card_eth_value DOUBLE PRECISION",
+		"paid_eth_price DOUBLE PRECISION",
+		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
+		"address NUMERIC",
+		"account_id UUID",
+		"asset_id NUMERIC NOT NULL",
+		"status INTEGER",
+		"transaction_id UUID",
+		"settled_at TIMESTAMP",
+		"reference_id VARCHAR",
+		"settle_at TIMESTAMP",
+		"settlement_delay_reason INTEGER",
+	}
+
+	tblFieldStr := strings.Join(tblFields, ",")
+
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE e2e_test.%s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL
-		);
-	`, tableName))
+			%s
+		);`, tableName, tblFieldStr))
 	s.NoError(err)
+
+	fmt.Printf("created table on postgres: e2e_test.%s\n", tableName)
 
 	// insert rows into the source table
 	for i := 0; i < rowCount; i++ {
 		_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO e2e_test.%s (key, value)
-			VALUES ('key', 'value');
-		`, tableName))
+			INSERT INTO e2e_test.%s (
+				id, card_id, from_v, price, created_at,
+				updated_at, transaction_hash, ownerable_type, ownerable_id,
+				user_nonce, transfer_type, blockchain, deal_type,
+				deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
+				paid_eth_price, card_bought_notified, address, account_id,
+				asset_id, status, transaction_id, settled_at, reference_id,
+				settle_at, settlement_delay_reason
+			) VALUES (
+				'%s', '%s', CURRENT_TIMESTAMP, 123.45, CURRENT_TIMESTAMP,
+				CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
+				1, 0, 1, 'dealType1',
+				'%s', '%s', false, 1.2345,
+				1.2345, false, 12345, '%s',
+				12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
+				CURRENT_TIMESTAMP, 1
+			);
+		`, tableName, uuid.New().String(), uuid.New().String(), uuid.New().String(),
+			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()))
 		s.NoError(err)
 	}
 }
 
 func (s *E2EPeerFlowTestSuite) setupDestinationTable(dstTable string) {
 	dstTableName := fmt.Sprintf("%s.%s", s.bqHelper.Config.DatasetId, dstTable)
-	dstTableCmd := fmt.Sprintf("CREATE TABLE %s (id INT, key STRING, value STRING)", dstTableName)
+	colWithTypes := []string{
+		"id STRING",
+		"card_id STRING",
+		"from_v TIMESTAMP",
+		"price NUMERIC",
+		"created_at TIMESTAMP",
+		"updated_at TIMESTAMP",
+		"transaction_hash BYTES",
+		"ownerable_type STRING",
+		"ownerable_id STRING",
+		"user_nonce INT64",
+		"transfer_type INT64",
+		"blockchain INT64",
+		"deal_type STRING",
+		"deal_id STRING",
+		"ethereum_transaction_id STRING",
+		"ignore_price BOOL",
+		"card_eth_value FLOAT64",
+		"paid_eth_price FLOAT64",
+		"card_bought_notified BOOL",
+		"address NUMERIC",
+		"account_id STRING",
+		"asset_id NUMERIC",
+		"status INT64",
+		"transaction_id STRING",
+		"settled_at TIMESTAMP",
+		"reference_id STRING",
+		"settle_at TIMESTAMP",
+		"settlement_delay_reason INT64",
+	}
+
+	dstTableCmd := fmt.Sprintf(
+		"CREATE TABLE %s (%s)",
+		dstTableName,
+		strings.Join(colWithTypes, ","),
+	)
 	err := s.bqHelper.RunCommand(dstTableCmd)
+
+	// fail if table creation fails
 	s.NoError(err)
+
+	fmt.Printf("created table on bigquery: %s. %v\n", dstTableName, err)
 }
 
 func (s *E2EPeerFlowTestSuite) createWorkflowConfig(
@@ -50,7 +139,7 @@ func (s *E2EPeerFlowTestSuite) createWorkflowConfig(
 		BigQueryConfig:             s.bqHelper.Config,
 	}
 
-	watermark := "id"
+	watermark := "updated_at"
 
 	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark, syncMode)
 	s.NoError(err)
