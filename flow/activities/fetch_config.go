@@ -42,22 +42,33 @@ func (a *FetchConfigActivity) FetchConfig(
 		return nil, fmt.Errorf("failed to unmarshal destination connection config: %w", err)
 	}
 
-	var srcTableIdentifier string
-	var dstTableIdentifier string
-
 	query := `SELECT source_table_identifier, destination_table_identifier FROM flows WHERE name = $1`
-	err = pool.QueryRow(ctx, query, input.PeerFlowName).Scan(&srcTableIdentifier, &dstTableIdentifier)
+	rows, err := pool.Query(ctx, query, input.PeerFlowName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch table identifiers: %w", err)
+	}
+	defer rows.Close()
+	// Create a map to store the mapping of source table to destination table
+	tableNameMapping := make(map[string]string)
+	var srcTableIdentifier, dstTableIdentifier string
+
+	// Iterate over all the result rows
+	for rows.Next() {
+		err = rows.Scan(&srcTableIdentifier, &dstTableIdentifier)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning row %w", err)
+		}
+
+		// Store the tableNameMapping in the map
+		tableNameMapping[srcTableIdentifier] = dstTableIdentifier
 	}
 
 	log.Printf("successfully fetched config for peer flow - %s", input.PeerFlowName)
 
 	return &protos.FlowConnectionConfigs{
-		Source:                     sourceConnectionConfig,
-		Destination:                destinationConnectionConfig,
-		SourceTableIdentifier:      srcTableIdentifier,
-		DestinationTableIdentifier: dstTableIdentifier,
+		Source:           sourceConnectionConfig,
+		Destination:      destinationConnectionConfig,
+		TableNameMapping: tableNameMapping,
 	}, nil
 }
 
