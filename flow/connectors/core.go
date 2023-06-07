@@ -48,6 +48,18 @@ type Connector interface {
 
 	// CreateRawTable creates a raw table for the connector with a given name and a fixed schema.
 	CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error)
+
+	///// QRep methods /////
+
+	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
+	GetQRepPartitions(config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
+
+	// GetQRepRecords returns the records for a given partition.
+	PullQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
+
+	// SyncQRepRecords syncs the records for a given partition.
+	// returns the number of records synced.
+	SyncQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition, records *model.QRecordBatch) (int, error)
 }
 
 func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {

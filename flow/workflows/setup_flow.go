@@ -19,7 +19,7 @@ import (
 //     - ensure that we are able to connect to the source and destination peers
 //   2. Source Peer:
 // 	   - setup the metadata table on the source peer
-//     - intialize pullability on the source peer, as an example on postgres:
+//     - initialize pullability on the source peer, as an example on postgres:
 //       - ensuring the required table exists on the source peer
 //	     - creating the slot and publication on the source peer
 //   3. Destination Peer:

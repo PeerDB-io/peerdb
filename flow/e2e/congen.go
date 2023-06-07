@@ -86,3 +86,27 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 
 	return ret, nil
 }
+
+// GenerateQRepConfig generates a qrep config for testing.
+func (c *FlowConnectionGenerationConfig) GenerateQRepConfig(
+	query string, watermark string) (*protos.QRepConfig, error) {
+	ret := &protos.QRepConfig{}
+
+	ret.FlowJobName = c.FlowJobName
+	ret.SourceTableIdentifier = c.SourceTableIdentifier
+	ret.DestinationTableIdentifier = c.DestinationTableIdentifier
+
+	postgresPeer := c.GeneratePostgresPeer()
+	bqPeer, err := c.GenerateBQPeer()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate bq peer: %w", err)
+	}
+
+	ret.SourcePeer = postgresPeer
+	ret.DestinationPeer = bqPeer
+
+	ret.Query = query
+	ret.WatermarkColumn = watermark
+
+	return ret, nil
+}

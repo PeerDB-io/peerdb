@@ -43,6 +43,17 @@ type IFlowable interface {
 		config *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error)
 	// StartFlow starts the flow of events from the source to the destination flowable.
 	StartFlow(ctx context.Context, input *protos.StartFlowInput) error
+
+	////////// QRep Methods //////////
+
+	// SetupQRepMetadataTables sets up the QRep metadata tables for the flowable.
+	SetupQRepMetadataTables(ctx context.Context, config *protos.Peer) error
+
+	// GetQRepPartitions returns the partitions for a given QRepConfig.
+	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig) ([]*protos.QRepPartition, error)
+
+	// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
+	ReplicateQRepPartition(ctx context.Context, partition *protos.QRepPartition) error
 }
 
 // FlowableActivity is the activity implementation for IFlowable.
@@ -247,4 +258,58 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.Sta
 	log.Printf("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID)
 
 	return res, nil
+}
+
+// GetQRepPartitions returns the partitions for a given QRepConfig.
+func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
+	config *protos.QRepConfig,
+	last *protos.QRepPartition) (*protos.QRepParitionResult, error) {
+	conn, err := connectors.GetConnector(ctx, config.SourcePeer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(conn)
+
+	partitions, err := conn.GetQRepPartitions(config, last)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
+	}
+
+	return &protos.QRepParitionResult{
+		Partitions: partitions,
+	}, nil
+}
+
+// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
+func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition) error {
+	srcConn, err := connectors.GetConnector(ctx, config.SourcePeer)
+	if err != nil {
+		return fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	destConn, err := connectors.GetConnector(ctx, config.DestinationPeer)
+	if err != nil {
+		return fmt.Errorf("failed to get destination connector: %w", err)
+	}
+	defer connectors.CloseConnector(destConn)
+
+	log.Printf("replicating partition %s\n", partition.PartitionId)
+
+	recordBatch, err := srcConn.PullQRepRecords(config, partition)
+	if err != nil {
+		return fmt.Errorf("failed to pull records: %w", err)
+	}
+
+	log.Printf("pulled %d records\n", len(recordBatch.Records))
+
+	res, err := destConn.SyncQRepRecords(config, partition, recordBatch)
+	if err != nil {
+		return fmt.Errorf("failed to sync records: %w", err)
+	}
+
+	log.Printf("pushed %d records\n", res)
+	return nil
 }
