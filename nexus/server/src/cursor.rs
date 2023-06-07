@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use peer_cursor::CursorModification;
 use pt::peers::Peer;
 
 // PeerCursors is a map from name of cursor to the Peer that holds the cursor.

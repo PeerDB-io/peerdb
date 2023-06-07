@@ -81,23 +81,41 @@ func (a *APIServer) StartPeerFlow(reqCtx context.Context, input *peerflow.PeerFl
 		input,                     // workflow input
 	)
 	if err != nil {
-		return "", fmt.Errorf("unable to start workflow: %w", err)
+		return "", fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
 	return workflowID, nil
 }
 
 // ShutdownPeerFlow signals the peer flow workflow to shutdown
-func (a *APIServer) ShutdownPeerFlow(reqCtx context.Context, workflowID string) error {
+func (a *APIServer) ShutdownPeerFlow(reqCtx context.Context, input *peerflow.DropFlowWorkflowInput) error {
 	err := a.temporalClient.SignalWorkflow(
 		reqCtx,
-		workflowID,
+		input.WorkflowID,
 		"",
 		shared.PeerFlowSignalName,
 		shared.ShutdownSignal,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to signal workflow: %w", err)
+		return fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
+	}
+
+	workflowID := fmt.Sprintf("%s-dropflow-%s", input.FlowName, uuid.New())
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: shared.PeerFlowTaskQueue,
+	}
+	dropFlowHandle, err := a.temporalClient.ExecuteWorkflow(
+		reqCtx,                    // context
+		workflowOptions,           // workflow start options
+		peerflow.DropFlowWorkflow, // workflow function
+		input,                     // workflow input
+	)
+	if err != nil {
+		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
+	}
+	if err = dropFlowHandle.Get(reqCtx, nil); err != nil {
+		return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 	}
 	return nil
 }
@@ -182,6 +200,7 @@ func APIMain(args *APIServerParams) error {
 	r.POST("/flows/shutdown", func(c *gin.Context) {
 		// signal the workflow using the workflow ID (workflow_id) from json
 		var reqJSON struct {
+			FlowName   string `json:"flow_job_name" binding:"required"`
 			WorkflowID string `json:"workflow_id" binding:"required"`
 		}
 
@@ -193,7 +212,12 @@ func APIMain(args *APIServerParams) error {
 		}
 
 		ctx := c.Request.Context()
-		if err := apiServer.ShutdownPeerFlow(ctx, reqJSON.WorkflowID); err != nil {
+		input := &peerflow.DropFlowWorkflowInput{
+			CatalogJdbcURL: args.CatalogJdbcURL,
+			FlowName:       reqJSON.FlowName,
+			WorkflowID:     reqJSON.WorkflowID,
+		}
+		if err := apiServer.ShutdownPeerFlow(ctx, input); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": err.Error(),
 			})

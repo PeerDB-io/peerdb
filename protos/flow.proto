@@ -154,3 +154,7 @@ message QRepPartition {
 message QRepParitionResult {
   repeated QRepPartition partitions = 1;
 }
+
+message DropFlowInput {
+  string flow_name = 1;
+}

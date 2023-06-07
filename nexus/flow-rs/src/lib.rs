@@ -53,7 +53,7 @@ impl FlowHandler {
     }
 
     // submit_job submits a job to the flow server and returns the workflow id
-    pub async fn submit_job(&self, job: &FlowJob) -> anyhow::Result<String> {
+    pub async fn start_flow_job(&self, job: &FlowJob) -> anyhow::Result<String> {
         let flow_server_addr = match self.flow_server_addr.as_ref() {
             Some(addr) => addr,
             None => {
@@ -87,7 +87,7 @@ impl FlowHandler {
             Ok(workflow_id.to_string())
         } else {
             // log the non-ok status
-            let err = format!("failed to flow submit job: {:?}", status);
+            let err = format!("failed to submit flow job: {:?}", status);
             tracing::error!(err);
             Err(anyhow::anyhow!(err))
         }
@@ -96,5 +96,37 @@ impl FlowHandler {
     fn get_healthcheck_endpoint(&self) -> String {
         let flow_server_addr = self.flow_server_addr.as_ref().unwrap();
         format!("{}/health", flow_server_addr)
+    }
+
+    pub async fn shutdown_flow_job(&self, flow_job_name: &str, workflow_id: &str) -> anyhow::Result<()> {
+        let flow_server_addr = match self.flow_server_addr.as_ref() {
+            Some(addr) => addr,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "failed to submit job: flow server address is not set"
+                ))
+            }
+        };
+
+        let mut job_req = HashMap::new();
+        // these two should refer to the same job for shutdown to work
+        job_req.insert("flow_job_name", flow_job_name.clone());
+        job_req.insert("workflow_id", workflow_id.clone());
+
+        let shutdown_flow_endpoint = format!("{}/flows/shutdown", flow_server_addr);
+        let response: serde_json::Value = self
+            .client
+            .post(&shutdown_flow_endpoint)
+            .json(&job_req)
+            .send()
+            .await.context("failed to receive response for shutdown request")?
+            .json()
+            .await.context("failed to parse response data from shutdown request")?;
+        if response["status"] != "ok" {
+            let err = format!("failed to shutdown flow job: {:?}", response);
+            tracing::error!(err);
+            return Err(anyhow::anyhow!(err));
+        }
+        Ok(())
     }
 }

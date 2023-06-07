@@ -60,6 +60,8 @@ const (
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
+	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 
 	syncRecordsChunkSize = 1024
 )
@@ -218,7 +220,7 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 	}, nil
 }
 
-func (c *SnowflakeConnector) GetLastSyncBatchId(jobName string) (int64, error) {
+func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, peerDBInternalSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
@@ -237,7 +239,7 @@ func (c *SnowflakeConnector) GetLastSyncBatchId(jobName string) (int64, error) {
 	return result, nil
 }
 
-func (c *SnowflakeConnector) GetLastNormalizeBatchId(jobName string) (int64, error) {
+func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, peerDBInternalSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
@@ -328,7 +330,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	log.Printf("pushing %d records to Snowflake table %s", len(req.Records.Records), rawTableIdentifier)
 
-	syncBatchID, err := c.GetLastSyncBatchId(req.FlowJobName)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
@@ -420,7 +422,12 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		return nil, err
 	}
 	// in case we return after error, ensure transaction is rolled back
-	defer syncRecordsTx.Rollback()
+	defer func() {
+		deferErr := syncRecordsTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for SyncRecords: %v", deferErr)
+		}
+	}()
 
 	// inserting records into raw table.
 	numRecords := len(records)
@@ -456,11 +463,11 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 // NormalizeRecords normalizes raw table to destination table.
 func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	syncBatchID, err := c.GetLastSyncBatchId(req.FlowJobName)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
-	normalizeBatchID, err := c.GetLastNormalizeBatchId(req.FlowJobName)
+	normalizeBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +499,12 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, fmt.Errorf("unable to begin transactions for NormalizeRecords: %w", err)
 	}
 	// in case we return after error, ensure transaction is rolled back
-	defer normalizeRecordsTx.Rollback()
+	defer func() {
+		deferErr := normalizeRecordsTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for NormalizeRecords: %v", deferErr)
+		}
+	}()
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
 	for _, destinationTableName := range destinationTableNames {
 		err = c.generateAndExecuteMergeStatement(destinationTableName,
@@ -558,6 +570,40 @@ func (c *SnowflakeConnector) EnsurePullability(req *protos.EnsurePullabilityInpu
 func (c *SnowflakeConnector) SetupReplication(req *protos.SetupReplicationInput) error {
 	log.Errorf("panicking at call to SetupReplication for Snowflake flow connector")
 	panic("SetupReplication is not implemented for the Snowflake flow connector")
+}
+
+func (c *SnowflakeConnector) PullFlowCleanup(jobName string) error {
+	log.Errorf("panicking at call to PullFlowCleanup for Snowflake flow connector")
+	panic("PullFlowCleanup is not implemented for the Snowflake flow connector")
+}
+
+func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
+	syncFlowCleanupTx, err := c.database.BeginTx(c.ctx, nil)
+	if err != nil {
+		return fmt.Errorf("unable to begin transaction for sync flow cleanup: %w", err)
+	}
+	defer func() {
+		deferErr := syncFlowCleanupTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
+		}
+	}()
+
+	_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
+		getRawTableIdentifier(jobName)))
+	if err != nil {
+		return fmt.Errorf("unable to drop raw table: %w", err)
+	}
+	_, err = syncFlowCleanupTx.ExecContext(c.ctx,
+		fmt.Sprintf(deleteJobMetadataSQL, peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
+	if err != nil {
+		return fmt.Errorf("unable to delete job metadata: %w", err)
+	}
+	err = syncFlowCleanupTx.Commit()
+	if err != nil {
+		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
+	}
+	return nil
 }
 
 func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) (bool, error) {

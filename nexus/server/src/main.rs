@@ -15,6 +15,7 @@ use peer_cursor::{
     QueryExecutor, QueryOutput, SchemaRef,
 };
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
+use pgerror::PgError;
 use pgwire::{
     api::{
         auth::{
@@ -171,32 +172,107 @@ impl NexusBackend {
                 }
                 PeerDDL::CreateMirror { flow_job } => {
                     let catalog = self.catalog.lock().await;
-                    catalog.create_flow_job(&flow_job).await.map_err(|err| {
-                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "internal_error".to_owned(),
-                            format!("unable to create mirror job: {:?}", err),
-                        )))
-                    })?;
+                    catalog
+                        .create_flow_job_entry(&flow_job)
+                        .await
+                        .map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!(
+                                    "unable to create mirror job entry: {:?}",
+                                    err
+                                ),
+                            }))
+                        })?;
 
                     // make a request to the flow service to start the job.
                     let workflow_id =
                         self.flow_handler
-                            .submit_job(&flow_job)
+                            .start_flow_job(&flow_job)
                             .await
                             .map_err(|err| {
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "internal_error".to_owned(),
-                                    format!("unable to submit job: {:?}", err),
-                                )))
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!(
+                                        "unable to submit job: {:?}",
+                                        err
+                                    ),
+                                }))
                             })?;
 
-                    let mirror_success = format!("CREATE MIRROR {}", workflow_id);
+                    catalog
+                        .update_workflow_id_for_flow_job(&flow_job.name, &workflow_id)
+                        .await
+                        .map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!(
+                                    "unable to save job metadata: {:?}",
+                                    err
+                                ),
+                            }))
+                        })?;
+                    let create_mirror_success = format!("CREATE MIRROR {}", flow_job.name);
                     Ok(vec![Response::Execution(Tag::new_for_execution(
-                        mirror_success.as_str(),
+                        &create_mirror_success,
                         None,
                     ))])
+                }
+                PeerDDL::DropMirror {
+                    if_exists,
+                    flow_job_name,
+                } => {
+                    let catalog = self.catalog.lock().await;
+                    tracing::info!("mirror_name: {}, if_exists: {}", flow_job_name, if_exists);
+                    let workflow_id = catalog
+                        .get_workflow_id_for_flow_job(&flow_job_name)
+                        .await
+                        .map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!(
+                                    "unable to query catalog for job metadata: {:?}",
+                                    err
+                                ),
+                            }))
+                        })?;
+                    tracing::info!("got workflow id: {:?}", workflow_id);
+                    if workflow_id.is_some() {
+                        self.flow_handler
+                            .shutdown_flow_job(&flow_job_name, &workflow_id.unwrap())
+                            .await
+                            .map_err(|err| {
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!(
+                                        "unable to shutdown flow job: {:?}",
+                                        err
+                                    ),
+                                }))
+                            })?;
+                        catalog
+                            .delete_flow_job_entry(&flow_job_name)
+                            .await
+                            .map_err(|err| {
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!("unable to delete job metadata: {:?}", err),
+                                }))
+                            })?;
+                        let drop_mirror_success = format!("DROP MIRROR {}", flow_job_name);
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            &drop_mirror_success,
+                            None,
+                        ))])
+                    } else {
+                        if if_exists {
+                            let no_mirror_success = "NO SUCH MIRROR";
+                            Ok(vec![Response::Execution(Tag::new_for_execution(
+                                &no_mirror_success,
+                                None,
+                            ))])
+                        } else {
+                            Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                                "ERROR".to_owned(),
+                                "error".to_owned(),
+                                format!("no such mirror: {:?}", flow_job_name),
+                            ))))
+                        }
+                    }
                 }
             },
             NexusStatement::PeerQuery { stmt, assoc } => {
