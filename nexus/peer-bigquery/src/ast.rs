@@ -4,7 +4,7 @@ use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
     visit_expressions_mut, visit_relations_mut, Array, BinaryOperator, DataType, DateTimeField,
-    Expr, Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, TimezoneInfo, visit_function_arguments, visit_function_arguments_mut,
+    Expr, Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, TimezoneInfo,
 };
 
 #[derive(Default)]
@@ -74,7 +74,7 @@ impl BigqueryAst {
             table.0[0] = dataset.into();
             ControlFlow::<()>::Continue(())
         });
-        
+
         visit_expressions_mut(query, |node| {
             // CAST AS Text to CAST AS String
             if let Expr::Cast {
@@ -91,15 +91,36 @@ impl BigqueryAst {
                 }
             }
 
-         
             if let Expr::Function(Function {
                 name: ObjectName(v),
+                args,
                 ..
             }) = node
             {
                 // now() to CURRENT_TIMESTAMP
                 if v[0].to_string().to_lowercase() == "now" {
                     v[0].value = "CURRENT_TIMESTAMP".into();
+                }
+
+                for arg in args {
+                    if let FunctionArg::Unnamed(expr) = arg {
+                        if let FunctionArgExpr::Expr(arg_expr) = expr {
+                            if let Expr::Cast {
+                                expr: _,
+                                data_type: _,
+                            } = arg_expr
+                            {
+                                let list = self
+                                    .flatten_expr_to_in_list(&arg_expr)
+                                    .expect("failed to flatten in function");
+                                let rewritten_array = Array {
+                                    elem: list,
+                                    named: true,
+                                };
+                                *expr = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
+                            }
+                        }
+                    }
                 }
             }
 
@@ -130,18 +151,6 @@ impl BigqueryAst {
                 }
             }
 
-            ControlFlow::<()>::Continue(())
-        });
-
-        visit_function_arguments_mut(query, |node|{
-            if let FunctionArgExpr::Expr(arg_expr) = node
-            {
-                if let Expr::Cast { expr:_, data_type :_} = arg_expr{
-                    let list = self.flatten_expr_to_in_list(&arg_expr).expect("failed to flatten in function");
-                    let rewritten_array = Array{elem:list,named:true};
-                    *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
-                }
-            }
             ControlFlow::<()>::Continue(())
         });
 
