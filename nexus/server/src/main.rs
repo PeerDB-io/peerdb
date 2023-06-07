@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::{default::Default, sync::Arc};
 
 use async_trait::async_trait;
+use peerdb_parser::{NexusParsedStatement, NexusQueryParser};
 use pgwire::{
     api::{
         auth::{
@@ -10,7 +11,7 @@ use pgwire::{
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal},
         results::{DescribeResponse, Response},
-        stmt::NoopQueryParser,
+        stmt::QueryParser,
         store::MemPortalStore,
         ClientInfo, MakeHandler,
     },
@@ -38,8 +39,8 @@ impl AuthSource for DummyAuthSource {
 }
 
 pub struct NexusBackend {
-    portal_store: Arc<MemPortalStore<String>>,
-    query_parser: Arc<NoopQueryParser>,
+    portal_store: Arc<MemPortalStore<NexusParsedStatement>>,
+    query_parser: Arc<NexusQueryParser>,
 }
 
 #[async_trait]
@@ -54,9 +55,9 @@ impl SimpleQueryHandler for NexusBackend {
 
 #[async_trait]
 impl ExtendedQueryHandler for NexusBackend {
-    type Statement = String;
+    type Statement = NexusParsedStatement;
     type PortalStore = MemPortalStore<Self::Statement>;
-    type QueryParser = NoopQueryParser;
+    type QueryParser = NexusQueryParser;
 
     fn portal_store(&self) -> Arc<Self::PortalStore> {
         self.portal_store.clone()
@@ -104,7 +105,7 @@ impl MakeHandler for MakeNexusBackend {
     fn make(&self) -> Self::Handler {
         let backend = NexusBackend {
             portal_store: Arc::new(MemPortalStore::new()),
-            query_parser: Arc::new(NoopQueryParser::new()),
+            query_parser: Arc::new(Default::default()),
         };
         Arc::new(backend)
     }
