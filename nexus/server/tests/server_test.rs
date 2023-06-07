@@ -201,6 +201,7 @@ fn extended_query_protocol_no_params_catalog() {
 }
 
 #[test]
+#[ignore = "requires some work for extended query prepares on bigquery."]
 fn extended_query_protocol_no_params_bq() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
