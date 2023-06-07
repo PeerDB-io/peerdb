@@ -19,6 +19,8 @@ type PullRecordsRequest struct {
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
 	TableNameMapping map[string]string
+	// unchanged toast columns
+	UnchangedToastColumns []string
 }
 
 type Record interface {
@@ -35,6 +37,8 @@ type InsertRecord struct {
 	CommitID int64
 	// Items is a map of column name to value.
 	Items map[string]interface{}
+	// unchanged toast columns
+	UnchangedToastColumns string
 }
 
 // Implement Record interface for InsertRecord.
@@ -51,6 +55,8 @@ type UpdateRecord struct {
 	OldItems map[string]interface{}
 	// NewItems is a map of column name to value.
 	NewItems map[string]interface{}
+	// unchanged toast columns
+	UnchangedToastColumns string
 }
 
 // Implement Record interface for UpdateRecord.
@@ -65,6 +71,8 @@ type DeleteRecord struct {
 	CheckPointID int64
 	// Items is a map of column name to value.
 	Items map[string]interface{}
+	// unchanged toast columns
+	UnchangedToastColumns string
 }
 
 // Implement Record interface for DeleteRecord.
