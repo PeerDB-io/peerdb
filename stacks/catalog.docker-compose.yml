@@ -20,19 +20,3 @@ services:
         "-c",
         "log_destination=stderr"
       ]
-
-  peerdb:
-    build:
-      context: ../
-      dockerfile: stacks/Dockerfile
-    environment:
-      PEERDB_LOG_DIR: /var/log/peerdb
-      PEERDB_CATALOG_HOST: catalog
-      PEERDB_CATALOG_PORT: 5432
-      PEERDB_CATALOG_USER: postgres
-      PEERDB_CATALOG_PASSWORD: postgres
-      PEERDB_CATALOG_DB: postgres
-    ports:
-      - 9901:9900
-    depends_on:
-      - catalog
