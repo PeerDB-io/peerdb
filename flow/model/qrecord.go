@@ -61,7 +61,7 @@ var (
 	}
 )
 
-func NewExtendedTime(t time.Time, kindType ExtendedTimeKindType, originalFormat string) (*ExtendedTime, error) {
+func NewExtendedTime(t time.Time, kindType ExtendedTimeKindType, originalFormat string) *ExtendedTime {
 	var nk NestedKind
 
 	switch kindType {
@@ -80,7 +80,7 @@ func NewExtendedTime(t time.Time, kindType ExtendedTimeKindType, originalFormat 
 	return &ExtendedTime{
 		Time:       t,
 		NestedKind: nk,
-	}, nil
+	}
 }
 
 type QValue struct {
