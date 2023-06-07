@@ -98,8 +98,6 @@ impl Catalog {
                 }
             })?;
 
-        run_migrations(&mut client).await?;
-
         let pg_config = catalog_config.to_postgres_config();
         let executor = PostgresQueryExecutor::new(None, &pg_config).await?;
         let boxed_trait = Box::new(executor) as Box<dyn QueryExecutor>;
@@ -108,6 +106,10 @@ impl Catalog {
             pg: Box::new(client),
             executor: Arc::new(boxed_trait),
         })
+    }
+
+    pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
+        run_migrations(&mut self.pg).await
     }
 
     pub fn get_executor(&self) -> Arc<Box<dyn QueryExecutor>> {

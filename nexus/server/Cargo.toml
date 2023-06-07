@@ -8,6 +8,7 @@ authors = ["PeerDB <copyright@peerdb.io>"]
 analyzer = { path = "../analyzer" }
 anyhow = "1"
 async-trait = "0.1"
+bytes = "1.0"
 catalog = { path = "../catalog" }
 clap = { version = "4.0", features = ["derive", "env"] }
 console-subscriber = "0.1"
