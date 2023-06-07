@@ -244,7 +244,7 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.Sta
 	}
 
 	// log the number of batches normalized
-	log.Println("normalized records from batch %d to batch %d", res.StartBatchID, res.EndBatchID)
+	log.Printf("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID)
 
 	return res, nil
 }

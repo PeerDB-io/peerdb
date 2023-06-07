@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
         with:
@@ -29,7 +30,6 @@ jobs:
       - name: cargo test
         run: cargo test
         working-directory: ./nexus
-        timeout-minutes: 30
         env:
           RUST_BACKTRACE: 1
           NEXUS_CATALOG_HOST: ${{ secrets.NEXUS_CATALOG_HOST }}
