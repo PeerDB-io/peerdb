@@ -81,10 +81,14 @@ SELECT * from bq_test.Test_Case JOIN bq_test.users ON i=id;
 
 -- ANY eq to IN
 SELECT user_id, os FROM bq_test.events WHERE ((id = ANY ('{100,150}'::integer[]))) ORDER BY id;
-
 SELECT user_id, os FROM bq_test.events WHERE ((os = ANY ('{macos,ios}'::text[]))) ORDER BY id LIMIT 2;
-
 
 -- fixing issues with unsupported BIGINT type for array flattening and cast
 SELECT * FROM bq_test.events WHERE id IN (1,2,3);
 SELECT * FROM bq_test.events WHERE id = ANY(CAST('{1,2,3}' AS BIGINT[]));
+
+-- fixing issues with ARRAY with WHERE
+SELECT * FROM bq_test.events WHERE id = ANY(CAST(ARRAY[1] AS BIGINT[]));
+SELECT * FROM bq_test.events WHERE id = ANY(ARRAY[1]);
+
+SELECT * FROM bq_test.events WHERE id = ANY(CAST('{1}' AS BIGINT[]));
