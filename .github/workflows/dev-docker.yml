@@ -1,10 +1,10 @@
-name: Publish docker images
+name: Dev Docker Images
 
 on:
   push:
     branches: [main]
-    tags:
-      - 'v[0-9]+.[0-9]+'
+  pull_request:
+    branches: [main]
 
 jobs:
   docker-build:
@@ -32,7 +32,7 @@ jobs:
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
 
-      - name: Publish PeerDB Dev Image
+      - name: Build (optionally publish) PeerDB Dev Image
         uses: docker/build-push-action@v4.0.0
         with:
           context: .
@@ -40,16 +40,3 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/peerdb-io/peerdb-server:dev
-
-      - name: Get tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: "echo \"DOCKER_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
-
-      - name: Publish PeerDB Stable Image
-        uses: docker/build-push-action@v4.0.0
-        with:
-          context: .
-          file: stacks/nexus.Dockerfile
-          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          tags: |
-            ${{ format('ghcr.io/peerdb-io/peerdb-server:{0}', env.DOCKER_TAG) }}
