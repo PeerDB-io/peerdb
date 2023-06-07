@@ -199,3 +199,7 @@ func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
 	partition *protos.QRepPartition, records *model.QRecordBatch) (int, error) {
 	return 0, fmt.Errorf("SyncQRepRecords not implemented for postgres connector")
 }
+
+func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
+	panic("SetupQRepMetadataTables not implemented for postgres connector")
+}
