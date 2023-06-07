@@ -12,6 +12,7 @@ chrono = { version = "0.4", features = ["serde"] }
 dashmap = "5.0"
 futures = { version = "0.3.28", features = ["executor"] }
 peer-cursor = { path = "../peer-cursor" }
+peer-connections = { path = "../peer-connections" }
 pgerror = { path = "../pgerror" }
 pgwire = "0.14"
 pt = { path = "../pt" }

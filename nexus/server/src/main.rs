@@ -8,6 +8,7 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use peer_bigquery::BigQueryQueryExecutor;
+use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, SchemaRef,
@@ -26,7 +27,6 @@ use pgwire::{
         ClientInfo, MakeHandler, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
-    messages::response::{CommandComplete, ReadyForQuery},
     tokio::process_socket,
 };
 use pt::peers::{peer::Config, Peer};
@@ -59,6 +59,7 @@ impl AuthSource for DummyAuthSource {
 
 pub struct NexusBackend {
     catalog: Arc<Mutex<Catalog>>,
+    peer_connections: Arc<PeerConnectionTracker>,
     portal_store: Arc<MemPortalStore<NexusParsedStatement>>,
     query_parser: Arc<NexusQueryParser>,
     peer_cursors: Arc<Mutex<PeerCursors>>,
@@ -66,10 +67,11 @@ pub struct NexusBackend {
 }
 
 impl NexusBackend {
-    pub fn new(catalog: Arc<Mutex<Catalog>>) -> Self {
+    pub fn new(catalog: Arc<Mutex<Catalog>>, peer_connections: Arc<PeerConnectionTracker>) -> Self {
         let query_parser = NexusQueryParser::new(catalog.clone());
         Self {
             catalog,
+            peer_connections,
             portal_store: Arc::new(MemPortalStore::new()),
             query_parser: Arc::new(query_parser),
             peer_cursors: Arc::new(Mutex::new(PeerCursors::new())),
@@ -205,7 +207,11 @@ impl NexusBackend {
 
         let executor = match &peer.config {
             Some(Config::BigqueryConfig(ref c)) => {
-                let executor = BigQueryQueryExecutor::new(c).await.unwrap();
+                let peer_name = peer.name.clone();
+                let executor =
+                    BigQueryQueryExecutor::new(peer_name, c, self.peer_connections.clone())
+                        .await
+                        .unwrap();
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
             Some(Config::PostgresConfig(ref c)) => {
@@ -348,15 +354,8 @@ impl ExtendedQueryHandler for NexusBackend {
                         println!("acquiring executor for peer query: {:?}", peer.name);
                         // if the peer is of type bigquery, let us route the query to bq.
                         match &peer.config {
-                            Some(Config::BigqueryConfig(c)) => {
-                                let executor =
-                                    BigQueryQueryExecutor::new(c).await.map_err(|e| {
-                                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                                            "ERROR".to_owned(),
-                                            "internal_error".to_owned(),
-                                            e.to_string(),
-                                        )))
-                                    })?;
+                            Some(Config::BigqueryConfig(_)) => {
+                                let executor = self.get_peer_executor(peer).await;
                                 executor.describe(stmt).await?
                             }
                             _ => {
@@ -382,12 +381,14 @@ impl ExtendedQueryHandler for NexusBackend {
 
 struct MakeNexusBackend {
     catalog: Arc<Mutex<Catalog>>,
+    peer_connections: Arc<PeerConnectionTracker>,
 }
 
 impl MakeNexusBackend {
-    fn new(catalog: Catalog) -> Self {
+    fn new(catalog: Catalog, peer_connections: Arc<PeerConnectionTracker>) -> Self {
         Self {
             catalog: Arc::new(Mutex::new(catalog)),
+            peer_connections,
         }
     }
 }
@@ -396,7 +397,10 @@ impl MakeHandler for MakeNexusBackend {
     type Handler = Arc<NexusBackend>;
 
     fn make(&self) -> Self::Handler {
-        Arc::new(NexusBackend::new(self.catalog.clone()))
+        Arc::new(NexusBackend::new(
+            self.catalog.clone(),
+            self.peer_connections.clone(),
+        ))
     }
 }
 
@@ -524,6 +528,12 @@ pub async fn main() -> anyhow::Result<()> {
         catalog.run_migrations().await?;
     }
 
+    let peer_conns = {
+        let conn_str = catalog_config.get_connection_string();
+        let pconns = PeerConnections::new(&conn_str)?;
+        Arc::new(pconns)
+    };
+
     let server_addr = format!("{}:{}", args.host, args.port);
     let listener = TcpListener::bind(&server_addr).await.unwrap();
     println!("Listening on {}", server_addr);
@@ -551,8 +561,11 @@ pub async fn main() -> anyhow::Result<()> {
             }
         };
 
+        let conn_uuid = uuid::Uuid::new_v4();
+        let tracker = PeerConnectionTracker::new(conn_uuid, peer_conns.clone());
+
         let authenticator_ref = authenticator.make();
-        let processor = Arc::new(MakeNexusBackend::new(catalog));
+        let processor = Arc::new(MakeNexusBackend::new(catalog, Arc::new(tracker)));
         let processor_ref = processor.make();
         tokio::task::Builder::new()
             .name("tcp connection handler")

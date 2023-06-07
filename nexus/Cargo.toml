@@ -4,6 +4,7 @@ members = [
   "catalog",
   "parser",
   "peer-bigquery",
+  "peer-connections",
   "peer-cursor",
   "peer-postgres",
   "pgerror",
