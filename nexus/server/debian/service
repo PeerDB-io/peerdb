@@ -7,6 +7,7 @@ Environment=PEERDB_HOST=0.0.0.0
 Environment=PEERDB_PORT=9090
 Environment=PEERDB_LOG_DIR=/var/log/peerdb
 Environment=PEERDB_PASSWORD=peerdb
+# Environment=PEERDB_FLOW_SERVER_ADDRESS=http://flow_api:8112
 # Environment variables for Catalog
 Environment=PEERDB_CATALOG_HOST=localhost
 Environment=PEERDB_CATALOG_PORT=5432

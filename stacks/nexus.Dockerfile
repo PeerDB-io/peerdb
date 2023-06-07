@@ -4,7 +4,7 @@ FROM rust:1.69-slim-bullseye as builder
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive \
   apt-get install --assume-yes --no-install-recommends \
-  protobuf-compiler
+  protobuf-compiler build-essential libssl-dev pkg-config
 WORKDIR /root
 COPY nexus nexus
 COPY protos protos
