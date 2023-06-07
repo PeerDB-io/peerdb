@@ -550,6 +550,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "peerdb-parser"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "pgwire",
+ "rand",
+ "sqlparser",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
 name = "peerdb-server"
 version = "0.1.0"
 dependencies = [
@@ -558,6 +571,7 @@ dependencies = [
  "pgwire",
  "rand",
  "tokio",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -856,6 +870,15 @@ checksum = "37a5be806ab6f127c3da44b7378837ebf01dadca8510a0e572460216b228bd0e"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "sqlparser"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "355dc4d4b6207ca8a3434fc587db0a8016130a574dbcdbfb93d7f7b5bc5b211a"
+dependencies = [
+ "log",
 ]
 
 [[package]]
@@ -1324,6 +1347,10 @@ name = "windows_x86_64_msvc"
 version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a515f5799fe4961cb532f983ce2b23082366b898e52ffbce459c86f67c8378a"
+
+[[package]]
+name = "workspace-hack"
+version = "0.1.0"
 
 [[package]]
 name = "x509-certificate"
