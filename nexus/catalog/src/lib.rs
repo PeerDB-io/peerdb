@@ -110,9 +110,9 @@ impl Catalog {
         self.executor.clone()
     }
 
-    pub async fn create_peer(&self, peer: Peer) -> anyhow::Result<i64> {
+    pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
         let config_blob = {
-            let config = peer.config.context("invalid peer config")?;
+            let config = peer.config.clone().context("invalid peer config")?;
             let mut buf = Vec::new();
 
             match config {
@@ -153,10 +153,10 @@ impl Catalog {
             .execute(&stmt, &[&peer.name, &peer.r#type, &config_blob])
             .await?;
 
-        self.get_peer_id(peer.name).await
+        self.get_peer_id(&peer.name).await
     }
 
-    pub async fn get_peer_id(&self, peer_name: String) -> anyhow::Result<i64> {
+    pub async fn get_peer_id(&self, peer_name: &str) -> anyhow::Result<i64> {
         let stmt = self
             .pg
             .prepare_typed("SELECT id FROM peers WHERE name = $1", &[types::Type::TEXT])
