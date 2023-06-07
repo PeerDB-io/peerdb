@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Context;
 use prost::Message;
 use pt::peers::{peer::Config, Peer};
@@ -133,5 +135,52 @@ impl Catalog {
             .context("Failed to get peer id")?;
 
         Ok(id as i64)
+    }
+
+    pub async fn get_peers(&self) -> anyhow::Result<HashMap<String, Peer>> {
+        let stmt = self
+            .pg
+            .prepare_typed("SELECT id, name, type, options FROM peers", &[])
+            .await?;
+
+        let rows = self.pg.query(&stmt, &[]).await?;
+
+        let mut peers = HashMap::new();
+
+        for row in rows {
+            let name: String = row.get(1);
+            let r#type: i32 = row.get(2);
+            let options: Vec<u8> = row.get(3);
+
+            let config = match r#type {
+                1 => {
+                    let snowflake_config = pt::peers::SnowflakeConfig::decode(options.as_slice())?;
+                    Some(Config::SnowflakeConfig(snowflake_config))
+                }
+                2 => {
+                    let bigquery_config = pt::peers::BigqueryConfig::decode(options.as_slice())?;
+                    Some(Config::BigqueryConfig(bigquery_config))
+                }
+                3 => {
+                    let mongo_config = pt::peers::MongoConfig::decode(options.as_slice())?;
+                    Some(Config::MongoConfig(mongo_config))
+                }
+                4 => {
+                    let postgres_config = pt::peers::PostgresConfig::decode(options.as_slice())?;
+                    Some(Config::PostgresConfig(postgres_config))
+                }
+                _ => None,
+            };
+
+            let peer = Peer {
+                name: name.clone(),
+                r#type,
+                config,
+            };
+
+            peers.insert(name, peer);
+        }
+
+        Ok(peers)
     }
 }

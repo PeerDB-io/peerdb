@@ -1,8 +1,6 @@
-use std::{
-    default::Default,
-    sync::{Arc, Mutex},
-};
+use std::{default::Default, sync::Arc};
 
+use analyzer::{PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer};
 use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
@@ -19,11 +17,12 @@ use pgwire::{
         store::MemPortalStore,
         ClientInfo, MakeHandler,
     },
-    error::PgWireResult,
+    error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
 };
 use rand::Rng;
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 
 struct DummyAuthSource;
 
@@ -50,11 +49,28 @@ pub struct NexusBackend {
 
 #[async_trait]
 impl SimpleQueryHandler for NexusBackend {
-    async fn do_query<'a, C>(&self, _client: &C, _query: &'a str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, C>(&self, _client: &C, sql: &'a str) -> PgWireResult<Vec<Response<'a>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        todo!("implement simple query handler for NexusBackend")
+        let parsed = self.query_parser.parse_simple_sql(sql)?;
+        let mut catalog = self.catalog.lock().await;
+
+        let pea = PeerExistanceAnalyzer::new(&mut catalog);
+        let result = pea.analyze(&parsed.statement).await.map_err(|e| {
+            PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "feature_not_supported".to_owned(),
+                e.to_string(),
+            )))
+        })?;
+
+        if let QueryAssocation::Peer(_) = result {
+            todo!("implement peer query")
+        } else {
+            println!("catalog query: {}", parsed.statement);
+            todo!("implement catalog query")
+        }
     }
 }
 

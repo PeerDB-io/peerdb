@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["PeerDB <copyright@peerdb.io>"]
 
 [dependencies]
+analyzer = { path = "../analyzer" }
 anyhow = "1"
 async-trait = "0.1"
 catalog = { path = "../catalog" }
