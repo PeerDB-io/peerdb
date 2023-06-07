@@ -24,10 +24,25 @@ pub trait RecordStream: Stream<Item = PgWireResult<Record>> {
 
 pub type SendableStream = Pin<Box<dyn RecordStream + Send>>;
 
+pub struct Records {
+    pub records: Vec<Record>,
+    pub schema: SchemaRef,
+}
+
+#[derive(Debug, Clone)]
+pub enum CursorModification {
+    Created(String),
+    Closed(Vec<String>),
+}
+
 pub enum QueryOutput {
     AffectedRows(usize),
     /// Optionally send the number of rows to be sent.
     Stream(SendableStream),
+    /// Send the records directly.
+    Records(Records),
+    /// Send the cursor modification.
+    Cursor(CursorModification),
 }
 
 #[async_trait::async_trait]
