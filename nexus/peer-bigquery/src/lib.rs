@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use gcp_bigquery_client::{model::query_request::QueryRequest, Client};
-use peer_cursor::{QueryExecutor, QueryOutput};
+use peer_cursor::{QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peers::BigqueryConfig;
@@ -89,5 +89,10 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 "only SELECT statements are supported in bigquery".to_owned(),
             )))),
         }
+    }
+
+    // describe the output of the query
+    async fn describe(&self, _stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+        todo!("describe for bigquery")
     }
 }
