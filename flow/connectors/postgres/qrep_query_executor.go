@@ -75,7 +75,7 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 		case pgtype.NumericOID:
 			scanArgs[i] = new(sql.NullString)
 		case pgtype.UUIDOID:
-			scanArgs[i] = new(sql.NullString)
+			scanArgs[i] = new(pgtype.UUID)
 		case pgtype.ByteaOID:
 			scanArgs[i] = new(sql.RawBytes)
 		default:
@@ -128,12 +128,19 @@ func parseField(oid uint32, value interface{}) model.QValue {
 		} else {
 			val = model.QValue{Kind: model.QValueKindFloat, Value: nil}
 		}
-	case pgtype.TextOID, pgtype.VarcharOID, pgtype.UUIDOID:
+	case pgtype.TextOID, pgtype.VarcharOID:
 		nullStr := value.(*sql.NullString)
 		if nullStr.Valid {
 			val = model.QValue{Kind: model.QValueKindString, Value: nullStr.String}
 		} else {
 			val = model.QValue{Kind: model.QValueKindString, Value: nil}
+		}
+	case pgtype.UUIDOID:
+		uuid := value.(*pgtype.UUID)
+		if uuid.Valid {
+			val = model.QValue{Kind: model.QValueKindUUID, Value: uuid.Bytes}
+		} else {
+			val = model.QValue{Kind: model.QValueKindUUID, Value: nil}
 		}
 	case pgtype.ByteaOID:
 		rawBytes := value.(*sql.RawBytes)

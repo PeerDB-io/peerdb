@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/linkedin/goavro"
 )
 
@@ -21,6 +22,7 @@ const (
 	QValueKindETime   QValueKind = "extended_time"
 	QValueKindNumeric QValueKind = "numeric"
 	QValueKindBytes   QValueKind = "bytes"
+	QValueKindUUID    QValueKind = "uuid"
 )
 
 type ExtendedTimeKindType string
@@ -156,6 +158,24 @@ func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[stri
 						m[key] = goavro.Union("bytes", byteData)
 					} else {
 						return nil, fmt.Errorf("invalid Bytes value")
+					}
+				case QValueKindUUID:
+					if byteData, ok := qValue.Value.([16]byte); ok {
+						// Convert [16]byte to UUID
+						u, err := uuid.FromBytes(byteData[:])
+						if err != nil {
+							return nil, fmt.Errorf("conversion of invalid UUID value: %v", err)
+						}
+
+						// Convert UUID to string
+						uuidString := u.String()
+
+						m[key] = goavro.Union("string", uuidString)
+					} else {
+						// log the value for debugging
+						// fmt.Printf("value type: %T\n", qValue.Value)
+						// fmt.Printf("invalid UUID value: %v\n", qValue.Value)
+						return nil, fmt.Errorf("invalid UUID value")
 					}
 				// TODO(kaushik/sai): Add more cases as needed
 				default:
