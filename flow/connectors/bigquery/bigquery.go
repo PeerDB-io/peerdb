@@ -1085,7 +1085,7 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 
 	//log.Printf("Unchanged cols SAI %s %d", m.UnchangedToastColumns, len(m.UnchangedToastColumns))
 
-	udateStatementsforToastCols, _ := m.handleToastCols(m.UnchangedToastColumns, colNames)
+	udateStatementsforToastCols := m.handleToastCols(m.UnchangedToastColumns, colNames)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
 	return fmt.Sprintf(`
@@ -1114,7 +1114,7 @@ WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2,
 WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2' UPDATE c1,c3
 and so on.
 */
-func (m *MergeStmtGenerator) handleToastCols(unchangedToastCols []string, allCols []string) ([]string, error) {
+func (m *MergeStmtGenerator) handleToastCols(unchangedToastCols []string, allCols []string) []string {
 
 	updateStmts := make([]string, 0)
 
@@ -1131,7 +1131,7 @@ func (m *MergeStmtGenerator) handleToastCols(unchangedToastCols []string, allCol
 		THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 	}
-	return updateStmts, nil
+	return updateStmts
 }
 
 func (m *MergeStmtGenerator) arrayMinus(first []string,
