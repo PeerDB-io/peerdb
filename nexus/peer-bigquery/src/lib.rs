@@ -169,6 +169,8 @@ impl QueryExecutor for BigQueryQueryExecutor {
 
     // describe the output of the query
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+        // print the statement
+        println!("[bigquery] describe: {}", stmt);
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
@@ -204,7 +206,15 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     })?;
 
                 let schema = BqSchema::from_result_set(&result_set);
+
+                // log the schema
+                println!("[bigquery] schema: {:?}", schema);
+
                 Ok(Some(schema.schema()))
+            }
+            Statement::Declare { query, .. } => {
+                let query_stmt = Statement::Query(query.clone());
+                self.describe(&query_stmt).await
             }
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),

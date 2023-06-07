@@ -25,6 +25,7 @@ use pgwire::{
         ClientInfo, MakeHandler, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
+    messages::response::{CommandComplete, ReadyForQuery},
     tokio::process_socket,
 };
 use pt::peers::{peer::Config, Peer};
@@ -101,10 +102,24 @@ impl NexusBackend {
             QueryOutput::Cursor(cm) => {
                 println!("cursor modification: {:?}", cm);
                 let mut peer_cursors = self.peer_cursors.lock().await;
-                peer_cursors.handle_event(peer_holder.unwrap(), cm);
-                Ok(vec![Response::Execution(Tag::new_for_execution(
-                    "OK", None,
-                ))])
+                match cm {
+                    peer_cursor::CursorModification::Created(cursor_name) => {
+                        peer_cursors.add_cursor(cursor_name, peer_holder.unwrap());
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            "DECLARE CURSOR",
+                            None,
+                        ))])
+                    }
+                    peer_cursor::CursorModification::Closed(cursors) => {
+                        for cursor_name in cursors {
+                            peer_cursors.remove_cursor(cursor_name);
+                        }
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            "CLOSE CURSOR",
+                            None,
+                        ))])
+                    }
+                }
             }
         }
     }
@@ -113,6 +128,8 @@ impl NexusBackend {
         &self,
         nexus_stmt: NexusStatement,
     ) -> PgWireResult<Vec<Response<'a>>> {
+        // println!("handle query nexus statement: {:#?}", nexus_stmt);
+
         let mut peer_holder: Option<Box<Peer>> = None;
         match nexus_stmt {
             NexusStatement::PeerDDL { stmt: _, ddl } =>
@@ -281,7 +298,7 @@ impl ExtendedQueryHandler for NexusBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let stmt = portal.statement().statement();
-        println!("do_query: {:?}", stmt);
+        println!("[eqp] do_query: {}", stmt.query);
 
         // manually replace variables in prepared statement
         let mut sql = stmt.query.clone();
@@ -319,7 +336,7 @@ impl ExtendedQueryHandler for NexusBackend {
             ),
         };
 
-        println!("do_describe: {:?}", stmt);
+        println!("[eqp] do_describe: {}", stmt.query);
         let stmt = &stmt.statement;
         match stmt {
             NexusStatement::PeerDDL { .. } => Ok(DescribeResponse::no_data()),
@@ -352,8 +369,8 @@ impl ExtendedQueryHandler for NexusBackend {
                         executor.describe(stmt).await?
                     }
                 };
-                if let Some(schema) = schema {
-                    Ok(DescribeResponse::new(param_types, schema.fields.clone()))
+                if let Some(_schema) = schema {
+                    Ok(DescribeResponse::no_data())
                 } else {
                     Ok(DescribeResponse::no_data())
                 }

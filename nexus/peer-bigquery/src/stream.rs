@@ -19,6 +19,7 @@ use pgwire::{
 };
 use value::Value;
 
+#[derive(Debug)]
 pub struct BqSchema {
     schema: SchemaRef,
     fields: Vec<TableFieldSchema>,

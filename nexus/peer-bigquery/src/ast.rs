@@ -4,7 +4,7 @@ use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
     visit_expressions_mut, visit_relations_mut, BinaryOperator, DataType, DateTimeField, Expr,
-    Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query,
+    Function, FunctionArg, FunctionArgExpr, Ident, ObjectName, Query, TimezoneInfo,
 };
 
 #[derive(Default)]
@@ -84,6 +84,10 @@ impl BigqueryAst {
             {
                 if let DataType::Text = dt {
                     *dt = DataType::String;
+                }
+
+                if let DataType::Timestamp(_, tz) = dt {
+                    *tz = TimezoneInfo::None;
                 }
             }
 

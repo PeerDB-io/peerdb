@@ -7,6 +7,7 @@ use value::Value;
 
 pub mod util;
 
+#[derive(Debug, Clone)]
 pub struct Schema {
     pub fields: Vec<FieldInfo>,
 }
