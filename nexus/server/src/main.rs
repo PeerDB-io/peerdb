@@ -169,10 +169,12 @@ impl NexusBackend {
                 // get the query executor
                 let executor = match assoc {
                     QueryAssocation::Peer(peer) => {
+                        tracing::info!("handling peer query: {}", peer.name);
                         peer_holder = Some(peer.clone());
                         self.get_peer_executor(&peer).await
                     }
                     QueryAssocation::Catalog => {
+                        tracing::info!("handling catalog query");
                         let catalog = self.catalog.lock().await;
                         catalog.get_executor()
                     }
