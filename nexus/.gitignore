@@ -1,2 +1,5 @@
 debug/
 target/
+
+# submodules
+/sqlparser-rs
