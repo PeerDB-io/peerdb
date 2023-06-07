@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -376,7 +377,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			return nil, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
 		}
 	}
-
+	sort.Strings(unchangeToastColumns)
 	return items, unchangeToastColumns, nil
 }
 
