@@ -346,7 +346,7 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 
 	// Prepare the query to retrieve distinct tables in that batch
 	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
-	array_agg(_peerdb_unchanged_toast_columns) as c_array FROM %s.%s
+	array_agg(DISTINCT _peerdb_unchanged_toast_columns) as c_array FROM %s.%s
 	 WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d GROUP BY _peerdb_destination_table_name`,
 		c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
 	// Run the query
@@ -626,7 +626,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
 	}
 
-	tableNametoUnchangedCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, syncBatchID, normalizeBatchID)
+	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, syncBatchID, normalizeBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
@@ -637,7 +637,6 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 
 	for _, tableName := range distinctTableNames {
-		log.Printf("SAI UnchangedToastCols %s", tableNametoUnchangedCols[tableName])
 		mergeGen := &MergeStmtGenerator{
 			Dataset:               c.datasetID,
 			NormalizedTable:       tableName,
@@ -645,11 +644,12 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			NormalizedTableSchema: c.tableNameSchemaMapping[tableName],
 			SyncBatchID:           syncBatchID,
 			NormalizeBatchID:      normalizeBatchID,
-			UnchangedToastColumns: tableNametoUnchangedCols[tableName],
+			UnchangedToastColumns: tableNametoUnchangedToastCols[tableName],
 		}
 		// normalize anything between last normalized batch id to last sync batchid
 		mergeStmts := mergeGen.GenerateMergeStmts()
 		stmts = append(stmts, mergeStmts...)
+		//log.Printf("MERGE STATEMENT SAI %s", mergeStmts)
 	}
 	//update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
@@ -1083,7 +1083,9 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 	csep := strings.Join(colNames, ", ")
 	ssep := strings.Join(setValues, ", ")
 
-	udateStatementsforToastCols, err := m.getUpdateStatementsforToastCols(m.UnchangedToastColumns, colNames)
+	//log.Printf("Unchanged cols SAI %s %d", m.UnchangedToastColumns, len(m.UnchangedToastColumns))
+
+	udateStatementsforToastCols, err := m.handleToastCols(m.UnchangedToastColumns, colNames)
 	if err != nil {
 		fmt.Errorf("failed to get update statements for toast cols %w", err)
 	}
@@ -1102,14 +1104,24 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 	`, m.Dataset, m.NormalizedTable, pkey, pkey, csep, csep, ssep, updateStringToastCols)
 }
 
-func (m *MergeStmtGenerator) getUpdateStatementsforToastCols(unchangedToastCols []string, allCols []string) ([]string, error) {
+/*
+This function takes
+1. array capturing unique set of unchanged toast column groups "c2,c3", "c2","c3"
+2. all column names
+and returns suitable UPDATE statements as a part of MERGE.
+Algorithm to generate the UPDATE statements:
+Generate multiple UPDATE without updating unchanged toast
+column values matching each element of arg 1
+If ["c2,c3", "c2","c3"] is arg1 and ["c1","c2","c3"] is arg2
+WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2,c3' UPDATE c1
+WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2' UPDATE c1,c3
+and so on.
+*/
+func (m *MergeStmtGenerator) handleToastCols(unchangedToastCols []string, allCols []string) ([]string, error) {
 
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {
-		if len(cols) == 0 {
-			return updateStmts, nil
-		}
 		unchangedColsArray := strings.Split(cols, ", ")
 		otherCols := m.arrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
