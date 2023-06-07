@@ -3,6 +3,7 @@ members = [
   "analyzer",
   "catalog",
   "parser",
+  "peer-bigquery",
   "peer-cursor",
   "peer-postgres",
   "pgerror",

@@ -26,7 +26,7 @@ pub enum Value {
     Timestamp(DateTime<Utc>),
     TimestampWithTimeZone(DateTime<Utc>),
     Interval(i64),
-    Array(Vec<Value>),
+    Array(Vec<Option<Value>>),
     Json(String),
     JsonB(String),
     Uuid(Uuid),
@@ -117,7 +117,7 @@ impl Value {
         Value::Interval(value)
     }
 
-    pub fn array(value: Vec<Value>) -> Self {
+    pub fn array(value: Vec<Option<Value>>) -> Self {
         Value::Array(value)
     }
 
@@ -160,9 +160,12 @@ impl Value {
                 }
             }
             serde_json::Value::String(s) => Value::Text(s.clone()),
-            serde_json::Value::Array(arr) => {
-                Value::Array(arr.iter().map(Self::from_serde_json_value).collect())
-            }
+            serde_json::Value::Array(arr) => Value::Array(
+                arr.iter()
+                    .map(Self::from_serde_json_value)
+                    .map(Some)
+                    .collect(),
+            ),
             serde_json::Value::Object(map) => {
                 let mut hstore = HashMap::new();
                 for (key, value) in map {
@@ -206,9 +209,11 @@ impl Value {
             Value::Timestamp(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::TimestampWithTimeZone(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::Interval(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-            Value::Array(arr) => {
-                serde_json::Value::Array(arr.iter().map(|v| v.to_serde_json_value()).collect())
-            }
+            Value::Array(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .flat_map(|v| v.as_ref().map(|v| v.to_serde_json_value()))
+                    .collect(),
+            ),
             Value::Json(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
             Value::JsonB(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
             Value::Uuid(u) => serde_json::Value::String(u.to_string()),

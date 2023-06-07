@@ -6,7 +6,8 @@ use analyzer::{
 use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
-use peer_cursor::{util::sendable_stream_to_query_response, QueryOutput};
+use peer_bigquery::BigQueryQueryExecutor;
+use peer_cursor::{util::sendable_stream_to_query_response, QueryExecutor, QueryOutput};
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser};
 use pgwire::{
     api::{
@@ -23,6 +24,7 @@ use pgwire::{
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
 };
+use pt::peers::peer::Config;
 use rand::Rng;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -99,13 +101,40 @@ impl SimpleQueryHandler for NexusBackend {
             )))
         })?;
 
-        if let QueryAssocation::Peer(_) = result {
-            todo!("implement peer query")
+        if let QueryAssocation::Peer(peer) = result {
+            // if the peer is of type bigquery, let us route the query to bq.
+            match peer.config {
+                Some(Config::BigqueryConfig(c)) => {
+                    let executor = BigQueryQueryExecutor::new(&c).await.map_err(|e| {
+                        PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "internal_error".to_owned(),
+                            e.to_string(),
+                        )))
+                    })?;
+                    let res = executor.execute(&parsed.statement).await?;
+                    match res {
+                        QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
+                            Tag::new_for_execution("OK", Some(rows)),
+                        )]),
+                        QueryOutput::Stream(rows) => {
+                            let schema = rows.schema();
+                            // todo: why is this a vector of response rather than a single response?
+                            // can this be because of multiple statements?
+                            let res = sendable_stream_to_query_response(schema, rows)?;
+                            Ok(vec![res])
+                        }
+                    }
+                }
+                _ => {
+                    panic!("peer type not supported: {:?}", peer)
+                }
+            }
         } else {
             println!("catalog query: {}", parsed.statement);
             let executor = catalog.get_executor();
-            let catalog_res = executor.execute(&parsed.statement).await?;
-            match catalog_res {
+            let res = executor.execute(&parsed.statement).await?;
+            match res {
                 QueryOutput::AffectedRows(rows) => Ok(vec![Response::Execution(
                     Tag::new_for_execution("OK", Some(rows)),
                 )]),
