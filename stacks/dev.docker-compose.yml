@@ -28,6 +28,20 @@ services:
         "-c",
         "log_destination=stderr"
       ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready",
+          "-d",
+          "postgres",
+          "-U",
+          "postgres"
+        ]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
 
   flow_api:
     build:

@@ -165,19 +165,23 @@ impl Catalog {
     }
 
     pub async fn get_peer_id(&self, peer_name: &str) -> anyhow::Result<i64> {
+        let id = self.get_peer_id_i32(peer_name).await?;
+        Ok(id as i64)
+    }
+
+    // get peer id as i32
+    pub async fn get_peer_id_i32(&self, peer_name: &str) -> anyhow::Result<i32> {
         let stmt = self
             .pg
             .prepare_typed("SELECT id FROM peers WHERE name = $1", &[types::Type::TEXT])
             .await?;
 
-        let id: i32 = self
+        self
             .pg
             .query_opt(&stmt, &[&peer_name])
             .await?
             .map(|row| row.get(0))
-            .context("Failed to get peer id")?;
-
-        Ok(id as i64)
+            .context("Failed to get peer id")
     }
 
     pub async fn get_peers(&self) -> anyhow::Result<HashMap<String, Peer>> {
@@ -237,8 +241,15 @@ impl Catalog {
     }
 
     pub async fn create_flow_job(&self, job: &FlowJob) -> anyhow::Result<()> {
-        let source_peer_id = self.get_peer_id(&job.source_peer).await?;
-        let destination_peer_id = self.get_peer_id(&job.destination_peer).await?;
+        let source_peer_id = self
+            .get_peer_id_i32(&job.source_peer)
+            .await
+            .context("unable to get source peer id")?;
+
+        let destination_peer_id = self
+            .get_peer_id_i32(&job.destination_peer)
+            .await
+            .context("unable to get destination peer id")?;
 
         let stmt = self
             .pg
