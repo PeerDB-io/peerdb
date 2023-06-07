@@ -9,6 +9,8 @@ edition = "2021"
 anyhow = "1"
 chrono = { version = "0.4.22", default-features = false }
 prost = "0.11"
+peer-cursor = { path = "../peer-cursor" }
+peer-postgres = { path = "../peer-postgres" }
 pt = { path = "../pt" }
 refinery = { version = "0.8", features = ["tokio-postgres"] }
 tokio = { version = "1.13.0", features = ["full"] }

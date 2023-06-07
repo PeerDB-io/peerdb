@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Context;
+use peer_cursor::QueryExecutor;
+use peer_postgres::PostgresQueryExecutor;
 use prost::Message;
 use pt::peers::{peer::Config, Peer};
 use tokio_postgres::{types, Client};
@@ -12,6 +14,7 @@ mod embedded {
 
 pub struct Catalog {
     pg: Box<Client>,
+    executor: Arc<Box<dyn QueryExecutor>>,
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -36,6 +39,29 @@ pub struct CatalogConfig {
     pub user: String,
     pub password: String,
     pub database: String,
+}
+
+impl CatalogConfig {
+    pub fn new(host: String, port: u16, user: String, password: String, database: String) -> Self {
+        Self {
+            host,
+            port,
+            user,
+            password,
+            database,
+        }
+    }
+
+    // convert catalog config to PostgresConfig
+    pub fn to_postgres_config(&self) -> pt::peers::PostgresConfig {
+        pt::peers::PostgresConfig {
+            host: self.host.clone(),
+            port: self.port as u32,
+            user: self.user.clone(),
+            password: self.password.clone(),
+            database: self.database.clone(),
+        }
+    }
 }
 
 fn get_connection_string(catalog_config: &CatalogConfig) -> String {
@@ -70,9 +96,18 @@ impl Catalog {
 
         run_migrations(&mut client).await?;
 
+        let pg_config = catalog_config.to_postgres_config();
+        let executor = PostgresQueryExecutor::new(&pg_config).await?;
+        let boxed_trait = Box::new(executor) as Box<dyn QueryExecutor>;
+
         Ok(Self {
             pg: Box::new(client),
+            executor: Arc::new(boxed_trait),
         })
+    }
+
+    pub fn get_executor(&self) -> Arc<Box<dyn QueryExecutor>> {
+        self.executor.clone()
     }
 
     pub async fn create_peer(&self, peer: Peer) -> anyhow::Result<i64> {

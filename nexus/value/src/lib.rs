@@ -1,6 +1,5 @@
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -10,6 +9,7 @@ pub enum Value {
     Bool(bool),
     TinyInt(i8),
     SmallInt(i16),
+    Oid(u32),
     Integer(i32),
     BigInt(i64),
     Float(f32),
@@ -183,6 +183,7 @@ impl Value {
         match self {
             Value::Null => serde_json::Value::Null,
             Value::Bool(b) => serde_json::Value::Bool(*b),
+            Value::Oid(o) => serde_json::Value::Number(serde_json::Number::from(*o)),
             Value::TinyInt(n) => serde_json::Value::Number(serde_json::Number::from(*n)),
             Value::SmallInt(n) => serde_json::Value::Number(serde_json::Number::from(*n)),
             Value::Integer(n) => serde_json::Value::Number(serde_json::Number::from(*n)),

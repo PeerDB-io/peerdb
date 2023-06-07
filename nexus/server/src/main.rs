@@ -1,15 +1,17 @@
-use std::{default::Default, sync::Arc};
+use std::{collections::HashMap, default::Default, sync::Arc};
 
 use analyzer::{PeerExistanceAnalyzer, QueryAssocation, StatementAnalyzer};
 use async_trait::async_trait;
 use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
+use peer_cursor::{util::sendable_stream_to_query_response, QueryOutput};
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser};
 use pgwire::{
     api::{
         auth::{
             md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler},
             AuthSource, DefaultServerParameterProvider, LoginInfo, Password,
+            ServerParameterProvider,
         },
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal},
@@ -69,7 +71,18 @@ impl SimpleQueryHandler for NexusBackend {
             todo!("implement peer query")
         } else {
             println!("catalog query: {}", parsed.statement);
-            todo!("implement catalog query")
+            let executor = catalog.get_executor();
+            let catalog_res = executor.execute(&parsed.statement).await?;
+            match catalog_res {
+                QueryOutput::AffectedRows(_num) => todo!("implement affected rows"),
+                QueryOutput::Stream(rows) => {
+                    let schema = rows.schema();
+                    // todo: why is this a vector of response rather than a single response?
+                    // can this be because of multiple statements?
+                    let res = sendable_stream_to_query_response(schema, rows)?;
+                    Ok(vec![res])
+                }
+            }
         }
     }
 }
@@ -205,13 +218,31 @@ fn get_catalog_config(args: &Args) -> CatalogConfig {
     }
 }
 
+pub struct NexusServerParameterProvider;
+
+impl ServerParameterProvider for NexusServerParameterProvider {
+    fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
+    where
+        C: ClientInfo,
+    {
+        let mut params = HashMap::with_capacity(4);
+        params.insert("server_version".to_owned(), "14".to_owned());
+        params.insert("server_encoding".to_owned(), "UTF8".to_owned());
+        params.insert("client_encoding".to_owned(), "UTF8".to_owned());
+        params.insert("DateStyle".to_owned(), "ISO YMD".to_owned());
+        params.insert("integer_datetimes".to_owned(), "on".to_owned());
+
+        Some(params)
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
     let args = Args::parse();
 
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
         Arc::new(DummyAuthSource),
-        Arc::new(DefaultServerParameterProvider),
+        Arc::new(NexusServerParameterProvider),
     ));
     let catalog_config = get_catalog_config(&args);
     let server_addr = format!("{}:{}", args.host, args.port);
