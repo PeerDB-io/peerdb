@@ -10,12 +10,14 @@ use pt::peers::PostgresConfig;
 use sqlparser::ast::Statement;
 use tokio_postgres::Client;
 
+mod ast;
 mod stream;
 
 // PostgresQueryExecutor is a QueryExecutor that uses a Postgres database as its
 // backing store.
 pub struct PostgresQueryExecutor {
     _config: PostgresConfig,
+    peername: Option<String>,
     client: Box<Client>,
 }
 
@@ -27,15 +29,17 @@ fn get_connection_string(config: &PostgresConfig) -> String {
     connection_string.push_str(&config.port.to_string());
     connection_string.push_str(" user=");
     connection_string.push_str(&config.user);
-    connection_string.push_str(" password=");
-    connection_string.push_str(&config.password);
+    if !config.password.is_empty() {
+        connection_string.push_str(" password=");
+        connection_string.push_str(&config.password);
+    }
     connection_string.push_str(" dbname=");
     connection_string.push_str(&config.database);
     connection_string
 }
 
 impl PostgresQueryExecutor {
-    pub async fn new(config: &PostgresConfig) -> anyhow::Result<Self> {
+    pub async fn new(peername: Option<String>, config: &PostgresConfig) -> anyhow::Result<Self> {
         let connection_string = get_connection_string(config);
 
         let (client, connection) =
@@ -55,6 +59,7 @@ impl PostgresQueryExecutor {
 
         Ok(Self {
             _config: config.clone(),
+            peername,
             client: Box::new(client),
         })
     }
@@ -82,19 +87,25 @@ impl PostgresQueryExecutor {
 #[async_trait::async_trait]
 impl QueryExecutor for PostgresQueryExecutor {
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
-        let query_str = stmt.to_string();
-
         // if the query is a select statement, we need to fetch the rows
         // and return them as a QueryOutput::Stream, else we return the
         // number of affected rows.
         match stmt {
-            Statement::Query(_query) => {
+            Statement::Query(query) => {
+                let ast = ast::PostgresAst {
+                    peername: self.peername.clone(),
+                };
+
+                let mut query = query.clone();
+                ast.rewrite(&mut query);
+                let rewritten_query = query.to_string();
+
                 // given that there could be a lot of rows returned, we
                 // need to use a cursor to stream the rows back to the
                 // client.
                 let stream = self
                     .client
-                    .query_raw(&query_str, std::iter::empty::<&str>())
+                    .query_raw(&rewritten_query, std::iter::empty::<&str>())
                     .await
                     .map_err(|e| {
                         PgWireError::ApiError(Box::new(PgError::Internal {
@@ -102,11 +113,12 @@ impl QueryExecutor for PostgresQueryExecutor {
                         }))
                     })?;
 
-                let schema = self.schema_from_query(&query_str).await;
+                let schema = self.schema_from_query(&rewritten_query).await;
                 let cursor = stream::PgRecordStream::new(stream, schema);
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             _ => {
+                let query_str = stmt.to_string();
                 let rows_affected = self.client.execute(&query_str, &[]).await.map_err(|e| {
                     PgWireError::ApiError(Box::new(PgError::Internal {
                         err_msg: format!("error executing query: {}", e),

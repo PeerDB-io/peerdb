@@ -72,8 +72,10 @@ fn get_connection_string(catalog_config: &CatalogConfig) -> String {
     connection_string.push_str(&catalog_config.port.to_string());
     connection_string.push_str(" user=");
     connection_string.push_str(&catalog_config.user);
-    connection_string.push_str(" password=");
-    connection_string.push_str(&catalog_config.password);
+    if !catalog_config.password.is_empty() {
+        connection_string.push_str(" password=");
+        connection_string.push_str(&catalog_config.password);
+    }
     connection_string.push_str(" dbname=");
     connection_string.push_str(&catalog_config.database);
     connection_string
@@ -99,7 +101,7 @@ impl Catalog {
         run_migrations(&mut client).await?;
 
         let pg_config = catalog_config.to_postgres_config();
-        let executor = PostgresQueryExecutor::new(&pg_config).await?;
+        let executor = PostgresQueryExecutor::new(None, &pg_config).await?;
         let boxed_trait = Box::new(executor) as Box<dyn QueryExecutor>;
 
         Ok(Self {

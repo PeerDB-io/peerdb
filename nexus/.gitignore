@@ -3,3 +3,6 @@ target/
 
 # submodules
 /sqlparser-rs
+
+# misc
+.env

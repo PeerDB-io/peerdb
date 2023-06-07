@@ -15,6 +15,7 @@ dotenvy = "0.15.7"
 futures = { version = "0.3.28", features = ["executor"] }
 peer-bigquery = { path = "../peer-bigquery" }
 peer-cursor = { path = "../peer-cursor" }
+peer-postgres = { path = "../peer-postgres" }
 peerdb-parser = { path = "../parser" }
 pgwire = "0.13"
 prost = "0.11"
