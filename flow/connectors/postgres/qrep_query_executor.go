@@ -35,7 +35,7 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 func (qe *QRepQueryExecutor) ProcessRows(
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
-) ([]*model.QRecord, error) {
+) (*model.QRecordBatch, error) {
 	// Initialize the record slice
 	records := make([]*model.QRecord, 0)
 
@@ -53,11 +53,17 @@ func (qe *QRepQueryExecutor) ProcessRows(
 		return nil, fmt.Errorf("row iteration failed: %w", rows.Err())
 	}
 
-	return records, nil
+	batch := &model.QRecordBatch{
+		NumRecords: uint32(len(records)),
+		Records:    records,
+	}
+
+	return batch, nil
 }
 
 func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord, error) {
-	record := &model.QRecord{}
+	// make vals an empty array of QValue of size len(fds)
+	record := model.NewQRecord(len(fds))
 
 	scanArgs := make([]interface{}, len(fds))
 	for i := range scanArgs {
@@ -89,7 +95,8 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 	}
 
 	for i, fd := range fds {
-		(*record)[fd.Name] = parseField(fd.DataTypeOID, scanArgs[i])
+		tmp := parseField(fd.DataTypeOID, scanArgs[i])
+		record.Set(i, tmp)
 	}
 
 	return record, nil

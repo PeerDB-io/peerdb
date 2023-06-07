@@ -90,12 +90,30 @@ type QValue struct {
 	Value interface{}
 }
 
-type QRecord map[string]QValue
+type QRecord struct {
+	entries []QValue
+}
 
-func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[string]interface{}, error) {
+// create a new QRecord with n values
+func NewQRecord(n int) *QRecord {
+	return &QRecord{
+		entries: make([]QValue, n),
+	}
+}
+
+// Sets the value at the given index
+func (q *QRecord) Set(idx int, value QValue) {
+	q.entries[idx] = value
+}
+
+func (q *QRecord) ToAvroCompatibleMap(
+	nullableFields *map[string]bool,
+	colNames []string,
+) (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
-	for key, qValue := range *q {
+	for idx, qValue := range q.entries {
+		key := colNames[idx]
 		switch qValue.Kind {
 		case QValueKindETime:
 			et, ok := qValue.Value.(*ExtendedTime)
@@ -192,6 +210,7 @@ func (q *QRecord) ToAvroCompatibleMap(nullableFields *map[string]bool) (map[stri
 
 // QRecordBatch holds a batch of QRecord objects.
 type QRecordBatch struct {
-	NumRecords uint32     // NumRecords represents the number of records in the batch.
-	Records    []*QRecord // Records is a slice of pointers to QRecord objects.
+	NumRecords  uint32     // NumRecords represents the number of records in the batch.
+	Records     []*QRecord // Records is a slice of pointers to QRecord objects.
+	ColumnNames []string   // ColumnNames is a slice of column names.
 }
