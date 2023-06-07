@@ -151,8 +151,6 @@ impl NexusBackend {
         &self,
         nexus_stmt: NexusStatement,
     ) -> PgWireResult<Vec<Response<'a>>> {
-        // tracing::info!("handle query nexus statement: {:#?}", nexus_stmt);
-
         let mut peer_holder: Option<Box<Peer>> = None;
         match nexus_stmt {
             NexusStatement::PeerDDL { stmt: _, ddl } => match ddl {
@@ -206,12 +204,12 @@ impl NexusBackend {
                 // get the query executor
                 let executor = match assoc {
                     QueryAssocation::Peer(peer) => {
-                        tracing::info!("handling peer query: {}", peer.name);
+                        tracing::info!("handling peer[{}] query: {}", peer.name, stmt);
                         peer_holder = Some(peer.clone());
                         self.get_peer_executor(&peer).await
                     }
                     QueryAssocation::Catalog => {
-                        tracing::info!("handling catalog query");
+                        tracing::info!("handling catalog query: {}", stmt);
                         let catalog = self.catalog.lock().await;
                         catalog.get_executor()
                     }

@@ -73,6 +73,7 @@ impl BigQueryQueryExecutor {
             .track_query(&self.peer_name, query)
             .await
             .map_err(|err| {
+                tracing::error!("error tracking query: {}", err);
                 PgWireError::ApiError(Box::new(PgError::Internal {
                     err_msg: err.to_string(),
                 }))
@@ -84,12 +85,14 @@ impl BigQueryQueryExecutor {
             .query(&self.config.project_id, query_req)
             .await
             .map_err(|err| {
+                tracing::error!("error running query: {}", err);
                 PgWireError::ApiError(Box::new(PgError::Internal {
                     err_msg: err.to_string(),
                 }))
             })?;
 
         token.end().await.map_err(|err| {
+            tracing::error!("error closing tracking token: {}", err);
             PgWireError::ApiError(Box::new(PgError::Internal {
                 err_msg: err.to_string(),
             }))
@@ -118,6 +121,8 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     })?;
 
                 let query = query.to_string();
+                tracing::info!("bq rewritten query: {}", query);
+
                 let result_set = self.run_tracked(&query).await?;
 
                 let cursor = BqRecordStream::new(result_set);
