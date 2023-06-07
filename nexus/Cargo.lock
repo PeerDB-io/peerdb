@@ -567,6 +567,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "peerdb-parser",
  "pgwire",
  "rand",
  "time 0.3.20",
