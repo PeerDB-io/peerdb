@@ -15,7 +15,7 @@ mod stream;
 // PostgresQueryExecutor is a QueryExecutor that uses a Postgres database as its
 // backing store.
 pub struct PostgresQueryExecutor {
-    config: PostgresConfig,
+    _config: PostgresConfig,
     client: Box<Client>,
 }
 
@@ -45,14 +45,16 @@ impl PostgresQueryExecutor {
                     anyhow::anyhow!("error encountered while connecting to postgres {:?}", e)
                 })?;
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                println!("connection error: {}", e)
-            }
-        });
+        tokio::task::Builder::new()
+            .name("PostgresQueryExecutor connection")
+            .spawn(async move {
+                if let Err(e) = connection.await {
+                    println!("connection error: {}", e)
+                }
+            })?;
 
         Ok(Self {
-            config: config.clone(),
+            _config: config.clone(),
             client: Box::new(client),
         })
     }
