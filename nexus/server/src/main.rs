@@ -98,7 +98,7 @@ impl NexusBackend {
             peer_cursors: Arc::new(Mutex::new(PeerCursors::new())),
             executors: Arc::new(DashMap::new()),
             flow_handler,
-            peerdb_fdw_mode
+            peerdb_fdw_mode,
         }
     }
 
@@ -554,7 +554,7 @@ impl ServerParameterProvider for NexusServerParameterProvider {
         params.insert("server_version".to_owned(), "14".to_owned());
         params.insert("server_encoding".to_owned(), "UTF8".to_owned());
         params.insert("client_encoding".to_owned(), "UTF8".to_owned());
-        params.insert("DateStyle".to_owned(), "ISO YMD".to_owned());
+        params.insert("DateStyle".to_owned(), "ISO, MDY".to_owned());
         params.insert("integer_datetimes".to_owned(), "on".to_owned());
 
         Some(params)
@@ -682,10 +682,11 @@ pub async fn main() -> anyhow::Result<()> {
 
         let authenticator_ref = authenticator.make();
 
-        let peerdb_fdw_mode = match args.peerdb_fwd_mode.as_str() {
-            "true" => true,
-            _ => false
-        };
+        // let peerdb_fdw_mode = matches!(args.peerdb_fwd_mode.as_str(), "true");
+
+        // this is true for now to make upgrades easier.
+        // TODO kaushik - remove this hack.
+        let peerdb_fdw_mode = true;
 
         let processor = Arc::new(MakeNexusBackend::new(
             catalog,
