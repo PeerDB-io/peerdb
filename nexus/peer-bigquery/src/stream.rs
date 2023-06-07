@@ -28,6 +28,7 @@ pub struct BqSchema {
 pub struct BqRecordStream {
     result_set: ResultSet,
     schema: BqSchema,
+    num_records: usize,
 }
 
 // covnert FieldType to pgwire FieldInfo's Type
@@ -82,14 +83,17 @@ impl BqSchema {
 impl BqRecordStream {
     pub fn new(result_set: ResultSet) -> Self {
         let bq_schema = BqSchema::from_result_set(&result_set);
-
-        // log the total number of rows
-        println!("[bq result set] Total rows: {}", result_set.row_count());
+        let num_records = result_set.row_count();
 
         Self {
             result_set,
             schema: bq_schema,
+            num_records,
         }
+    }
+
+    pub fn get_num_records(&self) -> usize {
+        self.num_records
     }
 
     pub fn convert_result_set_item(&self, result_set: &ResultSet) -> anyhow::Result<Record> {
@@ -162,7 +166,6 @@ impl Stream for BqRecordStream {
         let this = self.get_mut();
         match this.result_set.next_row() {
             true => {
-                println!("[bq result set] had row");
                 let record = this.convert_result_set_item(&this.result_set);
                 let result = record.map_err(|e| {
                     PgWireError::ApiError(Box::new(PgError::Internal {
@@ -171,10 +174,7 @@ impl Stream for BqRecordStream {
                 });
                 Poll::Ready(Some(result))
             }
-            false => {
-                println!("[bq result set] no more rows");
-                Poll::Ready(None)
-            }
+            false => Poll::Ready(None),
         }
     }
 }

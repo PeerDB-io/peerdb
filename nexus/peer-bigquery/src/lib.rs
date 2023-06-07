@@ -101,6 +101,7 @@ impl BigQueryQueryExecutor {
 
 #[async_trait::async_trait]
 impl QueryExecutor for BigQueryQueryExecutor {
+    #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         // only support SELECT statements
         match stmt {
@@ -120,6 +121,11 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let result_set = self.run_tracked(&query).await?;
 
                 let cursor = BqRecordStream::new(result_set);
+                tracing::info!(
+                    "retrieved {} rows for query {}",
+                    cursor.get_num_records(),
+                    query
+                );
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             Statement::Declare { name, query, .. } => {
@@ -135,7 +141,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
             Statement::Fetch {
                 name, direction, ..
             } => {
-                println!("fetching cursor for bigquery: {}", name.value);
+                tracing::info!("fetching cursor for bigquery: {}", name.value);
 
                 // Attempt to extract the count from the direction
                 let count = match direction {
@@ -164,7 +170,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                     }
                 };
 
-                println!("fetching {} rows", count);
+                tracing::info!("fetching {} rows", count);
 
                 // Fetch rows from the cursor manager
                 let records = self.cursor_manager.fetch(&name.value, count).await?;
@@ -204,7 +210,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
     // describe the output of the query
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
         // print the statement
-        println!("[bigquery] describe: {}", stmt);
+        tracing::info!("[bigquery] describe: {}", stmt);
         // only support SELECT statements
         match stmt {
             Statement::Query(query) => {
@@ -229,7 +235,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let schema = BqSchema::from_result_set(&result_set);
 
                 // log the schema
-                println!("[bigquery] schema: {:?}", schema);
+                tracing::info!("[bigquery] schema: {:?}", schema);
 
                 Ok(Some(schema.schema()))
             }

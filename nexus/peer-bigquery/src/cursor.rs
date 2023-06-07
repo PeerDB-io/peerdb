@@ -52,7 +52,7 @@ impl BigQueryCursorManager {
                 self.cursors.insert(name.to_string(), cursor);
 
                 // log the cursor and statement
-                println!("Created cursor {} for statement '{}'", name, stmt);
+                tracing::info!("Created cursor {} for statement '{}'", name, stmt);
 
                 Ok(())
             }
@@ -83,7 +83,7 @@ impl BigQueryCursorManager {
                     Some(Ok(record)) => {
                         records.push(record);
                         cursor_position += 1;
-                        println!("cusror position: {}", cursor_position);
+                        tracing::info!("cusror position: {}", cursor_position);
                     }
                     Some(Err(err)) => return Err(err),
                     None => break,
@@ -101,7 +101,7 @@ impl BigQueryCursorManager {
 
     pub async fn close(&self, name: &str) -> PgWireResult<()> {
         // log that we are removing the cursor from bq
-        println!("Removing cursor {} from BigQuery", name);
+        tracing::info!("Removing cursor {} from BigQuery", name);
 
         self.cursors
             .remove(name)
@@ -118,7 +118,7 @@ impl BigQueryCursorManager {
     // close all the cursors
     pub async fn close_all_cursors(&self) -> PgWireResult<Vec<String>> {
         // log that we are removing all the cursors from bq
-        println!("Removing all cursors from BigQuery");
+        tracing::info!("Removing all cursors from BigQuery");
 
         let keys: Vec<_> = self
             .cursors

@@ -33,6 +33,7 @@ use pt::peers::{peer::Config, Peer};
 use rand::Rng;
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cursor;
@@ -50,7 +51,7 @@ impl FixedPasswordAuthSource {
 #[async_trait]
 impl AuthSource for FixedPasswordAuthSource {
     async fn get_password(&self, login_info: &LoginInfo) -> PgWireResult<Password> {
-        println!("login info: {:?}", login_info);
+        tracing::info!("login info: {:?}", login_info);
 
         // randomly generate a 4 byte salt
         let salt = rand::thread_rng().gen::<[u8; 4]>().to_vec();
@@ -110,7 +111,7 @@ impl NexusBackend {
                 Ok(vec![res])
             }
             QueryOutput::Cursor(cm) => {
-                println!("cursor modification: {:?}", cm);
+                tracing::info!("cursor modification: {:?}", cm);
                 let mut peer_cursors = self.peer_cursors.lock().await;
                 match cm {
                     peer_cursor::CursorModification::Created(cursor_name) => {
@@ -138,7 +139,7 @@ impl NexusBackend {
         &self,
         nexus_stmt: NexusStatement,
     ) -> PgWireResult<Vec<Response<'a>>> {
-        // println!("handle query nexus statement: {:#?}", nexus_stmt);
+        // tracing::info!("handle query nexus statement: {:#?}", nexus_stmt);
 
         let mut peer_holder: Option<Box<Peer>> = None;
         match nexus_stmt {
@@ -168,12 +169,10 @@ impl NexusBackend {
                 // get the query executor
                 let executor = match assoc {
                     QueryAssocation::Peer(peer) => {
-                        println!("acquiring executor for peer query: {:?}", peer.name);
                         peer_holder = Some(peer.clone());
                         self.get_peer_executor(&peer).await
                     }
                     QueryAssocation::Catalog => {
-                        println!("acquiring executor for catalog query");
                         let catalog = self.catalog.lock().await;
                         catalog.get_executor()
                     }
@@ -195,10 +194,7 @@ impl NexusBackend {
                             let catalog = self.catalog.lock().await;
                             catalog.get_executor()
                         }
-                        Some(peer) => {
-                            println!("acquiring executor for peer cursor query: {:?}", peer.name);
-                            self.get_peer_executor(peer).await
-                        }
+                        Some(peer) => self.get_peer_executor(peer).await,
                     }
                 };
 
@@ -312,7 +308,7 @@ impl ExtendedQueryHandler for NexusBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let stmt = portal.statement().statement();
-        println!("[eqp] do_query: {}", stmt.query);
+        tracing::info!("[eqp] do_query: {}", stmt.query);
 
         // manually replace variables in prepared statement
         let mut sql = stmt.query.clone();
@@ -350,7 +346,7 @@ impl ExtendedQueryHandler for NexusBackend {
             ),
         };
 
-        println!("[eqp] do_describe: {}", stmt.query);
+        tracing::info!("[eqp] do_describe: {}", stmt.query);
         let stmt = &stmt.statement;
         match stmt {
             NexusStatement::PeerDDL { .. } => Ok(DescribeResponse::no_data()),
@@ -358,7 +354,6 @@ impl ExtendedQueryHandler for NexusBackend {
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<SchemaRef> = match assoc {
                     QueryAssocation::Peer(peer) => {
-                        println!("acquiring executor for peer query: {:?}", peer.name);
                         // if the peer is of type bigquery, let us route the query to bq.
                         match &peer.config {
                             Some(Config::BigqueryConfig(_)) => {
@@ -503,10 +498,20 @@ impl ServerParameterProvider for NexusServerParameterProvider {
     }
 }
 
+struct TracerGuards {
+    _rolling_guard: WorkerGuard,
+}
+
 // setup tracing
-fn setup_tracing() {
-    let fmt_layer = fmt::layer().with_target(false);
+fn setup_tracing(log_dir: &str) -> TracerGuards {
     let console_layer = console_subscriber::spawn();
+
+    // also log to nexus.log in log_dir
+    let file_appender = tracing_appender::rolling::never(log_dir, "nexus.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let fmt_file_layer = fmt::layer().with_target(false).with_writer(non_blocking);
+
+    let fmt_stdout_layer = fmt::layer().with_target(false).with_writer(std::io::stdout);
 
     // add min tracing as info
     let filter_layer = EnvFilter::try_from_default_env()
@@ -515,18 +520,25 @@ fn setup_tracing() {
 
     tracing_subscriber::registry()
         .with(console_layer)
-        .with(fmt_layer)
+        .with(fmt_stdout_layer)
+        .with(fmt_file_layer)
         .with(filter_layer)
         .init();
+
+    // return guard so that the file appender is not dropped
+    // and the file is not closed
+    TracerGuards {
+        _rolling_guard: _guard,
+    }
 }
 
 #[tokio::main]
 pub async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
-    setup_tracing();
-
     let args = Args::parse();
+
+    let _guard = setup_tracing(&args.log_dir);
 
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
         Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
@@ -549,7 +561,7 @@ pub async fn main() -> anyhow::Result<()> {
 
     let server_addr = format!("{}:{}", args.host, args.port);
     let listener = TcpListener::bind(&server_addr).await.unwrap();
-    println!("Listening on {}", server_addr);
+    tracing::info!("Listening on {}", server_addr);
 
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();

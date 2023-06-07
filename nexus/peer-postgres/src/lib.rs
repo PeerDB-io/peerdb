@@ -53,7 +53,7 @@ impl PostgresQueryExecutor {
             .name("PostgresQueryExecutor connection")
             .spawn(async move {
                 if let Err(e) = connection.await {
-                    println!("connection error: {}", e)
+                    tracing::info!("connection error: {}", e)
                 }
             })?;
 
