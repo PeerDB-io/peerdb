@@ -125,6 +125,11 @@ message PartitionRange {
 }
 
 // protos for qrep
+enum QRepSyncMode {
+  QREP_SYNC_MODE_MULTI_INSERT = 0;
+  QREP_SYNC_MODE_STORAGE_AVRO = 1;
+}
+
 message QRepConfig {
   string flow_job_name = 1;
 
@@ -138,6 +143,7 @@ message QRepConfig {
   string watermark_column = 7;
 
   bool inital_copy_only = 8;
+  QRepSyncMode sync_mode = 9;
 }
 
 message QRepPartition {
