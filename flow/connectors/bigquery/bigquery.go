@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/storage"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
@@ -57,6 +58,7 @@ type BigQueryConnector struct {
 	ctx                    context.Context
 	bqConfig               *protos.BigqueryConfig
 	client                 *bigquery.Client
+	storageClient          *storage.Client
 	tableNameSchemaMapping map[string]*protos.TableSchema
 	datasetID              string
 }
@@ -110,8 +112,8 @@ func (bqsa *BigQueryServiceAccount) ToJSON() ([]byte, error) {
 	return json.Marshal(bqsa)
 }
 
-// CreateClient creates a new BigQuery client from a BigQueryServiceAccount.
-func (bqsa *BigQueryServiceAccount) CreateClient(ctx context.Context) (*bigquery.Client, error) {
+// CreateBigQueryClient creates a new BigQuery client from a BigQueryServiceAccount.
+func (bqsa *BigQueryServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquery.Client, error) {
 	bqsaJSON, err := bqsa.ToJSON()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get json: %v", err)
@@ -129,6 +131,24 @@ func (bqsa *BigQueryServiceAccount) CreateClient(ctx context.Context) (*bigquery
 	return client, nil
 }
 
+// CreateStorageClient creates a new Storage client from a BigQueryServiceAccount.
+func (bqsa *BigQueryServiceAccount) CreateStorageClient(ctx context.Context) (*storage.Client, error) {
+	bqsaJSON, err := bqsa.ToJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get json: %v", err)
+	}
+
+	client, err := storage.NewClient(
+		ctx,
+		option.WithCredentialsJSON(bqsaJSON),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Storage client: %v", err)
+	}
+
+	return client, nil
+}
+
 // NewBigQueryConnector creates a new BigQueryConnector from a PeerConnectionConfig.
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
 	bqsa, err := NewBigQueryServiceAccount(config)
@@ -136,16 +156,22 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
 	}
 
-	client, err := bqsa.CreateClient(ctx)
+	client, err := bqsa.CreateBigQueryClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
 
+	storageClient, err := bqsa.CreateStorageClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Storage client: %v", err)
+	}
+
 	return &BigQueryConnector{
-		ctx:       ctx,
-		bqConfig:  config,
-		client:    client,
-		datasetID: config.GetDatasetId(),
+		ctx:           ctx,
+		bqConfig:      config,
+		client:        client,
+		datasetID:     config.GetDatasetId(),
+		storageClient: storageClient,
 	}, nil
 }
 
