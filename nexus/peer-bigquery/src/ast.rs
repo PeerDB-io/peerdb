@@ -238,7 +238,7 @@ impl BigqueryAst {
                         )));
                     }
                     sqlparser::ast::Value::SingleQuotedString(_) => {
-                        list.push(Expr::Value(sqlparser::ast::Value::SingleQuotedString(
+                        list.push(Expr::Value(sqlparser::ast::Value::UnQuotedString(
                             element.to_string(),
                         )));
                     }
