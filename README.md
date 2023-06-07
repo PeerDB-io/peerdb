@@ -1,6 +1,7 @@
 
 <p align="center">
-<img class="img-fluid" src="images/logo-light-transparent_copy_2.png" alt="img-verification" width="100" height="100">
+<img class="img-fluid" src="images/logo-light-transparent_copy_2.png" alt="img-verification" width="100" height="100"> <br \>
+<img class="img-fluid" src="https://github.com/PEerDB-io/peerdb/actions/workflows/ci.yml/badge.svg" alt="img-verification" width="170" height="17">
 </p>
 
 

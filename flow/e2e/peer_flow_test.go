@@ -303,6 +303,8 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	go func() {
+		// sleep for 5 second to allow the workflow to start
+		time.Sleep(5 * time.Second)
 		// wait for PeerFlowStatusQuery to finish setup
 		for {
 			response, err := env.QueryWorkflow(
