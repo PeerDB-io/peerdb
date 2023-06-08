@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-
+	"strings"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
@@ -59,6 +59,14 @@ func readFileToBytes(path string) ([]byte, error) {
 	}
 
 	return ret, nil
+}
+
+// UseBQKeyInJSON fetches, uses BQ private key in json file.
+func UseBQKeyInJSON(content []byte, privateKey string) []byte {
+	contentString := string(content)
+	contentStringWithEnv := strings.Replace(contentString, "$PRIVATE_KEY", privateKey, 1)
+	contentWithEnv := []byte(contentStringWithEnv)
+	return contentWithEnv
 }
 
 // GenerateBQPeer generates a bigquery peer config for testing.

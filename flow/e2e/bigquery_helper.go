@@ -29,16 +29,23 @@ type BigQueryTestHelper struct {
 func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	// random 64 bit int to namespace stateful schemas.
 	runID := rand.Int63()
-
+	
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {
 		return nil, fmt.Errorf("TEST_BQ_CREDS env var not set")
+	}
+
+	privateKey := os.Getenv("BQ_PRIVATE_KEY")
+	if privateKey == "" {
+		return nil, fmt.Errorf("BQ_PRIVATE_KEY env var not set")
 	}
 
 	content, err := readFileToBytes(jsonPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
+
+	content = UseBQKeyInJSON(content, privateKey)
 
 	var config protos.BigqueryConfig
 	err = json.Unmarshal(content, &config)
