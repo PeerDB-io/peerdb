@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
-	
+
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
