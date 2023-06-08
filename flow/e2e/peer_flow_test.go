@@ -304,6 +304,8 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 	// and then insert 10 rows into the source table
 	go func() {
 		// wait for PeerFlowStatusQuery to finish setup
+		// sleep for 5 second to allow the workflow to start
+		time.Sleep(5 * time.Second)
 		for {
 			response, err := env.QueryWorkflow(
 				peerflow.PeerFlowStatusQuery,
@@ -348,6 +350,109 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) Test_Toast() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	_, err := s.pool.Exec(context.Background(), `
+	
+		CREATE TABLE e2e_test.test_toast (
+			id SERIAL PRIMARY KEY,
+			t1 text,
+			t2 text,
+			k int
+		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
+		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz', 
+		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
+		$$ language sql;
+	`)
+	s.NoError(err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "test_toast",
+		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
+		PostgresPort:     postgresPort,
+		BigQueryConfig:   s.bqHelper.Config,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
+
+	peerFlowInput := peerflow.PeerFlowWorkflowInput{
+		PeerFlowName:   connectionGen.FlowJobName,
+		CatalogJdbcURL: postgresJdbcURL,
+		TotalSyncFlows: 1,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and execute a transaction touching toast columns
+	go func() {
+		// wait for PeerFlowStatusQuery to finish setup
+		// sleep for 5 second to allow the workflow to start
+		time.Sleep(5 * time.Second)
+		for {
+			response, err := env.QueryWorkflow(
+				peerflow.PeerFlowStatusQuery,
+				connectionGen.FlowJobName,
+			)
+			if err == nil {
+				var state peerflow.PeerFlowState
+				err = response.Get(&state)
+				s.NoError(err)
+
+				if state.SetupComplete {
+					fmt.Println("query indicates setup is complete")
+					break
+				}
+			} else {
+				// log the error for informational purposes
+				fmt.Println(err)
+			}
+			time.Sleep(1 * time.Second)
+		}
+
+		/*
+			Executing a transaction which
+			1. changes both toast column
+			2. changes no toast column
+			2. changes 1 toast column
+		*/
+		_, err = s.pool.Exec(context.Background(), `
+			BEGIN;
+			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			1 FROM generate_series(1,2);
+			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=2;
+			END;
+		`)
+		s.NoError(err)
+		fmt.Println("Executed a transaction touching toast columns")
+	}()
+
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// assert that error contains "invalid connection configs"
+	s.NoError(err)
+
+	noNullsT1, err := s.bqHelper.CheckNull("test_toast", "t1")
+	noNullsT2, err := s.bqHelper.CheckNull("test_toast", "t2")
+	if err != nil {
+		fmt.Println("error  %w", err)
+	}
+	// Make sure that there are no nulls
+	s.Equal(noNullsT1, true)
+	s.Equal(noNullsT2, true)
 
 	env.AssertExpectations(s.T())
 }

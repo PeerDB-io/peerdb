@@ -169,3 +169,37 @@ func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
 
 	return int(cntI64), nil
 }
+
+/*
+if the function errors or there are nulls, the function returns false
+else true
+*/
+func (b *BigQueryTestHelper) CheckNull(tableName string, ColName string) (bool, error) {
+	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s` WHERE %s IS null",
+		b.Config.DatasetId, tableName, ColName)
+	it, err := b.client.Query(command).Read(context.Background())
+	if err != nil {
+		return false, fmt.Errorf("failed to run command: %w", err)
+	}
+
+	var row []bigquery.Value
+	for {
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return false, fmt.Errorf("failed to iterate over query results: %w", err)
+		}
+	}
+
+	cntI64, ok := row[0].(int64)
+	if !ok {
+		return false, fmt.Errorf("failed to convert row count to int64")
+	}
+	if cntI64 > 0 {
+		return false, nil
+	} else {
+		return true, nil
+	}
+}
