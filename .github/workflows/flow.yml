@@ -41,9 +41,16 @@ jobs:
           go mod download
         working-directory: ./flow
 
+      - name: setup gcp service account
+        id: gcp-service-account
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "bq_service_account.json"
+          json: ${{ secrets.GCP_GH_CI_PKEY }}
+
       - name: run tests
         run: |
           gotestsum --format testname
         working-directory: ./flow
         env:
-          TEST_BQ_CREDS: ${{ github.workspace }}/flow/e2e/assets/bq_service_account.json
+          TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json

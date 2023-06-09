@@ -7,7 +7,6 @@
 <a href="https://github.com/PeerDB-io/peerdb/blob/main/LICENSE.md"><img src="https://badgen.net/badge/License/Elv2/green?icon=github"/></a>
 </div>
 
-
 ## PeerDB
 
 PeerDB is a Postgres-compatible SQL interface to seamlessly integrate multiple data-stores. It enables you to **sync**, **transform** and **query** data across your stores using simple SQL commands. PeerDB takes a datastore native approach in engineering — enabling 10x faster and a highly reliable ETL experience for you.
@@ -27,7 +26,7 @@ git clone --recursive git@github.com:PeerDB-io/peerdb.git
 cd peerdb
 
 # Run docker containers: peerdb-server, postgres as catalog, temporal
-docker compose --file stacks/dev.docker-compose.yml up --build
+docker compose up
 
 # connect to peerdb and query away
 psql "port=9900 host=localhost password=peerdb"
@@ -35,19 +34,19 @@ psql "port=9900 host=localhost password=peerdb"
 
 Detailed documentation available [here](https://peerdb.notion.site/PeerDB-Docs-b18871d945a045fc9858e88f01c4ed4f).
 
-## **Why PeerDB?**
+## Why PeerDB
 
 Existing ETL tools primarily focus on supporting a wide range of data-stores. However, they fall short in providing a rich experience for any two specific data-stores. This becomes evident when your workloads need scale or have demanding feature requirements. It is common for such users to try out these tools and fail – tools not meeting their performance and reliability SLAs or lacking the required features. Such users resort to developing their own in-house solutions, investing a lot of time and resources.
 
-#### **Data-store nativity at it’s core, enabling scalable ETL**
+### Data-store nativity at it’s core, enabling scalable ETL
 
 PeerDB takes a data-store first approach to ETL. It supports a set of highly adopted stores, implements multiple infrastructural and data-store native optimizations, providing a highly scalable and a feature-rich ETL experience. For example, in a sync from Postgres to BigQuery or Snowflake, PeerDB is 10 times faster than other tools. We are database experts and believe that an ETL tool should be datastore centric, than a hodge-podge of too many connectors.
 
 #### **Postgres-compatible SQL interface to do ETL**
 
-The Postgres-compatible SQL interface for ETL is unique to PeerDB and enables you to operate in a language you are familiar with. You can do ETL the same way you work with your databases. 
+The Postgres-compatible SQL interface for ETL is unique to PeerDB and enables you to operate in a language you are familiar with. You can do ETL the same way you work with your databases.
 
-You can use Postgres’ eco-system to manage your ETL — 
+You can use Postgres’ eco-system to manage your ETL —
 
 1. Client tools like pgadmin, psql to run SQL commands.
 2. BI tools like grafana, tableau to visually monitor syncs and transforms.
@@ -69,11 +68,11 @@ Query supported data-stores with a Postgres-compatible SQL interface
 | Snowflake | SELECT commands | Under development |
 | PostgreSQL | DML + SELECT commands | Under development |
 
-### **PeerDB MIRROR**
+### PeerDB MIRROR
 
 Sync and transform data-from one store to another using CREATE MIRROR SQL command.
 
-**MIRROR for Streaming Changes (CDC)**
+#### MIRROR for Streaming Changes (CDC)
 
 Real-time syncing of data from source to target based on change-feed or CDC (logical decoding in the Postgres world)
 
@@ -84,7 +83,7 @@ Real-time syncing of data from source to target based on change-feed or CDC (log
 | Initial Load | PostgreSQL | BigQuery | Coming Soon! |
 | Initial Load | PostgreSQL | Snowflake | Coming Soon! |
 
-**MIRROR for SELECTs**
+#### MIRROR for SELECTs
 
 Continuous syncing of data from source to target based on any SELECT query on the source. So this is basically a pre-transform - i.e. transform data on the source before syncing it to the target.
 

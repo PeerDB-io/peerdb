@@ -45,7 +45,7 @@ services:
 
   flow_api:
     build:
-      context: ../
+      context: .
       dockerfile: stacks/flow-api.Dockerfile
     ports:
       - 8112:8112
@@ -58,7 +58,7 @@ services:
 
   flow_worker:
     build:
-      context: ../
+      context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       TEMPORAL_HOST_PORT: temporalite:7233
@@ -67,7 +67,7 @@ services:
 
   peerdb:
     build:
-      context: ../
+      context: .
       dockerfile: stacks/nexus.Dockerfile
     environment:
       PEERDB_LOG_DIR: /var/log/peerdb
