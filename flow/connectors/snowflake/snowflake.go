@@ -118,7 +118,6 @@ func (a *ArrayString) Scan(src interface{}) error {
 	}
 
 }
-
 func (a *ArrayInt) Scan(src interface{}) error {
 
 	switch v := src.(type) {

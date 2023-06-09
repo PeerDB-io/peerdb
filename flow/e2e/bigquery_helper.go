@@ -174,9 +174,13 @@ func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
 if the function errors or there are nulls, the function returns false
 else true
 */
-func (b *BigQueryTestHelper) CheckNull(tableName string, ColName string) (bool, error) {
-	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s` WHERE %s IS null",
-		b.Config.DatasetId, tableName, ColName)
+func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool, error) {
+	if len(ColName) == 0 {
+		return true, nil
+	}
+	joinedString := strings.Join(ColName, " is null or ") + " is null"
+	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s` WHERE %s",
+		b.Config.DatasetId, tableName, joinedString)
 	it, err := b.client.Query(command).Read(context.Background())
 	if err != nil {
 		return false, fmt.Errorf("failed to run command: %w", err)
