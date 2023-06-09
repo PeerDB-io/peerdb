@@ -58,7 +58,7 @@ You can use Postgres’ eco-system to manage your ETL —
 
 Currently PeerDB is in development phase. We have not launched yet. Below tables captures different features and their state
 
-### **PeerDB Query**
+### PeerDB Query
 
 Query supported data-stores with a Postgres-compatible SQL interface
 
