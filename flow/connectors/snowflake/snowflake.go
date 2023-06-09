@@ -360,17 +360,20 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) getTimeRangesPerTable(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) (map[string][]int64, error) {
+func (c *SnowflakeConnector) getTimeRangesPerTable(flowJobName string, tableNames []string,
+	syncBatchID int64, normalizeBatchID int64) (map[string][]int64, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
+	resultMap := make(map[string][]int64)
+	for _, str := range tableNames {
+		resultMap[str] = []int64{-1}
+	}
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTimeRangesPerTableSQL, peerDBInternalSchema,
 		rawTableIdentifier, normalizeBatchID, syncBatchID))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}
-	// Create a map to store the results
-	resultMap := make(map[string][]int64)
+
 	// Process the rows and populate the map
 	for rows.Next() {
 		var r TimeRangesPerTable
@@ -382,7 +385,11 @@ func (c *SnowflakeConnector) getTimeRangesPerTable(flowJobName string, syncBatch
 		sort.Slice(r.TimeRanges, func(i, j int) bool {
 			return r.TimeRanges[i] < r.TimeRanges[j]
 		})
-		resultMap[r.TableName] = r.TimeRanges
+		resultMap[r.TableName] = append(resultMap[r.TableName], r.TimeRanges...)
+
+		sort.Slice(resultMap[r.TableName], func(i, j int) bool {
+			return resultMap[r.TableName][i] < resultMap[r.TableName][j]
+		})
 	}
 	if err := rows.Err(); err != nil {
 		log.Fatalf("Error iterating over rows: %v", err)
@@ -614,7 +621,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
 
-	timeRangesPerTable, err := c.getTimeRangesPerTable(req.FlowJobName, syncBatchID, normalizeBatchID)
+	timeRangesPerTable, err := c.getTimeRangesPerTable(req.FlowJobName, destinationTableNames, syncBatchID, normalizeBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}

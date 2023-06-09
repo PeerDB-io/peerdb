@@ -381,10 +381,15 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	return resultMap, nil
 }
 
-func (c *BigQueryConnector) getTimeRangesPerTable(flowJobName string, syncBatchID int64,
+func (c *BigQueryConnector) getTimeRangesPerTable(flowJobName string, tableNames []string,
+	syncBatchID int64,
 	normalizeBatchID int64) (map[string][]int64, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
+	resultMap := make(map[string][]int64)
+	for _, str := range tableNames {
+		resultMap[str] = []int64{-1}
+	}
 	// Prepare the query to retrieve distinct tables in that batch
 	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
 			array_agg(_peerdb_timestamp_nanos) as c_array FROM %s.%s
@@ -400,7 +405,6 @@ func (c *BigQueryConnector) getTimeRangesPerTable(flowJobName string, syncBatchI
 		return nil, err
 	}
 	// Create a map to store the results.
-	resultMap := make(map[string][]int64)
 
 	// Process the query results using an iterator.
 	var row struct {
@@ -416,11 +420,10 @@ func (c *BigQueryConnector) getTimeRangesPerTable(flowJobName string, syncBatchI
 			fmt.Printf("Error while iterating through results: %v\n", err)
 			return nil, err
 		}
-		row.CArray = append(row.CArray, -1)
-		sort.Slice(row.CArray, func(i, j int) bool {
-			return row.CArray[i] < row.CArray[j]
+		resultMap[row.Tablename] = append(resultMap[row.Tablename], row.CArray...)
+		sort.Slice(resultMap[row.Tablename], func(i, j int) bool {
+			return resultMap[row.Tablename][i] < resultMap[row.Tablename][j]
 		})
-		resultMap[row.Tablename] = row.CArray
 	}
 	return resultMap, nil
 }
@@ -677,7 +680,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
 	}
 
-	timeRangesPerTable, err := c.getTimeRangesPerTable(req.FlowJobName, syncBatchID, normalizeBatchID)
+	timeRangesPerTable, err := c.getTimeRangesPerTable(req.FlowJobName, distinctTableNames, syncBatchID, normalizeBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get timeranges: %w", err)
 	}
@@ -685,13 +688,12 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	stmts := []string{}
 	// append all the statements to one list
 	log.Printf("merge raw records to corresponding tables: %s %s %v", c.datasetID, rawTableName, distinctTableNames)
-
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 
 	for _, tableName := range distinctTableNames {
+		var startTime, endTime int64
 		timeRanges := timeRangesPerTable[tableName]
 		for i := 0; i < len(timeRanges); i++ {
-			var startTime, endTime int64
 			if i == len(timeRanges)-1 {
 				startTime = timeRanges[i]
 				endTime = int64(math.MaxInt64)

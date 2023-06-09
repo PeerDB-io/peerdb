@@ -568,3 +568,90 @@ func (s *E2EPeerFlowTestSuite) Test_Types() {
 
 	env.AssertExpectations(s.T())
 }
+
+func (s *E2EPeerFlowTestSuite) Test_Multi_Table() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	_, err := s.pool.Exec(context.Background(), `
+	CREATE TABLE e2e_test.test1(id serial primary key, c1 int, c2 text);
+	CREATE TABLE e2e_test.test2(id serial primary key, c1 int, c2 text);
+	`)
+	s.NoError(err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "test_multi_table",
+		TableNameMapping: map[string]string{"e2e_test.test1": "test1", "e2e_test.test2": "test2"},
+		PostgresPort:     postgresPort,
+		BigQueryConfig:   s.bqHelper.Config,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
+
+	peerFlowInput := peerflow.PeerFlowWorkflowInput{
+		PeerFlowName:   connectionGen.FlowJobName,
+		CatalogJdbcURL: postgresJdbcURL,
+		TotalSyncFlows: 1,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and execute a transaction touching toast columns
+	go func() {
+		// wait for PeerFlowStatusQuery to finish setup
+		// sleep for 5 second to allow the workflow to start
+		time.Sleep(5 * time.Second)
+		for {
+			response, err := env.QueryWorkflow(
+				peerflow.PeerFlowStatusQuery,
+				connectionGen.FlowJobName,
+			)
+			if err == nil {
+				var state peerflow.PeerFlowState
+				err = response.Get(&state)
+				s.NoError(err)
+
+				if state.SetupComplete {
+					fmt.Println("query indicates setup is complete")
+					break
+				}
+			} else {
+				// log the error for informational purposes
+				fmt.Println(err)
+			}
+			time.Sleep(1 * time.Second)
+		}
+
+		/*
+			Executing a transaction which
+			1. changes both toast column
+			2. changes no toast column
+			2. changes 1 toast column
+		*/
+		_, err = s.pool.Exec(context.Background(), `
+		INSERT INTO e2e_test.test1(c1,c2) VALUES (1,'dummy_1');
+		INSERT INTO e2e_test.test2(c1,c2) VALUES (-1,'dummy_-1');
+		`)
+		s.NoError(err)
+		fmt.Println("Executed an insert with all types")
+	}()
+
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	count1, err := s.bqHelper.CountRows("test1")
+	s.NoError(err)
+	count2, err := s.bqHelper.CountRows("test2")
+	s.NoError(err)
+
+	s.Equal(1, count1)
+	s.Equal(1, count2)
+
+	env.AssertExpectations(s.T())
+}
