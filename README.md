@@ -19,7 +19,7 @@ You can use PeerDB for any of the below use-cases:
 2. Customized ETL across data-stores using SQL
 3. Federated query workloads - Query multiple data-stores through a common SQL interface
 
-## **Get started**
+## Get started
 
 ```jsx
 git clone --recursive git@github.com:PeerDB-io/peerdb.git
