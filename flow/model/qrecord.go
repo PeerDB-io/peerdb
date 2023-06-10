@@ -1,8 +1,10 @@
 package model
 
 import (
+	"bytes"
 	"fmt"
 	"math/big"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -118,20 +120,186 @@ func (q *QRecord) equals(other *QRecord) bool {
 	// Compare each entry
 	for i, entry := range q.Entries {
 		otherEntry := other.Entries[i]
-		if entry.Kind != otherEntry.Kind {
-			return false
-		}
 
-		// For simplicity, we'll compare the values as strings
-		// This won't handle all cases correctly, especially for
-		// floats and structs, but should be good enough for a
-		// simple example.
-		if fmt.Sprintf("%v", entry.Value) != fmt.Sprintf("%v", otherEntry.Value) {
+		// For each value kind, we will delegate to a helper function
+		switch entry.Kind {
+		case QValueKindUUID:
+			if !compareUUID(entry.Value, otherEntry.Value) {
+				return false
+			}
+		case QValueKindFloat:
+			if !compareFloat(entry.Value, otherEntry.Value) {
+				return false
+			}
+		case QValueKindInteger:
+			if !compareInteger(entry.Value, otherEntry.Value) {
+				return false
+			}
+		case QValueKindBoolean:
+			if !compareBoolean(entry.Value, otherEntry.Value) {
+				return false
+			}
+		case QValueKindBytes:
+			if !compareBytes(entry.Value, otherEntry.Value) {
+				return false
+			}
+		case QValueKindNumeric:
+			if !compareNumeric(entry.Value, otherEntry.Value) {
+				return false
+			}
+		case QValueKindString:
+			if !compareString(entry.Value, otherEntry.Value) {
+				return false
+			}
+		case QValueKindETime:
+			if !compareETime(entry.Value, otherEntry.Value) {
+				return false
+			}
+		// Add cases for other QValueKind values as needed
+		default:
 			return false
 		}
 	}
 
 	return true
+}
+
+func compareETime(value1, value2 interface{}) bool {
+	et1, ok1 := value1.(*ExtendedTime)
+	et2, ok2 := value2.(*ExtendedTime)
+
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	t1 := et1.Time.UnixNano() / int64(time.Millisecond)
+	t2 := et2.Time.UnixNano() / int64(time.Millisecond)
+
+	return t1 == t2
+}
+
+func compareUUID(value1, value2 interface{}) bool {
+	uuid1, ok1 := getUUID(value1)
+	uuid2, ok2 := getUUID(value2)
+
+	return ok1 && ok2 && uuid1 == uuid2
+}
+
+func compareFloat(value1, value2 interface{}) bool {
+	float1, ok1 := getFloat(value1)
+	float2, ok2 := getFloat(value2)
+
+	return ok1 && ok2 && float1 == float2
+}
+
+func compareInteger(value1, value2 interface{}) bool {
+	int1, ok1 := getInt(value1)
+	int2, ok2 := getInt(value2)
+	return ok1 && ok2 && int1 == int2
+}
+
+func compareBoolean(value1, value2 interface{}) bool {
+	bool1, ok1 := value1.(bool)
+	bool2, ok2 := value2.(bool)
+
+	return ok1 && ok2 && bool1 == bool2
+}
+
+func compareBytes(value1, value2 interface{}) bool {
+	bytes1, ok1 := getBytes(value1)
+	bytes2, ok2 := getBytes(value2)
+
+	return ok1 && ok2 && bytes.Equal(bytes1, bytes2)
+}
+
+func compareNumeric(value1, value2 interface{}) bool {
+	rat1, ok1 := getRat(value1)
+	rat2, ok2 := getRat(value2)
+
+	return ok1 && ok2 && rat1.Cmp(rat2) == 0
+}
+
+func compareString(value1, value2 interface{}) bool {
+	str1, ok1 := value1.(string)
+	str2, ok2 := value2.(string)
+
+	return ok1 && ok2 && str1 == str2
+}
+
+func getBytes(v interface{}) ([]byte, bool) {
+	switch value := v.(type) {
+	case []byte:
+		return value, true
+	case string:
+		return []byte(value), true
+	default:
+		return nil, false
+	}
+}
+
+func getUUID(v interface{}) (uuid.UUID, bool) {
+	switch value := v.(type) {
+	case uuid.UUID:
+		return value, true
+	case string:
+		parsed, err := uuid.Parse(value)
+		if err == nil {
+			return parsed, true
+		}
+	case [16]byte:
+		parsed, err := uuid.FromBytes(value[:])
+		if err == nil {
+			return parsed, true
+		}
+	}
+
+	return uuid.UUID{}, false
+}
+
+// getInt attempts to parse an integer from an interface
+func getInt(v interface{}) (int64, bool) {
+	switch value := v.(type) {
+	case int:
+		return int64(value), true
+	case int64:
+		return value, true
+	case string:
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+// getFloat attempts to parse a float from an interface
+func getFloat(v interface{}) (float64, bool) {
+	switch value := v.(type) {
+	case float64:
+		return value, true
+	case int:
+		return float64(value), true
+	case string:
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+// getRat attempts to parse a big.Rat from an interface
+func getRat(v interface{}) (*big.Rat, bool) {
+	switch value := v.(type) {
+	case *big.Rat:
+		return value, true
+	case string:
+		parsed, ok := new(big.Rat).SetString(value)
+		if ok {
+			return parsed, true
+		}
+	}
+	return nil, false
 }
 
 func (q *QRecord) ToAvroCompatibleMap(
@@ -218,9 +386,6 @@ func (q *QRecord) ToAvroCompatibleMap(
 
 						m[key] = goavro.Union("string", uuidString)
 					} else {
-						// log the value for debugging
-						// fmt.Printf("value type: %T\n", qValue.Value)
-						// fmt.Printf("invalid UUID value: %v\n", qValue.Value)
 						return nil, fmt.Errorf("invalid UUID value")
 					}
 				// TODO(kaushik/sai): Add more cases as needed

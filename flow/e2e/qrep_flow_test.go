@@ -153,15 +153,18 @@ func (s *E2EPeerFlowTestSuite) createWorkflowConfig(
 func (s *E2EPeerFlowTestSuite) compareTableContents(tableName string) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
-	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(fmt.Sprintf("SELECT * FROM e2e_test.%s", tableName))
+	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT * FROM e2e_test.%s ORDER BY id", tableName),
+	)
 	s.NoError(err)
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
-	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(fmt.Sprintf("SELECT * FROM %s", qualifiedTableName))
+	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT * FROM %s ORDER BY id", qualifiedTableName),
+	)
 	s.NoError(err)
 
-	// TODO check that the rows are the same
 	s.True(pgRows.Equals(bqRows), "rows from source and destination tables are not equal")
 }
 
