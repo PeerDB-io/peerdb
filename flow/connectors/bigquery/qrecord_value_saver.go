@@ -2,6 +2,7 @@ package connbigquery
 
 import (
 	"fmt"
+	"math/big"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -12,6 +13,32 @@ type QRecordValueSaver struct {
 	Record      *model.QRecord
 	PartitionID string
 	RunID       int64
+}
+
+// RatToBigQueryNumeric converts a *big.Rat to a decimal string compatible with
+// BigQuery's NUMERIC type.
+//
+// BigQuery's NUMERIC type supports large-scale fixed-point numbers with up to
+// 38 digits of precision and 9 digits of scale. This function converts a *big.Rat
+// to a decimal string that respects these limits.
+//
+// The function uses *big.Rat's FloatString method with 9 as the argument, which
+// converts the *big.Rat to a string that represents a floating-point number with
+// 9 digits after the decimal point. The resulting string can be inserted into a
+// NUMERIC field in BigQuery.
+//
+// Parameters:
+// rat: The *big.Rat to convert. This should represent a decimal number with up to
+//
+//	38 digits of precision and 9 digits of scale.
+//
+// Returns:
+// A string representing the *big.Rat as a decimal number with up to 38 digits
+// of precision and 9 digits of scale. This string can be inserted into a NUMERIC
+// field in BigQuery.
+func RatToBigQueryNumeric(rat *big.Rat) string {
+	// Convert the *big.Rat to a decimal string with 9 digits of scale
+	return rat.FloatString(9) // 9 is the scale of the NUMERIC type
 }
 
 func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
@@ -56,11 +83,12 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			bqValues[k] = val.Time
 
 		case model.QValueKindNumeric:
-			val, ok := v.Value.(string)
+			val, ok := v.Value.(*big.Rat)
 			if !ok {
-				return nil, "", fmt.Errorf("failed to convert %v to float64", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to *big.Rat", v.Value)
 			}
-			bqValues[k] = val
+
+			bqValues[k] = RatToBigQueryNumeric(val)
 
 		case model.QValueKindBytes:
 			val, ok := v.Value.([]byte)
