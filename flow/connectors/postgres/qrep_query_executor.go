@@ -68,6 +68,27 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	return batch, nil
 }
 
+func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
+	query string,
+	args ...interface{},
+) (*model.QRecordBatch, error) {
+	rows, err := qe.ExecuteQuery(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	// Use rows.FieldDescriptions() to get field descriptions
+	fieldDescriptions := rows.FieldDescriptions()
+
+	batch, err := qe.ProcessRows(rows, fieldDescriptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process rows: %w", err)
+	}
+
+	return batch, nil
+}
+
 func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord, error) {
 	// make vals an empty array of QValue of size len(fds)
 	record := model.NewQRecord(len(fds))

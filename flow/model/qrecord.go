@@ -108,6 +108,32 @@ func (q *QRecord) Set(idx int, value QValue) {
 	q.Entries[idx] = value
 }
 
+// equals checks if two QRecords are identical.
+func (q *QRecord) equals(other *QRecord) bool {
+	// First check simple attributes
+	if q.NumEntries != other.NumEntries {
+		return false
+	}
+
+	// Compare each entry
+	for i, entry := range q.Entries {
+		otherEntry := other.Entries[i]
+		if entry.Kind != otherEntry.Kind {
+			return false
+		}
+
+		// For simplicity, we'll compare the values as strings
+		// This won't handle all cases correctly, especially for
+		// floats and structs, but should be good enough for a
+		// simple example.
+		if fmt.Sprintf("%v", entry.Value) != fmt.Sprintf("%v", otherEntry.Value) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (q *QRecord) ToAvroCompatibleMap(
 	nullableFields *map[string]bool,
 	colNames []string,
@@ -215,4 +241,32 @@ type QRecordBatch struct {
 	NumRecords  uint32     // NumRecords represents the number of records in the batch.
 	Records     []*QRecord // Records is a slice of pointers to QRecord objects.
 	ColumnNames []string   // ColumnNames is a slice of column names.
+}
+
+// Equals checks if two QRecordBatches are identical.
+func (q *QRecordBatch) Equals(other *QRecordBatch) bool {
+	if other == nil {
+		return q == nil
+	}
+
+	// First check simple attributes
+	if q.NumRecords != other.NumRecords || len(q.ColumnNames) != len(other.ColumnNames) {
+		return false
+	}
+
+	// Compare column names
+	for i, colName := range q.ColumnNames {
+		if colName != other.ColumnNames[i] {
+			return false
+		}
+	}
+
+	// Compare records
+	for i, record := range q.Records {
+		if !record.equals(other.Records[i]) {
+			return false
+		}
+	}
+
+	return true
 }
