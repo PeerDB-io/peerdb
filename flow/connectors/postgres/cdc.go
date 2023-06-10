@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -110,7 +109,8 @@ func (p *PostgresCDCSource) consumeStream(
 	// TODO (kaushik): take into consideration the MaxBatchSize
 	// parameters in the original request.
 	result := &model.RecordBatch{
-		Records: make([]model.Record, 0),
+		Records:           make([]model.Record, 0),
+		TablePKeyIndexMap: make(map[model.TablePkeyMap]int),
 	}
 
 	standbyMessageTimeout := req.IdleTimeout
@@ -184,9 +184,59 @@ func (p *PostgresCDCSource) consumeStream(
 			}
 
 			if rec != nil {
-				result.Records = append(result.Records, rec)
-			}
+				// check if the record has unchanged toast columns.
+				hasUnchangedToastColumns := rec.HasUnchangedToastColumns()
 
+				tableName := rec.GetTableName()
+				pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+				unchangedToastColumns := rec.GetUnchangedToastColumns()
+				switch r := rec.(type) {
+				case *model.UpdateRecord:
+					//get the pkey col val
+					if hasUnchangedToastColumns {
+						pkeyColVal := r.NewItems[pkeyCol]
+						tablePkeyVal := model.TablePkeyMap{
+							TableName:  tableName,
+							PkeyColVal: pkeyColVal,
+						}
+
+						_, ok := result.TablePKeyIndexMap[tablePkeyVal]
+						// Check if the row was already part of this batch.
+						// happens only when same row was inserted prior to this update
+						if ok {
+							// iterate through toast cols and set them
+							for _, toastCol := range unchangedToastColumns {
+								tmpRec := result.Records[result.TablePKeyIndexMap[tablePkeyVal]]
+								r.NewItems[toastCol] = tmpRec.GetItems()[toastCol]
+							}
+							// as toast columns are not set, there are no un changed toast cols
+							r.UnchangedToastColumns = nil
+							result.Records = append(result.Records, rec)
+							result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
+						} else {
+							result.Records = append(result.Records, rec)
+						}
+					} else {
+						pkeyColVal := r.NewItems[pkeyCol]
+						tablePkeyVal := model.TablePkeyMap{
+							TableName:  tableName,
+							PkeyColVal: pkeyColVal,
+						}
+						result.Records = append(result.Records, rec)
+						result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
+					}
+				case *model.InsertRecord:
+					pkeyColVal := r.Items[pkeyCol]
+					tablePkeyVal := model.TablePkeyMap{
+						TableName:  tableName,
+						PkeyColVal: pkeyColVal,
+					}
+					result.Records = append(result.Records, rec)
+					result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
+				case *model.DeleteRecord:
+					result.Records = append(result.Records, rec)
+				}
+			}
 			result.LastCheckPointID = int64(xld.WALStart)
 
 			clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
@@ -257,7 +307,8 @@ func (p *PostgresCDCSource) processInsertMessage(
 		CheckPointID:          int64(lsn),
 		Items:                 items,
 		DestinationTableName:  p.TableNameMapping[tableName],
-		UnchangedToastColumns: strings.Join(unchangedToastColumns, ", "),
+		SourceTableName:       tableName,
+		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
 
@@ -296,7 +347,8 @@ func (p *PostgresCDCSource) processUpdateMessage(
 		OldItems:              oldItems,
 		NewItems:              newItems,
 		DestinationTableName:  p.TableNameMapping[tableName],
-		UnchangedToastColumns: strings.Join(unchangedToastColumns, ", "),
+		SourceTableName:       tableName,
+		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
 
@@ -329,7 +381,8 @@ func (p *PostgresCDCSource) processDeleteMessage(
 		CheckPointID:          int64(lsn),
 		Items:                 items,
 		DestinationTableName:  p.TableNameMapping[tableName],
-		UnchangedToastColumns: strings.Join(unchangedToastColumns, ", "),
+		SourceTableName:       tableName,
+		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
 

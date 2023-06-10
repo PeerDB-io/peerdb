@@ -477,7 +477,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				matchData:             "",
 				batchID:               syncBatchID,
 				items:                 typedRecord.Items,
-				unchangedToastColumns: strings.ToUpper(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: strings.ToUpper(strings.Join(typedRecord.UnchangedToastColumns, ", ")),
 			})
 		case *model.UpdateRecord:
 			newItemsJSON, err := json.Marshal(typedRecord.NewItems)
@@ -499,7 +499,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				matchData:             string(oldItemsJSON),
 				batchID:               syncBatchID,
 				items:                 typedRecord.NewItems,
-				unchangedToastColumns: strings.ToUpper(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: strings.ToUpper(strings.Join(typedRecord.UnchangedToastColumns, ", ")),
 			})
 		case *model.DeleteRecord:
 			itemsJSON, err := json.Marshal(typedRecord.Items)
@@ -517,7 +517,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				matchData:             string(itemsJSON),
 				batchID:               syncBatchID,
 				items:                 typedRecord.Items,
-				unchangedToastColumns: strings.ToUpper(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: strings.ToUpper(strings.Join(typedRecord.UnchangedToastColumns, ", ")),
 			})
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
