@@ -65,7 +65,7 @@ func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) 
 				asset_id, status, transaction_id, settled_at, reference_id,
 				settle_at, settlement_delay_reason
 			) VALUES (
-				'%s', '%s', CURRENT_TIMESTAMP, 123.45, CURRENT_TIMESTAMP,
+				'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
 				CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
 				1, 0, 1, 'dealType1',
 				'%s', '%s', false, 1.2345,

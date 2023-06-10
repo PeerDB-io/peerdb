@@ -3,7 +3,10 @@ package connpostgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"math"
+	"math/big"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pgx/v5"
@@ -182,11 +185,11 @@ func parseField(oid uint32, value interface{}) model.QValue {
 		val = model.QValue{Kind: model.QValueKindBytes, Value: []byte(*rawBytes)}
 	case pgtype.NumericOID:
 		numVal := value.(*pgtype.Numeric)
-		if numVal.Valid {
-			str := numVal.Int.String()
-			val = model.QValue{Kind: model.QValueKindNumeric, Value: str}
+		rat, err := numericToRat(numVal)
+		if err != nil {
+			val = model.QValue{Kind: model.QValueKindInvalid, Value: nil}
 		} else {
-			val = model.QValue{Kind: model.QValueKindNumeric, Value: nil}
+			val = model.QValue{Kind: model.QValueKindNumeric, Value: rat}
 		}
 	default:
 		typ, _ := pgtype.NewMap().TypeForOID(oid)
@@ -195,4 +198,28 @@ func parseField(oid uint32, value interface{}) model.QValue {
 	}
 
 	return val
+}
+
+func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
+	if numVal.Valid {
+		if numVal.NaN {
+			return nil, errors.New("numeric value is NaN")
+		}
+
+		switch numVal.InfinityModifier {
+		case pgtype.NegativeInfinity, pgtype.Infinity:
+			return nil, errors.New("numeric value is infinity")
+		}
+
+		rat := new(big.Rat)
+
+		rat.SetInt(numVal.Int)
+		divisor := new(big.Rat).SetFloat64(math.Pow10(int(-numVal.Exp)))
+		rat.Quo(rat, divisor)
+
+		return rat, nil
+	}
+
+	// handle invalid numeric
+	return nil, errors.New("invalid numeric")
 }
