@@ -5,6 +5,7 @@
 <h4>Modern ETL in minutes, with SQL<h4>
 <a href="https://github.com/Peerdb-io/peerdb/actions/workflows/ci.yml"><img src="https://github.com/PEerDB-io/peerdb/actions/workflows/ci.yml/badge.svg"/></a>
 <a href="https://github.com/PeerDB-io/peerdb/blob/main/LICENSE.md"><img src="https://badgen.net/badge/License/Elv2/green?icon=github"/></a>
+<a href="https://join.slack.com/t/peerdb-public/shared_invite/zt-1wo9jydev-EXInbMtCtpAKFFWdi7QvLQ"><img src="https://img.shields.io/badge/slack-peerdb-brightgreen.svg?logo=slack" /></a>
 </div>
 
 ## PeerDB
@@ -21,7 +22,7 @@ You can use PeerDB for any of the below use-cases:
 
 ## Get started
 
-```jsx
+```bash
 git clone --recursive git@github.com:PeerDB-io/peerdb.git
 cd peerdb
 
