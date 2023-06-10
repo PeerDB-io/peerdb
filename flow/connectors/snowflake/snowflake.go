@@ -31,7 +31,8 @@ const (
 	createPeerDBInternalSchemaSQL = "CREATE TRANSIENT SCHEMA IF NOT EXISTS %s"
 	createRawTableSQL             = `CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_UID STRING NOT NULL,
 		_PEERDB_TIMESTAMP INT NOT NULL,_PEERDB_DESTINATION_TABLE_NAME STRING NOT NULL,_PEERDB_DATA STRING NOT NULL,
-		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
+		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
+		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
 	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	toVariantColumnName         = "VAR_COLS"
@@ -96,7 +97,6 @@ type snowflakeRawRecord struct {
 
 // creating this to capture array results from snowflake.
 type ArrayString []string
-type ArrayInt []int64
 
 func (a *ArrayString) Scan(src interface{}) error {
 
@@ -108,29 +108,11 @@ func (a *ArrayString) Scan(src interface{}) error {
 	default:
 		return errors.New("invalid type")
 	}
-
-}
-func (a *ArrayInt) Scan(src interface{}) error {
-
-	switch v := src.(type) {
-	case string:
-		return json.Unmarshal([]byte(v), a)
-	case []byte:
-		return json.Unmarshal(v, a)
-	default:
-		return errors.New("invalid type")
-	}
-
 }
 
 type UnchangedToastColumnResult struct {
 	TableName             string
 	UnchangedToastColumns ArrayString
-}
-
-type TimeRangesPerTable struct {
-	TableName  string
-	TimeRanges ArrayInt
 }
 
 // reads the PKCS8 private key from the received config and converts it into something that gosnowflake wants.
