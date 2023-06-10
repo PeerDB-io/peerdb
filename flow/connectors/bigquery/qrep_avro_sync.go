@@ -238,7 +238,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 		return map[string]interface{}{
 			"type":        "bytes",
 			"logicalType": "decimal",
-			"precision":   39,
+			"precision":   38,
 			"scale":       9,
 		}, nil
 	case bigquery.RecordFieldType:

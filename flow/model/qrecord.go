@@ -216,7 +216,13 @@ func compareNumeric(value1, value2 interface{}) bool {
 	rat1, ok1 := getRat(value1)
 	rat2, ok2 := getRat(value2)
 
-	return ok1 && ok2 && rat1.Cmp(rat2) == 0
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	// check if the difference is less than 1e-9
+	diff := new(big.Rat).Sub(rat1, rat2)
+	return diff.Abs(diff).Cmp(big.NewRat(1, 1000000000)) < 0
 }
 
 func compareString(value1, value2 interface{}) bool {
@@ -351,21 +357,15 @@ func (q *QRecord) ToAvroCompatibleMap(
 				case QValueKindStruct:
 					m[key] = goavro.Union("map", qValue.Value)
 				case QValueKindNumeric:
-					if strNum, ok := qValue.Value.(string); ok {
-						//nolint:gosec
-						num, ok := new(big.Rat).SetString(strNum)
-						if !ok {
-							return nil, fmt.Errorf("invalid Numeric value")
-						}
-
-						// If the field is nullable, wrap the *big.Rat in a union
+					if num, ok := qValue.Value.(*big.Rat); ok {
+						// If the field is nullable, wrap the byte array in a union
 						if nullable, ok := (*nullableFields)[key]; ok && nullable {
 							m[key] = goavro.Union("bytes.decimal", num)
 						} else {
 							m[key] = num
 						}
 					} else {
-						return nil, fmt.Errorf("invalid Numeric value")
+						return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", qValue.Value)
 					}
 				case QValueKindBytes:
 					if byteData, ok := qValue.Value.([]byte); ok {
