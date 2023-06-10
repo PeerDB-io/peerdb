@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
@@ -149,6 +150,24 @@ func (s *E2EPeerFlowTestSuite) createWorkflowConfig(
 	return qrepConfig
 }
 
+func (s *E2EPeerFlowTestSuite) compareTableContents(tableName string) {
+	// read rows from source table
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
+	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT * FROM e2e_test.%s ORDER BY id", tableName),
+	)
+	s.NoError(err)
+
+	// read rows from destination table
+	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
+	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT * FROM %s ORDER BY id", qualifiedTableName),
+	)
+	s.NoError(err)
+
+	s.True(pgRows.Equals(bqRows), "rows from source and destination tables are not equal")
+}
+
 // Test_Complete_QRep_Flow tests a complete flow with data in the source table.
 // The test inserts 10 rows into the source table and verifies that the data is
 // correctly synced to the destination table this runs a QRep Flow.
@@ -208,10 +227,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 	err := env.GetWorkflowError()
 	s.NoError(err)
 
-	count, err := s.bqHelper.CountRows(tblName)
-	s.NoError(err)
-
-	s.Equal(numRows, count)
+	s.compareTableContents(tblName)
 
 	env.AssertExpectations(s.T())
 }

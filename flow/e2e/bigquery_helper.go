@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"os"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"google.golang.org/api/iterator"
 )
 
@@ -168,4 +171,86 @@ func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
 	}
 
 	return int(cntI64), nil
+}
+
+func toQValue(bqValue bigquery.Value) (model.QValue, error) {
+	// Based on the real type of the bigquery.Value, we create a model.QValue
+	switch v := bqValue.(type) {
+	case int, int32, int64:
+		return model.QValue{Kind: model.QValueKindInteger, Value: v}, nil
+	case float32, float64:
+		return model.QValue{Kind: model.QValueKindFloat, Value: v}, nil
+	case string:
+		return model.QValue{Kind: model.QValueKindString, Value: v}, nil
+	case bool:
+		return model.QValue{Kind: model.QValueKindBoolean, Value: v}, nil
+	case time.Time:
+		return model.QValue{
+			Kind:  model.QValueKindETime,
+			Value: model.NewExtendedTime(v, model.DateTimeKindType, ""),
+		}, nil
+	case *big.Rat:
+		return model.QValue{Kind: model.QValueKindNumeric, Value: v}, nil
+	case []uint8:
+		return model.QValue{Kind: model.QValueKindBytes, Value: v}, nil
+	default:
+		// If type is unsupported, return error
+		return model.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
+	}
+}
+
+func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
+	it, err := b.client.Query(query).Read(context.Background())
+	if err != nil {
+		fmt.Printf("failed to run command: %v\n", err)
+		return nil, fmt.Errorf("failed to run command: %w", err)
+	}
+
+	var records []*model.QRecord
+	for {
+		var row []bigquery.Value
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			fmt.Printf("failed to iterate over query results: %v\n", err)
+			return nil, fmt.Errorf("failed to iterate over query results: %w", err)
+		}
+
+		// Convert []bigquery.Value to []model.QValue
+		qValues := make([]model.QValue, len(row))
+		for i, val := range row {
+			qv, err := toQValue(val)
+			if err != nil {
+				return nil, err
+			}
+			qValues[i] = qv
+		}
+
+		// Create a QRecord
+		record := model.NewQRecord(len(qValues))
+		for i, qv := range qValues {
+			record.Set(i, qv)
+		}
+
+		records = append(records, record)
+	}
+
+	// Now you should fill the column names as well. Here we assume the schema is
+	// retrieved from the query itself
+	var columnNames []string
+	if it.Schema != nil {
+		columnNames = make([]string, len(it.Schema))
+		for i, fieldSchema := range it.Schema {
+			columnNames[i] = fieldSchema.Name
+		}
+	}
+
+	// Return a QRecordBatch
+	return &model.QRecordBatch{
+		NumRecords:  uint32(len(records)),
+		Records:     records,
+		ColumnNames: columnNames,
+	}, nil
 }
