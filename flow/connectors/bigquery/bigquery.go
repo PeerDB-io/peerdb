@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"math/rand"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -381,53 +379,6 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	return resultMap, nil
 }
 
-func (c *BigQueryConnector) getTimeRangesPerTable(flowJobName string, tableNames []string,
-	syncBatchID int64,
-	normalizeBatchID int64) (map[string][]int64, error) {
-	rawTableName := c.getRawTableName(flowJobName)
-
-	resultMap := make(map[string][]int64)
-	for _, str := range tableNames {
-		resultMap[str] = []int64{-1}
-	}
-	// Prepare the query to retrieve distinct tables in that batch
-	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
-			array_agg(_peerdb_timestamp_nanos) as c_array FROM %s.%s
-			 WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d and 
-			 _peerdb_unchanged_toast_columns!=''
-			 GROUP BY _peerdb_destination_table_name`,
-		c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
-	// Run the query
-	q := c.client.Query(query)
-	it, err := q.Read(c.ctx)
-	if err != nil {
-		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return nil, err
-	}
-	// Create a map to store the results.
-
-	// Process the query results using an iterator.
-	var row struct {
-		Tablename string  `bigquery:"_peerdb_destination_table_name"`
-		CArray    []int64 `bigquery:"c_array"`
-	}
-	for {
-		err := it.Next(&row)
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			fmt.Printf("Error while iterating through results: %v\n", err)
-			return nil, err
-		}
-		resultMap[row.Tablename] = append(resultMap[row.Tablename], row.CArray...)
-		sort.Slice(resultMap[row.Tablename], func(i, j int) bool {
-			return resultMap[row.Tablename][i] < resultMap[row.Tablename][j]
-		})
-	}
-	return resultMap, nil
-}
-
 // PullRecords pulls records from the source.
 func (c *BigQueryConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
 	panic("not implemented")
@@ -680,43 +631,25 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
 	}
 
-	timeRangesPerTable, err := c.getTimeRangesPerTable(req.FlowJobName, distinctTableNames, syncBatchID, normalizeBatchID)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't get timeranges: %w", err)
-	}
-
 	stmts := []string{}
 	// append all the statements to one list
 	log.Printf("merge raw records to corresponding tables: %s %s %v", c.datasetID, rawTableName, distinctTableNames)
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 
 	for _, tableName := range distinctTableNames {
-		var startTime, endTime int64
-		timeRanges := timeRangesPerTable[tableName]
-		for i := 0; i < len(timeRanges); i++ {
-			if i == len(timeRanges)-1 {
-				startTime = timeRanges[i]
-				endTime = int64(math.MaxInt64)
-			} else {
-				startTime = timeRanges[i]
-				endTime = timeRanges[i+1]
-			}
-			mergeGen := &MergeStmtGenerator{
-				Dataset:               c.datasetID,
-				NormalizedTable:       tableName,
-				RawTable:              rawTableName,
-				NormalizedTableSchema: c.tableNameSchemaMapping[tableName],
-				SyncBatchID:           syncBatchID,
-				NormalizeBatchID:      normalizeBatchID,
-				UnchangedToastColumns: tableNametoUnchangedToastCols[tableName],
-				StartTime:             startTime,
-				EndTime:               endTime,
-			}
-			// normalize anything between last normalized batch id to last sync batchid
-			mergeStmts := mergeGen.GenerateMergeStmts()
-			stmts = append(stmts, mergeStmts...)
-			log.Printf("MERGE STATEMENT SAI %s", mergeStmts)
+		mergeGen := &MergeStmtGenerator{
+			Dataset:               c.datasetID,
+			NormalizedTable:       tableName,
+			RawTable:              rawTableName,
+			NormalizedTableSchema: c.tableNameSchemaMapping[tableName],
+			SyncBatchID:           syncBatchID,
+			NormalizeBatchID:      normalizeBatchID,
+			UnchangedToastColumns: tableNametoUnchangedToastCols[tableName],
 		}
+		// normalize anything between last normalized batch id to last sync batchid
+		mergeStmts := mergeGen.GenerateMergeStmts()
+		stmts = append(stmts, mergeStmts...)
+		log.Printf("MERGE STATEMENT SAI %s", mergeStmts)
 	}
 	//update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
@@ -1044,8 +977,6 @@ type MergeStmtGenerator struct {
 	NormalizedTableSchema *protos.TableSchema
 	// array of toast column combinations that are unchanged
 	UnchangedToastColumns []string
-	StartTime             int64
-	EndTime               int64
 }
 
 // GenerateMergeStmt generates a merge statements.
@@ -1120,9 +1051,9 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	// normalize anything between last normalized batch id to last sync batchid
 	return fmt.Sprintf(`WITH _peerdb_flattened AS
 	 (SELECT %s FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d and
-	 _peerdb_destination_table_name='%s'  and _peerdb_timestamp_nanos>=%d and _peerdb_timestamp_nanos<%d)`,
+	 _peerdb_destination_table_name='%s')`,
 		strings.Join(flattenedProjs, ", "), m.Dataset, m.RawTable, m.NormalizeBatchID,
-		m.SyncBatchID, m.NormalizedTable, m.StartTime, m.EndTime)
+		m.SyncBatchID, m.NormalizedTable)
 }
 
 // generateDeDupedCTE generates a de-duped CTE.

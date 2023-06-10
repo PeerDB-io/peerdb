@@ -9,9 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -37,12 +35,11 @@ const (
 	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	toVariantColumnName         = "VAR_COLS"
-
-	mergeStatementSQL = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,
+	mergeStatementSQL           = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,
 		TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS FROM
 		 _PEERDB_INTERNAL.%s WHERE _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND
-		 _PEERDB_DESTINATION_TABLE_NAME = ? AND _PEERDB_TIMESTAMP>=%d AND _PEERDB_TIMESTAMP<%d), FLATTENED AS
+		 _PEERDB_DESTINATION_TABLE_NAME = ? ), FLATTENED AS
 		 (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
 			_PEERDB_UNCHANGED_TOAST_COLUMNS,%s
 		 FROM VARIANT_CONVERTED), DEDUPLICATED_FLATTENED AS (SELECT RANKED.* FROM
@@ -57,11 +54,6 @@ const (
 	getTableNametoUnchangedColsSQL = `SELECT _PEERDB_DESTINATION_TABLE_NAME,
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
-	getTimeRangesPerTableSQL = `SELECT _PEERDB_DESTINATION_TABLE_NAME,
-	 ARRAY_AGG(_PEERDB_TIMESTAMP) FROM %s.%s WHERE
-	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND 
-	 _PEERDB_UNCHANGED_TOAST_COLUMNS!=''
-	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
@@ -360,43 +352,6 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) getTimeRangesPerTable(flowJobName string, tableNames []string,
-	syncBatchID int64, normalizeBatchID int64) (map[string][]int64, error) {
-	rawTableIdentifier := getRawTableIdentifier(flowJobName)
-
-	resultMap := make(map[string][]int64)
-	for _, str := range tableNames {
-		resultMap[str] = []int64{-1}
-	}
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTimeRangesPerTableSQL, peerDBInternalSchema,
-		rawTableIdentifier, normalizeBatchID, syncBatchID))
-	if err != nil {
-		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
-	}
-
-	// Process the rows and populate the map
-	for rows.Next() {
-		var r TimeRangesPerTable
-		err := rows.Scan(&r.TableName, &r.TimeRanges)
-		if err != nil {
-			log.Fatalf("Failed to scan row: %v", err)
-		}
-		r.TimeRanges = append(r.TimeRanges, -1)
-		sort.Slice(r.TimeRanges, func(i, j int) bool {
-			return r.TimeRanges[i] < r.TimeRanges[j]
-		})
-		resultMap[r.TableName] = append(resultMap[r.TableName], r.TimeRanges...)
-
-		sort.Slice(resultMap[r.TableName], func(i, j int) bool {
-			return resultMap[r.TableName][i] < resultMap[r.TableName][j]
-		})
-	}
-	if err := rows.Err(); err != nil {
-		log.Fatalf("Error iterating over rows: %v", err)
-	}
-	return resultMap, nil
-}
-
 func (c *SnowflakeConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
 	log.Errorf("panicking at call to GetTableSchema for Snowflake flow connector")
 	panic("GetTableSchema is not implemented for the Snowflake flow connector")
@@ -621,11 +576,6 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
 
-	timeRangesPerTable, err := c.getTimeRangesPerTable(req.FlowJobName, destinationTableNames, syncBatchID, normalizeBatchID)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
-	}
-
 	// transaction for NormalizeRecords
 	normalizeRecordsTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
@@ -640,23 +590,12 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}()
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
 	for _, destinationTableName := range destinationTableNames {
-		timeRanges := timeRangesPerTable[destinationTableName]
-		for i := 0; i < len(timeRanges); i++ {
-			var startTime, endTime int64
-			if i == len(timeRanges)-1 {
-				startTime = timeRanges[i]
-				endTime = int64(math.MaxInt64)
-			} else {
-				startTime = timeRanges[i]
-				endTime = timeRanges[i+1]
-			}
-			err = c.generateAndExecuteMergeStatement(destinationTableName,
-				tableNametoUnchangedToastCols[destinationTableName],
-				getRawTableIdentifier(req.FlowJobName),
-				syncBatchID, normalizeBatchID, startTime, endTime, normalizeRecordsTx)
-			if err != nil {
-				return nil, err
-			}
+		err = c.generateAndExecuteMergeStatement(destinationTableName,
+			tableNametoUnchangedToastCols[destinationTableName],
+			getRawTableIdentifier(req.FlowJobName),
+			syncBatchID, normalizeBatchID, normalizeRecordsTx)
+		if err != nil {
+			return nil, err
 		}
 	}
 	// updating metadata with new normalizeBatchID
@@ -856,7 +795,6 @@ func (c *SnowflakeConnector) insertRecordsInRawTable(rawTableIdentifier string,
 func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableIdentifier string,
 	unchangedToastColumns []string,
 	rawTableIdentifier string, syncBatchID int64, normalizeBatchID int64,
-	startTime int64, endTime int64,
 	normalizeRecordsTx *sql.Tx) error {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
@@ -900,7 +838,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	//log.Printf("MERGE STATEMENT SAI %s", updateStringToastCols)
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
-		rawTableIdentifier, normalizeBatchID, syncBatchID, startTime, endTime, flattenedCastsSQL,
+		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
 		strings.ToUpper(normalizedTableSchema.PrimaryKeyColumn), insertColumnsSQL, insertValuesSQL,
 		updateStringToastCols)
 
