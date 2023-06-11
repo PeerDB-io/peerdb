@@ -190,16 +190,15 @@ func (p *PostgresCDCSource) consumeStream(
 				tableName := rec.GetTableName()
 				pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
 				unchangedToastColumns := rec.GetUnchangedToastColumns()
+				pkeyColVal := rec.GetItems()[pkeyCol]
+				tablePkeyVal := model.TablePkeyMap{
+					TableName:  tableName,
+					PkeyColVal: pkeyColVal,
+				}
 				switch r := rec.(type) {
 				case *model.UpdateRecord:
 					//get the pkey col val
 					if hasUnchangedToastColumns {
-						pkeyColVal := r.NewItems[pkeyCol]
-						tablePkeyVal := model.TablePkeyMap{
-							TableName:  tableName,
-							PkeyColVal: pkeyColVal,
-						}
-
 						_, ok := result.TablePKeyIndexMap[tablePkeyVal]
 						// Check if the row was already part of this batch.
 						// happens only when same row was inserted prior to this update
@@ -209,28 +208,19 @@ func (p *PostgresCDCSource) consumeStream(
 								tmpRec := result.Records[result.TablePKeyIndexMap[tablePkeyVal]]
 								r.NewItems[toastCol] = tmpRec.GetItems()[toastCol]
 							}
-							// as toast columns are not set, there are no un changed toast cols
+							// as toast columns are now set, there are no unchanged toast cols
 							r.UnchangedToastColumns = nil
 							result.Records = append(result.Records, rec)
 							result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
 						} else {
+							// if the row has unchanged toast column, then don't index it.
 							result.Records = append(result.Records, rec)
 						}
 					} else {
-						pkeyColVal := r.NewItems[pkeyCol]
-						tablePkeyVal := model.TablePkeyMap{
-							TableName:  tableName,
-							PkeyColVal: pkeyColVal,
-						}
 						result.Records = append(result.Records, rec)
 						result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
 					}
 				case *model.InsertRecord:
-					pkeyColVal := r.Items[pkeyCol]
-					tablePkeyVal := model.TablePkeyMap{
-						TableName:  tableName,
-						PkeyColVal: pkeyColVal,
-					}
 					result.Records = append(result.Records, rec)
 					result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
 				case *model.DeleteRecord:
