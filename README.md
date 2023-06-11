@@ -27,6 +27,7 @@ git clone --recursive git@github.com:PeerDB-io/peerdb.git
 cd peerdb
 
 # Run docker containers: peerdb-server, postgres as catalog, temporal
+expose COMPOSE_PROJECT_NAME=peerdb-stack
 docker compose up
 
 # connect to peerdb and query away
