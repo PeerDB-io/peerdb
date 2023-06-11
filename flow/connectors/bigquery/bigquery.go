@@ -649,7 +649,6 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		// normalize anything between last normalized batch id to last sync batchid
 		mergeStmts := mergeGen.GenerateMergeStmts()
 		stmts = append(stmts, mergeStmts...)
-		log.Printf("MERGE STATEMENT SAI %s", mergeStmts)
 	}
 	//update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(

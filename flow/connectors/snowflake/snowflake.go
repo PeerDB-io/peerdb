@@ -816,7 +816,6 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 
 	udateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
-	//log.Printf("MERGE STATEMENT SAI %s", updateStringToastCols)
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
