@@ -21,14 +21,28 @@ type PullRecordsRequest struct {
 	TableNameMapping map[string]string
 	// unchanged toast columns
 	UnchangedToastColumns []string
+	// tablename to schema mapping
+	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type Record interface {
 	// GetCheckPointID returns the ID of the record.
 	GetCheckPointID() int64
+	// get primary primary key
+	GetPKey(string) interface{}
+	// get table name
+	GetTableName() string
+	// check if the record has unchanged toast columns
+	HasUnchangedToastColumns() bool
+	// get unchanged toast columns
+	GetUnchangedToastColumns() []string
+	// get unchanged toast columns
+	GetItems() map[string]interface{}
 }
 
 type InsertRecord struct {
+	// Name of the source table
+	SourceTableName string
 	// Name of the destination table
 	DestinationTableName string
 	// CheckPointID is the ID of the record.
@@ -38,7 +52,7 @@ type InsertRecord struct {
 	// Items is a map of column name to value.
 	Items map[string]interface{}
 	// unchanged toast columns
-	UnchangedToastColumns string
+	UnchangedToastColumns []string
 }
 
 // Implement Record interface for InsertRecord.
@@ -46,7 +60,29 @@ func (r *InsertRecord) GetCheckPointID() int64 {
 	return r.CheckPointID
 }
 
+func (r *InsertRecord) GetTableName() string {
+	return r.DestinationTableName
+}
+
+func (r *InsertRecord) GetPKey(pkeyColName string) interface{} {
+	return r.Items[pkeyColName]
+}
+
+func (r *InsertRecord) HasUnchangedToastColumns() bool {
+	return len(r.UnchangedToastColumns) > 0
+}
+
+func (r *InsertRecord) GetUnchangedToastColumns() []string {
+	return r.UnchangedToastColumns
+}
+
+func (r *InsertRecord) GetItems() map[string]interface{} {
+	return r.Items
+}
+
 type UpdateRecord struct {
+	// Name of the source table
+	SourceTableName string
 	// CheckPointID is the ID of the record.
 	CheckPointID int64
 	// Name of the destination table
@@ -56,7 +92,7 @@ type UpdateRecord struct {
 	// NewItems is a map of column name to value.
 	NewItems map[string]interface{}
 	// unchanged toast columns
-	UnchangedToastColumns string
+	UnchangedToastColumns []string
 }
 
 // Implement Record interface for UpdateRecord.
@@ -64,7 +100,30 @@ func (r *UpdateRecord) GetCheckPointID() int64 {
 	return r.CheckPointID
 }
 
+// Implement Record interface for UpdateRecord.
+func (r *UpdateRecord) GetTableName() string {
+	return r.DestinationTableName
+}
+
+func (r *UpdateRecord) GetPKey(pkeyColName string) interface{} {
+	return r.NewItems[pkeyColName]
+}
+
+func (r *UpdateRecord) HasUnchangedToastColumns() bool {
+	return len(r.UnchangedToastColumns) > 0
+}
+
+func (r *UpdateRecord) GetUnchangedToastColumns() []string {
+	return r.UnchangedToastColumns
+}
+
+func (r *UpdateRecord) GetItems() map[string]interface{} {
+	return r.NewItems
+}
+
 type DeleteRecord struct {
+	// Name of the source table
+	SourceTableName string
 	// Name of the destination table
 	DestinationTableName string
 	// CheckPointID is the ID of the record.
@@ -72,12 +131,37 @@ type DeleteRecord struct {
 	// Items is a map of column name to value.
 	Items map[string]interface{}
 	// unchanged toast columns
-	UnchangedToastColumns string
+	UnchangedToastColumns []string
 }
 
 // Implement Record interface for DeleteRecord.
 func (r *DeleteRecord) GetCheckPointID() int64 {
 	return r.CheckPointID
+}
+
+func (r *DeleteRecord) GetTableName() string {
+	return r.SourceTableName
+}
+
+func (r *DeleteRecord) GetPKey(pkeyColName string) interface{} {
+	return r.Items[pkeyColName]
+}
+
+func (r *DeleteRecord) HasUnchangedToastColumns() bool {
+	return len(r.UnchangedToastColumns) > 0
+}
+
+func (r *DeleteRecord) GetUnchangedToastColumns() []string {
+	return r.UnchangedToastColumns
+}
+
+func (r *DeleteRecord) GetItems() map[string]interface{} {
+	return r.Items
+}
+
+type TableWithPkey struct {
+	TableName  string
+	PkeyColVal interface{}
 }
 
 type RecordBatch struct {
@@ -87,6 +171,8 @@ type RecordBatch struct {
 	FirstCheckPointID int64
 	// LastCheckPointID is the last ID of the commit that corresponds to this batch.
 	LastCheckPointID int64
+	//TablePkey to record index mapping
+	TablePKeyLastSeen map[TableWithPkey]int
 }
 
 type SyncRecordsRequest struct {

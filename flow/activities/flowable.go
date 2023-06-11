@@ -216,12 +216,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	log.Println("pulling records...")
 
 	records, err := src.PullRecords(&model.PullRecordsRequest{
-		FlowJobName:           input.FlowConnectionConfigs.FlowJobName,
-		SrcTableIDNameMapping: input.FlowConnectionConfigs.SrcTableIdNameMapping,
-		TableNameMapping:      input.FlowConnectionConfigs.TableNameMapping,
-		LastSyncState:         input.LastSyncState,
-		MaxBatchSize:          uint32(input.SyncFlowOptions.BatchSize),
-		IdleTimeout:           10 * time.Second,
+		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
+		SrcTableIDNameMapping:  input.FlowConnectionConfigs.SrcTableIdNameMapping,
+		TableNameMapping:       input.FlowConnectionConfigs.TableNameMapping,
+		LastSyncState:          input.LastSyncState,
+		MaxBatchSize:           uint32(input.SyncFlowOptions.BatchSize),
+		IdleTimeout:            10 * time.Second,
+		TableNameSchemaMapping: input.FlowConnectionConfigs.TableNameSchemaMapping,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull records: %w", err)

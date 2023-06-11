@@ -14,7 +14,7 @@ jobs:
       pg_cdc:
         image: debezium/postgres:14-alpine
         ports:
-          - 7132:5432
+          - 5432:5432
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
