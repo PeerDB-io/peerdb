@@ -70,6 +70,7 @@ type tableNameComponents struct {
 	schemaIdentifier string
 	tableIdentifier  string
 }
+
 type SnowflakeConnector struct {
 	ctx                context.Context
 	database           *sql.DB
