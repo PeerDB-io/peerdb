@@ -1,7 +1,5 @@
 version: '3.9'
 
-name: 'peerdb-stack'
-
 services:
   temporalite:
     image: slamdev/temporalite:0.3.0
