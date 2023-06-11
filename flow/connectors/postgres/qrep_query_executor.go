@@ -152,19 +152,48 @@ func parseField(oid uint32, value interface{}) model.QValue {
 		} else {
 			val = model.QValue{Kind: model.QValueKindBoolean, Value: nil}
 		}
-	case pgtype.Int4OID, pgtype.Int8OID:
+	case pgtype.JSONOID, pgtype.JSONBOID:
+		// TODO: improve JSON support
+		strVal := value.(*string)
+		if strVal != nil {
+			val = model.QValue{Kind: model.QValueKindJSON, Value: *strVal}
+		} else {
+			val = model.QValue{Kind: model.QValueKindJSON, Value: nil}
+		}
+	case pgtype.Int2OID:
+		intVal := value.(*pgtype.Int2)
+		if intVal.Valid {
+			val = model.QValue{Kind: model.QValueKindInt16, Value: intVal.Int16}
+		} else {
+			val = model.QValue{Kind: model.QValueKindInt16, Value: nil}
+		}
+	case pgtype.Int4OID:
+		intVal := value.(*pgtype.Int4)
+		if intVal.Valid {
+			val = model.QValue{Kind: model.QValueKindInt32, Value: intVal.Int32}
+		} else {
+			val = model.QValue{Kind: model.QValueKindInt32, Value: nil}
+		}
+	case pgtype.Int8OID:
 		intVal := value.(*pgtype.Int8)
 		if intVal.Valid {
-			val = model.QValue{Kind: model.QValueKindInteger, Value: intVal.Int64}
+			val = model.QValue{Kind: model.QValueKindInt64, Value: intVal.Int64}
 		} else {
-			val = model.QValue{Kind: model.QValueKindInteger, Value: nil}
+			val = model.QValue{Kind: model.QValueKindInt64, Value: nil}
 		}
-	case pgtype.Float4OID, pgtype.Float8OID:
+	case pgtype.Float4OID:
+		floatVal := value.(*pgtype.Float4)
+		if floatVal.Valid {
+			val = model.QValue{Kind: model.QValueKindFloat32, Value: floatVal.Float32}
+		} else {
+			val = model.QValue{Kind: model.QValueKindFloat32, Value: nil}
+		}
+	case pgtype.Float8OID:
 		floatVal := value.(*pgtype.Float8)
 		if floatVal.Valid {
-			val = model.QValue{Kind: model.QValueKindFloat, Value: floatVal.Float64}
+			val = model.QValue{Kind: model.QValueKindFloat64, Value: floatVal.Float64}
 		} else {
-			val = model.QValue{Kind: model.QValueKindFloat, Value: nil}
+			val = model.QValue{Kind: model.QValueKindFloat64, Value: nil}
 		}
 	case pgtype.TextOID, pgtype.VarcharOID:
 		textVal := value.(*pgtype.Text)
