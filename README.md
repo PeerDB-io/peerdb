@@ -33,7 +33,7 @@ docker compose up
 psql "port=9900 host=localhost password=peerdb"
 ```
 
-Detailed documentation available [here](https://peerdb.notion.site/PeerDB-Docs-b18871d945a045fc9858e88f01c4ed4f).
+Detailed documentation available [here](https://docs.peerdb.io).
 
 ## Why PeerDB
 
@@ -95,4 +95,4 @@ Continuous syncing of data from source to target based on any SELECT query on th
 
 ## License
 
-PeerDB is licensed under Elastic License 2.0 (ELv2). Please see the LICENSE file for additional information. If you have any licensing questions please email **founders@peerdb.io**
+PeerDB is licensed under Elastic License 2.0 (ELv2). Please see the LICENSE file for additional information. If you have any licensing questions please email **<founders@peerdb.io>**
