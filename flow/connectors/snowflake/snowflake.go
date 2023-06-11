@@ -935,7 +935,6 @@ and updating the other columns.
 7. Return the list of generated update statements.
 */
 func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
-
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {
