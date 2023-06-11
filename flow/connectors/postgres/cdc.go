@@ -110,7 +110,7 @@ func (p *PostgresCDCSource) consumeStream(
 	// parameters in the original request.
 	result := &model.RecordBatch{
 		Records:           make([]model.Record, 0),
-		TablePKeyIndexMap: make(map[model.TablePkeyMap]int),
+		TablePKeyLastSeen: make(map[model.TableWithPkey]int),
 	}
 
 	standbyMessageTimeout := req.IdleTimeout
@@ -182,16 +182,36 @@ func (p *PostgresCDCSource) consumeStream(
 				firstProcessed = true
 				result.FirstCheckPointID = int64(xld.WALStart)
 			}
+			/*
+				The code ensures that if a value for an unchanged toast column for a row was last seen in a
+				previous occurrence of the same row in the batch, it sets the value accordingly.
 
+				Algorithm:
+				UpdateRecord with unchanged toast columns:
+				- If the record is already part of the batch, it copies values from a previous occurrence of the
+				same row to set the unchanged toast columns.
+				- It clears the UnchangedToastColumns field.
+				- The record is appended to result.Records.
+				- The index in result.TablePKeyIndexMap is updated.
+
+				UpdateRecord without unchanged toast columns:
+				- The record is appended to result.Records.
+				- The index in result.TablePKeyIndexMap is updated.
+
+				InsertRecord:
+				- The record is appended to result.Records.
+				- The index in result.TablePKeyIndexMap is updated.
+
+				DeleteRecord:
+				- The record is appended to result.Records.
+			*/
 			if rec != nil {
-				// check if the record has unchanged toast columns.
 				hasUnchangedToastColumns := rec.HasUnchangedToastColumns()
-
 				tableName := rec.GetTableName()
 				pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
 				unchangedToastColumns := rec.GetUnchangedToastColumns()
 				pkeyColVal := rec.GetItems()[pkeyCol]
-				tablePkeyVal := model.TablePkeyMap{
+				tablePkeyVal := model.TableWithPkey{
 					TableName:  tableName,
 					PkeyColVal: pkeyColVal,
 				}
@@ -199,30 +219,30 @@ func (p *PostgresCDCSource) consumeStream(
 				case *model.UpdateRecord:
 					//get the pkey col val
 					if hasUnchangedToastColumns {
-						_, ok := result.TablePKeyIndexMap[tablePkeyVal]
+						_, ok := result.TablePKeyLastSeen[tablePkeyVal]
 						// Check if the row was already part of this batch.
 						// happens only when same row was inserted prior to this update
 						if ok {
 							// iterate through toast cols and set them
 							for _, toastCol := range unchangedToastColumns {
-								tmpRec := result.Records[result.TablePKeyIndexMap[tablePkeyVal]]
+								tmpRec := result.Records[result.TablePKeyLastSeen[tablePkeyVal]]
 								r.NewItems[toastCol] = tmpRec.GetItems()[toastCol]
 							}
 							// as toast columns are now set, there are no unchanged toast cols
 							r.UnchangedToastColumns = nil
 							result.Records = append(result.Records, rec)
-							result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
+							result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 						} else {
 							// if the row has unchanged toast column, then don't index it.
 							result.Records = append(result.Records, rec)
 						}
 					} else {
 						result.Records = append(result.Records, rec)
-						result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
+						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 					}
 				case *model.InsertRecord:
 					result.Records = append(result.Records, rec)
-					result.TablePKeyIndexMap[tablePkeyVal] = len(result.Records) - 1
+					result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 				case *model.DeleteRecord:
 					result.Records = append(result.Records, rec)
 				}

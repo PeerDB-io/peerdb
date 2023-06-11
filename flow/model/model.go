@@ -159,7 +159,7 @@ func (r *DeleteRecord) GetItems() map[string]interface{} {
 	return r.Items
 }
 
-type TablePkeyMap struct {
+type TableWithPkey struct {
 	TableName  string
 	PkeyColVal interface{}
 }
@@ -172,7 +172,7 @@ type RecordBatch struct {
 	// LastCheckPointID is the last ID of the commit that corresponds to this batch.
 	LastCheckPointID int64
 	//TablePkey to record index mapping
-	TablePKeyIndexMap map[TablePkeyMap]int
+	TablePKeyLastSeen map[TableWithPkey]int
 }
 
 type SyncRecordsRequest struct {
