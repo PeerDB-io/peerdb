@@ -346,7 +346,7 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 
 	// Prepare the query to retrieve distinct tables in that batch
 	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
-	array_agg(DISTINCT _peerdb_unchanged_toast_columns) as c_array FROM %s.%s
+	array_agg(DISTINCT _peerdb_unchanged_toast_columns) as unchanged_toast_columns FROM %s.%s
 	 WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d GROUP BY _peerdb_destination_table_name`,
 		c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
 	// Run the query
@@ -361,8 +361,8 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 
 	// Process the query results using an iterator.
 	var row struct {
-		Tablename string   `bigquery:"_peerdb_destination_table_name"`
-		CArray    []string `bigquery:"c_array"`
+		Tablename             string   `bigquery:"_peerdb_destination_table_name"`
+		UnchangedToastColumns []string `bigquery:"unchanged_toast_columns"`
 	}
 	for {
 		err := it.Next(&row)
@@ -374,7 +374,7 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 			return nil, err
 		}
 
-		resultMap[row.Tablename] = row.CArray
+		resultMap[row.Tablename] = row.UnchangedToastColumns
 	}
 	return resultMap, nil
 }
@@ -1080,8 +1080,6 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 	}
 	csep := strings.Join(colNames, ", ")
 
-	//log.Printf("Unchanged cols SAI %s %d", m.UnchangedToastColumns, len(m.UnchangedToastColumns))
-
 	udateStatementsforToastCols := m.generateUpdateStatement(colNames, m.UnchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
@@ -1097,20 +1095,21 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 }
 
 /*
-This function takes
-1. array capturing unique set of unchanged toast column groups "c2,c3", "c2","c3"
-2. all column names
-and returns suitable UPDATE statements as a part of MERGE.
-Algorithm to generate the UPDATE statements:
-Generate multiple UPDATE without updating unchanged toast
-column values matching each element of arg 1
-If ["c2,c3", "c2","c3"] is arg1 and ["c1","c2","c3"] is arg2
-WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2,c3' UPDATE c1
-WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2' UPDATE c1,c3
-and so on.
+This function takes an array of unique unchanged toast column groups and an array of all column names,
+and returns suitable UPDATE statements as part of a MERGE operation.
+
+Algorithm:
+1. Iterate over each unique unchanged toast column group.
+2. Split the group into individual column names.
+3. Calculate the other columns by finding the set difference between all column names
+and the unchanged columns.
+4. Generate an update statement for the current group by setting the appropriate conditions
+and updating the other columns (not the unchanged toast columns)
+5. Append the update statement to the list of generated statements.
+6. Repeat steps 1-5 for each unique unchanged toast column group.
+7. Return the list of generated update statements.
 */
 func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
-
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {

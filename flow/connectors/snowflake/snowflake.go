@@ -99,7 +99,6 @@ type snowflakeRawRecord struct {
 type ArrayString []string
 
 func (a *ArrayString) Scan(src interface{}) error {
-
 	switch v := src.(type) {
 	case string:
 		return json.Unmarshal([]byte(v), a)
@@ -914,18 +913,26 @@ func (c *SnowflakeConnector) createPeerDBInternalSchema(createsSchemaTx *sql.Tx)
 }
 
 /*
-This function takes
-1. all column names
-2. array capturing unique set of unchanged toast column groups "c2,c3", "c2","c3"
-and returns suitable UPDATE statements as a part of MERGE.
-Algorithm to generate the UPDATE statements:
-Generate multiple UPDATE without updating unchanged toast
-column values matching each element of arg 1
-If ["","c2,c3", "c2","c3"] is arg1 and ["c1","c2","c3"] is arg2
-WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2,c3' UPDATE c1
-WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns='c2' UPDATE c1,c3
-WHEN MATCHED AND _peerdb_record_type... AND _peerdb_unchanged_toast_columns=” UPDATE c1,c2,c3
-and so on.
+This function generates UPDATE statements for a MERGE operation based on the provided inputs.
+
+Inputs:
+1. allCols: An array of all column names.
+2. unchangedToastCols: An array capturing unique sets of unchanged toast column groups.
+
+Algorithm:
+1. Iterate over each unique set of unchanged toast column groups.
+2. For each group, split it into individual column names.
+3. Calculate the other columns by finding the set difference between allCols and the unchanged columns.
+4. Generate an update statement for the current group by setting the appropriate conditions
+and updating the other columns.
+  - The condition includes checking if the _PEERDB_RECORD_TYPE is not 2 (not a DELETE) and if the
+    _PEERDB_UNCHANGED_TOAST_COLUMNS match the current group.
+  - The update sets the other columns to their corresponding values
+    from the SOURCE table. It doesn't set (make null the Unchanged toast columns.
+
+5. Append the update statement to the list of generated statements.
+6. Repeat steps 1-5 for each unique set of unchanged toast column groups.
+7. Return the list of generated update statements.
 */
 func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
 
