@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
@@ -21,6 +22,7 @@ type E2EPeerFlowTestSuite struct {
 
 	pool     *pgxpool.Pool
 	bqHelper *BigQueryTestHelper
+	sfHelper *SnowflakeTestHelper
 }
 
 func TestE2EPeerFlowTestSuite(t *testing.T) {
@@ -92,7 +94,35 @@ func (s *E2EPeerFlowTestSuite) setupBigQuery() error {
 		return fmt.Errorf("failed to create bigquery helper: %w", err)
 	}
 
+	err = bqHelper.RecreateDataset()
+	if err != nil {
+		return fmt.Errorf("failed to recreate bigquery dataset: %w", err)
+	}
+
 	s.bqHelper = bqHelper
+	return nil
+}
+
+// setupSnowflake sets up the snowflake connection.
+func (s *E2EPeerFlowTestSuite) setupSnowflake() error {
+	runID, err := util.RandomUInt64()
+	if err != nil {
+		return fmt.Errorf("failed to generate random uint64: %w", err)
+	}
+
+	testSchemaName := fmt.Sprintf("e2e_test_%d", runID)
+
+	sfHelper, err := NewSnowflakeTestHelper(testSchemaName)
+	if err != nil {
+		return fmt.Errorf("failed to create snowflake helper: %w", err)
+	}
+
+	err = sfHelper.RecreateSchema()
+	if err != nil {
+		return fmt.Errorf("failed to recreate snowflake schema: %w", err)
+	}
+
+	s.sfHelper = sfHelper
 	return nil
 }
 
@@ -112,9 +142,9 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 		s.Fail("failed to setup bigquery", err)
 	}
 
-	err = s.bqHelper.RecreateDataset()
+	err = s.setupSnowflake()
 	if err != nil {
-		s.Fail("failed to recreate bigquery dataset", err)
+		s.Fail("failed to setup snowflake", err)
 	}
 }
 
@@ -133,6 +163,13 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 	err = s.bqHelper.DropDataset()
 	if err != nil {
 		s.Fail("failed to drop bigquery dataset", err)
+	}
+
+	if s.sfHelper != nil {
+		err = s.sfHelper.DropSchema()
+		if err != nil {
+			s.Fail("failed to drop snowflake schema", err)
+		}
 	}
 }
 
@@ -194,7 +231,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 		FlowJobName:      "test_complete_flow_no_data",
 		TableNameMapping: map[string]string{"e2e_test.test": "test"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -238,7 +275,7 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 		FlowJobName:      "test_char_table",
 		TableNameMapping: map[string]string{"e2e_test.test_char_table": "test"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -285,7 +322,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 		FlowJobName:      "test_complete_single_col_flow",
 		TableNameMapping: map[string]string{"e2e_test.test_simple_flow": "test_simple_flow"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -336,14 +373,14 @@ func (s *E2EPeerFlowTestSuite) Test_Toast() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-	
+
 		CREATE TABLE e2e_test.test_toast (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
 			k int
 		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz', 
+		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
 		$$ language sql;
 	`)
@@ -353,7 +390,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast() {
 		FlowJobName:      "test_toast",
 		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -398,7 +435,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast() {
 
 	s.NoError(err)
 
-	s.compareTableContents("test_toast", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -407,14 +444,14 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-	
+
 		CREATE TABLE e2e_test.test_toast (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
 			k int
 		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz', 
+		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
 		$$ language sql;
 	`)
@@ -424,7 +461,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges() {
 		FlowJobName:      "test_toast",
 		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -463,7 +500,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	s.compareTableContents("test_toast", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -472,14 +509,14 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-	
+
 		CREATE TABLE e2e_test.test_toast (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
 			k int
 		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz', 
+		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
 		$$ language sql;
 	`)
@@ -489,7 +526,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1() {
 		FlowJobName:      "test_toast",
 		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -539,7 +576,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1() {
 
 	s.NoError(err)
 
-	s.compareTableContents("test_toast", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -575,13 +612,13 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-	
+
 		CREATE TABLE e2e_test.test_toast (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			k int
 		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz', 
+		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
 		$$ language sql;
 	`)
@@ -591,7 +628,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2() {
 		FlowJobName:      "test_toast",
 		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -636,7 +673,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2() {
 
 	s.NoError(err)
 
-	s.compareTableContents("test_toast", "id,t1,k")
+	s.compareTableContentsBQ("test_toast", "id,t1,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -645,14 +682,14 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-	
+
 		CREATE TABLE e2e_test.test_toast (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
 			k int
 		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz', 
+		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
 		$$ language sql;
 	`)
@@ -662,7 +699,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3() {
 		FlowJobName:      "test_toast",
 		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -706,7 +743,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3() {
 
 	s.NoError(err)
 
-	s.compareTableContents("test_toast", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -715,7 +752,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-	
+
 	CREATE TABLE e2e_test.test_types(id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
 		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
@@ -737,7 +774,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types() {
 		FlowJobName:      "test_types",
 		TableNameMapping: map[string]string{"e2e_test.test_types": "test_types"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -808,7 +845,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table() {
 		FlowJobName:      "test_multi_table",
 		TableNameMapping: map[string]string{"e2e_test.test1": "test1", "e2e_test.test2": "test2"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()

@@ -1,27 +1,8 @@
 package e2e
 
 import (
-	"fmt"
-	"io"
-	"os"
-
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
-
-type FlowConnectionGenerationConfig struct {
-	FlowJobName      string
-	TableNameMapping map[string]string
-	PostgresPort     int
-	BigQueryConfig   *protos.BigqueryConfig
-}
-
-type QRepFlowConnectionGenerationConfig struct {
-	FlowJobName                string
-	SourceTableIdentifier      string
-	DestinationTableIdentifier string
-	PostgresPort               int
-	BigQueryConfig             *protos.BigqueryConfig
-}
 
 // GeneratePostgresPeer generates a postgres peer config for testing.
 func GeneratePostgresPeer(postgresPort int) *protos.Peer {
@@ -42,33 +23,21 @@ func GeneratePostgresPeer(postgresPort int) *protos.Peer {
 	return ret
 }
 
-// readFileToBytes reads a file to a byte array.
-func readFileToBytes(path string) ([]byte, error) {
-	var ret []byte
-
-	f, err := os.Open(path)
-	if err != nil {
-		return ret, fmt.Errorf("failed to open file: %w", err)
-	}
-
-	defer f.Close()
-
-	ret, err = io.ReadAll(f)
-	if err != nil {
-		return ret, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return ret, nil
+type FlowConnectionGenerationConfig struct {
+	FlowJobName      string
+	TableNameMapping map[string]string
+	PostgresPort     int
+	Destination      *protos.Peer
 }
 
-// GenerateBQPeer generates a bigquery peer config for testing.
-func GenerateBQPeer(bigQueryConfig *protos.BigqueryConfig) (*protos.Peer, error) {
+// GenerateSnowflakePeer generates a snowflake peer config for testing.
+func GenerateSnowflakePeer(snowflakeConfig *protos.SnowflakeConfig) (*protos.Peer, error) {
 	ret := &protos.Peer{}
-	ret.Name = "test_bq_peer"
-	ret.Type = protos.DBType_BIGQUERY
+	ret.Name = "test_snowflake_peer"
+	ret.Type = protos.DBType_SNOWFLAKE
 
-	ret.Config = &protos.Peer_BigqueryConfig{
-		BigqueryConfig: bigQueryConfig,
+	ret.Config = &protos.Peer_SnowflakeConfig{
+		SnowflakeConfig: snowflakeConfig,
 	}
 
 	return ret, nil
@@ -76,39 +45,33 @@ func GenerateBQPeer(bigQueryConfig *protos.BigqueryConfig) (*protos.Peer, error)
 
 func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*protos.FlowConnectionConfigs, error) {
 	ret := &protos.FlowConnectionConfigs{}
-
 	ret.FlowJobName = c.FlowJobName
 	ret.TableNameMapping = c.TableNameMapping
-
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
-
-	bqPeer, err := GenerateBQPeer(c.BigQueryConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate bq peer: %w", err)
-	}
-
-	ret.Destination = bqPeer
-
+	ret.Destination = c.Destination
 	return ret, nil
+}
+
+type QRepFlowConnectionGenerationConfig struct {
+	FlowJobName                string
+	SourceTableIdentifier      string
+	DestinationTableIdentifier string
+	PostgresPort               int
+	Destination                *protos.Peer
 }
 
 // GenerateQRepConfig generates a qrep config for testing.
 func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	query string, watermark string, syncMode protos.QRepSyncMode) (*protos.QRepConfig, error) {
 	ret := &protos.QRepConfig{}
-
 	ret.FlowJobName = c.FlowJobName
 	ret.SourceTableIdentifier = c.SourceTableIdentifier
 	ret.DestinationTableIdentifier = c.DestinationTableIdentifier
 
 	postgresPeer := GeneratePostgresPeer(c.PostgresPort)
-	bqPeer, err := GenerateBQPeer(c.BigQueryConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate bq peer: %w", err)
-	}
-
 	ret.SourcePeer = postgresPeer
-	ret.DestinationPeer = bqPeer
+
+	ret.DestinationPeer = c.Destination
 
 	ret.Query = query
 	ret.WatermarkColumn = watermark

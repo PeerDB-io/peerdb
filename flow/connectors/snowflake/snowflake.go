@@ -2,11 +2,8 @@ package connsnowflake
 
 import (
 	"context"
-	"crypto/rsa"
-	"crypto/x509"
 	"database/sql"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"regexp"
@@ -15,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/snowflakedb/gosnowflake"
@@ -78,10 +76,12 @@ type tableNameComponents struct {
 	schemaIdentifier string
 	tableIdentifier  string
 }
+
 type SnowflakeConnector struct {
 	ctx                context.Context
 	database           *sql.DB
 	tableSchemaMapping map[string]*protos.TableSchema
+	client             *SnowflakeClient
 }
 
 type snowflakeRawRecord struct {
@@ -115,28 +115,9 @@ type UnchangedToastColumnResult struct {
 	UnchangedToastColumns ArrayString
 }
 
-// reads the PKCS8 private key from the received config and converts it into something that gosnowflake wants.
-func readPKCS8PrivateKey(rawKey []byte) (*rsa.PrivateKey, error) {
-	// pem.Decode has weird return values, no err as such
-	PEMBlock, _ := pem.Decode(rawKey)
-	if PEMBlock == nil {
-		return nil, fmt.Errorf("failed to decode private key PEM block")
-	}
-	privateKeyAny, err := x509.ParsePKCS8PrivateKey(PEMBlock.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse private key PEM block as PKCS8: %w", err)
-	}
-	privateKeyRSA, ok := privateKeyAny.(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("key does not appear to RSA as expected")
-	}
-
-	return privateKeyRSA, nil
-}
-
 func NewSnowflakeConnector(ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig) (*SnowflakeConnector, error) {
-	PrivateKeyRSA, err := readPKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey))
+	PrivateKeyRSA, err := util.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey))
 	if err != nil {
 		return nil, err
 	}
@@ -167,10 +148,16 @@ func NewSnowflakeConnector(ctx context.Context,
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
+	client, err := NewSnowflakeClient(ctx, snowflakeProtoConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
+	}
+
 	return &SnowflakeConnector{
 		ctx:                ctx,
 		database:           database,
 		tableSchemaMapping: nil,
+		client:             client,
 	}, nil
 }
 
@@ -945,7 +932,7 @@ func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchanged
 			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ", ")
-		updateStmt := fmt.Sprintf(`WHEN MATCHED AND 
+		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 		(SOURCE._PEERDB_RECORD_TYPE != 2) AND _PEERDB_UNCHANGED_TOAST_COLUMNS='%s'
 		THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)

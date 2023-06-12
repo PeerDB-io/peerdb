@@ -65,7 +65,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 
 	// Write each QRecord to the OCF file
 	for _, qRecord := range records.Records {
-		avroMap, err := qRecord.ToAvroCompatibleMap(&nullable, records.ColumnNames)
+		avroMap, err := qRecord.ToAvroCompatibleMap(model.QDBTypeBigQuery, &nullable, records.Schema.GetColumnNames())
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}
@@ -205,7 +205,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	case bigquery.TimestampFieldType:
 		return map[string]string{
 			"type":        "long",
-			"logicalType": "timestamp-millis",
+			"logicalType": "timestamp-micros",
 		}, nil
 	case bigquery.DateFieldType:
 		return map[string]string{
