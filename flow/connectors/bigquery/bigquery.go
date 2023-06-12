@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
@@ -1113,7 +1114,7 @@ func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchanged
 
 	for _, cols := range unchangedToastCols {
 		unchangedColsArray := strings.Split(cols, ", ")
-		otherCols := m.arrayMinus(allCols, unchangedColsArray)
+		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s = _peerdb_deduped.%s", colName, colName))
@@ -1125,22 +1126,4 @@ func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchanged
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return updateStmts
-}
-
-func (m *MergeStmtGenerator) arrayMinus(first []string,
-	second []string) []string {
-	lookup := make(map[string]bool)
-	// Add elements from arrayB to the lookup map
-	for _, element := range second {
-		lookup[element] = true
-	}
-
-	// Iterate over arrayA and check if the element is present in the lookup map
-	var result []string
-	for _, element := range first {
-		if !lookup[element] {
-			result = append(result, element)
-		}
-	}
-	return result
 }

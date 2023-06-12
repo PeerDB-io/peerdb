@@ -1,6 +1,6 @@
-package array
+package utils
 
-func arrayMinus(first []string, second []string) []string {
+func ArrayMinus(first []string, second []string) []string {
 	lookup := make(map[string]bool)
 	// Add elements from arrayB to the lookup map
 	for _, element := range second {

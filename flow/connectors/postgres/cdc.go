@@ -402,7 +402,13 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}, nil
 }
 
-// convertTupleToMap converts a tuple to a map of column name to value
+/*
+convertTupleToMap converts a PostgreSQL logical replication
+tuple to a map representation.
+It takes a tuple and a relation message as input and returns
+1. a map of column names to values and
+2. a string slice of unchanged TOAST column names
+*/
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
@@ -435,12 +441,6 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			}
 			items[colName] = data
 		case 'u': // unchanged toast
-			// This TOAST value was not changed. TOAST values are not stored in the tuple,
-			// and logical replication doesn't want to spend a disk read to fetch its value for you.
-			// Instead, it sends a placeholder value of the form 'u<toast_oid>' and you are expected
-			// to fetch the value yourself.
-
-			// TODO (kaushik): support TOAST values
 			unchangeToastColumns = append(unchangeToastColumns, colName)
 		default:
 			return nil, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))

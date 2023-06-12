@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -926,7 +927,7 @@ func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchanged
 
 	for _, cols := range unchangedToastCols {
 		unchangedColsArray := strings.Split(cols, ", ")
-		otherCols := c.arrayMinus(allCols, unchangedColsArray)
+		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", colName, colName))
@@ -938,21 +939,4 @@ func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchanged
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return updateStmts
-}
-
-func (c *SnowflakeConnector) arrayMinus(first []string,
-	second []string) []string {
-	lookup := make(map[string]bool)
-	// Add elements from arrayB to the lookup map
-	for _, element := range second {
-		lookup[element] = true
-	}
-	// Iterate over arrayA and check if the element is present in the lookup map
-	var result []string
-	for _, element := range first {
-		if !lookup[element] {
-			result = append(result, element)
-		}
-	}
-	return result
 }
