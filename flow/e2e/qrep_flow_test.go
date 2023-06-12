@@ -150,18 +150,18 @@ func (s *E2EPeerFlowTestSuite) createWorkflowConfig(
 	return qrepConfig
 }
 
-func (s *E2EPeerFlowTestSuite) compareTableContents(tableName string) {
+func (s *E2EPeerFlowTestSuite) compareTableContents(tableName string, colsString string) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT * FROM e2e_test.%s ORDER BY id", tableName),
+		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", colsString, tableName),
 	)
 	s.NoError(err)
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT * FROM %s ORDER BY id", qualifiedTableName),
+		fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName),
 	)
 	s.NoError(err)
 
@@ -227,7 +227,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 	err := env.GetWorkflowError()
 	s.NoError(err)
 
-	s.compareTableContents(tblName)
+	s.compareTableContents(tblName, "*")
 
 	env.AssertExpectations(s.T())
 }
