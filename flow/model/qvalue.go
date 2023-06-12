@@ -356,6 +356,8 @@ func getInt32(v interface{}) (int32, bool) {
 	switch value := v.(type) {
 	case int32:
 		return value, true
+	case int64:
+		return int32(value), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 32)
 		if err == nil {
@@ -369,6 +371,8 @@ func getInt64(v interface{}) (int64, bool) {
 	switch value := v.(type) {
 	case int64:
 		return value, true
+	case int32:
+		return int64(value), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 64)
 		if err == nil {
@@ -382,6 +386,8 @@ func getFloat32(v interface{}) (float32, bool) {
 	switch value := v.(type) {
 	case float32:
 		return value, true
+	case float64:
+		return float32(value), true
 	case string:
 		parsed, err := strconv.ParseFloat(value, 32)
 		if err == nil {
@@ -395,6 +401,8 @@ func getFloat64(v interface{}) (float64, bool) {
 	switch value := v.(type) {
 	case float64:
 		return value, true
+	case float32:
+		return float64(value), true
 	case string:
 		parsed, err := strconv.ParseFloat(value, 64)
 		if err == nil {

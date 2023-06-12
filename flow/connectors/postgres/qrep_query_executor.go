@@ -102,13 +102,21 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 		switch fds[i].DataTypeOID {
 		case pgtype.BoolOID:
 			scanArgs[i] = new(pgtype.Bool)
-		case pgtype.TimestampOID, pgtype.TimestamptzOID:
+		case pgtype.TimestampOID:
 			scanArgs[i] = new(pgtype.Timestamp)
-		case pgtype.Int4OID, pgtype.Int8OID:
+		case pgtype.TimestamptzOID:
+			scanArgs[i] = new(pgtype.Timestamptz)
+		case pgtype.Int4OID:
+			scanArgs[i] = new(pgtype.Int4)
+		case pgtype.Int8OID:
 			scanArgs[i] = new(pgtype.Int8)
-		case pgtype.Float4OID, pgtype.Float8OID:
+		case pgtype.Float4OID:
+			scanArgs[i] = new(pgtype.Float4)
+		case pgtype.Float8OID:
 			scanArgs[i] = new(pgtype.Float8)
-		case pgtype.TextOID, pgtype.VarcharOID:
+		case pgtype.TextOID:
+			scanArgs[i] = new(pgtype.Text)
+		case pgtype.VarcharOID:
 			scanArgs[i] = new(pgtype.Text)
 		case pgtype.NumericOID:
 			scanArgs[i] = new(pgtype.Numeric)
