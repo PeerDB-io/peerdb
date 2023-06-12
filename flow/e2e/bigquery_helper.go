@@ -254,23 +254,33 @@ func bqFieldTypeToQValueKind(fieldType bigquery.FieldType) (model.QValueKind, er
 	}
 }
 
-// bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
-func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, error) {
-	qSchema := &model.QRecordSchema{
-		ColumnNames: make([]string, len(schema)),
-		ColumnTypes: make([]model.QValueKind, len(schema)),
+func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (*model.QField, error) {
+	qValueKind, err := bqFieldTypeToQValueKind(fieldSchema.Type)
+	if err != nil {
+		return nil, err
 	}
 
-	for i, field := range schema {
-		qSchema.ColumnNames[i] = field.Name
-		qValueKind, err := bqFieldTypeToQValueKind(field.Type)
+	return &model.QField{
+		Name:     fieldSchema.Name,
+		Type:     qValueKind,
+		Nullable: fieldSchema.Required == false,
+	}, nil
+}
+
+// bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
+func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, error) {
+	var fields []*model.QField
+	for _, fieldSchema := range schema {
+		qField, err := bqFieldSchemaToQField(fieldSchema)
 		if err != nil {
 			return nil, err
 		}
-		qSchema.ColumnTypes[i] = qValueKind
+		fields = append(fields, qField)
 	}
 
-	return qSchema, nil
+	return &model.QRecordSchema{
+		Fields: fields,
+	}, nil
 }
 
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {

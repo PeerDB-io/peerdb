@@ -69,13 +69,20 @@ func fieldDescriptionToQValueKind(fd pgconn.FieldDescription) model.QValueKind {
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
 func fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
-	colNames := make([]string, len(fds))
-	colTypes := make([]model.QValueKind, len(fds))
+	qfields := make([]*model.QField, len(fds))
 	for i, fd := range fds {
-		colNames[i] = fd.Name
-		colTypes[i] = fieldDescriptionToQValueKind(fd)
+		cname := fd.Name
+		ctype := fieldDescriptionToQValueKind(fd)
+		// there isn't a way to know if a column is nullable or not
+		// TODO fix this.
+		cnullable := true
+		qfields[i] = &model.QField{
+			Name:     cname,
+			Type:     ctype,
+			Nullable: cnullable,
+		}
 	}
-	return model.NewQRecordSchema(colNames, colTypes)
+	return model.NewQRecordSchema(qfields)
 }
 
 func (qe *QRepQueryExecutor) ProcessRows(

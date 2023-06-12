@@ -1,37 +1,5 @@
 package model
 
-type QRecordSchema struct {
-	ColumnNames []string
-	ColumnTypes []QValueKind
-}
-
-// NewQRecordSchema creates a new QRecordSchema.
-func NewQRecordSchema(columnNames []string, columnTypes []QValueKind) *QRecordSchema {
-	return &QRecordSchema{
-		ColumnNames: columnNames,
-		ColumnTypes: columnTypes,
-	}
-}
-
-// EqualNames returns true if the column names are equal.
-func (q *QRecordSchema) EqualNames(other *QRecordSchema) bool {
-	if other == nil {
-		return q == nil
-	}
-
-	if len(q.ColumnNames) != len(other.ColumnNames) {
-		return false
-	}
-
-	for i, name := range q.ColumnNames {
-		if name != other.ColumnNames[i] {
-			return false
-		}
-	}
-
-	return true
-}
-
 // QRecordBatch holds a batch of QRecord objects.
 type QRecordBatch struct {
 	NumRecords uint32     // NumRecords represents the number of records in the batch.

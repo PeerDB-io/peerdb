@@ -62,7 +62,7 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 
 	// Write each QRecord to the OCF file
 	for _, qRecord := range records.Records {
-		avroMap, err := qRecord.ToAvroCompatibleMap(&avroSchema.NullableFields, records.Schema.ColumnNames)
+		avroMap, err := qRecord.ToAvroCompatibleMap(&avroSchema.NullableFields, records.Schema.GetColumnNames())
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}

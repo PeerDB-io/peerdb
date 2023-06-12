@@ -142,10 +142,10 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 		s.Fail("failed to setup bigquery", err)
 	}
 
-	// err = s.setupSnowflake()
-	// if err != nil {
-	// 	s.Fail("failed to setup snowflake", err)
-	// }
+	err = s.setupSnowflake()
+	if err != nil {
+		s.Fail("failed to setup snowflake", err)
+	}
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
