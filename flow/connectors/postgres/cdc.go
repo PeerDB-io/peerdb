@@ -211,6 +211,9 @@ func (p *PostgresCDCSource) consumeStream(
 				unchangedToastColumns := rec.GetUnchangedToastColumns()
 				switch r := rec.(type) {
 				case *model.UpdateRecord:
+					// tableName here is destination tableName.
+					// should be ideally sourceTableName as we are in pullRecrods.
+					// will change in future
 					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
 					pkeyColVal := rec.GetItems()[pkeyCol]
 					tablePkeyVal := model.TableWithPkey{
