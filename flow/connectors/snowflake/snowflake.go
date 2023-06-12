@@ -2,11 +2,8 @@ package connsnowflake
 
 import (
 	"context"
-	"crypto/rsa"
-	"crypto/x509"
 	"database/sql"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"regexp"
 	"strings"
@@ -14,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/snowflakedb/gosnowflake"
@@ -88,28 +86,9 @@ type snowflakeRawRecord struct {
 	items                map[string]interface{}
 }
 
-// reads the PKCS8 private key from the received config and converts it into something that gosnowflake wants.
-func readPKCS8PrivateKey(rawKey []byte) (*rsa.PrivateKey, error) {
-	// pem.Decode has weird return values, no err as such
-	PEMBlock, _ := pem.Decode(rawKey)
-	if PEMBlock == nil {
-		return nil, fmt.Errorf("failed to decode private key PEM block")
-	}
-	privateKeyAny, err := x509.ParsePKCS8PrivateKey(PEMBlock.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse private key PEM block as PKCS8: %w", err)
-	}
-	privateKeyRSA, ok := privateKeyAny.(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("key does not appear to RSA as expected")
-	}
-
-	return privateKeyRSA, nil
-}
-
 func NewSnowflakeConnector(ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig) (*SnowflakeConnector, error) {
-	PrivateKeyRSA, err := readPKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey))
+	PrivateKeyRSA, err := util.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey))
 	if err != nil {
 		return nil, err
 	}
