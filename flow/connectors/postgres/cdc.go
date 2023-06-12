@@ -182,33 +182,8 @@ func (p *PostgresCDCSource) consumeStream(
 				firstProcessed = true
 				result.FirstCheckPointID = int64(xld.WALStart)
 			}
-			/*
-				The code ensures that if a value for an unchanged toast column for a row was last seen in a
-				previous occurrence of the same row in the batch, it sets the value accordingly.
-
-				Algorithm:
-				UpdateRecord with unchanged toast columns:
-				- If the record is already part of the batch, it copies values from a previous occurrence of the
-				same row to set the unchanged toast columns.
-				- It clears the UnchangedToastColumns field.
-				- The record is appended to result.Records.
-				- The index in result.TablePKeyIndexMap is updated.
-
-				UpdateRecord without unchanged toast columns:
-				- The record is appended to result.Records.
-				- The index in result.TablePKeyIndexMap is updated.
-
-				InsertRecord:
-				- The record is appended to result.Records.
-				- The index in result.TablePKeyIndexMap is updated.
-
-				DeleteRecord:
-				- The record is appended to result.Records.
-			*/
 			if rec != nil {
-				hasUnchangedToastColumns := rec.HasUnchangedToastColumns()
 				tableName := rec.GetTableName()
-				unchangedToastColumns := rec.GetUnchangedToastColumns()
 				switch r := rec.(type) {
 				case *model.UpdateRecord:
 					// tableName here is destination tableName.
@@ -220,26 +195,19 @@ func (p *PostgresCDCSource) consumeStream(
 						TableName:  tableName,
 						PkeyColVal: pkeyColVal,
 					}
-					//get the pkey col val
-					if hasUnchangedToastColumns {
-						_, ok := result.TablePKeyLastSeen[tablePkeyVal]
-						// Check if the row was already part of this batch.
-						// happens only when same row was inserted prior to this update
-						if ok {
-							// iterate through toast cols and set them
-							for _, toastCol := range unchangedToastColumns {
-								tmpRec := result.Records[result.TablePKeyLastSeen[tablePkeyVal]]
-								r.NewItems[toastCol] = tmpRec.GetItems()[toastCol]
-							}
-							// as toast columns are now set, there are no unchanged toast cols
-							r.UnchangedToastColumns = nil
-							result.Records = append(result.Records, rec)
-							result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
-						} else {
-							// if the row has unchanged toast column, then don't index it.
-							result.Records = append(result.Records, rec)
-						}
+					_, ok := result.TablePKeyLastSeen[tablePkeyVal]
+					if !ok {
+						result.Records = append(result.Records, rec)
+						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 					} else {
+						oldRec := result.Records[result.TablePKeyLastSeen[tablePkeyVal]]
+						// iterate through unchanged toast cols and set them
+						for col, val := range oldRec.GetItems() {
+							if _, ok := r.NewItems[col]; !ok {
+								r.NewItems[col] = val
+								r.UnchangedToastColumns = removeValueFromArray(r.UnchangedToastColumns, col)
+							}
+						}
 						result.Records = append(result.Records, rec)
 						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 					}
@@ -251,6 +219,7 @@ func (p *PostgresCDCSource) consumeStream(
 						PkeyColVal: pkeyColVal,
 					}
 					result.Records = append(result.Records, rec)
+					// all columns will be set in insert record, so add it to the map
 					result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 				case *model.DeleteRecord:
 					result.Records = append(result.Records, rec)
@@ -261,6 +230,16 @@ func (p *PostgresCDCSource) consumeStream(
 			clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
 		}
 	}
+}
+
+func removeValueFromArray(arr []string, value string) []string {
+	result := make([]string, 0)
+	for _, v := range arr {
+		if v != value {
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
 func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogrepl.XLogData) (model.Record, error) {
