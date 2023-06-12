@@ -94,7 +94,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                 };
 
                 let mut query = query.clone();
-                ast.rewrite(&mut query);
+                ast.rewrite_query(&mut query);
                 let rewritten_query = query.to_string();
 
                 // first fetch the schema as this connection will be
@@ -132,7 +132,12 @@ impl QueryExecutor for PostgresQueryExecutor {
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             _ => {
-                let query_str = stmt.to_string();
+                let ast = ast::PostgresAst {
+                    peername: self.peername.clone(),
+                };
+                let mut rewritten_stmt = stmt.clone();
+                ast.rewrite_statement(&mut rewritten_stmt);
+                let query_str = rewritten_stmt.to_string();
                 let rows_affected = self.client.execute(&query_str, &[]).await.map_err(|e| {
                     tracing::error!("error executing query: {}", e);
                     PgWireError::ApiError(Box::new(PgError::Internal {

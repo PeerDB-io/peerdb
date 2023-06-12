@@ -10,7 +10,7 @@ use flow_rs::FlowJob;
 use pt::peers::{
     peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
 };
-use sqlparser::ast::{visit_relations, FetchDirection, SqlOption, Statement};
+use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
 
 pub trait StatementAnalyzer {
     type Output;
@@ -43,6 +43,20 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
         let mut peers_touched: HashSet<String> = HashSet::new();
 
+        // This is necessary as visit relations was not visiting drop table's object names,
+        // causing DROP commands for Postgres peer being interpreted as
+        // catalog queries.
+        visit_statements(statement, |stmt| {
+            if let &Statement::Drop { names, .. } = &stmt {
+                for name in names {
+                    let peer_name = &name.0[0].value.to_lowercase();
+                    if self.peers.contains_key(peer_name) {
+                        peers_touched.insert(peer_name.into());
+                    }
+                }
+            }
+            ControlFlow::<()>::Continue(())
+        });
         visit_relations(statement, |relation| {
             let peer_name = &relation.0[0].value.to_lowercase();
             if self.peers.contains_key(peer_name) {

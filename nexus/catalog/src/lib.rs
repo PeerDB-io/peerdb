@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 use flow_rs::FlowJob;
 use peer_cursor::QueryExecutor;
 use peer_postgres::PostgresQueryExecutor;
@@ -295,7 +295,6 @@ impl Catalog {
         }
         Ok(())
     }
-
 
     pub async fn get_workflow_id_for_flow_job(
         &self,

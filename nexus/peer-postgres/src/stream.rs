@@ -4,7 +4,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use chrono::{DateTime, NaiveTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures::Stream;
 use peer_cursor::{Record, RecordStream, SchemaRef};
 use pgerror::PgError;
@@ -175,7 +175,7 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                         .unwrap_or(Value::Null)
                 }
                 &Type::JSON | &Type::JSONB => {
-                    let jsonb: Option<String> = row.get(i);
+                    let jsonb: Option<serde_json::Value> = row.get(i);
                     jsonb.map(Value::JsonB).unwrap_or(Value::Null)
                 }
                 &Type::UUID => {
@@ -198,15 +198,28 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 | &Type::POLYGON_ARRAY
                 | &Type::CIRCLE
                 | &Type::CIRCLE_ARRAY => Value::Text(row.get(i)),
-                &Type::TIMESTAMP | &Type::TIMESTAMPTZ => {
+
+                &Type::TIMESTAMP => {
+                    let dt_utc: Option<NaiveDateTime> = row.get(i);
+                    dt_utc.map(Value::postgres_timestamp).unwrap_or(Value::Null)
+                }
+                &Type::TIMESTAMPTZ => {
                     let dt_utc: Option<DateTime<Utc>> = row.get(i);
                     dt_utc
                         .map(Value::TimestampWithTimeZone)
                         .unwrap_or(Value::Null)
                 }
-                &Type::DATE | &Type::TIME | &Type::TIMETZ => {
+                &Type::DATE => {
+                    let t: Option<NaiveDate> = row.get(i);
+                    t.map(Value::Date).unwrap_or(Value::Null)
+                }
+                &Type::TIME => {
                     let t: Option<NaiveTime> = row.get(i);
                     t.map(Value::Time).unwrap_or(Value::Null)
+                }
+                &Type::TIMETZ => {
+                    let t: Option<NaiveTime> = row.get(i);
+                    t.map(Value::TimeWithTimeZone).unwrap_or(Value::Null)
                 }
                 &Type::INTERVAL => {
                     let iv: Option<String> = row.get(i);
