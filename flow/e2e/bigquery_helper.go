@@ -22,6 +22,8 @@ type BigQueryTestHelper struct {
 	runID int64
 	// config is the BigQuery config.
 	Config *protos.BigqueryConfig
+	// peer struct holder BigQuery
+	Peer *protos.Peer
 	// client to talk to BigQuery
 	client *bigquery.Client
 	// dataset to use for testing.
@@ -62,12 +64,27 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}
 
+	peer := generateBQPeer(&config)
+
 	return &BigQueryTestHelper{
 		runID:       runID,
 		Config:      &config,
 		client:      client,
 		datasetName: config.DatasetId,
+		Peer:        peer,
 	}, nil
+}
+
+func generateBQPeer(bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
+	ret := &protos.Peer{}
+	ret.Name = "test_bq_peer"
+	ret.Type = protos.DBType_BIGQUERY
+
+	ret.Config = &protos.Peer_BigqueryConfig{
+		BigqueryConfig: bigQueryConfig,
+	}
+
+	return ret
 }
 
 // datasetExists checks if the dataset exists.

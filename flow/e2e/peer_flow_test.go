@@ -194,7 +194,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 		FlowJobName:      "test_complete_flow_no_data",
 		TableNameMapping: map[string]string{"e2e_test.test": "test"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -238,7 +238,7 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 		FlowJobName:      "test_char_table",
 		TableNameMapping: map[string]string{"e2e_test.test_char_table": "test"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -285,7 +285,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 		FlowJobName:      "test_complete_single_col_flow",
 		TableNameMapping: map[string]string{"e2e_test.test_simple_flow": "test_simple_flow"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()

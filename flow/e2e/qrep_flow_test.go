@@ -137,7 +137,7 @@ func (s *E2EPeerFlowTestSuite) createWorkflowConfig(
 		SourceTableIdentifier:      sourceTable,
 		DestinationTableIdentifier: dstTable,
 		PostgresPort:               postgresPort,
-		BigQueryConfig:             s.bqHelper.Config,
+		Destination:                s.bqHelper.Peer,
 	}
 
 	watermark := "updated_at"
