@@ -208,15 +208,15 @@ func (p *PostgresCDCSource) consumeStream(
 			if rec != nil {
 				hasUnchangedToastColumns := rec.HasUnchangedToastColumns()
 				tableName := rec.GetTableName()
-				pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
 				unchangedToastColumns := rec.GetUnchangedToastColumns()
-				pkeyColVal := rec.GetItems()[pkeyCol]
-				tablePkeyVal := model.TableWithPkey{
-					TableName:  tableName,
-					PkeyColVal: pkeyColVal,
-				}
 				switch r := rec.(type) {
 				case *model.UpdateRecord:
+					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+					pkeyColVal := rec.GetItems()[pkeyCol]
+					tablePkeyVal := model.TableWithPkey{
+						TableName:  tableName,
+						PkeyColVal: pkeyColVal,
+					}
 					//get the pkey col val
 					if hasUnchangedToastColumns {
 						_, ok := result.TablePKeyLastSeen[tablePkeyVal]
@@ -241,6 +241,12 @@ func (p *PostgresCDCSource) consumeStream(
 						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 					}
 				case *model.InsertRecord:
+					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+					pkeyColVal := rec.GetItems()[pkeyCol]
+					tablePkeyVal := model.TableWithPkey{
+						TableName:  tableName,
+						PkeyColVal: pkeyColVal,
+					}
 					result.Records = append(result.Records, rec)
 					result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 				case *model.DeleteRecord:
