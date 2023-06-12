@@ -303,30 +303,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	go func() {
-		// wait for PeerFlowStatusQuery to finish setup
-		// sleep for 5 second to allow the workflow to start
-		time.Sleep(5 * time.Second)
-		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
-			if err == nil {
-				var state peerflow.PeerFlowState
-				err = response.Get(&state)
-				s.NoError(err)
-
-				if state.SetupComplete {
-					fmt.Println("query indicates setup is complete")
-					break
-				}
-			} else {
-				// log the error for informational purposes
-				fmt.Println(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			test_key := fmt.Sprintf("test_key_%d", i)
@@ -394,30 +371,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		// wait for PeerFlowStatusQuery to finish setup
-		// sleep for 5 second to allow the workflow to start
-		time.Sleep(5 * time.Second)
-		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
-			if err == nil {
-				var state peerflow.PeerFlowState
-				err = response.Get(&state)
-				s.NoError(err)
-
-				if state.SetupComplete {
-					fmt.Println("query indicates setup is complete")
-					break
-				}
-			} else {
-				// log the error for informational purposes
-				fmt.Println(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		/*
 			Executing a transaction which
 			1. changes both toast column
@@ -488,36 +442,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		// wait for PeerFlowStatusQuery to finish setup
-		// sleep for 5 second to allow the workflow to start
-		time.Sleep(5 * time.Second)
-		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
-			if err == nil {
-				var state peerflow.PeerFlowState
-				err = response.Get(&state)
-				s.NoError(err)
-
-				if state.SetupComplete {
-					fmt.Println("query indicates setup is complete")
-					break
-				}
-			} else {
-				// log the error for informational purposes
-				fmt.Println(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-
-		/*
-			Executing a transaction which
-			1. changes both toast column
-			2. changes no toast column
-			2. changes 1 toast column
-		*/
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		/* transaction updating no rows */
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
 			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
@@ -581,36 +507,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		// wait for PeerFlowStatusQuery to finish setup
-		// sleep for 5 second to allow the workflow to start
-		time.Sleep(5 * time.Second)
-		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
-			if err == nil {
-				var state peerflow.PeerFlowState
-				err = response.Get(&state)
-				s.NoError(err)
-
-				if state.SetupComplete {
-					fmt.Println("query indicates setup is complete")
-					break
-				}
-			} else {
-				// log the error for informational purposes
-				fmt.Println(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-
-		/*
-			Executing a transaction which
-			1. changes both toast column
-			2. changes no toast column
-			2. changes 1 toast column
-		*/
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
 			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
@@ -643,6 +541,33 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1() {
 
 	s.compareTableContents("test_toast", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) SetupPeerFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
+	connectionGen FlowConnectionGenerationConfig) {
+	// wait for PeerFlowStatusQuery to finish setup
+	// sleep for 5 second to allow the workflow to start
+	time.Sleep(5 * time.Second)
+	for {
+		response, err := env.QueryWorkflow(
+			peerflow.PeerFlowStatusQuery,
+			connectionGen.FlowJobName,
+		)
+		if err == nil {
+			var state peerflow.PeerFlowState
+			err = response.Get(&state)
+			s.NoError(err)
+
+			if state.SetupComplete {
+				fmt.Println("query indicates setup is complete")
+				break
+			}
+		} else {
+			// log the error for informational purposes
+			fmt.Println(err)
+		}
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2() {
@@ -684,36 +609,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		// wait for PeerFlowStatusQuery to finish setup
-		// sleep for 5 second to allow the workflow to start
-		time.Sleep(5 * time.Second)
-		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
-			if err == nil {
-				var state peerflow.PeerFlowState
-				err = response.Get(&state)
-				s.NoError(err)
-
-				if state.SetupComplete {
-					fmt.Println("query indicates setup is complete")
-					break
-				}
-			} else {
-				// log the error for informational purposes
-				fmt.Println(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-
-		/*
-			Executing a transaction which
-			1. changes both toast column
-			2. changes no toast column
-			2. changes 1 toast column
-		*/
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
 			INSERT INTO e2e_test.test_toast(t1,k) SELECT random_string(9000),
@@ -783,35 +680,10 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		// wait for PeerFlowStatusQuery to finish setup
-		// sleep for 5 second to allow the workflow to start
-		time.Sleep(5 * time.Second)
-		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
-			if err == nil {
-				var state peerflow.PeerFlowState
-				err = response.Get(&state)
-				s.NoError(err)
-
-				if state.SetupComplete {
-					fmt.Println("query indicates setup is complete")
-					break
-				}
-			} else {
-				// log the error for informational purposes
-				fmt.Println(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		/*
-			Executing a transaction which
-			1. changes both toast column
-			2. changes no toast column
-			2. changes 1 toast column
+			transaction updating a single row
+			multiple times with changed/unchanged toast columns
 		*/
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
@@ -883,36 +755,8 @@ func (s *E2EPeerFlowTestSuite) Test_Types() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		// wait for PeerFlowStatusQuery to finish setup
-		// sleep for 5 second to allow the workflow to start
-		time.Sleep(5 * time.Second)
-		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
-			if err == nil {
-				var state peerflow.PeerFlowState
-				err = response.Get(&state)
-				s.NoError(err)
-
-				if state.SetupComplete {
-					fmt.Println("query indicates setup is complete")
-					break
-				}
-			} else {
-				// log the error for informational purposes
-				fmt.Println(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-
-		/*
-			Executing a transaction which
-			1. changes both toast column
-			2. changes no toast column
-			2. changes 1 toast column
-		*/
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		/* test inserting various types*/
 		_, err = s.pool.Exec(context.Background(), `
 		INSERT INTO e2e_test.test_types SELECT 2,2,b'1',b'101',
 		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
@@ -982,36 +826,8 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		// wait for PeerFlowStatusQuery to finish setup
-		// sleep for 5 second to allow the workflow to start
-		time.Sleep(5 * time.Second)
-		for {
-			response, err := env.QueryWorkflow(
-				peerflow.PeerFlowStatusQuery,
-				connectionGen.FlowJobName,
-			)
-			if err == nil {
-				var state peerflow.PeerFlowState
-				err = response.Get(&state)
-				s.NoError(err)
-
-				if state.SetupComplete {
-					fmt.Println("query indicates setup is complete")
-					break
-				}
-			} else {
-				// log the error for informational purposes
-				fmt.Println(err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-
-		/*
-			Executing a transaction which
-			1. changes both toast column
-			2. changes no toast column
-			2. changes 1 toast column
-		*/
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		/* inserting across multiple tables*/
 		_, err = s.pool.Exec(context.Background(), `
 		INSERT INTO e2e_test.test1(c1,c2) VALUES (1,'dummy_1');
 		INSERT INTO e2e_test.test2(c1,c2) VALUES (-1,'dummy_-1');
