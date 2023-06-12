@@ -338,3 +338,49 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 		Schema:     schema,
 	}, nil
 }
+
+func qValueKindToBqColTypeString(val model.QValueKind) (string, error) {
+	switch val {
+	case model.QValueKindInt32:
+		return "INT64", nil
+	case model.QValueKindInt64:
+		return "INT64", nil
+	case model.QValueKindFloat32:
+		return "FLOAT64", nil
+	case model.QValueKindFloat64:
+		return "FLOAT64", nil
+	case model.QValueKindString:
+		return "STRING", nil
+	case model.QValueKindBoolean:
+		return "BOOL", nil
+	case model.QValueKindETime:
+		return "TIMESTAMP", nil
+	case model.QValueKindBytes:
+		return "BYTES", nil
+	case model.QValueKindNumeric:
+		return "NUMERIC", nil
+	default:
+		return "", fmt.Errorf("unsupported QValueKind: %v", val)
+	}
+}
+
+func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
+	var fields []string
+	for _, field := range schema.Fields {
+		bqType, err := qValueKindToBqColTypeString(field.Type)
+		if err != nil {
+			return err
+		}
+		fields = append(fields, fmt.Sprintf("%s %s", field.Name, bqType))
+	}
+
+	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.datasetName, tableName, strings.Join(fields, ", "))
+	fmt.Printf("creating table %s with command %s\n", tableName, command)
+
+	err := b.RunCommand(command)
+	if err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+
+	return nil
+}

@@ -7,6 +7,7 @@ import (
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 )
@@ -79,50 +80,49 @@ func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) 
 	}
 }
 
-func (s *E2EPeerFlowTestSuite) setupDestinationTable(dstTable string) {
-	dstTableName := fmt.Sprintf("%s.%s", s.bqHelper.Config.DatasetId, dstTable)
-	colWithTypes := []string{
-		"id STRING",
-		"card_id STRING",
-		"from_v TIMESTAMP",
-		"price NUMERIC",
-		"created_at TIMESTAMP",
-		"updated_at TIMESTAMP",
-		"transaction_hash BYTES",
-		"ownerable_type STRING",
-		"ownerable_id STRING",
-		"user_nonce INT64",
-		"transfer_type INT64",
-		"blockchain INT64",
-		"deal_type STRING",
-		"deal_id STRING",
-		"ethereum_transaction_id STRING",
-		"ignore_price BOOL",
-		"card_eth_value FLOAT64",
-		"paid_eth_price FLOAT64",
-		"card_bought_notified BOOL",
-		"address NUMERIC",
-		"account_id STRING",
-		"asset_id NUMERIC",
-		"status INT64",
-		"transaction_id STRING",
-		"settled_at TIMESTAMP",
-		"reference_id STRING",
-		"settle_at TIMESTAMP",
-		"settlement_delay_reason INT64",
+func getOwnersSchema() *model.QRecordSchema {
+	return &model.QRecordSchema{
+		Fields: []*model.QField{
+			{Name: "id", Type: model.QValueKindString, Nullable: true},
+			{Name: "card_id", Type: model.QValueKindString, Nullable: true},
+			{Name: "from_v", Type: model.QValueKindETime, Nullable: true},
+			{Name: "price", Type: model.QValueKindNumeric, Nullable: true},
+			{Name: "created_at", Type: model.QValueKindETime, Nullable: true},
+			{Name: "updated_at", Type: model.QValueKindETime, Nullable: true},
+			{Name: "transaction_hash", Type: model.QValueKindBytes, Nullable: true},
+			{Name: "ownerable_type", Type: model.QValueKindString, Nullable: true},
+			{Name: "ownerable_id", Type: model.QValueKindString, Nullable: true},
+			{Name: "user_nonce", Type: model.QValueKindInt64, Nullable: true},
+			{Name: "transfer_type", Type: model.QValueKindInt64, Nullable: true},
+			{Name: "blockchain", Type: model.QValueKindInt64, Nullable: true},
+			{Name: "deal_type", Type: model.QValueKindString, Nullable: true},
+			{Name: "deal_id", Type: model.QValueKindString, Nullable: true},
+			{Name: "ethereum_transaction_id", Type: model.QValueKindString, Nullable: true},
+			{Name: "ignore_price", Type: model.QValueKindBoolean, Nullable: true},
+			{Name: "card_eth_value", Type: model.QValueKindFloat64, Nullable: true},
+			{Name: "paid_eth_price", Type: model.QValueKindFloat64, Nullable: true},
+			{Name: "card_bought_notified", Type: model.QValueKindBoolean, Nullable: true},
+			{Name: "address", Type: model.QValueKindNumeric, Nullable: true},
+			{Name: "account_id", Type: model.QValueKindString, Nullable: true},
+			{Name: "asset_id", Type: model.QValueKindNumeric, Nullable: true},
+			{Name: "status", Type: model.QValueKindInt64, Nullable: true},
+			{Name: "transaction_id", Type: model.QValueKindString, Nullable: true},
+			{Name: "settled_at", Type: model.QValueKindETime, Nullable: true},
+			{Name: "reference_id", Type: model.QValueKindString, Nullable: true},
+			{Name: "settle_at", Type: model.QValueKindETime, Nullable: true},
+			{Name: "settlement_delay_reason", Type: model.QValueKindInt64, Nullable: true},
+		},
 	}
+}
 
-	dstTableCmd := fmt.Sprintf(
-		"CREATE TABLE %s (%s)",
-		dstTableName,
-		strings.Join(colWithTypes, ","),
-	)
-	err := s.bqHelper.RunCommand(dstTableCmd)
+func (s *E2EPeerFlowTestSuite) setupDestinationTable(dstTable string) {
+	schema := getOwnersSchema()
+	err := s.bqHelper.CreateTable(dstTable, schema)
 
 	// fail if table creation fails
 	s.NoError(err)
 
-	fmt.Printf("created table on bigquery: %s. %v\n", dstTableName, err)
+	fmt.Printf("created table on bigquery: %s.%s. %v\n", s.bqHelper.Config.DatasetId, dstTable, err)
 }
 
 func (s *E2EPeerFlowTestSuite) createWorkflowConfig(

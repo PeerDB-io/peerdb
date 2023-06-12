@@ -32,7 +32,6 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
 	records *model.QRecordBatch) (int, error) {
-
 	startTime := time.Now()
 
 	// You will need to define your Avro schema as a string
@@ -41,7 +40,7 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 
-	fmt.Printf("Avro schema: %s\n", avroSchema)
+	fmt.Printf("Avro schema: %v\n", avroSchema)
 
 	// Create a local file path with flowJobName and partitionID
 	localFilePath := fmt.Sprintf("%s/%s.avro", s.localDir, partition.PartitionId)
@@ -198,7 +197,7 @@ func GetAvroType(sqlField *sql.ColumnType) (interface{}, error) {
 		// separately based on the specific structure of the data.
 		// If it's a simple nested structure, you can consider mapping them to "record" types in Avro, similar to
 		// the bigquery.RecordFieldType case.
-		return nil, fmt.Errorf("Snowflake semi-structured type %s not supported yet", databaseType)
+		return nil, fmt.Errorf("snowflake semi-structured type %s not supported yet", databaseType)
 	default:
 		return nil, fmt.Errorf("unsupported Snowflake field type: %s", databaseType)
 	}
