@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pgx/v5"
@@ -126,25 +127,65 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 	}
 
 	for i, fd := range fds {
-		tmp := parseField(fd.DataTypeOID, scanArgs[i])
+		tmp, err := parseField(fd.DataTypeOID, scanArgs[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse field: %w", err)
+		}
 		record.Set(i, tmp)
 	}
 
 	return record, nil
 }
 
-func parseField(oid uint32, value interface{}) model.QValue {
+func parseField(oid uint32, value interface{}) (model.QValue, error) {
 	var val model.QValue
 
 	switch oid {
-	case pgtype.TimestampOID, pgtype.TimestamptzOID:
-		time := value.(*pgtype.Timestamp)
-		if time.Valid {
-			et := model.NewExtendedTime(time.Time, model.DateTimeKindType, "")
-			val = model.QValue{Kind: model.QValueKindETime, Value: et}
-		} else {
-			val = model.QValue{Kind: model.QValueKindETime, Value: nil}
+	case pgtype.TimestampOID:
+		timestamp := value.(*pgtype.Timestamp)
+		var et *model.ExtendedTime
+		if timestamp.Valid {
+			var err error
+			et, err = model.NewExtendedTime(timestamp.Time, model.DateTimeKindType, "")
+			if err != nil {
+				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			}
 		}
+		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+	case pgtype.TimestamptzOID:
+		timestamp := value.(*pgtype.Timestamptz)
+		var et *model.ExtendedTime
+		if timestamp.Valid {
+			var err error
+			et, err = model.NewExtendedTime(timestamp.Time, model.DateTimeKindType, "")
+			if err != nil {
+				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			}
+		}
+		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+	case pgtype.DateOID:
+		date := value.(*pgtype.Date)
+		var et *model.ExtendedTime
+		if date.Valid {
+			var err error
+			et, err = model.NewExtendedTime(date.Time, model.DateKindType, "")
+			if err != nil {
+				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			}
+		}
+		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+	case pgtype.TimeOID:
+		timeVal := value.(*pgtype.Time)
+		var et *model.ExtendedTime
+		if timeVal.Valid {
+			var err error
+			t := time.Unix(0, timeVal.Microseconds*int64(time.Microsecond))
+			et, err = model.NewExtendedTime(t, model.TimeKindType, "")
+			if err != nil {
+				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			}
+		}
+		val = model.QValue{Kind: model.QValueKindETime, Value: et}
 	case pgtype.BoolOID:
 		boolVal := value.(*pgtype.Bool)
 		if boolVal.Valid {
@@ -226,7 +267,7 @@ func parseField(oid uint32, value interface{}) model.QValue {
 		val = model.QValue{Kind: model.QValueKindInvalid, Value: nil}
 	}
 
-	return val
+	return val, nil
 }
 
 func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
