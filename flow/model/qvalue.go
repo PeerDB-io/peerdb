@@ -23,7 +23,7 @@ func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
 	case QValueKindInvalid:
 		return nil, fmt.Errorf("invalid QValueKind")
 	case QValueKindETime:
-		return processExtendedTime(isNullable, q)
+		return processExtendedTime(q)
 	case QValueKindString:
 		return processNullableUnion(isNullable, "string", q.Value)
 	case QValueKindFloat16, QValueKindFloat32, QValueKindFloat64:
@@ -53,7 +53,7 @@ func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
 	}
 }
 
-func processExtendedTime(isNullable bool, q *QValue) (interface{}, error) {
+func processExtendedTime(q *QValue) (interface{}, error) {
 	et, ok := q.Value.(*ExtendedTime)
 	if !ok {
 		return nil, fmt.Errorf("invalid ExtendedTime value")
