@@ -302,7 +302,7 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 	env.AssertExpectations(s.T())
 }
 
-// Test_Complete_Simple_Flow tests a complete flow with data in the source table.
+// Test_Complete_Simple_Flow_BQ tests a complete flow with data in the source table.
 // The test inserts 10 rows into the source table and verifies that the data is
 // correctly synced to the destination table after sync flow completes.
 func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
@@ -343,11 +343,11 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
-			test_key := fmt.Sprintf("test_key_%d", i)
-			test_value := fmt.Sprintf("test_value_%d", i)
+			testKey := fmt.Sprintf("test_key_%d", i)
+			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), `
 			INSERT INTO e2e_test.test_simple_flow (key, value) VALUES ($1, $2)
-		`, test_key, test_value)
+		`, testKey, testValue)
 			s.NoError(err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")
@@ -930,11 +930,11 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
-			test_key := fmt.Sprintf("test_key_%d", i)
-			test_value := fmt.Sprintf("test_value_%d", i)
+			testKey := fmt.Sprintf("test_key_%d", i)
+			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), `
 			INSERT INTO e2e_test.test_simple_flow (key, value) VALUES ($1, $2)
-		`, test_key, test_value)
+		`, testKey, testValue)
 			s.NoError(err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")
