@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -14,14 +13,17 @@ import (
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"google.golang.org/api/iterator"
 )
 
 type BigQueryTestHelper struct {
 	// runID uniquely identifies the test run to namespace stateful schemas.
-	runID int64
+	runID uint64
 	// config is the BigQuery config.
 	Config *protos.BigqueryConfig
+	// peer struct holder BigQuery
+	Peer *protos.Peer
 	// client to talk to BigQuery
 	client *bigquery.Client
 	// dataset to use for testing.
@@ -31,7 +33,10 @@ type BigQueryTestHelper struct {
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
 func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	// random 64 bit int to namespace stateful schemas.
-	runID := rand.Int63()
+	runID, err := util.RandomUInt64()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
+	}
 
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {
@@ -62,12 +67,27 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}
 
+	peer := generateBQPeer(&config)
+
 	return &BigQueryTestHelper{
 		runID:       runID,
 		Config:      &config,
 		client:      client,
 		datasetName: config.DatasetId,
+		Peer:        peer,
 	}, nil
+}
+
+func generateBQPeer(bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
+	ret := &protos.Peer{}
+	ret.Name = "test_bq_peer"
+	ret.Type = protos.DBType_BIGQUERY
+
+	ret.Config = &protos.Peer_BigqueryConfig{
+		BigqueryConfig: bigQueryConfig,
+	}
+
+	return ret
 }
 
 // datasetExists checks if the dataset exists.
@@ -207,6 +227,65 @@ func toQValue(bqValue bigquery.Value) (model.QValue, error) {
 	}
 }
 
+// bqFieldTypeToQValueKind converts a bigquery FieldType to a QValueKind.
+func bqFieldTypeToQValueKind(fieldType bigquery.FieldType) (model.QValueKind, error) {
+	switch fieldType {
+	case bigquery.StringFieldType:
+		return model.QValueKindString, nil
+	case bigquery.BytesFieldType:
+		return model.QValueKindBytes, nil
+	case bigquery.IntegerFieldType:
+		return model.QValueKindInt64, nil
+	case bigquery.FloatFieldType:
+		return model.QValueKindFloat64, nil
+	case bigquery.BooleanFieldType:
+		return model.QValueKindBoolean, nil
+	case bigquery.TimestampFieldType:
+		return model.QValueKindETime, nil
+	case bigquery.RecordFieldType:
+		return model.QValueKindStruct, nil
+	case bigquery.DateFieldType:
+		return model.QValueKindETime, nil
+	case bigquery.TimeFieldType:
+		return model.QValueKindETime, nil
+	case bigquery.NumericFieldType:
+		return model.QValueKindNumeric, nil
+	case bigquery.GeographyFieldType:
+		return model.QValueKindString, nil
+	default:
+		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
+	}
+}
+
+func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (*model.QField, error) {
+	qValueKind, err := bqFieldTypeToQValueKind(fieldSchema.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.QField{
+		Name:     fieldSchema.Name,
+		Type:     qValueKind,
+		Nullable: !fieldSchema.Required,
+	}, nil
+}
+
+// bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
+func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, error) {
+	var fields []*model.QField
+	for _, fieldSchema := range schema {
+		qField, err := bqFieldSchemaToQField(fieldSchema)
+		if err != nil {
+			return nil, err
+		}
+		fields = append(fields, qField)
+	}
+
+	return &model.QRecordSchema{
+		Fields: fields,
+	}, nil
+}
+
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
 	it, err := b.client.Query(query).Read(context.Background())
 	if err != nil {
@@ -247,18 +326,64 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 
 	// Now you should fill the column names as well. Here we assume the schema is
 	// retrieved from the query itself
-	var columnNames []string
+	var schema *model.QRecordSchema
 	if it.Schema != nil {
-		columnNames = make([]string, len(it.Schema))
-		for i, fieldSchema := range it.Schema {
-			columnNames[i] = fieldSchema.Name
+		schema, err = bqSchemaToQRecordSchema(it.Schema)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	// Return a QRecordBatch
 	return &model.QRecordBatch{
-		NumRecords:  uint32(len(records)),
-		Records:     records,
-		ColumnNames: columnNames,
+		NumRecords: uint32(len(records)),
+		Records:    records,
+		Schema:     schema,
 	}, nil
+}
+
+func qValueKindToBqColTypeString(val model.QValueKind) (string, error) {
+	switch val {
+	case model.QValueKindInt32:
+		return "INT64", nil
+	case model.QValueKindInt64:
+		return "INT64", nil
+	case model.QValueKindFloat32:
+		return "FLOAT64", nil
+	case model.QValueKindFloat64:
+		return "FLOAT64", nil
+	case model.QValueKindString:
+		return "STRING", nil
+	case model.QValueKindBoolean:
+		return "BOOL", nil
+	case model.QValueKindETime:
+		return "TIMESTAMP", nil
+	case model.QValueKindBytes:
+		return "BYTES", nil
+	case model.QValueKindNumeric:
+		return "NUMERIC", nil
+	default:
+		return "", fmt.Errorf("unsupported QValueKind: %v", val)
+	}
+}
+
+func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
+	var fields []string
+	for _, field := range schema.Fields {
+		bqType, err := qValueKindToBqColTypeString(field.Type)
+		if err != nil {
+			return err
+		}
+		fields = append(fields, fmt.Sprintf("%s %s", field.Name, bqType))
+	}
+
+	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.datasetName, tableName, strings.Join(fields, ", "))
+	fmt.Printf("creating table %s with command %s\n", tableName, command)
+
+	err := b.RunCommand(command)
+	if err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+
+	return nil
 }

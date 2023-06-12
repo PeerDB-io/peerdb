@@ -32,6 +32,7 @@ func (q *QRecord) equals(other *QRecord) bool {
 	for i, entry := range q.Entries {
 		otherEntry := other.Entries[i]
 		if !entry.Equals(&otherEntry) {
+			fmt.Printf("entry %d: %v != %v\n", i, entry, otherEntry)
 			return false
 		}
 	}
@@ -40,6 +41,7 @@ func (q *QRecord) equals(other *QRecord) bool {
 }
 
 func (q *QRecord) ToAvroCompatibleMap(
+	targetDB QDBType,
 	nullableFields *map[string]bool,
 	colNames []string,
 ) (map[string]interface{}, error) {
@@ -48,7 +50,7 @@ func (q *QRecord) ToAvroCompatibleMap(
 	for idx, qValue := range q.Entries {
 		key := colNames[idx]
 		nullable, ok := (*nullableFields)[key]
-		avroVal, err := qValue.ToAvroValue(nullable && ok)
+		avroVal, err := qValue.ToAvroValue(targetDB, nullable && ok)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %v", err)
 		}

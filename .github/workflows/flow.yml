@@ -48,9 +48,17 @@ jobs:
           name: "bq_service_account.json"
           json: ${{ secrets.GCP_GH_CI_PKEY }}
 
+      - name: setup snowflake credentials
+        id: sf-credentials
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "snowflake_creds.json"
+          json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
+
       - name: run tests
         run: |
           gotestsum --format testname
         working-directory: ./flow
         env:
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
+          TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json

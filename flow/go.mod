@@ -10,6 +10,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jackc/pglogrepl v0.0.0-20230428004623-0c5b98f52784
 	github.com/jackc/pgx/v5 v5.3.1
+	github.com/jmoiron/sqlx v1.3.5
 	github.com/linkedin/goavro v2.1.0+incompatible
 	github.com/linkedin/goavro/v2 v2.12.0
 	github.com/sirupsen/logrus v1.9.3

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
@@ -21,6 +22,7 @@ type E2EPeerFlowTestSuite struct {
 
 	pool     *pgxpool.Pool
 	bqHelper *BigQueryTestHelper
+	sfHelper *SnowflakeTestHelper
 }
 
 func TestE2EPeerFlowTestSuite(t *testing.T) {
@@ -92,7 +94,35 @@ func (s *E2EPeerFlowTestSuite) setupBigQuery() error {
 		return fmt.Errorf("failed to create bigquery helper: %w", err)
 	}
 
+	err = bqHelper.RecreateDataset()
+	if err != nil {
+		return fmt.Errorf("failed to recreate bigquery dataset: %w", err)
+	}
+
 	s.bqHelper = bqHelper
+	return nil
+}
+
+// setupSnowflake sets up the snowflake connection.
+func (s *E2EPeerFlowTestSuite) setupSnowflake() error {
+	runID, err := util.RandomUInt64()
+	if err != nil {
+		return fmt.Errorf("failed to generate random uint64: %w", err)
+	}
+
+	testSchemaName := fmt.Sprintf("e2e_test_%d", runID)
+
+	sfHelper, err := NewSnowflakeTestHelper(testSchemaName)
+	if err != nil {
+		return fmt.Errorf("failed to create snowflake helper: %w", err)
+	}
+
+	err = sfHelper.RecreateSchema()
+	if err != nil {
+		return fmt.Errorf("failed to recreate snowflake schema: %w", err)
+	}
+
+	s.sfHelper = sfHelper
 	return nil
 }
 
@@ -112,9 +142,9 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 		s.Fail("failed to setup bigquery", err)
 	}
 
-	err = s.bqHelper.RecreateDataset()
+	err = s.setupSnowflake()
 	if err != nil {
-		s.Fail("failed to recreate bigquery dataset", err)
+		s.Fail("failed to setup snowflake", err)
 	}
 }
 
@@ -133,6 +163,13 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 	err = s.bqHelper.DropDataset()
 	if err != nil {
 		s.Fail("failed to drop bigquery dataset", err)
+	}
+
+	if s.sfHelper != nil {
+		err = s.sfHelper.DropSchema()
+		if err != nil {
+			s.Fail("failed to drop snowflake schema", err)
+		}
 	}
 }
 
@@ -194,7 +231,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 		FlowJobName:      "test_complete_flow_no_data",
 		TableNameMapping: map[string]string{"e2e_test.test": "test"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -238,7 +275,7 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 		FlowJobName:      "test_char_table",
 		TableNameMapping: map[string]string{"e2e_test.test_char_table": "test"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -285,7 +322,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow() {
 		FlowJobName:      "test_complete_single_col_flow",
 		TableNameMapping: map[string]string{"e2e_test.test_simple_flow": "test_simple_flow"},
 		PostgresPort:     postgresPort,
-		BigQueryConfig:   s.bqHelper.Config,
+		Destination:      s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()

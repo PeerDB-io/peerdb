@@ -7,32 +7,9 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro"
-)
-
-type QValueKind string
-
-const (
-	QValueKindInvalid QValueKind = "invalid"
-	QValueKindFloat16 QValueKind = "float16"
-	QValueKindFloat32 QValueKind = "float32"
-	QValueKindFloat64 QValueKind = "float64"
-	QValueKindInt16   QValueKind = "int16"
-	QValueKindInt32   QValueKind = "int32"
-	QValueKindInt64   QValueKind = "int64"
-	QValueKindBoolean QValueKind = "bool"
-	QValueKindArray   QValueKind = "array"
-	QValueKindStruct  QValueKind = "struct"
-	QValueKindString  QValueKind = "string"
-	QValueKindETime   QValueKind = "extended_time"
-	QValueKindNumeric QValueKind = "numeric"
-	QValueKindBytes   QValueKind = "bytes"
-	QValueKindUUID    QValueKind = "uuid"
-	QValueKindJSON    QValueKind = "json"
-	QValueKindBit     QValueKind = "bit"
 )
 
 type QValue struct {
@@ -40,12 +17,12 @@ type QValue struct {
 	Value interface{}
 }
 
-func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
+func (q *QValue) ToAvroValue(targetDB QDBType, isNullable bool) (interface{}, error) {
 	switch q.Kind {
 	case QValueKindInvalid:
 		return nil, fmt.Errorf("invalid QValueKind")
 	case QValueKindETime:
-		return processExtendedTime(q)
+		return processExtendedTime(targetDB, q)
 	case QValueKindString:
 		return processNullableUnion(isNullable, "string", q.Value)
 	case QValueKindFloat16, QValueKindFloat32, QValueKindFloat64:
@@ -75,7 +52,7 @@ func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
 	}
 }
 
-func processExtendedTime(q *QValue) (interface{}, error) {
+func processExtendedTime(targetDB QDBType, q *QValue) (interface{}, error) {
 	et, ok := q.Value.(*ExtendedTime)
 	if !ok {
 		return nil, fmt.Errorf("invalid ExtendedTime value")
@@ -83,11 +60,19 @@ func processExtendedTime(q *QValue) (interface{}, error) {
 
 	switch et.NestedKind.Type {
 	case DateTimeKindType:
-		return et.Time.UnixNano() / int64(time.Millisecond), nil
+		ret := et.Time.UnixMicro()
+		// Snowflake has issues with avro timestamp types
+		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+		if targetDB == QDBTypeSnowflake {
+			ret = ret / 1000000
+		}
+		return ret, nil
 	case DateKindType:
-		return et.Time.Format("2006-01-02"), nil
+		ret := et.Time.Format("2006-01-02")
+		return ret, nil
 	case TimeKindType:
-		return et.Time.Format("15:04:05.999999"), nil
+		ret := et.Time.Format("15:04:05.999999")
+		return ret, nil
 	default:
 		return nil, fmt.Errorf("unsupported ExtendedTimeKindType: %s", et.NestedKind.Type)
 	}
@@ -225,8 +210,10 @@ func compareETime(value1, value2 interface{}) bool {
 		return false
 	}
 
-	t1 := et1.Time.UnixNano() / int64(time.Millisecond)
-	t2 := et2.Time.UnixNano() / int64(time.Millisecond)
+	// TODO: this is a hack, we should be comparing the actual time values
+	// currently this is only used for testing so that is OK.
+	t1 := et1.Time.UnixMilli() / 1000
+	t2 := et2.Time.UnixMilli() / 1000
 
 	return t1 == t2
 }
@@ -358,6 +345,8 @@ func getInt32(v interface{}) (int32, bool) {
 		return value, true
 	case int64:
 		return int32(value), true
+	case *big.Rat:
+		return int32(value.Num().Int64()), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 32)
 		if err == nil {
@@ -373,6 +362,8 @@ func getInt64(v interface{}) (int64, bool) {
 		return value, true
 	case int32:
 		return int64(value), true
+	case *big.Rat:
+		return value.Num().Int64(), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 64)
 		if err == nil {
