@@ -43,7 +43,7 @@ type QValue struct {
 func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
 	switch q.Kind {
 	case QValueKindInvalid:
-		return nil, fmt.Errorf("Invalid QValueKind")
+		return nil, fmt.Errorf("invalid QValueKind")
 	case QValueKindETime:
 		return processExtendedTime(q)
 	case QValueKindString:
@@ -440,6 +440,7 @@ func getRat(v interface{}) (*big.Rat, bool) {
 	case *big.Rat:
 		return value, true
 	case string:
+		//nolint:gosec
 		parsed, ok := new(big.Rat).SetString(value)
 		if ok {
 			return parsed, true
