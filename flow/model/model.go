@@ -28,15 +28,9 @@ type PullRecordsRequest struct {
 type Record interface {
 	// GetCheckPointID returns the ID of the record.
 	GetCheckPointID() int64
-	// get primary primary key
-	GetPKey(string) interface{}
 	// get table name
 	GetTableName() string
-	// check if the record has unchanged toast columns
-	HasUnchangedToastColumns() bool
-	// get unchanged toast columns
-	GetUnchangedToastColumns() []string
-	// get unchanged toast columns
+	// get columns and values for the record
 	GetItems() map[string]interface{}
 }
 
@@ -62,18 +56,6 @@ func (r *InsertRecord) GetCheckPointID() int64 {
 
 func (r *InsertRecord) GetTableName() string {
 	return r.DestinationTableName
-}
-
-func (r *InsertRecord) GetPKey(pkeyColName string) interface{} {
-	return r.Items[pkeyColName]
-}
-
-func (r *InsertRecord) HasUnchangedToastColumns() bool {
-	return len(r.UnchangedToastColumns) > 0
-}
-
-func (r *InsertRecord) GetUnchangedToastColumns() []string {
-	return r.UnchangedToastColumns
 }
 
 func (r *InsertRecord) GetItems() map[string]interface{} {
@@ -105,18 +87,6 @@ func (r *UpdateRecord) GetTableName() string {
 	return r.DestinationTableName
 }
 
-func (r *UpdateRecord) GetPKey(pkeyColName string) interface{} {
-	return r.NewItems[pkeyColName]
-}
-
-func (r *UpdateRecord) HasUnchangedToastColumns() bool {
-	return len(r.UnchangedToastColumns) > 0
-}
-
-func (r *UpdateRecord) GetUnchangedToastColumns() []string {
-	return r.UnchangedToastColumns
-}
-
 func (r *UpdateRecord) GetItems() map[string]interface{} {
 	return r.NewItems
 }
@@ -141,18 +111,6 @@ func (r *DeleteRecord) GetCheckPointID() int64 {
 
 func (r *DeleteRecord) GetTableName() string {
 	return r.SourceTableName
-}
-
-func (r *DeleteRecord) GetPKey(pkeyColName string) interface{} {
-	return r.Items[pkeyColName]
-}
-
-func (r *DeleteRecord) HasUnchangedToastColumns() bool {
-	return len(r.UnchangedToastColumns) > 0
-}
-
-func (r *DeleteRecord) GetUnchangedToastColumns() []string {
-	return r.UnchangedToastColumns
 }
 
 func (r *DeleteRecord) GetItems() map[string]interface{} {
