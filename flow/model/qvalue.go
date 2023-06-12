@@ -23,7 +23,7 @@ func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
 	case QValueKindInvalid:
 		return nil, fmt.Errorf("invalid QValueKind")
 	case QValueKindETime:
-		return processExtendedTime(q)
+		return processExtendedTime(isNullable, q)
 	case QValueKindString:
 		return processNullableUnion(isNullable, "string", q.Value)
 	case QValueKindFloat16, QValueKindFloat32, QValueKindFloat64:
@@ -53,7 +53,7 @@ func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
 	}
 }
 
-func processExtendedTime(q *QValue) (interface{}, error) {
+func processExtendedTime(isNullable bool, q *QValue) (interface{}, error) {
 	et, ok := q.Value.(*ExtendedTime)
 	if !ok {
 		return nil, fmt.Errorf("invalid ExtendedTime value")
@@ -61,11 +61,14 @@ func processExtendedTime(q *QValue) (interface{}, error) {
 
 	switch et.NestedKind.Type {
 	case DateTimeKindType:
-		return et.Time.UnixNano() / int64(time.Millisecond), nil
+		ret := et.Time.UnixNano() / int64(time.Millisecond)
+		return ret, nil
 	case DateKindType:
-		return et.Time.Format("2006-01-02"), nil
+		ret := et.Time.Format("2006-01-02")
+		return ret, nil
 	case TimeKindType:
-		return et.Time.Format("15:04:05.999999"), nil
+		ret := et.Time.Format("15:04:05.999999")
+		return ret, nil
 	default:
 		return nil, fmt.Errorf("unsupported ExtendedTimeKindType: %s", et.NestedKind.Type)
 	}
@@ -336,6 +339,8 @@ func getInt32(v interface{}) (int32, bool) {
 		return value, true
 	case int64:
 		return int32(value), true
+	case *big.Rat:
+		return int32(value.Num().Int64()), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 32)
 		if err == nil {
@@ -351,6 +356,8 @@ func getInt64(v interface{}) (int64, bool) {
 		return value, true
 	case int32:
 		return int64(value), true
+	case *big.Rat:
+		return value.Num().Int64(), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 64)
 		if err == nil {

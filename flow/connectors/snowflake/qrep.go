@@ -81,10 +81,10 @@ func (c *SnowflakeConnector) createMetadataInsertStatement(
 	partitionJSON := string(pbytes)
 
 	insertMetadataStmt := fmt.Sprintf(
-		`INSERT INTO "%s"."%s"
+		`INSERT INTO %s.%s
 			(flowJobName, partitionID, syncPartition, syncStartTime, syncFinishTime)
-			VALUES ('%s', '%s', PARSE_JSON('%s'), '%s'::timestamp, CURRENT_TIMESTAMP);`,
-		peerDBInternalSchema, qRepMetadataTableName, jobName, partition.PartitionId,
+			VALUES ('%s', '%s', '%s', '%s'::timestamp, CURRENT_TIMESTAMP);`,
+		"public", qRepMetadataTableName, jobName, partition.PartitionId,
 		partitionJSON, startTime.Format(time.RFC3339))
 
 	return insertMetadataStmt, nil
@@ -136,18 +136,19 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 		CREATE TABLE IF NOT EXISTS %s.%s (
 			flowJobName STRING,
 			partitionID STRING,
-			syncPartition VARIANT,
+			syncPartition STRING,
 			syncStartTime TIMESTAMP_LTZ,
 			syncFinishTime TIMESTAMP_LTZ
 		);
 	`
-	queryString := fmt.Sprintf(schemaStatement, peerDBInternalSchema, qRepMetadataTableName)
+	queryString := fmt.Sprintf(schemaStatement, "public", qRepMetadataTableName)
 
 	// Execute the query
 	_, err := c.database.Exec(queryString)
 	if err != nil {
-		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
+		return fmt.Errorf("failed to create table %s.%s: %w", "public", qRepMetadataTableName, err)
 	}
 
+	log.Infof("Created table %s", qRepMetadataTableName)
 	return nil
 }

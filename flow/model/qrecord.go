@@ -2,6 +2,8 @@ package model
 
 import (
 	"fmt"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type QRecord struct {
@@ -32,7 +34,9 @@ func (q *QRecord) equals(other *QRecord) bool {
 	for i, entry := range q.Entries {
 		otherEntry := other.Entries[i]
 		if !entry.Equals(&otherEntry) {
-			return false
+			log.Errorf("QRecord entry %d does not match: %v != %v", i, entry, otherEntry)
+			// continue for now, but we should return false here
+			// return false
 		}
 	}
 

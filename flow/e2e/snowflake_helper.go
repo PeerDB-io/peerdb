@@ -89,3 +89,7 @@ func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
 func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
 	return s.client.ExecuteAndProcessQuery(query)
 }
+
+func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
+	return s.client.CreateTable(schema, s.testSchemaName, tableName)
+}

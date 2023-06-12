@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -14,12 +13,13 @@ import (
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"google.golang.org/api/iterator"
 )
 
 type BigQueryTestHelper struct {
 	// runID uniquely identifies the test run to namespace stateful schemas.
-	runID int64
+	runID uint64
 	// config is the BigQuery config.
 	Config *protos.BigqueryConfig
 	// peer struct holder BigQuery
@@ -33,7 +33,10 @@ type BigQueryTestHelper struct {
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
 func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	// random 64 bit int to namespace stateful schemas.
-	runID := rand.Int63()
+	runID, err := util.RandomUInt64()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
+	}
 
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {
@@ -263,7 +266,7 @@ func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (*model.QField, er
 	return &model.QField{
 		Name:     fieldSchema.Name,
 		Type:     qValueKind,
-		Nullable: fieldSchema.Required == false,
+		Nullable: !fieldSchema.Required,
 	}, nil
 }
 

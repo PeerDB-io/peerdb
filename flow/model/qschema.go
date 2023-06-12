@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 type QField struct {
 	Name     string
 	Type     QValueKind
@@ -28,7 +30,10 @@ func (q *QRecordSchema) EqualNames(other *QRecordSchema) bool {
 	}
 
 	for i, field := range q.Fields {
-		if field.Name != other.Fields[i].Name {
+		// ignore the case of the field name convert to lower case
+		f1 := strings.ToLower(field.Name)
+		f2 := strings.ToLower(other.Fields[i].Name)
+		if f1 != f2 {
 			return false
 		}
 	}

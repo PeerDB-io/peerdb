@@ -70,6 +70,9 @@ func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 2,
+		},
 	})
 
 	if err := workflow.ExecuteActivity(ctx,

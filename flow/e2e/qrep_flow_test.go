@@ -115,7 +115,16 @@ func getOwnersSchema() *model.QRecordSchema {
 	}
 }
 
-func (s *E2EPeerFlowTestSuite) setupDestinationTable(dstTable string) {
+func getOwnersSelectorString() string {
+	schema := getOwnersSchema()
+	var fields []string
+	for _, field := range schema.Fields {
+		fields = append(fields, field.Name)
+	}
+	return strings.Join(fields, ",")
+}
+
+func (s *E2EPeerFlowTestSuite) setupBQDestinationTable(dstTable string) {
 	schema := getOwnersSchema()
 	err := s.bqHelper.CreateTable(dstTable, schema)
 
@@ -125,19 +134,32 @@ func (s *E2EPeerFlowTestSuite) setupDestinationTable(dstTable string) {
 	fmt.Printf("created table on bigquery: %s.%s. %v\n", s.bqHelper.Config.DatasetId, dstTable, err)
 }
 
-func (s *E2EPeerFlowTestSuite) createWorkflowConfig(
+func (s *E2EPeerFlowTestSuite) setupSFDestinationTable(dstTable string) {
+	schema := getOwnersSchema()
+	err := s.sfHelper.CreateTable(dstTable, schema)
+
+	// fail if table creation fails
+	if err != nil {
+		s.Fail("unable to create table on snowflake", err)
+	}
+
+	fmt.Printf("created table on snowflake: %s.%s. %v\n", s.sfHelper.testSchemaName, dstTable, err)
+}
+
+func (s *E2EPeerFlowTestSuite) createQRepWorkflowConfig(
 	flowJobName string,
 	sourceTable string,
 	dstTable string,
 	query string,
 	syncMode protos.QRepSyncMode,
+	dest *protos.Peer,
 ) *protos.QRepConfig {
 	connectionGen := QRepFlowConnectionGenerationConfig{
 		FlowJobName:                flowJobName,
 		SourceTableIdentifier:      sourceTable,
 		DestinationTableIdentifier: dstTable,
 		PostgresPort:               postgresPort,
-		Destination:                s.bqHelper.Peer,
+		Destination:                dest,
 	}
 
 	watermark := "updated_at"
@@ -150,7 +172,7 @@ func (s *E2EPeerFlowTestSuite) createWorkflowConfig(
 	return qrepConfig
 }
 
-func (s *E2EPeerFlowTestSuite) compareTableContents(tableName string) {
+func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
@@ -168,6 +190,24 @@ func (s *E2EPeerFlowTestSuite) compareTableContents(tableName string) {
 	s.True(pgRows.Equals(bqRows), "rows from source and destination tables are not equal")
 }
 
+func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector string) {
+	// read rows from source table
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
+	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", selector, tableName),
+	)
+	s.NoError(err)
+
+	// read rows from destination table
+	qualifiedTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
+	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT %s FROM %s ORDER BY id", selector, qualifiedTableName),
+	)
+	s.NoError(err)
+
+	s.True(pgRows.Equals(sfRows), "rows from source and destination tables are not equal")
+}
+
 // Test_Complete_QRep_Flow tests a complete flow with data in the source table.
 // The test inserts 10 rows into the source table and verifies that the data is
 // correctly synced to the destination table this runs a QRep Flow.
@@ -179,13 +219,14 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert() {
 
 	tblName := "test_qrep_flow_multi_insert"
 	s.setupSourceTable(tblName, numRows)
-	s.setupDestinationTable(tblName)
+	s.setupBQDestinationTable(tblName)
 
-	qrepConfig := s.createWorkflowConfig("test_qrep_flow_mi",
+	qrepConfig := s.createQRepWorkflowConfig("test_qrep_flow_mi",
 		"e2e_test."+tblName,
 		tblName,
 		"SELECT * FROM e2e_test."+tblName,
-		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT)
+		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
+		s.bqHelper.Peer)
 	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
 
 	// Verify workflow completes without error
@@ -211,13 +252,14 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 
 	tblName := "test_qrep_flow_avro"
 	s.setupSourceTable(tblName, numRows)
-	s.setupDestinationTable(tblName)
+	s.setupBQDestinationTable(tblName)
 
-	qrepConfig := s.createWorkflowConfig("test_qrep_flow_avro",
+	qrepConfig := s.createQRepWorkflowConfig("test_qrep_flow_avro",
 		"e2e_test."+tblName,
 		tblName,
 		"SELECT * FROM e2e_test."+tblName,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO)
+		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		s.bqHelper.Peer)
 	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
 
 	// Verify workflow completes without error
@@ -227,7 +269,43 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 	err := env.GetWorkflowError()
 	s.NoError(err)
 
-	s.compareTableContents(tblName)
+	s.compareTableContentsBQ(tblName)
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	numRows := 1
+
+	tblName := "test_qrep_flow_avro_sf"
+	s.setupSourceTable(tblName, numRows)
+	s.setupSFDestinationTable(tblName)
+
+	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
+
+	qrepConfig := s.createQRepWorkflowConfig(
+		"test_qrep_flow_avro_Sf",
+		"e2e_test."+tblName,
+		dstSchemaQualified,
+		"SELECT * FROM e2e_test."+tblName,
+		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		s.sfHelper.Peer,
+	)
+
+	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	// assert that error contains "invalid connection configs"
+	err := env.GetWorkflowError()
+	s.NoError(err)
+
+	sel := getOwnersSelectorString()
+	s.compareTableContentsSF(tblName, sel)
 
 	env.AssertExpectations(s.T())
 }

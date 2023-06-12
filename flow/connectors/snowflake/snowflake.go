@@ -73,6 +73,7 @@ type SnowflakeConnector struct {
 	ctx                context.Context
 	database           *sql.DB
 	tableSchemaMapping map[string]*protos.TableSchema
+	client             *SnowflakeClient
 }
 
 type snowflakeRawRecord struct {
@@ -119,10 +120,16 @@ func NewSnowflakeConnector(ctx context.Context,
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
+	client, err := NewSnowflakeClient(ctx, snowflakeProtoConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
+	}
+
 	return &SnowflakeConnector{
 		ctx:                ctx,
 		database:           database,
 		tableSchemaMapping: nil,
+		client:             client,
 	}, nil
 }
 
