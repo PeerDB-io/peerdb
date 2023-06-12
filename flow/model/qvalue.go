@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro"
@@ -18,12 +17,12 @@ type QValue struct {
 	Value interface{}
 }
 
-func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
+func (q *QValue) ToAvroValue(targetDB QDBType, isNullable bool) (interface{}, error) {
 	switch q.Kind {
 	case QValueKindInvalid:
 		return nil, fmt.Errorf("invalid QValueKind")
 	case QValueKindETime:
-		return processExtendedTime(q)
+		return processExtendedTime(targetDB, q)
 	case QValueKindString:
 		return processNullableUnion(isNullable, "string", q.Value)
 	case QValueKindFloat16, QValueKindFloat32, QValueKindFloat64:
@@ -53,7 +52,7 @@ func (q *QValue) ToAvroValue(isNullable bool) (interface{}, error) {
 	}
 }
 
-func processExtendedTime(q *QValue) (interface{}, error) {
+func processExtendedTime(targetDB QDBType, q *QValue) (interface{}, error) {
 	et, ok := q.Value.(*ExtendedTime)
 	if !ok {
 		return nil, fmt.Errorf("invalid ExtendedTime value")
@@ -61,7 +60,12 @@ func processExtendedTime(q *QValue) (interface{}, error) {
 
 	switch et.NestedKind.Type {
 	case DateTimeKindType:
-		ret := et.Time.UnixNano() / (int64(time.Millisecond) * 1000)
+		ret := et.Time.UnixMicro()
+		// Snowflake has issues with avro timestamp types
+		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+		if targetDB == QDBTypeSnowflake {
+			ret = ret / 1000000
+		}
 		return ret, nil
 	case DateKindType:
 		ret := et.Time.Format("2006-01-02")
