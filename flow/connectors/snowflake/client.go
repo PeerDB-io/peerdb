@@ -181,6 +181,31 @@ func toQValue(val interface{}) (model.QValue, error) {
 	}
 }
 
+// DatabaseTypeNameToQValueKind converts a database type name to a QValueKind.
+func DatabaseTypeNameToQValueKind(name string) (model.QValueKind, error) {
+	switch name {
+	case "INT":
+		return model.QValueKindInt32, nil
+	case "BIGINT":
+		return model.QValueKindInt64, nil
+	case "FLOAT":
+		return model.QValueKindFloat32, nil
+	case "DOUBLE":
+		return model.QValueKindFloat64, nil
+	case "VARCHAR", "CHAR", "TEXT":
+		return model.QValueKindString, nil
+	case "BOOLEAN":
+		return model.QValueKindBoolean, nil
+	case "DATETIME", "TIMESTAMP":
+		return model.QValueKindETime, nil
+	case "BLOB", "BYTEA":
+		return model.QValueKindBytes, nil
+	default:
+		// If type is unsupported, return an error
+		return "", fmt.Errorf("unsupported database type name: %s", name)
+	}
+}
+
 func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
 	rows, err := s.conn.QueryContext(s.ctx, query)
 	if err != nil {
@@ -228,15 +253,28 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 		return nil, err
 	}
 
-	colNames, err := rows.Columns()
+	dbColTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, err
 	}
 
+	colTypes := make([]model.QValueKind, len(dbColTypes))
+	colNames := make([]string, len(dbColTypes))
+
+	// convert colTypes to QValueKind
+	for i, ct := range dbColTypes {
+		colTypes[i], err = DatabaseTypeNameToQValueKind(ct.DatabaseTypeName())
+		if err != nil {
+			return nil, err
+		}
+
+		colNames[i] = ct.Name()
+	}
+
 	// Return a QRecordBatch
 	return &model.QRecordBatch{
-		NumRecords:  uint32(len(records)),
-		Records:     records,
-		ColumnNames: colNames,
+		NumRecords: uint32(len(records)),
+		Records:    records,
+		Schema:     model.NewQRecordSchema(colNames, colTypes),
 	}, nil
 }

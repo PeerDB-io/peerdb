@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
@@ -21,6 +22,7 @@ type E2EPeerFlowTestSuite struct {
 
 	pool     *pgxpool.Pool
 	bqHelper *BigQueryTestHelper
+	sfHelper *SnowflakeTestHelper
 }
 
 func TestE2EPeerFlowTestSuite(t *testing.T) {
@@ -92,7 +94,35 @@ func (s *E2EPeerFlowTestSuite) setupBigQuery() error {
 		return fmt.Errorf("failed to create bigquery helper: %w", err)
 	}
 
+	err = bqHelper.RecreateDataset()
+	if err != nil {
+		return fmt.Errorf("failed to recreate bigquery dataset: %w", err)
+	}
+
 	s.bqHelper = bqHelper
+	return nil
+}
+
+// setupSnowflake sets up the snowflake connection.
+func (s *E2EPeerFlowTestSuite) setupSnowflake() error {
+	runID, err := util.RandomUInt64()
+	if err != nil {
+		return fmt.Errorf("failed to generate random uint64: %w", err)
+	}
+
+	testSchemaName := fmt.Sprintf("e2e_test_%d", runID)
+
+	sfHelper, err := NewSnowflakeTestHelper(testSchemaName)
+	if err != nil {
+		return fmt.Errorf("failed to create snowflake helper: %w", err)
+	}
+
+	err = sfHelper.RecreateSchema()
+	if err != nil {
+		return fmt.Errorf("failed to recreate snowflake schema: %w", err)
+	}
+
+	s.sfHelper = sfHelper
 	return nil
 }
 
@@ -112,10 +142,10 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 		s.Fail("failed to setup bigquery", err)
 	}
 
-	err = s.bqHelper.RecreateDataset()
-	if err != nil {
-		s.Fail("failed to recreate bigquery dataset", err)
-	}
+	// err = s.setupSnowflake()
+	// if err != nil {
+	// 	s.Fail("failed to setup snowflake", err)
+	// }
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -133,6 +163,13 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 	err = s.bqHelper.DropDataset()
 	if err != nil {
 		s.Fail("failed to drop bigquery dataset", err)
+	}
+
+	if s.sfHelper != nil {
+		err = s.sfHelper.DropSchema()
+		if err != nil {
+			s.Fail("failed to drop snowflake schema", err)
+		}
 	}
 }
 

@@ -36,6 +36,48 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 	return rows, nil
 }
 
+func fieldDescriptionToQValueKind(fd pgconn.FieldDescription) model.QValueKind {
+	switch fd.DataTypeOID {
+	case pgtype.BoolOID:
+		return model.QValueKindBoolean
+	case pgtype.Int2OID:
+		return model.QValueKindInt16
+	case pgtype.Int4OID:
+		return model.QValueKindInt32
+	case pgtype.Int8OID:
+		return model.QValueKindInt64
+	case pgtype.Float4OID:
+		return model.QValueKindFloat32
+	case pgtype.Float8OID:
+		return model.QValueKindFloat64
+	case pgtype.TextOID, pgtype.VarcharOID:
+		return model.QValueKindString
+	case pgtype.ByteaOID:
+		return model.QValueKindBytes
+	case pgtype.JSONOID, pgtype.JSONBOID:
+		return model.QValueKindJSON
+	case pgtype.UUIDOID:
+		return model.QValueKindUUID
+	case pgtype.TimestampOID, pgtype.TimestamptzOID, pgtype.DateOID, pgtype.TimeOID:
+		return model.QValueKindETime
+	case pgtype.NumericOID:
+		return model.QValueKindNumeric
+	default:
+		return model.QValueKindInvalid
+	}
+}
+
+// FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
+func fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
+	colNames := make([]string, len(fds))
+	colTypes := make([]model.QValueKind, len(fds))
+	for i, fd := range fds {
+		colNames[i] = fd.Name
+		colTypes[i] = fieldDescriptionToQValueKind(fd)
+	}
+	return model.NewQRecordSchema(colNames, colTypes)
+}
+
 func (qe *QRepQueryExecutor) ProcessRows(
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
@@ -57,16 +99,10 @@ func (qe *QRepQueryExecutor) ProcessRows(
 		return nil, fmt.Errorf("row iteration failed: %w", rows.Err())
 	}
 
-	// get col names from fieldDescriptions
-	colNames := make([]string, len(fieldDescriptions))
-	for i, fd := range fieldDescriptions {
-		colNames[i] = fd.Name
-	}
-
 	batch := &model.QRecordBatch{
-		NumRecords:  uint32(len(records)),
-		Records:     records,
-		ColumnNames: colNames,
+		NumRecords: uint32(len(records)),
+		Records:    records,
+		Schema:     fieldDescriptionsToSchema(fieldDescriptions),
 	}
 
 	return batch, nil

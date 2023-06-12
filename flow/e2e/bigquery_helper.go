@@ -224,6 +224,55 @@ func toQValue(bqValue bigquery.Value) (model.QValue, error) {
 	}
 }
 
+// bqFieldTypeToQValueKind converts a bigquery FieldType to a QValueKind.
+func bqFieldTypeToQValueKind(fieldType bigquery.FieldType) (model.QValueKind, error) {
+	switch fieldType {
+	case bigquery.StringFieldType:
+		return model.QValueKindString, nil
+	case bigquery.BytesFieldType:
+		return model.QValueKindBytes, nil
+	case bigquery.IntegerFieldType:
+		return model.QValueKindInt64, nil
+	case bigquery.FloatFieldType:
+		return model.QValueKindFloat64, nil
+	case bigquery.BooleanFieldType:
+		return model.QValueKindBoolean, nil
+	case bigquery.TimestampFieldType:
+		return model.QValueKindETime, nil
+	case bigquery.RecordFieldType:
+		return model.QValueKindStruct, nil
+	case bigquery.DateFieldType:
+		return model.QValueKindETime, nil
+	case bigquery.TimeFieldType:
+		return model.QValueKindETime, nil
+	case bigquery.NumericFieldType:
+		return model.QValueKindNumeric, nil
+	case bigquery.GeographyFieldType:
+		return model.QValueKindString, nil
+	default:
+		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
+	}
+}
+
+// bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
+func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, error) {
+	qSchema := &model.QRecordSchema{
+		ColumnNames: make([]string, len(schema)),
+		ColumnTypes: make([]model.QValueKind, len(schema)),
+	}
+
+	for i, field := range schema {
+		qSchema.ColumnNames[i] = field.Name
+		qValueKind, err := bqFieldTypeToQValueKind(field.Type)
+		if err != nil {
+			return nil, err
+		}
+		qSchema.ColumnTypes[i] = qValueKind
+	}
+
+	return qSchema, nil
+}
+
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
 	it, err := b.client.Query(query).Read(context.Background())
 	if err != nil {
@@ -264,18 +313,18 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 
 	// Now you should fill the column names as well. Here we assume the schema is
 	// retrieved from the query itself
-	var columnNames []string
+	var schema *model.QRecordSchema
 	if it.Schema != nil {
-		columnNames = make([]string, len(it.Schema))
-		for i, fieldSchema := range it.Schema {
-			columnNames[i] = fieldSchema.Name
+		schema, err = bqSchemaToQRecordSchema(it.Schema)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	// Return a QRecordBatch
 	return &model.QRecordBatch{
-		NumRecords:  uint32(len(records)),
-		Records:     records,
-		ColumnNames: columnNames,
+		NumRecords: uint32(len(records)),
+		Records:    records,
+		Schema:     schema,
 	}, nil
 }
