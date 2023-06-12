@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/google/uuid"
 )
 
 type QRecordValueSaver struct {
@@ -110,6 +111,14 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 				return nil, "", fmt.Errorf("failed to convert %v to []byte", v.Value)
 			}
 			bqValues[k] = val
+
+		case model.QValueKindUUID:
+			val, ok := v.Value.([16]byte)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to string", v.Value)
+			}
+			uuidVal := uuid.UUID(val)
+			bqValues[k] = uuidVal.String()
 
 		default:
 			// Skip invalid QValueKind, but log the type for debugging
