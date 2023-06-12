@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pgx/v5"
@@ -101,13 +102,21 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 		switch fds[i].DataTypeOID {
 		case pgtype.BoolOID:
 			scanArgs[i] = new(pgtype.Bool)
-		case pgtype.TimestampOID, pgtype.TimestamptzOID:
+		case pgtype.TimestampOID:
 			scanArgs[i] = new(pgtype.Timestamp)
-		case pgtype.Int4OID, pgtype.Int8OID:
+		case pgtype.TimestamptzOID:
+			scanArgs[i] = new(pgtype.Timestamptz)
+		case pgtype.Int4OID:
+			scanArgs[i] = new(pgtype.Int4)
+		case pgtype.Int8OID:
 			scanArgs[i] = new(pgtype.Int8)
-		case pgtype.Float4OID, pgtype.Float8OID:
+		case pgtype.Float4OID:
+			scanArgs[i] = new(pgtype.Float4)
+		case pgtype.Float8OID:
 			scanArgs[i] = new(pgtype.Float8)
-		case pgtype.TextOID, pgtype.VarcharOID:
+		case pgtype.TextOID:
+			scanArgs[i] = new(pgtype.Text)
+		case pgtype.VarcharOID:
 			scanArgs[i] = new(pgtype.Text)
 		case pgtype.NumericOID:
 			scanArgs[i] = new(pgtype.Numeric)
@@ -126,25 +135,65 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 	}
 
 	for i, fd := range fds {
-		tmp := parseField(fd.DataTypeOID, scanArgs[i])
+		tmp, err := parseField(fd.DataTypeOID, scanArgs[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse field: %w", err)
+		}
 		record.Set(i, tmp)
 	}
 
 	return record, nil
 }
 
-func parseField(oid uint32, value interface{}) model.QValue {
+func parseField(oid uint32, value interface{}) (model.QValue, error) {
 	var val model.QValue
 
 	switch oid {
-	case pgtype.TimestampOID, pgtype.TimestamptzOID:
-		time := value.(*pgtype.Timestamp)
-		if time.Valid {
-			et := model.NewExtendedTime(time.Time, model.DateTimeKindType, "")
-			val = model.QValue{Kind: model.QValueKindETime, Value: et}
-		} else {
-			val = model.QValue{Kind: model.QValueKindETime, Value: nil}
+	case pgtype.TimestampOID:
+		timestamp := value.(*pgtype.Timestamp)
+		var et *model.ExtendedTime
+		if timestamp.Valid {
+			var err error
+			et, err = model.NewExtendedTime(timestamp.Time, model.DateTimeKindType, "")
+			if err != nil {
+				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			}
 		}
+		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+	case pgtype.TimestamptzOID:
+		timestamp := value.(*pgtype.Timestamptz)
+		var et *model.ExtendedTime
+		if timestamp.Valid {
+			var err error
+			et, err = model.NewExtendedTime(timestamp.Time, model.DateTimeKindType, "")
+			if err != nil {
+				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			}
+		}
+		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+	case pgtype.DateOID:
+		date := value.(*pgtype.Date)
+		var et *model.ExtendedTime
+		if date.Valid {
+			var err error
+			et, err = model.NewExtendedTime(date.Time, model.DateKindType, "")
+			if err != nil {
+				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			}
+		}
+		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+	case pgtype.TimeOID:
+		timeVal := value.(*pgtype.Time)
+		var et *model.ExtendedTime
+		if timeVal.Valid {
+			var err error
+			t := time.Unix(0, timeVal.Microseconds*int64(time.Microsecond))
+			et, err = model.NewExtendedTime(t, model.TimeKindType, "")
+			if err != nil {
+				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			}
+		}
+		val = model.QValue{Kind: model.QValueKindETime, Value: et}
 	case pgtype.BoolOID:
 		boolVal := value.(*pgtype.Bool)
 		if boolVal.Valid {
@@ -152,19 +201,48 @@ func parseField(oid uint32, value interface{}) model.QValue {
 		} else {
 			val = model.QValue{Kind: model.QValueKindBoolean, Value: nil}
 		}
-	case pgtype.Int4OID, pgtype.Int8OID:
+	case pgtype.JSONOID, pgtype.JSONBOID:
+		// TODO: improve JSON support
+		strVal := value.(*string)
+		if strVal != nil {
+			val = model.QValue{Kind: model.QValueKindJSON, Value: *strVal}
+		} else {
+			val = model.QValue{Kind: model.QValueKindJSON, Value: nil}
+		}
+	case pgtype.Int2OID:
+		intVal := value.(*pgtype.Int2)
+		if intVal.Valid {
+			val = model.QValue{Kind: model.QValueKindInt16, Value: intVal.Int16}
+		} else {
+			val = model.QValue{Kind: model.QValueKindInt16, Value: nil}
+		}
+	case pgtype.Int4OID:
+		intVal := value.(*pgtype.Int4)
+		if intVal.Valid {
+			val = model.QValue{Kind: model.QValueKindInt32, Value: intVal.Int32}
+		} else {
+			val = model.QValue{Kind: model.QValueKindInt32, Value: nil}
+		}
+	case pgtype.Int8OID:
 		intVal := value.(*pgtype.Int8)
 		if intVal.Valid {
-			val = model.QValue{Kind: model.QValueKindInteger, Value: intVal.Int64}
+			val = model.QValue{Kind: model.QValueKindInt64, Value: intVal.Int64}
 		} else {
-			val = model.QValue{Kind: model.QValueKindInteger, Value: nil}
+			val = model.QValue{Kind: model.QValueKindInt64, Value: nil}
 		}
-	case pgtype.Float4OID, pgtype.Float8OID:
+	case pgtype.Float4OID:
+		floatVal := value.(*pgtype.Float4)
+		if floatVal.Valid {
+			val = model.QValue{Kind: model.QValueKindFloat32, Value: floatVal.Float32}
+		} else {
+			val = model.QValue{Kind: model.QValueKindFloat32, Value: nil}
+		}
+	case pgtype.Float8OID:
 		floatVal := value.(*pgtype.Float8)
 		if floatVal.Valid {
-			val = model.QValue{Kind: model.QValueKindFloat, Value: floatVal.Float64}
+			val = model.QValue{Kind: model.QValueKindFloat64, Value: floatVal.Float64}
 		} else {
-			val = model.QValue{Kind: model.QValueKindFloat, Value: nil}
+			val = model.QValue{Kind: model.QValueKindFloat64, Value: nil}
 		}
 	case pgtype.TextOID, pgtype.VarcharOID:
 		textVal := value.(*pgtype.Text)
@@ -197,7 +275,7 @@ func parseField(oid uint32, value interface{}) model.QValue {
 		val = model.QValue{Kind: model.QValueKindInvalid, Value: nil}
 	}
 
-	return val
+	return val, nil
 }
 
 func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {

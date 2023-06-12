@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/google/uuid"
 )
 
 type QRecordValueSaver struct {
@@ -47,14 +48,28 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 	for i, v := range q.Record.Entries {
 		k := q.ColumnNames[i]
 		switch v.Kind {
-		case model.QValueKindFloat:
+		case model.QValueKindFloat32:
+			val, ok := v.Value.(float32)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to float64", v.Value)
+			}
+			bqValues[k] = val
+
+		case model.QValueKindFloat64:
 			val, ok := v.Value.(float64)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to float64", v.Value)
 			}
 			bqValues[k] = val
 
-		case model.QValueKindInteger:
+		case model.QValueKindInt32:
+			val, ok := v.Value.(int32)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to int64", v.Value)
+			}
+			bqValues[k] = val
+
+		case model.QValueKindInt64:
 			val, ok := v.Value.(int64)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to int64", v.Value)
@@ -97,8 +112,17 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			}
 			bqValues[k] = val
 
+		case model.QValueKindUUID:
+			val, ok := v.Value.([16]byte)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to string", v.Value)
+			}
+			uuidVal := uuid.UUID(val)
+			bqValues[k] = uuidVal.String()
+
 		default:
-			// Skip invalid QValueKind
+			// Skip invalid QValueKind, but log the type for debugging
+			fmt.Printf("[bigquery] Invalid QValueKind: %v\n", v.Kind)
 		}
 	}
 

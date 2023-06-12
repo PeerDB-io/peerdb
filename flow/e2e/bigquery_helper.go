@@ -176,18 +176,26 @@ func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
 func toQValue(bqValue bigquery.Value) (model.QValue, error) {
 	// Based on the real type of the bigquery.Value, we create a model.QValue
 	switch v := bqValue.(type) {
-	case int, int32, int64:
-		return model.QValue{Kind: model.QValueKindInteger, Value: v}, nil
-	case float32, float64:
-		return model.QValue{Kind: model.QValueKindFloat, Value: v}, nil
+	case int, int32:
+		return model.QValue{Kind: model.QValueKindInt32, Value: v}, nil
+	case int64:
+		return model.QValue{Kind: model.QValueKindInt64, Value: v}, nil
+	case float32:
+		return model.QValue{Kind: model.QValueKindFloat32, Value: v}, nil
+	case float64:
+		return model.QValue{Kind: model.QValueKindFloat64, Value: v}, nil
 	case string:
 		return model.QValue{Kind: model.QValueKindString, Value: v}, nil
 	case bool:
 		return model.QValue{Kind: model.QValueKindBoolean, Value: v}, nil
 	case time.Time:
+		val, err := model.NewExtendedTime(v, model.DateTimeKindType, "")
+		if err != nil {
+			return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+		}
 		return model.QValue{
 			Kind:  model.QValueKindETime,
-			Value: model.NewExtendedTime(v, model.DateTimeKindType, ""),
+			Value: val,
 		}, nil
 	case *big.Rat:
 		return model.QValue{Kind: model.QValueKindNumeric, Value: v}, nil
