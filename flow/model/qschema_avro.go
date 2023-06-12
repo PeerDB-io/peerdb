@@ -125,7 +125,7 @@ func GetAvroType(qField *QField) (*avroType, error) {
 		return &avroType{
 			AType: map[string]string{
 				"type":        "long",
-				"logicalType": "timestamp-millis",
+				"logicalType": "timestamp-micros",
 			},
 			RespectNull: false,
 		}, nil

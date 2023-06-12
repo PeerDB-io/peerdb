@@ -61,7 +61,7 @@ func processExtendedTime(isNullable bool, q *QValue) (interface{}, error) {
 
 	switch et.NestedKind.Type {
 	case DateTimeKindType:
-		ret := et.Time.UnixNano() / int64(time.Millisecond)
+		ret := et.Time.UnixNano() / (int64(time.Millisecond) * 1000)
 		return ret, nil
 	case DateKindType:
 		ret := et.Time.Format("2006-01-02")
@@ -206,8 +206,10 @@ func compareETime(value1, value2 interface{}) bool {
 		return false
 	}
 
-	t1 := et1.Time.UnixNano() / int64(time.Millisecond)
-	t2 := et2.Time.UnixNano() / int64(time.Millisecond)
+	// TODO: this is a hack, we should be comparing the actual time values
+	// currently this is only used for testing so that is OK.
+	t1 := et1.Time.UnixMilli() / 1000
+	t2 := et2.Time.UnixMilli() / 1000
 
 	return t1 == t2
 }

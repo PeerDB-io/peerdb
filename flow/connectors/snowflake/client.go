@@ -383,11 +383,11 @@ func qValueKindToSnowflakeColTypeString(val model.QValueKind) (string, error) {
 	case model.QValueKindBoolean:
 		return "BOOLEAN", nil
 	case model.QValueKindETime:
-		return "TIMESTAMP", nil
+		return "TIMESTAMP_LTZ", nil
 	case model.QValueKindBytes:
 		return "BINARY", nil
 	case model.QValueKindNumeric:
-		return "NUMBER", nil
+		return "NUMERIC(38,32)", nil
 	default:
 		return "", fmt.Errorf("unsupported QValueKind: %v", val)
 	}
