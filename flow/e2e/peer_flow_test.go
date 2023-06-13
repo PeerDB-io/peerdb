@@ -121,8 +121,11 @@ func (s *E2EPeerFlowTestSuite) setupSnowflake() error {
 	if err != nil {
 		return fmt.Errorf("failed to recreate snowflake schema: %w", err)
 	}
-
 	s.sfHelper = sfHelper
+
+	// for every test, drop the _PEERDB_INTERNAL schema
+	s.sfHelper.client.DropSchema("_PEERDB_INTERNAL")
+
 	return nil
 }
 
@@ -310,7 +313,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-		CREATE TABLE e2e_test.test_simple_flow (
+		CREATE TABLE e2e_test.test_simple_flow_bq (
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
 			value TEXT NOT NULL
@@ -320,7 +323,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "test_complete_single_col_flow",
-		TableNameMapping: map[string]string{"e2e_test.test_simple_flow": "test_simple_flow"},
+		TableNameMapping: map[string]string{"e2e_test.test_simple_flow_bq": "test_simple_flow_bq"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
 	}
@@ -346,7 +349,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), `
-			INSERT INTO e2e_test.test_simple_flow (key, value) VALUES ($1, $2)
+			INSERT INTO e2e_test.test_simple_flow_bq (key, value) VALUES ($1, $2)
 		`, testKey, testValue)
 			s.NoError(err)
 		}
@@ -374,7 +377,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_bq_1 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
@@ -387,8 +390,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
+		FlowJobName:      "test_toast_bq_1",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_bq_1": "test_toast_bq_1"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
 	}
@@ -417,10 +420,10 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 		*/
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO e2e_test.test_toast_bq_1(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=2;
+			UPDATE e2e_test.test_toast_bq_1 SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_1 SET t1='dummy' WHERE id=2;
 			END;
 		`)
 		s.NoError(err)
@@ -435,7 +438,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast_bq_1", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -445,7 +448,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_bq_2 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
@@ -458,8 +461,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
+		FlowJobName:      "test_toast_bq_2",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_bq_2": "test_toast_bq_2"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
 	}
@@ -483,8 +486,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 		/* transaction updating no rows */
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=2;
+			UPDATE e2e_test.test_toast_bq_2 SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_2 SET t1='dummy' WHERE id=2;
 			END;
 		`)
 		s.NoError(err)
@@ -500,7 +503,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast_bq_2", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -510,7 +513,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_bq_3 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
@@ -523,8 +526,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
+		FlowJobName:      "test_toast_bq_3",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_bq_3": "test_toast_bq_3"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
 	}
@@ -548,20 +551,20 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO e2e_test.test_toast_bq_3(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=2;
-			UPDATE e2e_test.test_toast SET t2='dummy' WHERE id=2;
-			DELETE FROM e2e_test.test_toast WHERE id=1;
-			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			UPDATE e2e_test.test_toast_bq_3 SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_3 SET t1='dummy' WHERE id=2;
+			UPDATE e2e_test.test_toast_bq_3 SET t2='dummy' WHERE id=2;
+			DELETE FROM e2e_test.test_toast_bq_3 WHERE id=1;
+			INSERT INTO e2e_test.test_toast_bq_3(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE e2e_test.test_toast SET k=1 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy1',t2='dummy2' WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy3' WHERE id=3;
-			DELETE FROM e2e_test.test_toast WHERE id=2;
-			DELETE FROM e2e_test.test_toast WHERE id=3;
-			DELETE FROM e2e_test.test_toast WHERE id=2;
+			UPDATE e2e_test.test_toast_bq_3 SET k=1 WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_3 SET t1='dummy1',t2='dummy2' WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_3 SET t1='dummy3' WHERE id=3;
+			DELETE FROM e2e_test.test_toast_bq_3 WHERE id=2;
+			DELETE FROM e2e_test.test_toast_bq_3 WHERE id=3;
+			DELETE FROM e2e_test.test_toast_bq_3 WHERE id=2;
 			END;
 		`)
 		s.NoError(err)
@@ -576,7 +579,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast_bq_3", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -613,7 +616,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_bq_4 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			k int
@@ -625,8 +628,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
+		FlowJobName:      "test_toast_bq_4",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_bq_4": "test_toast_bq_4"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
 	}
@@ -650,15 +653,15 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			INSERT INTO e2e_test.test_toast(t1,k) SELECT random_string(9000),
+			INSERT INTO e2e_test.test_toast_bq_4(t1,k) SELECT random_string(9000),
 			1 FROM generate_series(1,1);
-			UPDATE e2e_test.test_toast SET t1=sub.t1 FROM (SELECT random_string(9000) t1
+			UPDATE e2e_test.test_toast_bq_4 SET t1=sub.t1 FROM (SELECT random_string(9000) t1
 			FROM generate_series(1,1) ) sub WHERE id=1;
-			UPDATE e2e_test.test_toast SET k=2 WHERE id=1;
-			UPDATE e2e_test.test_toast SET k=3 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1=sub.t1 FROM (SELECT random_string(9000) t1
+			UPDATE e2e_test.test_toast_bq_4 SET k=2 WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_4 SET k=3 WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_4 SET t1=sub.t1 FROM (SELECT random_string(9000) t1
 			FROM generate_series(1,1)) sub WHERE id=1;
-			UPDATE e2e_test.test_toast SET k=4 WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_4 SET k=4 WHERE id=1;
 			END;
 		`)
 		s.NoError(err)
@@ -673,7 +676,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast", "id,t1,k")
+	s.compareTableContentsBQ("test_toast_bq_4", "id,t1,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -683,7 +686,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_bq_5 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
@@ -696,8 +699,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": "test_toast"},
+		FlowJobName:      "test_toast_bq_5",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_bq_5": "test_toast_bq_5"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
 	}
@@ -724,11 +727,11 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 		*/
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO e2e_test.test_toast_bq_5(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,1);
-			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=1;
-			UPDATE e2e_test.test_toast SET t2='dummy' WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_5 SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_5 SET t1='dummy' WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_5 SET t2='dummy' WHERE id=1;
 			END;
 		`)
 		s.NoError(err)
@@ -743,7 +746,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast_bq_5", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -753,7 +756,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-	CREATE TABLE e2e_test.test_types(id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
+	CREATE TABLE e2e_test.test_types_bq(id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
 		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
@@ -771,8 +774,8 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_types",
-		TableNameMapping: map[string]string{"e2e_test.test_types": "test_types"},
+		FlowJobName:      "test_types_bq",
+		TableNameMapping: map[string]string{"e2e_test.test_types_bq": "test_types_bq"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
 	}
@@ -795,7 +798,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		/* test inserting various types*/
 		_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO e2e_test.test_types SELECT 2,2,b'1',b'101',
+		INSERT INTO e2e_test.test_types_bq SELECT 2,2,b'1',b'101',
 		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
@@ -818,7 +821,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	noNulls, err := s.bqHelper.CheckNull("test_types", []string{"c41", "c1", "c2", "c3", "c4",
+	noNulls, err := s.bqHelper.CheckNull("test_types_bq", []string{"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
 		"c37", "c38", "c7", "c8", "c32"})
@@ -836,14 +839,14 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-	CREATE TABLE e2e_test.test1(id serial primary key, c1 int, c2 text);
-	CREATE TABLE e2e_test.test2(id serial primary key, c1 int, c2 text);
+	CREATE TABLE e2e_test.test1_bq(id serial primary key, c1 int, c2 text);
+	CREATE TABLE e2e_test.test2_bq(id serial primary key, c1 int, c2 text);
 	`)
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_multi_table",
-		TableNameMapping: map[string]string{"e2e_test.test1": "test1", "e2e_test.test2": "test2"},
+		FlowJobName:      "test_multi_table_bq",
+		TableNameMapping: map[string]string{"e2e_test.test1_bq": "test1_bq", "e2e_test.test2_bq": "test2_bq"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
 	}
@@ -866,8 +869,8 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		/* inserting across multiple tables*/
 		_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO e2e_test.test1(c1,c2) VALUES (1,'dummy_1');
-		INSERT INTO e2e_test.test2(c1,c2) VALUES (-1,'dummy_-1');
+		INSERT INTO e2e_test.test1_bq(c1,c2) VALUES (1,'dummy_1');
+		INSERT INTO e2e_test.test2_bq(c1,c2) VALUES (-1,'dummy_-1');
 		`)
 		s.NoError(err)
 		fmt.Println("Executed an insert with all types")
@@ -879,9 +882,9 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	count1, err := s.bqHelper.CountRows("test1")
+	count1, err := s.bqHelper.CountRows("test1_bq")
 	s.NoError(err)
-	count2, err := s.bqHelper.CountRows("test2")
+	count2, err := s.bqHelper.CountRows("test2_bq")
 	s.NoError(err)
 
 	s.Equal(1, count1)
@@ -897,17 +900,17 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-		CREATE TABLE e2e_test.test_simple_flow (
+		CREATE TABLE e2e_test.test_simple_flow_sf (
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
 			value TEXT NOT NULL
 		);
 	`)
 	s.NoError(err)
-	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_flow")
+	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_flow_sf")
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "test_complete_single_col_flow",
-		TableNameMapping: map[string]string{"e2e_test.test_simple_flow": tableName},
+		TableNameMapping: map[string]string{"e2e_test.test_simple_flow_sf": tableName},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
@@ -933,7 +936,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), `
-			INSERT INTO e2e_test.test_simple_flow (key, value) VALUES ($1, $2)
+			INSERT INTO e2e_test.test_simple_flow_sf (key, value) VALUES ($1, $2)
 		`, testKey, testValue)
 			s.NoError(err)
 		}
@@ -949,7 +952,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	count, err := s.sfHelper.CountRows("test_simple_flow")
+	count, err := s.sfHelper.CountRows("test_simple_flow_sf")
 	s.NoError(err)
 	s.Equal(10, count)
 
@@ -965,7 +968,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_sf_1 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
@@ -977,10 +980,10 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 	`)
 	s.NoError(err)
 
-	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast")
+	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_1")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": tableName},
+		FlowJobName:      "test_toast_sf_1",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_sf_1": tableName},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
@@ -1009,10 +1012,10 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 		*/
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO e2e_test.test_toast_sf_1(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=2;
+			UPDATE e2e_test.test_toast_sf_1 SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_1 SET t1='dummy' WHERE id=2;
 			END;
 		`)
 		s.NoError(err)
@@ -1027,7 +1030,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_1", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -1037,7 +1040,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_sf_2 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
@@ -1049,10 +1052,10 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 	`)
 	s.NoError(err)
 
-	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast")
+	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_2")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": tableName},
+		FlowJobName:      "test_toast_sf_2",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_sf_2": tableName},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
@@ -1076,8 +1079,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 		/* transaction updating no rows */
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=2;
+			UPDATE e2e_test.test_toast_sf_2 SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_2 SET t1='dummy' WHERE id=2;
 			END;
 		`)
 		s.NoError(err)
@@ -1093,7 +1096,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_2", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -1103,7 +1106,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_sf_3 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
@@ -1115,10 +1118,10 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 	`)
 	s.NoError(err)
 
-	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast")
+	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_3")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": tableName},
+		FlowJobName:      "test_toast_sf_3",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_sf_3": tableName},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
@@ -1131,7 +1134,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
 		CatalogJdbcURL: postgresJdbcURL,
-		TotalSyncFlows: 1,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -1142,20 +1145,20 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO e2e_test.test_toast_sf_3(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=2;
-			UPDATE e2e_test.test_toast SET t2='dummy' WHERE id=2;
-			DELETE FROM e2e_test.test_toast WHERE id=1;
-			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			UPDATE e2e_test.test_toast_sf_3 SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_3 SET t1='dummy' WHERE id=2;
+			UPDATE e2e_test.test_toast_sf_3 SET t2='dummy' WHERE id=2;
+			DELETE FROM e2e_test.test_toast_sf_3 WHERE id=1;
+			INSERT INTO e2e_test.test_toast_sf_3(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE e2e_test.test_toast SET k=1 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy1',t2='dummy2' WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy3' WHERE id=3;
-			DELETE FROM e2e_test.test_toast WHERE id=2;
-			DELETE FROM e2e_test.test_toast WHERE id=3;
-			DELETE FROM e2e_test.test_toast WHERE id=2;
+			UPDATE e2e_test.test_toast_sf_3 SET k=1 WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_3 SET t1='dummy1',t2='dummy2' WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_3 SET t1='dummy3' WHERE id=3;
+			DELETE FROM e2e_test.test_toast_sf_3 WHERE id=2;
+			DELETE FROM e2e_test.test_toast_sf_3 WHERE id=3;
+			DELETE FROM e2e_test.test_toast_sf_3 WHERE id=2;
 			END;
 		`)
 		s.NoError(err)
@@ -1170,7 +1173,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_3", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -1180,7 +1183,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_sf_4 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			k int
@@ -1191,10 +1194,10 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 	`)
 	s.NoError(err)
 
-	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast")
+	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_4")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": tableName},
+		FlowJobName:      "test_toast_sf_4",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_sf_4": tableName},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
@@ -1218,15 +1221,15 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			INSERT INTO e2e_test.test_toast(t1,k) SELECT random_string(9000),
+			INSERT INTO e2e_test.test_toast_sf_4(t1,k) SELECT random_string(9000),
 			1 FROM generate_series(1,1);
-			UPDATE e2e_test.test_toast SET t1=sub.t1 FROM (SELECT random_string(9000) t1
+			UPDATE e2e_test.test_toast_sf_4 SET t1=sub.t1 FROM (SELECT random_string(9000) t1
 			FROM generate_series(1,1) ) sub WHERE id=1;
-			UPDATE e2e_test.test_toast SET k=2 WHERE id=1;
-			UPDATE e2e_test.test_toast SET k=3 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1=sub.t1 FROM (SELECT random_string(9000) t1
+			UPDATE e2e_test.test_toast_sf_4 SET k=2 WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_4 SET k=3 WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_4 SET t1=sub.t1 FROM (SELECT random_string(9000) t1
 			FROM generate_series(1,1)) sub WHERE id=1;
-			UPDATE e2e_test.test_toast SET k=4 WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_4 SET k=4 WHERE id=1;
 			END;
 		`)
 		s.NoError(err)
@@ -1241,7 +1244,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast", "id,t1,k")
+	s.compareTableContentsSF("test_toast_sf_4", "id,t1,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -1251,7 +1254,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-		CREATE TABLE e2e_test.test_toast (
+		CREATE TABLE e2e_test.test_toast_sf_5 (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
@@ -1263,10 +1266,10 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 	`)
 	s.NoError(err)
 
-	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast")
+	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_5")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_toast",
-		TableNameMapping: map[string]string{"e2e_test.test_toast": tableName},
+		FlowJobName:      "test_toast_sf_5",
+		TableNameMapping: map[string]string{"e2e_test.test_toast_sf_5": tableName},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
@@ -1293,11 +1296,11 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 		*/
 		_, err = s.pool.Exec(context.Background(), `
 			BEGIN;
-			INSERT INTO e2e_test.test_toast(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO e2e_test.test_toast_sf_5(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,1);
-			UPDATE e2e_test.test_toast SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast SET t1='dummy' WHERE id=1;
-			UPDATE e2e_test.test_toast SET t2='dummy' WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_5 SET k=102 WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_5 SET t1='dummy' WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_5 SET t2='dummy' WHERE id=1;
 			END;
 		`)
 		s.NoError(err)
@@ -1312,7 +1315,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_5", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
 }
 
@@ -1322,7 +1325,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 
 	_, err := s.pool.Exec(context.Background(), `
 
-	CREATE TABLE e2e_test.test_types(id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
+	CREATE TABLE e2e_test.test_types_sf(id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
 		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
@@ -1339,10 +1342,10 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 	`)
 	s.NoError(err)
 
-	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_types")
+	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_types_sf")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_types",
-		TableNameMapping: map[string]string{"e2e_test.test_types": tableName},
+		FlowJobName:      "test_types_sf",
+		TableNameMapping: map[string]string{"e2e_test.test_types_sf": tableName},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
@@ -1365,7 +1368,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		/* test inserting various types*/
 		_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO e2e_test.test_types SELECT 2,2,b'1',b'101',
+		INSERT INTO e2e_test.test_types_sf SELECT 2,2,b'1',b'101',
 		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
@@ -1388,7 +1391,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	noNulls, err := s.sfHelper.CheckNull("test_types", []string{"c41", "c1", "c2", "c3", "c4",
+	noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
 		"c37", "c38", "c7", "c8", "c32"})
@@ -1406,16 +1409,16 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 	registerWorkflowsAndActivities(env)
 
 	_, err := s.pool.Exec(context.Background(), `
-	CREATE TABLE e2e_test.test1(id serial primary key, c1 int, c2 text);
-	CREATE TABLE e2e_test.test2(id serial primary key, c1 int, c2 text);
+	CREATE TABLE e2e_test.test1_sf(id serial primary key, c1 int, c2 text);
+	CREATE TABLE e2e_test.test2_sf(id serial primary key, c1 int, c2 text);
 	`)
 	s.NoError(err)
 
-	table1 := fmt.Sprintf(s.sfHelper.testSchemaName + ".test1")
-	table2 := fmt.Sprintf(s.sfHelper.testSchemaName + ".test2")
+	table1 := fmt.Sprintf(s.sfHelper.testSchemaName + ".test1_sf")
+	table2 := fmt.Sprintf(s.sfHelper.testSchemaName + ".test2_sf")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_multi_table",
-		TableNameMapping: map[string]string{"e2e_test.test1": table1, "e2e_test.test2": table2},
+		FlowJobName:      "test_multi_table_sf",
+		TableNameMapping: map[string]string{"e2e_test.test1_sf": table1, "e2e_test.test2_sf": table2},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,
 	}
@@ -1438,8 +1441,8 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 		s.SetupPeerFlowStatusQuery(env, connectionGen)
 		/* inserting across multiple tables*/
 		_, err = s.pool.Exec(context.Background(), `
-		INSERT INTO e2e_test.test1(c1,c2) VALUES (1,'dummy_1');
-		INSERT INTO e2e_test.test2(c1,c2) VALUES (-1,'dummy_-1');
+		INSERT INTO e2e_test.test1_sf(c1,c2) VALUES (1,'dummy_1');
+		INSERT INTO e2e_test.test2_sf(c1,c2) VALUES (-1,'dummy_-1');
 		`)
 		s.NoError(err)
 		fmt.Println("Executed an insert with all types")
@@ -1451,9 +1454,9 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	count1, err := s.sfHelper.CountRows("test1")
+	count1, err := s.sfHelper.CountRows("test1_sf")
 	s.NoError(err)
-	count2, err := s.sfHelper.CountRows("test1")
+	count2, err := s.sfHelper.CountRows("test2_sf")
 	s.NoError(err)
 
 	s.Equal(1, count1)
