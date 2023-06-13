@@ -34,7 +34,12 @@ docker compose up
 psql "port=9900 host=localhost password=peerdb"
 ```
 
-Detailed documentation available [here](https://docs.peerdb.io).
+
+<img class="img-fluid" src="images/peerdb_getstarted.jpg" alt="img-verification" width="375" height="227">
+
+1. More details on adding PEERs available [here](https://docs.peerdb.io/sql/commands/create-peer)
+2. More details on creating MIRRORs available [here](https://docs.peerdb.io/sql/commands/create-mirror)
+3. Detailed documentation available [here](https://docs.peerdb.io).
 
 ## Why PeerDB
 
