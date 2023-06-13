@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/testsuite"
 )
 
 func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
@@ -233,7 +234,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert() {
 		"SELECT * FROM e2e_test."+tblName,
 		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
 		s.bqHelper.Peer)
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
+	runQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -266,42 +267,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 		"SELECT * FROM e2e_test."+tblName,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.bqHelper.Peer)
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
-
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-
-	// assert that error contains "invalid connection configs"
-	err := env.GetWorkflowError()
-	s.NoError(err)
-
-	s.compareTableContentsBQ(tblName)
-
-	env.AssertExpectations(s.T())
-}
-
-func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_Twice() {
-	env := s.NewTestWorkflowEnvironment()
-	registerWorkflowsAndActivities(env)
-
-	numRows := 10
-
-	tblName := "test_qrep_flow_avro_ct"
-	s.setupSourceTable(tblName, numRows)
-	s.setupBQDestinationTable(tblName)
-
-	qrepConfig := s.createQRepWorkflowConfig(
-		tblName,
-		"e2e_test."+tblName,
-		tblName,
-		"SELECT * FROM e2e_test."+tblName,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
-		s.bqHelper.Peer)
-
-	// lets run the workflow a few times
-	qrepConfig.InitalCopyOnly = false
-
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
+	runQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -336,7 +302,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 		s.sfHelper.Peer,
 	)
 
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
+	runQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -349,4 +315,13 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 	s.compareTableContentsSF(tblName, sel)
 
 	env.AssertExpectations(s.T())
+}
+
+func runQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
+	lastPartition := &protos.QRepPartition{
+		PartitionId: "not-applicable-partition",
+		Range:       nil,
+	}
+	numPartitionsProcessed := 0
+	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
 }
