@@ -7,24 +7,26 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (c *PostgresConnector) GetQRepPartitions(config *protos.QRepConfig,
+func (c *PostgresConnector) GetQRepPartitions(
+	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	// For the table `config.SourceTableIdentifier`
-	// Get the start and end values for each group of rows
-	partitionQuery := fmt.Sprintf(`
-		SELECT MIN(%[1]s) AS Start, MAX(%[1]s) AS End
-		FROM (
-		    SELECT %[1]s, ROW_NUMBER() OVER (ORDER BY %[1]s) as row
-		    FROM %[2]s
-		) sub
-		GROUP BY (row - 1) / %[3]d`,
-		config.WatermarkColumn, config.SourceTableIdentifier, config.RowsPerPartition)
+	partitionQuery, lastEndValue := c.getPartitionQuery(config, last)
 
-	rows, err := c.pool.Query(c.ctx, partitionQuery)
+	var err error
+	var rows pgx.Rows
+	if lastEndValue != nil {
+		log.Infof("[from %v] partition query: %s", lastEndValue, partitionQuery)
+		rows, err = c.pool.Query(c.ctx, partitionQuery, lastEndValue)
+	} else {
+		log.Infof("[first run] partition query: %s", partitionQuery)
+		rows, err = c.pool.Query(c.ctx, partitionQuery)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
@@ -137,4 +139,44 @@ func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
 
 func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
 	panic("SetupQRepMetadataTables not implemented for postgres connector")
+}
+
+func (c *PostgresConnector) getPartitionQuery(
+	config *protos.QRepConfig,
+	last *protos.QRepPartition,
+) (string, interface{}) {
+	var lastEndValue interface{}
+
+	if last != nil && last.Range != nil {
+		// extract end value from the last partition
+		switch lastRange := last.Range.Range.(type) {
+		case *protos.PartitionRange_IntRange:
+			lastEndValue = lastRange.IntRange.End
+		case *protos.PartitionRange_TimestampRange:
+			lastEndValue = lastRange.TimestampRange.End.AsTime()
+		}
+
+		partitionQuery := fmt.Sprintf(`
+			SELECT MIN(%[1]s) AS Start, MAX(%[1]s) AS End
+			FROM (
+				SELECT %[1]s, ROW_NUMBER() OVER (ORDER BY %[1]s) as row
+				FROM %[2]s
+				WHERE %[1]s > $1
+			) sub
+			GROUP BY (row - 1) / %[3]d`,
+			config.WatermarkColumn, config.SourceTableIdentifier, config.RowsPerPartition)
+
+		return partitionQuery, lastEndValue
+	}
+
+	partitionQuery := fmt.Sprintf(`
+		SELECT MIN(%[1]s) AS Start, MAX(%[1]s) AS End
+		FROM (
+			SELECT %[1]s, ROW_NUMBER() OVER (ORDER BY %[1]s) as row
+			FROM %[2]s
+		) sub
+		GROUP BY (row - 1) / %[3]d`,
+		config.WatermarkColumn, config.SourceTableIdentifier, config.RowsPerPartition)
+
+	return partitionQuery, nil
 }

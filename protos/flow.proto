@@ -146,6 +146,10 @@ message QRepConfig {
   QRepSyncMode sync_mode = 9;
 
   uint32 rows_per_partition = 10;
+  uint32 max_parallel_workers = 11;
+
+  // time to wait between getting partitions to process
+  uint32 wait_between_batches_seconds = 12;
 }
 
 message QRepPartition {

@@ -10,9 +10,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/testsuite"
 )
 
-func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) {
+func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
@@ -53,8 +54,9 @@ func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) 
 	s.NoError(err)
 
 	fmt.Printf("created table on postgres: e2e_test.%s\n", tableName)
+}
 
-	// insert rows into the source table
+func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount int) {
 	for i := 0; i < rowCount; i++ {
 		_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test.%s (
@@ -78,6 +80,11 @@ func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) 
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()))
 		s.NoError(err)
 	}
+}
+
+func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) {
+	s.createSourceTable(tableName)
+	s.populateSourceTable(tableName, rowCount)
 }
 
 func getOwnersSchema() *model.QRecordSchema {
@@ -227,7 +234,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert() {
 		"SELECT * FROM e2e_test."+tblName,
 		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
 		s.bqHelper.Peer)
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
+	runQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -260,7 +267,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 		"SELECT * FROM e2e_test."+tblName,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.bqHelper.Peer)
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
+	runQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -295,7 +302,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 		s.sfHelper.Peer,
 	)
 
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
+	runQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -308,4 +315,13 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 	s.compareTableContentsSF(tblName, sel)
 
 	env.AssertExpectations(s.T())
+}
+
+func runQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
+	lastPartition := &protos.QRepPartition{
+		PartitionId: "not-applicable-partition",
+		Range:       nil,
+	}
+	numPartitionsProcessed := 0
+	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
 }
