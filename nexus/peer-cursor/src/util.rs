@@ -37,11 +37,12 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
         Value::Time(t) => builder.encode_field(t),
         Value::TimeWithTimeZone(t) => builder.encode_field(t),
         Value::Timestamp(ts) => builder.encode_field(ts),
+        Value::PostgresTimestamp(pgts) => builder.encode_field(pgts),
         Value::TimestampWithTimeZone(ts) => builder.encode_field(ts),
         Value::Interval(i) => builder.encode_field(i),
         Value::Array(a) => builder.encode_field(a),
-        Value::Json(j) => builder.encode_field(j),
-        Value::JsonB(j) => builder.encode_field(j),
+        Value::Json(j) => builder.encode_field(&j.to_string()),
+        Value::JsonB(j) => builder.encode_field(&j.to_string()),
         Value::Uuid(u) => {
             let s = u.to_string();
             builder.encode_field(&s)
