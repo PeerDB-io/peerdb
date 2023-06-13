@@ -333,7 +333,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_complete_single_col_flow",
+		FlowJobName:      "test_complete_single_col_flow_bq",
 		TableNameMapping: map[string]string{"e2e_test.test_simple_flow_bq": "test_simple_flow_bq"},
 		PostgresPort:     postgresPort,
 		Destination:      s.bqHelper.Peer,
@@ -920,7 +920,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 	s.NoError(err)
 	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_flow_sf")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_complete_single_col_flow",
+		FlowJobName:      "test_complete_single_col_flow_sf",
 		TableNameMapping: map[string]string{"e2e_test.test_simple_flow_sf": tableName},
 		PostgresPort:     postgresPort,
 		Destination:      s.sfHelper.Peer,

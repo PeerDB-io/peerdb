@@ -57,7 +57,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 1 ./...
+          gotestsum --format testname -- -p 3 ./...
         working-directory: ./flow
         env:
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
