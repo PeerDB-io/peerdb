@@ -30,7 +30,7 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig) *QRep
 
 // SetupMetadataTables creates the metadata tables for query based replication.
 func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
-	q.logger.Info("setting up metadata tables for peer flow - ", q.config.FlowJobName)
+	q.logger.Info("setting up metadata tables for qrep flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Minute,
@@ -40,12 +40,13 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 
-	q.logger.Info("metadata tables setup for peer flow - ", q.config.FlowJobName)
+	q.logger.Info("metadata tables setup for qrep flow - ", q.config.FlowJobName)
 	return nil
 }
 
 // GetPartitions returns the partitions to replicate.
-func (q *QRepFlowExecution) GetPartitions(ctx workflow.Context,
+func (q *QRepFlowExecution) GetPartitions(
+	ctx workflow.Context,
 	last *protos.QRepPartition,
 ) (*protos.QRepParitionResult, error) {
 	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
@@ -98,8 +99,6 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 	return childWorkflowID, nil
 }
 
-const maxParallelism = 64
-
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
 	ctx workflow.Context,
@@ -120,12 +119,16 @@ func (q *QRepFlowExecution) startChildWorkflow(
 }
 
 // processPartitions handles the logic for processing the partitions.
-func (q *QRepFlowExecution) processPartitions(ctx workflow.Context, partitions []*protos.QRepPartition) error {
+func (q *QRepFlowExecution) processPartitions(
+	ctx workflow.Context,
+	maxParallelWorkers int,
+	partitions []*protos.QRepPartition,
+) error {
 	futures := make(map[workflow.Future]struct{})
 	sel := workflow.NewSelector(ctx)
 
 	for _, partition := range partitions {
-		for len(futures) >= maxParallelism {
+		for len(futures) >= maxParallelWorkers {
 			sel.Select(ctx) // waits until one of the futures is ready
 		}
 
@@ -145,56 +148,109 @@ func (q *QRepFlowExecution) processPartitions(ctx workflow.Context, partitions [
 		sel.Select(ctx)
 	}
 
+	q.logger.Info("all partitions in batch processed")
+
 	return nil
 }
 
-func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
+func QRepFlowWorkflow(
+	ctx workflow.Context,
+	config *protos.QRepConfig,
+	lastPartition *protos.QRepPartition,
+	numPartitionsProcessed int,
+) error {
 	// The structure of this workflow is as follows:
 	//   1. Start the loop to continuously run the replication flow.
 	//   2. In the loop, query the source database to get the partitions to replicate.
 	//   3. For each partition, start a new workflow to replicate the partition.
 	//	 4. Wait for all the workflows to complete.
 	//   5. Sleep for a while and repeat the loop.
+	logger := workflow.GetLogger(ctx)
 
 	if config.RowsPerPartition == 0 {
-		fmt.Printf("RowsPerPartition is not set. Defaulting to 10000.\n")
+		logger.Info("RowsPerPartition is not set. Defaulting to 10000.")
 		config.RowsPerPartition = 10000
 	}
 
-	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-application-partition",
-		Range:       nil,
+	maxParallelWorkers := 16
+	if config.MaxParallelWorkers > 0 {
+		maxParallelWorkers = int(config.MaxParallelWorkers)
+	}
+
+	waitBetweenBatches := 5 * time.Second
+	if config.WaitBetweenBatchesSeconds > 0 {
+		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
+	}
+
+	// register a signal handler to terminate the workflow
+	terminateWorkflow := false
+	signalChan := workflow.GetSignalChannel(ctx, "terminate")
+
+	s := workflow.NewSelector(ctx)
+	s.AddReceive(signalChan, func(c workflow.ReceiveChannel, _ bool) {
+		var signal string
+		c.Receive(ctx, &signal)
+		logger.Info("Received signal to terminate workflow", "Signal", signal)
+		terminateWorkflow = true
+	})
+
+	// register a query to get the number of partitions processed
+	err := workflow.SetQueryHandler(ctx, "num-partitions-processed", func() (int, error) {
+		return numPartitionsProcessed, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register query handler: %w", err)
 	}
 
 	q := NewQRepFlowExecution(ctx, config)
 
-	err := q.SetupMetadataTables(ctx)
+	err = q.SetupMetadataTables(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
+	q.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
 
-	for {
-		partitions, err := q.GetPartitions(ctx, lastPartition)
-		if err != nil {
-			return fmt.Errorf("failed to get partitions: %w", err)
-		}
-
-		if err = q.processPartitions(ctx, partitions.Partitions); err != nil {
-			return err
-		}
-
-		if config.InitalCopyOnly {
-			q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
-			break
-		}
-
-		// TODO (important): update the last partition
-
-		// sleep for a while and repeat the loop
-		time.Sleep(5 * time.Second)
+	logger.Info("fetching partitions to replicate for peer flow - ", config.FlowJobName)
+	partitions, err := q.GetPartitions(ctx, lastPartition)
+	if err != nil {
+		return fmt.Errorf("failed to get partitions: %w", err)
 	}
 
-	return nil
+	logger.Info("partitions to replicate - ", len(partitions.Partitions))
+	if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
+		return err
+	}
+
+	if config.InitalCopyOnly {
+		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		return nil
+	}
+
+	q.logger.Info("partitions processed - ", len(partitions.Partitions))
+	numPartitionsProcessed += len(partitions.Partitions)
+
+	if len(partitions.Partitions) > 0 {
+		lastPartition = partitions.Partitions[len(partitions.Partitions)-1]
+	}
+
+	s.Select(ctx)
+	if terminateWorkflow {
+		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		return nil
+	}
+
+	// sleep for a while and continue the workflow
+	err = workflow.Sleep(ctx, waitBetweenBatches)
+	if err != nil {
+		return fmt.Errorf("failed to sleep: %w", err)
+	}
+
+	workflow.GetLogger(ctx).Info("Continuing as new workflow",
+		"Last Partition", lastPartition,
+		"Number of Partitions Processed", numPartitionsProcessed)
+
+	// Continue the workflow with new state
+	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
 }
 
 // QRepPartitionWorkflow replicate a single partition.

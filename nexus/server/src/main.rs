@@ -177,10 +177,7 @@ impl NexusBackend {
                         .await
                         .map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
-                                err_msg: format!(
-                                    "unable to create mirror job entry: {:?}",
-                                    err
-                                ),
+                                err_msg: format!("unable to create mirror job entry: {:?}", err),
                             }))
                         })?;
 
@@ -191,10 +188,7 @@ impl NexusBackend {
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
-                                    err_msg: format!(
-                                        "unable to submit job: {:?}",
-                                        err
-                                    ),
+                                    err_msg: format!("unable to submit job: {:?}", err),
                                 }))
                             })?;
 
@@ -203,10 +197,7 @@ impl NexusBackend {
                         .await
                         .map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
-                                err_msg: format!(
-                                    "unable to save job metadata: {:?}",
-                                    err
-                                ),
+                                err_msg: format!("unable to save job metadata: {:?}", err),
                             }))
                         })?;
                     let create_mirror_success = format!("CREATE MIRROR {}", flow_job.name);
@@ -239,10 +230,7 @@ impl NexusBackend {
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
-                                    err_msg: format!(
-                                        "unable to shutdown flow job: {:?}",
-                                        err
-                                    ),
+                                    err_msg: format!("unable to shutdown flow job: {:?}", err),
                                 }))
                             })?;
                         catalog

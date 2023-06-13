@@ -98,7 +98,11 @@ impl FlowHandler {
         format!("{}/health", flow_server_addr)
     }
 
-    pub async fn shutdown_flow_job(&self, flow_job_name: &str, workflow_id: &str) -> anyhow::Result<()> {
+    pub async fn shutdown_flow_job(
+        &self,
+        flow_job_name: &str,
+        workflow_id: &str,
+    ) -> anyhow::Result<()> {
         let flow_server_addr = match self.flow_server_addr.as_ref() {
             Some(addr) => addr,
             None => {
@@ -119,9 +123,11 @@ impl FlowHandler {
             .post(&shutdown_flow_endpoint)
             .json(&job_req)
             .send()
-            .await.context("failed to receive response for shutdown request")?
+            .await
+            .context("failed to receive response for shutdown request")?
             .json()
-            .await.context("failed to parse response data from shutdown request")?;
+            .await
+            .context("failed to parse response data from shutdown request")?;
         if response["status"] != "ok" {
             let err = format!("failed to shutdown flow job: {:?}", response);
             tracing::error!(err);

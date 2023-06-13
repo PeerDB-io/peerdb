@@ -1,6 +1,6 @@
 use array::ArrayValue;
 use bytes::Bytes;
-use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -27,11 +27,12 @@ pub enum Value {
     Time(NaiveTime),
     TimeWithTimeZone(NaiveTime),
     Timestamp(DateTime<Utc>),
+    PostgresTimestamp(NaiveDateTime),
     TimestampWithTimeZone(DateTime<Utc>),
     Interval(i64),
     Array(ArrayValue),
-    Json(String),
-    JsonB(String),
+    Json(serde_json::Value),
+    JsonB(serde_json::Value),
     Uuid(Uuid),
     Enum(String),
     Hstore(HashMap<String, String>),
@@ -112,6 +113,10 @@ impl Value {
         Value::Timestamp(value)
     }
 
+    pub fn postgres_timestamp(value: NaiveDateTime) -> Self {
+        Value::PostgresTimestamp(value)
+    }
+
     pub fn timestamp_with_time_zone(value: DateTime<Utc>) -> Self {
         Value::TimestampWithTimeZone(value)
     }
@@ -124,11 +129,11 @@ impl Value {
         Value::Array(value)
     }
 
-    pub fn json(value: String) -> Self {
+    pub fn json(value: serde_json::Value) -> Self {
         Value::Json(value)
     }
 
-    pub fn jsonb(value: String) -> Self {
+    pub fn jsonb(value: serde_json::Value) -> Self {
         Value::JsonB(value)
     }
 
@@ -228,12 +233,13 @@ impl Value {
             Value::Date(d) => serde_json::Value::String(d.to_string()),
             Value::Time(t) => serde_json::Value::String(t.to_string()),
             Value::TimeWithTimeZone(t) => serde_json::Value::String(t.to_string()),
+            Value::PostgresTimestamp(t) => serde_json::Value::String(t.to_string()),
             Value::Timestamp(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::TimestampWithTimeZone(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::Interval(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
             Value::Array(arr) => arr.to_serde_json_value(),
-            Value::Json(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
-            Value::JsonB(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::Null),
+            Value::Json(s) => s.clone(),
+            Value::JsonB(s) => s.clone(),
             Value::Uuid(u) => serde_json::Value::String(u.to_string()),
             Value::Enum(s) => serde_json::Value::String(s.clone()),
             Value::Hstore(map) => {
