@@ -84,15 +84,14 @@ impl PostgresQueryExecutor {
 impl QueryExecutor for PostgresQueryExecutor {
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
+        let ast = ast::PostgresAst {
+            peername: self.peername.clone(),
+        };
         // if the query is a select statement, we need to fetch the rows
         // and return them as a QueryOutput::Stream, else we return the
         // number of affected rows.
         match stmt {
             Statement::Query(query) => {
-                let ast = ast::PostgresAst {
-                    peername: self.peername.clone(),
-                };
-
                 let mut query = query.clone();
                 ast.rewrite_query(&mut query);
                 let rewritten_query = query.to_string();
@@ -132,18 +131,20 @@ impl QueryExecutor for PostgresQueryExecutor {
                 Ok(QueryOutput::Stream(Box::pin(cursor)))
             }
             _ => {
-                let ast = ast::PostgresAst {
-                    peername: self.peername.clone(),
-                };
                 let mut rewritten_stmt = stmt.clone();
                 ast.rewrite_statement(&mut rewritten_stmt);
-                let query_str = rewritten_stmt.to_string();
-                let rows_affected = self.client.execute(&query_str, &[]).await.map_err(|e| {
-                    tracing::error!("error executing query: {}", e);
-                    PgWireError::ApiError(Box::new(PgError::Internal {
-                        err_msg: format!("error executing query: {}", e),
-                    }))
-                })?;
+                let rewritten_query = rewritten_stmt.to_string();
+                tracing::info!("[peer-postgres] rewritten statement: {}", rewritten_query);
+                let rows_affected =
+                    self.client
+                        .execute(&rewritten_query, &[])
+                        .await
+                        .map_err(|e| {
+                            tracing::error!("error executing query: {}", e);
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("error executing query: {}", e),
+                            }))
+                        })?;
                 Ok(QueryOutput::AffectedRows(rows_affected as usize))
             }
         }
