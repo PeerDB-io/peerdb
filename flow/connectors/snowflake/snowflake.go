@@ -402,7 +402,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				matchData:             "",
 				batchID:               syncBatchID,
 				items:                 typedRecord.Items,
-				unchangedToastColumns: strings.ToUpper(strings.Join(typedRecord.UnchangedToastColumns, ", ")),
+				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 		case *model.UpdateRecord:
 			newItemsJSON, err := json.Marshal(typedRecord.NewItems)
@@ -424,7 +424,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				matchData:             string(oldItemsJSON),
 				batchID:               syncBatchID,
 				items:                 typedRecord.NewItems,
-				unchangedToastColumns: strings.ToUpper(strings.Join(typedRecord.UnchangedToastColumns, ", ")),
+				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 		case *model.DeleteRecord:
 			itemsJSON, err := json.Marshal(typedRecord.Items)
@@ -442,7 +442,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				matchData:             string(itemsJSON),
 				batchID:               syncBatchID,
 				items:                 typedRecord.Items,
-				unchangedToastColumns: strings.ToUpper(strings.Join(typedRecord.UnchangedToastColumns, ", ")),
+				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
@@ -723,7 +723,7 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sour
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
 			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s PRIMARY KEY,",
-				strings.ToUpper(columnName), getSnowflakeTypeForGenericColumnType(genericColumnType)))
+				columnName, getSnowflakeTypeForGenericColumnType(genericColumnType)))
 		} else {
 			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s,", columnName,
 				getSnowflakeTypeForGenericColumnType(genericColumnType)))
@@ -770,7 +770,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName := range normalizedTableSchema.Columns {
-		columnNames = append(columnNames, strings.ToUpper(columnName))
+		columnNames = append(columnNames, columnName)
 	}
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
@@ -808,7 +808,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
-		strings.ToUpper(normalizedTableSchema.PrimaryKeyColumn), insertColumnsSQL, insertValuesSQL,
+		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL,
 		updateStringToastCols)
 
 	_, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)

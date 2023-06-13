@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sort"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -205,7 +204,7 @@ func (p *PostgresCDCSource) consumeStream(
 						for col, val := range oldRec.GetItems() {
 							if _, ok := r.NewItems[col]; !ok {
 								r.NewItems[col] = val
-								r.UnchangedToastColumns = removeValueFromArray(r.UnchangedToastColumns, col)
+								delete(r.UnchangedToastColumns, col)
 							}
 						}
 						result.Records = append(result.Records, rec)
@@ -230,16 +229,6 @@ func (p *PostgresCDCSource) consumeStream(
 			clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
 		}
 	}
-}
-
-func removeValueFromArray(arr []string, value string) []string {
-	result := make([]string, 0)
-	for _, v := range arr {
-		if v != value {
-			result = append(result, v)
-		}
-	}
-	return result
 }
 
 func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogrepl.XLogData) (model.Record, error) {
@@ -394,15 +383,15 @@ It takes a tuple and a relation message as input and returns
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
-) (map[string]interface{}, []string, error) {
+) (map[string]interface{}, map[string]bool, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return make(map[string]interface{}), make([]string, 0), nil
+		return make(map[string]interface{}), make(map[string]bool), nil
 	}
 
 	// create empty map of string to interface{}
 	items := make(map[string]interface{})
-	var unchangeToastColumns []string
+	unchangeToastColumns := make(map[string]bool)
 
 	for idx, col := range tuple.Columns {
 		colName := rel.Columns[idx].Name
@@ -423,12 +412,11 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			}
 			items[colName] = data
 		case 'u': // unchanged toast
-			unchangeToastColumns = append(unchangeToastColumns, colName)
+			unchangeToastColumns[colName] = true
 		default:
 			return nil, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
 		}
 	}
-	sort.Strings(unchangeToastColumns)
 	return items, unchangeToastColumns, nil
 }
 

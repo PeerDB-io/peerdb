@@ -46,7 +46,7 @@ type InsertRecord struct {
 	// Items is a map of column name to value.
 	Items map[string]interface{}
 	// unchanged toast columns
-	UnchangedToastColumns []string
+	UnchangedToastColumns map[string]bool
 }
 
 // Implement Record interface for InsertRecord.
@@ -74,7 +74,7 @@ type UpdateRecord struct {
 	// NewItems is a map of column name to value.
 	NewItems map[string]interface{}
 	// unchanged toast columns
-	UnchangedToastColumns []string
+	UnchangedToastColumns map[string]bool
 }
 
 // Implement Record interface for UpdateRecord.
@@ -101,7 +101,7 @@ type DeleteRecord struct {
 	// Items is a map of column name to value.
 	Items map[string]interface{}
 	// unchanged toast columns
-	UnchangedToastColumns []string
+	UnchangedToastColumns map[string]bool
 }
 
 // Implement Record interface for DeleteRecord.
