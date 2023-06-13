@@ -15,6 +15,8 @@ jobs:
         image: debezium/postgres:14-alpine
         ports:
           - 7132:5432
+        volumes:
+          - ./custom-postgres.conf:/etc/postgresql/postgresql.conf
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -24,12 +26,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        command:
-            [
-              "postgres",
-               "-c",
-              "max_replication_slots=64"
-            ]
     steps:
       - name: checkout sources
         uses: actions/checkout@v3
