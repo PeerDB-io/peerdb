@@ -19,8 +19,6 @@ type PullRecordsRequest struct {
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
 	TableNameMapping map[string]string
-	// unchanged toast columns
-	UnchangedToastColumns []string
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 }
