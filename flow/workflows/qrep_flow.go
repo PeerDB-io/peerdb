@@ -45,7 +45,8 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 }
 
 // GetPartitions returns the partitions to replicate.
-func (q *QRepFlowExecution) GetPartitions(ctx workflow.Context,
+func (q *QRepFlowExecution) GetPartitions(
+	ctx workflow.Context,
 	last *protos.QRepPartition,
 ) (*protos.QRepParitionResult, error) {
 	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
@@ -98,8 +99,6 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 	return childWorkflowID, nil
 }
 
-const maxParallelism = 64
-
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
 	ctx workflow.Context,
@@ -120,12 +119,16 @@ func (q *QRepFlowExecution) startChildWorkflow(
 }
 
 // processPartitions handles the logic for processing the partitions.
-func (q *QRepFlowExecution) processPartitions(ctx workflow.Context, partitions []*protos.QRepPartition) error {
+func (q *QRepFlowExecution) processPartitions(
+	ctx workflow.Context,
+	maxParallelWorkers int,
+	partitions []*protos.QRepPartition,
+) error {
 	futures := make(map[workflow.Future]struct{})
 	sel := workflow.NewSelector(ctx)
 
 	for _, partition := range partitions {
-		for len(futures) >= maxParallelism {
+		for len(futures) >= maxParallelWorkers {
 			sel.Select(ctx) // waits until one of the futures is ready
 		}
 
@@ -162,8 +165,18 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 	}
 
 	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-application-partition",
+		PartitionId: "not-applicable-partition",
 		Range:       nil,
+	}
+
+	maxParallelWorkers := 16
+	if config.MaxParallelWorkers > 0 {
+		maxParallelWorkers = int(config.MaxParallelWorkers)
+	}
+
+	waitBetweenBatches := 5 * time.Second
+	if config.WaitBetweenBatchesSeconds > 0 {
+		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
 	}
 
 	q := NewQRepFlowExecution(ctx, config)
@@ -179,7 +192,7 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 			return fmt.Errorf("failed to get partitions: %w", err)
 		}
 
-		if err = q.processPartitions(ctx, partitions.Partitions); err != nil {
+		if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
 			return err
 		}
 
@@ -188,10 +201,12 @@ func QRepFlowWorkflow(ctx workflow.Context, config *protos.QRepConfig) error {
 			break
 		}
 
-		// TODO (important): update the last partition
+		if len(partitions.Partitions) > 0 {
+			lastPartition = partitions.Partitions[len(partitions.Partitions)-1]
+		}
 
 		// sleep for a while and repeat the loop
-		time.Sleep(5 * time.Second)
+		time.Sleep(waitBetweenBatches)
 	}
 
 	return nil

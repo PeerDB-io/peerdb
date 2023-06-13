@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) {
+func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
@@ -53,8 +53,9 @@ func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) 
 	s.NoError(err)
 
 	fmt.Printf("created table on postgres: e2e_test.%s\n", tableName)
+}
 
-	// insert rows into the source table
+func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount int) {
 	for i := 0; i < rowCount; i++ {
 		_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test.%s (
@@ -78,6 +79,11 @@ func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) 
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()))
 		s.NoError(err)
 	}
+}
+
+func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) {
+	s.createSourceTable(tableName)
+	s.populateSourceTable(tableName, rowCount)
 }
 
 func getOwnersSchema() *model.QRecordSchema {
@@ -260,6 +266,41 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 		"SELECT * FROM e2e_test."+tblName,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.bqHelper.Peer)
+	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	// assert that error contains "invalid connection configs"
+	err := env.GetWorkflowError()
+	s.NoError(err)
+
+	s.compareTableContentsBQ(tblName)
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_Twice() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	numRows := 10
+
+	tblName := "test_qrep_flow_avro_ct"
+	s.setupSourceTable(tblName, numRows)
+	s.setupBQDestinationTable(tblName)
+
+	qrepConfig := s.createQRepWorkflowConfig(
+		tblName,
+		"e2e_test."+tblName,
+		tblName,
+		"SELECT * FROM e2e_test."+tblName,
+		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		s.bqHelper.Peer)
+
+	// lets run the workflow a few times
+	qrepConfig.InitalCopyOnly = false
+
 	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, qrepConfig)
 
 	// Verify workflow completes without error
