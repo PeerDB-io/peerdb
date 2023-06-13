@@ -86,6 +86,10 @@ func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
 	return s.client.CountRows(s.testSchemaName, tableName)
 }
 
+func (s *SnowflakeTestHelper) CheckNull(tableName string, colNames []string) (bool, error) {
+	return s.client.CheckNull(s.testSchemaName, tableName, colNames)
+}
+
 func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
 	return s.client.ExecuteAndProcessQuery(query)
 }

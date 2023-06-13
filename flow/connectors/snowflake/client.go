@@ -153,6 +153,26 @@ func (s *SnowflakeClient) CountRows(schema string, tableName string) (int, error
 	return count, nil
 }
 
+/*
+if the function errors or there are nulls, the function returns false
+else true
+*/
+func (s *SnowflakeClient) CheckNull(schema string, tableName string, colNames []string) (bool, error) {
+	var count int
+	joinedString := strings.Join(colNames, " is null or ") + " is null"
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s WHERE %s",
+		schema, tableName, joinedString)
+
+	err := s.conn.GetContext(s.ctx, &count, query)
+	if err != nil {
+		return false, fmt.Errorf("failed to run command: %w", err)
+	}
+	if count > 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
 func toQValue(kind model.QValueKind, val interface{}) (model.QValue, error) {
 	switch kind {
 	case model.QValueKindInt32:

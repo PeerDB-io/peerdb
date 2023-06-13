@@ -342,6 +342,44 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 	}, nil
 }
 
+/*
+if the function errors or there are nulls, the function returns false
+else true
+*/
+func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool, error) {
+	if len(ColName) == 0 {
+		return true, nil
+	}
+	joinedString := strings.Join(ColName, " is null or ") + " is null"
+	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s` WHERE %s",
+		b.Config.DatasetId, tableName, joinedString)
+	it, err := b.client.Query(command).Read(context.Background())
+	if err != nil {
+		return false, fmt.Errorf("failed to run command: %w", err)
+	}
+
+	var row []bigquery.Value
+	for {
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return false, fmt.Errorf("failed to iterate over query results: %w", err)
+		}
+	}
+
+	cntI64, ok := row[0].(int64)
+	if !ok {
+		return false, fmt.Errorf("failed to convert row count to int64")
+	}
+	if cntI64 > 0 {
+		return false, nil
+	} else {
+		return true, nil
+	}
+}
+
 func qValueKindToBqColTypeString(val model.QValueKind) (string, error) {
 	switch val {
 	case model.QValueKindInt32:

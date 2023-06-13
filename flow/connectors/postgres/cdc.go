@@ -108,7 +108,8 @@ func (p *PostgresCDCSource) consumeStream(
 	// TODO (kaushik): take into consideration the MaxBatchSize
 	// parameters in the original request.
 	result := &model.RecordBatch{
-		Records: make([]model.Record, 0),
+		Records:           make([]model.Record, 0),
+		TablePKeyLastSeen: make(map[model.TableWithPkey]int),
 	}
 
 	standbyMessageTimeout := req.IdleTimeout
@@ -180,11 +181,49 @@ func (p *PostgresCDCSource) consumeStream(
 				firstProcessed = true
 				result.FirstCheckPointID = int64(xld.WALStart)
 			}
-
 			if rec != nil {
-				result.Records = append(result.Records, rec)
+				tableName := rec.GetTableName()
+				switch r := rec.(type) {
+				case *model.UpdateRecord:
+					// tableName here is destination tableName.
+					// should be ideally sourceTableName as we are in pullRecrods.
+					// will change in future
+					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+					pkeyColVal := rec.GetItems()[pkeyCol]
+					tablePkeyVal := model.TableWithPkey{
+						TableName:  tableName,
+						PkeyColVal: pkeyColVal,
+					}
+					_, ok := result.TablePKeyLastSeen[tablePkeyVal]
+					if !ok {
+						result.Records = append(result.Records, rec)
+						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
+					} else {
+						oldRec := result.Records[result.TablePKeyLastSeen[tablePkeyVal]]
+						// iterate through unchanged toast cols and set them
+						for col, val := range oldRec.GetItems() {
+							if _, ok := r.NewItems[col]; !ok {
+								r.NewItems[col] = val
+								delete(r.UnchangedToastColumns, col)
+							}
+						}
+						result.Records = append(result.Records, rec)
+						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
+					}
+				case *model.InsertRecord:
+					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+					pkeyColVal := rec.GetItems()[pkeyCol]
+					tablePkeyVal := model.TableWithPkey{
+						TableName:  tableName,
+						PkeyColVal: pkeyColVal,
+					}
+					result.Records = append(result.Records, rec)
+					// all columns will be set in insert record, so add it to the map
+					result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
+				case *model.DeleteRecord:
+					result.Records = append(result.Records, rec)
+				}
 			}
-
 			result.LastCheckPointID = int64(xld.WALStart)
 
 			clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
@@ -246,15 +285,17 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// create empty map of string to interface{}
-	items, err := p.convertTupleToMap(msg.Tuple, rel)
+	items, unchangedToastColumns, err := p.convertTupleToMap(msg.Tuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.InsertRecord{
-		CheckPointID:         int64(lsn),
-		Items:                items,
-		DestinationTableName: p.TableNameMapping[tableName],
+		CheckPointID:          int64(lsn),
+		Items:                 items,
+		DestinationTableName:  p.TableNameMapping[tableName],
+		SourceTableName:       tableName,
+		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
 
@@ -278,21 +319,23 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	// create empty map of string to interface{}
-	oldItems, err := p.convertTupleToMap(msg.OldTuple, rel)
+	oldItems, _, err := p.convertTupleToMap(msg.OldTuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting old tuple to map: %w", err)
 	}
 
-	newItems, err := p.convertTupleToMap(msg.NewTuple, rel)
+	newItems, unchangedToastColumns, err := p.convertTupleToMap(msg.NewTuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
 	}
 
 	return &model.UpdateRecord{
-		CheckPointID:         int64(lsn),
-		OldItems:             oldItems,
-		NewItems:             newItems,
-		DestinationTableName: p.TableNameMapping[tableName],
+		CheckPointID:          int64(lsn),
+		OldItems:              oldItems,
+		NewItems:              newItems,
+		DestinationTableName:  p.TableNameMapping[tableName],
+		SourceTableName:       tableName,
+		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
 
@@ -316,30 +359,40 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	// create empty map of string to interface{}
-	items, err := p.convertTupleToMap(msg.OldTuple, rel)
+	items, unchangedToastColumns, err := p.convertTupleToMap(msg.OldTuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.DeleteRecord{
-		CheckPointID:         int64(lsn),
-		Items:                items,
-		DestinationTableName: p.TableNameMapping[tableName],
+		CheckPointID:          int64(lsn),
+		Items:                 items,
+		DestinationTableName:  p.TableNameMapping[tableName],
+		SourceTableName:       tableName,
+		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
 
-// convertTupleToMap converts a tuple to a map of column name to value
+/*
+convertTupleToMap converts a PostgreSQL logical replication
+tuple to a map representation.
+It takes a tuple and a relation message as input and returns
+1. a map of column names to values and
+2. a string slice of unchanged TOAST column names
+*/
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
-) (map[string]interface{}, error) {
+) (map[string]interface{}, map[string]bool, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return make(map[string]interface{}), nil
+		return make(map[string]interface{}), make(map[string]bool), nil
 	}
 
 	// create empty map of string to interface{}
 	items := make(map[string]interface{})
+	unchangeToastColumns := make(map[string]bool)
+
 	for idx, col := range tuple.Columns {
 		colName := rel.Columns[idx].Name
 		switch col.DataType {
@@ -349,28 +402,22 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			/* bytea also appears here as a hex */
 			data, err := p.decodeTextColumnData(col.Data, rel.Columns[idx].DataType)
 			if err != nil {
-				return nil, fmt.Errorf("error decoding text column data: %w", err)
+				return nil, nil, fmt.Errorf("error decoding text column data: %w", err)
 			}
 			items[colName] = data
 		case 'b': // binary
 			data, err := p.decodeBinaryColumnData(col.Data, rel.Columns[idx].DataType)
 			if err != nil {
-				return nil, fmt.Errorf("error decoding binary column data: %w", err)
+				return nil, nil, fmt.Errorf("error decoding binary column data: %w", err)
 			}
 			items[colName] = data
 		case 'u': // unchanged toast
-			// This TOAST value was not changed. TOAST values are not stored in the tuple,
-			// and logical replication doesn't want to spend a disk read to fetch its value for you.
-			// Instead, it sends a placeholder value of the form 'u<toast_oid>' and you are expected
-			// to fetch the value yourself.
-
-			// TODO (kaushik): support TOAST values
+			unchangeToastColumns[colName] = true
 		default:
-			return nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
+			return nil, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
 		}
 	}
-
-	return items, nil
+	return items, unchangeToastColumns, nil
 }
 
 func (p *PostgresCDCSource) decodeTextColumnData(data []byte, dataType uint32) (interface{}, error) {
