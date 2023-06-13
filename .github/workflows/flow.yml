@@ -24,12 +24,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        command:
-            [
-              "postgres",
-               "-c",
-              "max_replication_slots=64"
-            ]
     steps:
       - name: checkout sources
         uses: actions/checkout@v3
@@ -63,7 +57,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname
+          gotestsum --format testname -- -p 1 ./...
         working-directory: ./flow
         env:
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json

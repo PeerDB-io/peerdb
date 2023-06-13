@@ -176,6 +176,17 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 	}
 }
 
+func (s *E2EPeerFlowTestSuite) TearDownTest() {
+	// clear all replication slots
+	_, err := s.pool.Exec(
+		context.Background(),
+		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots",
+	)
+	if err != nil {
+		s.Fail("failed to drop replication slots", err)
+	}
+}
+
 func registerWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	// set a 300 second timeout for the workflow to execute a few runs.
 	env.SetTestTimeout(300 * time.Second)
