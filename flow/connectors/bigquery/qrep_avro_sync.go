@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
 )
@@ -65,7 +66,13 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 
 	// Write each QRecord to the OCF file
 	for _, qRecord := range records.Records {
-		avroMap, err := qRecord.ToAvroCompatibleMap(model.QDBTypeBigQuery, &nullable, records.Schema.GetColumnNames())
+		avroConverter := model.NewQRecordAvroConverter(
+			qRecord,
+			qvalue.QDWHTypeBigQuery,
+			&nullable,
+			records.Schema.GetColumnNames(),
+		)
+		avroMap, err := avroConverter.Convert()
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}

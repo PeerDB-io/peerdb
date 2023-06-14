@@ -114,8 +114,8 @@ impl FlowHandler {
 
         let mut job_req = HashMap::new();
         // these two should refer to the same job for shutdown to work
-        job_req.insert("flow_job_name", flow_job_name.clone());
-        job_req.insert("workflow_id", workflow_id.clone());
+        job_req.insert("flow_job_name", flow_job_name.to_string());
+        job_req.insert("workflow_id", workflow_id.to_string());
 
         let shutdown_flow_endpoint = format!("{}/flows/shutdown", flow_server_addr);
         let response: serde_json::Value = self

@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
@@ -64,7 +65,13 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 
 	// Write each QRecord to the OCF file
 	for _, qRecord := range records.Records {
-		avroMap, err := qRecord.ToAvroCompatibleMap(model.QDBTypeSnowflake, &avroSchema.NullableFields, colNames)
+		avroConverter := model.NewQRecordAvroConverter(
+			qRecord,
+			qvalue.QDWHTypeSnowflake,
+			&avroSchema.NullableFields,
+			colNames,
+		)
+		avroMap, err := avroConverter.Convert()
 		if err != nil {
 			log.Errorf("failed to convert QRecord to Avro compatible map: %v", err)
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)

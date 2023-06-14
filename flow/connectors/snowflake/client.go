@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 )
 
@@ -173,87 +174,87 @@ func (s *SnowflakeClient) CheckNull(schema string, tableName string, colNames []
 	return true, nil
 }
 
-func toQValue(kind model.QValueKind, val interface{}) (model.QValue, error) {
+func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	switch kind {
-	case model.QValueKindInt32:
+	case qvalue.QValueKindInt32:
 		if v, ok := val.(*int); ok && v != nil {
-			return model.QValue{Kind: model.QValueKindInt32, Value: *v}, nil
+			return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: *v}, nil
 		}
-	case model.QValueKindInt64:
+	case qvalue.QValueKindInt64:
 		if v, ok := val.(*int64); ok && v != nil {
-			return model.QValue{Kind: model.QValueKindInt64, Value: *v}, nil
+			return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: *v}, nil
 		}
-	case model.QValueKindFloat32:
+	case qvalue.QValueKindFloat32:
 		if v, ok := val.(*float32); ok && v != nil {
-			return model.QValue{Kind: model.QValueKindFloat32, Value: *v}, nil
+			return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: *v}, nil
 		}
-	case model.QValueKindFloat64:
+	case qvalue.QValueKindFloat64:
 		if v, ok := val.(*float64); ok && v != nil {
-			return model.QValue{Kind: model.QValueKindFloat64, Value: *v}, nil
+			return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: *v}, nil
 		}
-	case model.QValueKindString:
+	case qvalue.QValueKindString:
 		if v, ok := val.(*string); ok && v != nil {
-			return model.QValue{Kind: model.QValueKindString, Value: *v}, nil
+			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: *v}, nil
 		}
-	case model.QValueKindBoolean:
+	case qvalue.QValueKindBoolean:
 		if v, ok := val.(*bool); ok && v != nil {
-			return model.QValue{Kind: model.QValueKindBoolean, Value: *v}, nil
+			return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: *v}, nil
 		}
-	case model.QValueKindNumeric:
+	case qvalue.QValueKindNumeric:
 		// convert string to big.Rat
 		if v, ok := val.(*string); ok && v != nil {
 			//nolint:gosec
 			ratVal, ok := new(big.Rat).SetString(*v)
 			if !ok {
-				return model.QValue{}, fmt.Errorf("failed to convert string to big.Rat: %s", *v)
+				return qvalue.QValue{}, fmt.Errorf("failed to convert string to big.Rat: %s", *v)
 			}
-			return model.QValue{
-				Kind:  model.QValueKindNumeric,
+			return qvalue.QValue{
+				Kind:  qvalue.QValueKindNumeric,
 				Value: ratVal,
 			}, nil
 		}
-	case model.QValueKindETime:
+	case qvalue.QValueKindETime:
 		if v, ok := val.(*time.Time); ok && v != nil {
-			etimeVal, err := model.NewExtendedTime(*v, model.DateTimeKindType, "")
+			etimeVal, err := qvalue.NewExtendedTime(*v, qvalue.DateTimeKindType, "")
 			if err != nil {
-				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+				return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
 			}
-			return model.QValue{
-				Kind:  model.QValueKindETime,
+			return qvalue.QValue{
+				Kind:  qvalue.QValueKindETime,
 				Value: etimeVal,
 			}, nil
 		}
-	case model.QValueKindBytes:
+	case qvalue.QValueKindBytes:
 		if v, ok := val.(*[]byte); ok && v != nil {
-			return model.QValue{Kind: model.QValueKindBytes, Value: *v}, nil
+			return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: *v}, nil
 		}
 	}
 
 	// If type is unsupported or doesn't match the specified kind, return error
-	return model.QValue{}, fmt.Errorf("[snowflakeclient] unsupported type %T for kind %s", val, kind)
+	return qvalue.QValue{}, fmt.Errorf("[snowflakeclient] unsupported type %T for kind %s", val, kind)
 }
 
 // databaseTypeNameToQValueKind converts a database type name to a QValueKind.
-func databaseTypeNameToQValueKind(name string) (model.QValueKind, error) {
+func databaseTypeNameToQValueKind(name string) (qvalue.QValueKind, error) {
 	switch name {
 	case "INT":
-		return model.QValueKindInt32, nil
+		return qvalue.QValueKindInt32, nil
 	case "BIGINT":
-		return model.QValueKindInt64, nil
+		return qvalue.QValueKindInt64, nil
 	case "FLOAT":
-		return model.QValueKindFloat32, nil
+		return qvalue.QValueKindFloat32, nil
 	case "DOUBLE", "REAL":
-		return model.QValueKindFloat64, nil
+		return qvalue.QValueKindFloat64, nil
 	case "VARCHAR", "CHAR", "TEXT":
-		return model.QValueKindString, nil
+		return qvalue.QValueKindString, nil
 	case "BOOLEAN":
-		return model.QValueKindBoolean, nil
+		return qvalue.QValueKindBoolean, nil
 	case "DATETIME", "TIMESTAMP", "TIMESTAMP_LTZ", "TIMESTAMP_NTZ", "TIMESTAMP_TZ":
-		return model.QValueKindETime, nil
+		return qvalue.QValueKindETime, nil
 	case "BLOB", "BYTEA", "BINARY":
-		return model.QValueKindBytes, nil
+		return qvalue.QValueKindBytes, nil
 	case "FIXED", "NUMBER":
-		return model.QValueKindNumeric, nil
+		return qvalue.QValueKindNumeric, nil
 	default:
 		// If type is unsupported, return an error
 		return "", fmt.Errorf("unsupported database type name: %s", name)
@@ -310,25 +311,25 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 		values := make([]interface{}, len(columns))
 		for i := range values {
 			switch qfields[i].Type {
-			case model.QValueKindETime:
+			case qvalue.QValueKindETime:
 				values[i] = new(time.Time)
-			case model.QValueKindInt16:
+			case qvalue.QValueKindInt16:
 				values[i] = new(int16)
-			case model.QValueKindInt32:
+			case qvalue.QValueKindInt32:
 				values[i] = new(int32)
-			case model.QValueKindInt64:
+			case qvalue.QValueKindInt64:
 				values[i] = new(int64)
-			case model.QValueKindFloat32:
+			case qvalue.QValueKindFloat32:
 				values[i] = new(float32)
-			case model.QValueKindFloat64:
+			case qvalue.QValueKindFloat64:
 				values[i] = new(float64)
-			case model.QValueKindBoolean:
+			case qvalue.QValueKindBoolean:
 				values[i] = new(bool)
-			case model.QValueKindString:
+			case qvalue.QValueKindString:
 				values[i] = new(string)
-			case model.QValueKindBytes:
+			case qvalue.QValueKindBytes:
 				values[i] = new([]byte)
-			case model.QValueKindNumeric:
+			case qvalue.QValueKindNumeric:
 				values[i] = new(string)
 			default:
 				values[i] = new(interface{})
@@ -339,7 +340,7 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 			return nil, err
 		}
 
-		qValues := make([]model.QValue, len(values))
+		qValues := make([]qvalue.QValue, len(values))
 		for i, val := range values {
 			qv, err := toQValue(qfields[i].Type, val)
 			if err != nil {
@@ -392,21 +393,21 @@ func (s *SnowflakeClient) CreateTable(schema *model.QRecordSchema, schemaName st
 	return nil
 }
 
-func qValueKindToSnowflakeColTypeString(val model.QValueKind) (string, error) {
+func qValueKindToSnowflakeColTypeString(val qvalue.QValueKind) (string, error) {
 	switch val {
-	case model.QValueKindInt32, model.QValueKindInt64:
+	case qvalue.QValueKindInt32, qvalue.QValueKindInt64:
 		return "INT", nil
-	case model.QValueKindFloat32, model.QValueKindFloat64:
+	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
 		return "FLOAT", nil
-	case model.QValueKindString:
+	case qvalue.QValueKindString:
 		return "STRING", nil
-	case model.QValueKindBoolean:
+	case qvalue.QValueKindBoolean:
 		return "BOOLEAN", nil
-	case model.QValueKindETime:
+	case qvalue.QValueKindETime:
 		return "TIMESTAMP_LTZ", nil
-	case model.QValueKindBytes:
+	case qvalue.QValueKindBytes:
 		return "BINARY", nil
-	case model.QValueKindNumeric:
+	case qvalue.QValueKindNumeric:
 		return "NUMERIC(38,32)", nil
 	default:
 		return "", fmt.Errorf("unsupported QValueKind: %v", val)

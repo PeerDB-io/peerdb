@@ -1,134 +1,18 @@
-package model
+package qvalue
 
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"reflect"
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/linkedin/goavro"
 )
 
 type QValue struct {
 	Kind  QValueKind
 	Value interface{}
-}
-
-func (q *QValue) ToAvroValue(targetDB QDBType, isNullable bool) (interface{}, error) {
-	switch q.Kind {
-	case QValueKindInvalid:
-		return nil, fmt.Errorf("invalid QValueKind")
-	case QValueKindETime:
-		return processExtendedTime(targetDB, q)
-	case QValueKindString:
-		return processNullableUnion(isNullable, "string", q.Value)
-	case QValueKindFloat16, QValueKindFloat32, QValueKindFloat64:
-		return processNullableUnion(isNullable, "double", q.Value)
-	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
-		return processNullableUnion(isNullable, "long", q.Value)
-	case QValueKindBoolean:
-		return processNullableUnion(isNullable, "boolean", q.Value)
-	case QValueKindArray:
-		return nil, fmt.Errorf("QValueKindArray not supported")
-	case QValueKindStruct:
-		return nil, fmt.Errorf("QValueKindStruct not supported")
-	case QValueKindNumeric:
-		return processNumeric(isNullable, q.Value)
-	case QValueKindBytes:
-		return processBytes(isNullable, q.Value)
-	case QValueKindJSON:
-		jsonString, ok := q.Value.(string)
-		if !ok {
-			return nil, fmt.Errorf("invalid JSON value")
-		}
-		return processNullableUnion(isNullable, "string", jsonString)
-	case QValueKindUUID:
-		return processUUID(isNullable, q.Value)
-	default:
-		return nil, fmt.Errorf("unsupported QValueKind: %s", q.Kind)
-	}
-}
-
-func processExtendedTime(targetDB QDBType, q *QValue) (interface{}, error) {
-	et, ok := q.Value.(*ExtendedTime)
-	if !ok {
-		return nil, fmt.Errorf("invalid ExtendedTime value")
-	}
-
-	switch et.NestedKind.Type {
-	case DateTimeKindType:
-		ret := et.Time.UnixMicro()
-		// Snowflake has issues with avro timestamp types
-		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-		if targetDB == QDBTypeSnowflake {
-			ret = ret / 1000000
-		}
-		return ret, nil
-	case DateKindType:
-		ret := et.Time.Format("2006-01-02")
-		return ret, nil
-	case TimeKindType:
-		ret := et.Time.Format("15:04:05.999999")
-		return ret, nil
-	default:
-		return nil, fmt.Errorf("unsupported ExtendedTimeKindType: %s", et.NestedKind.Type)
-	}
-}
-
-func processNullableUnion(isNullable bool, avroType string, value interface{}) (interface{}, error) {
-	if isNullable {
-		return goavro.Union(avroType, value), nil
-	}
-	return value, nil
-}
-
-func processNumeric(isNullable bool, value interface{}) (interface{}, error) {
-	num, ok := value.(*big.Rat)
-	if !ok {
-		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", value)
-	}
-
-	if isNullable {
-		return goavro.Union("bytes.decimal", num), nil
-	}
-
-	return num, nil
-}
-
-func processBytes(isNullable bool, value interface{}) (interface{}, error) {
-	byteData, ok := value.([]byte)
-	if !ok {
-		return nil, fmt.Errorf("invalid Bytes value")
-	}
-
-	if isNullable {
-		return goavro.Union("bytes", byteData), nil
-	}
-
-	return byteData, nil
-}
-
-func processUUID(isNullable bool, value interface{}) (interface{}, error) {
-	byteData, ok := value.([16]byte)
-	if !ok {
-		return nil, fmt.Errorf("invalid UUID value")
-	}
-
-	u, err := uuid.FromBytes(byteData[:])
-	if err != nil {
-		return nil, fmt.Errorf("conversion of invalid UUID value: %v", err)
-	}
-
-	uuidString := u.String()
-
-	if isNullable {
-		return goavro.Union("string", uuidString), nil
-	}
-
-	return uuidString, nil
 }
 
 func (q *QValue) Equals(other *QValue) bool {

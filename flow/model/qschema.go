@@ -1,10 +1,14 @@
 package model
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+)
 
 type QField struct {
 	Name     string
-	Type     QValueKind
+	Type     qvalue.QValueKind
 	Nullable bool
 }
 

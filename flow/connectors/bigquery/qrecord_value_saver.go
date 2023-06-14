@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 )
 
@@ -48,56 +49,56 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 	for i, v := range q.Record.Entries {
 		k := q.ColumnNames[i]
 		switch v.Kind {
-		case model.QValueKindFloat32:
+		case qvalue.QValueKindFloat32:
 			val, ok := v.Value.(float32)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to float64", v.Value)
 			}
 			bqValues[k] = val
 
-		case model.QValueKindFloat64:
+		case qvalue.QValueKindFloat64:
 			val, ok := v.Value.(float64)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to float64", v.Value)
 			}
 			bqValues[k] = val
 
-		case model.QValueKindInt32:
+		case qvalue.QValueKindInt32:
 			val, ok := v.Value.(int32)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to int64", v.Value)
 			}
 			bqValues[k] = val
 
-		case model.QValueKindInt64:
+		case qvalue.QValueKindInt64:
 			val, ok := v.Value.(int64)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to int64", v.Value)
 			}
 			bqValues[k] = val
 
-		case model.QValueKindBoolean:
+		case qvalue.QValueKindBoolean:
 			val, ok := v.Value.(bool)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to bool", v.Value)
 			}
 			bqValues[k] = val
 
-		case model.QValueKindString:
+		case qvalue.QValueKindString:
 			val, ok := v.Value.(string)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to string", v.Value)
 			}
 			bqValues[k] = val
 
-		case model.QValueKindETime:
-			val, ok := v.Value.(*model.ExtendedTime)
+		case qvalue.QValueKindETime:
+			val, ok := v.Value.(*qvalue.ExtendedTime)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to ExtendedTime", v.Value)
 			}
 			bqValues[k] = val.Time
 
-		case model.QValueKindNumeric:
+		case qvalue.QValueKindNumeric:
 			val, ok := v.Value.(*big.Rat)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to *big.Rat", v.Value)
@@ -105,14 +106,14 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 
 			bqValues[k] = RatToBigQueryNumeric(val)
 
-		case model.QValueKindBytes:
+		case qvalue.QValueKindBytes:
 			val, ok := v.Value.([]byte)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to []byte", v.Value)
 			}
 			bqValues[k] = val
 
-		case model.QValueKindUUID:
+		case qvalue.QValueKindUUID:
 			val, ok := v.Value.([16]byte)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to string", v.Value)
