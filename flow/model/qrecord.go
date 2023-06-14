@@ -2,23 +2,25 @@ package model
 
 import (
 	"fmt"
+
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type QRecord struct {
 	NumEntries int
-	Entries    []QValue
+	Entries    []qvalue.QValue
 }
 
 // create a new QRecord with n values
 func NewQRecord(n int) *QRecord {
 	return &QRecord{
 		NumEntries: n,
-		Entries:    make([]QValue, n),
+		Entries:    make([]qvalue.QValue, n),
 	}
 }
 
 // Sets the value at the given index
-func (q *QRecord) Set(idx int, value QValue) {
+func (q *QRecord) Set(idx int, value qvalue.QValue) {
 	q.Entries[idx] = value
 }
 
@@ -38,24 +40,4 @@ func (q *QRecord) equals(other *QRecord) bool {
 	}
 
 	return true
-}
-
-func (q *QRecord) ToAvroCompatibleMap(
-	targetDB QDBType,
-	nullableFields *map[string]bool,
-	colNames []string,
-) (map[string]interface{}, error) {
-	m := map[string]interface{}{}
-
-	for idx, qValue := range q.Entries {
-		key := colNames[idx]
-		nullable, ok := (*nullableFields)[key]
-		avroVal, err := qValue.ToAvroValue(targetDB, nullable && ok)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %v", err)
-		}
-		m[key] = avroVal
-	}
-
-	return m, nil
 }

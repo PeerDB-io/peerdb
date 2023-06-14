@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -36,34 +37,34 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 	return rows, nil
 }
 
-func fieldDescriptionToQValueKind(fd pgconn.FieldDescription) model.QValueKind {
+func fieldDescriptionToQValueKind(fd pgconn.FieldDescription) qvalue.QValueKind {
 	switch fd.DataTypeOID {
 	case pgtype.BoolOID:
-		return model.QValueKindBoolean
+		return qvalue.QValueKindBoolean
 	case pgtype.Int2OID:
-		return model.QValueKindInt16
+		return qvalue.QValueKindInt16
 	case pgtype.Int4OID:
-		return model.QValueKindInt32
+		return qvalue.QValueKindInt32
 	case pgtype.Int8OID:
-		return model.QValueKindInt64
+		return qvalue.QValueKindInt64
 	case pgtype.Float4OID:
-		return model.QValueKindFloat32
+		return qvalue.QValueKindFloat32
 	case pgtype.Float8OID:
-		return model.QValueKindFloat64
+		return qvalue.QValueKindFloat64
 	case pgtype.TextOID, pgtype.VarcharOID:
-		return model.QValueKindString
+		return qvalue.QValueKindString
 	case pgtype.ByteaOID:
-		return model.QValueKindBytes
+		return qvalue.QValueKindBytes
 	case pgtype.JSONOID, pgtype.JSONBOID:
-		return model.QValueKindJSON
+		return qvalue.QValueKindJSON
 	case pgtype.UUIDOID:
-		return model.QValueKindUUID
+		return qvalue.QValueKindUUID
 	case pgtype.TimestampOID, pgtype.TimestamptzOID, pgtype.DateOID, pgtype.TimeOID:
-		return model.QValueKindETime
+		return qvalue.QValueKindETime
 	case pgtype.NumericOID:
-		return model.QValueKindNumeric
+		return qvalue.QValueKindNumeric
 	default:
-		return model.QValueKindInvalid
+		return qvalue.QValueKindInvalid
 	}
 }
 
@@ -188,134 +189,134 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 	return record, nil
 }
 
-func parseField(oid uint32, value interface{}) (model.QValue, error) {
-	var val model.QValue
+func parseField(oid uint32, value interface{}) (qvalue.QValue, error) {
+	var val qvalue.QValue
 
 	switch oid {
 	case pgtype.TimestampOID:
 		timestamp := value.(*pgtype.Timestamp)
-		var et *model.ExtendedTime
+		var et *qvalue.ExtendedTime
 		if timestamp.Valid {
 			var err error
-			et, err = model.NewExtendedTime(timestamp.Time, model.DateTimeKindType, "")
+			et, err = qvalue.NewExtendedTime(timestamp.Time, qvalue.DateTimeKindType, "")
 			if err != nil {
-				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+				return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
 			}
 		}
-		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+		val = qvalue.QValue{Kind: qvalue.QValueKindETime, Value: et}
 	case pgtype.TimestamptzOID:
 		timestamp := value.(*pgtype.Timestamptz)
-		var et *model.ExtendedTime
+		var et *qvalue.ExtendedTime
 		if timestamp.Valid {
 			var err error
-			et, err = model.NewExtendedTime(timestamp.Time, model.DateTimeKindType, "")
+			et, err = qvalue.NewExtendedTime(timestamp.Time, qvalue.DateTimeKindType, "")
 			if err != nil {
-				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+				return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
 			}
 		}
-		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+		val = qvalue.QValue{Kind: qvalue.QValueKindETime, Value: et}
 	case pgtype.DateOID:
 		date := value.(*pgtype.Date)
-		var et *model.ExtendedTime
+		var et *qvalue.ExtendedTime
 		if date.Valid {
 			var err error
-			et, err = model.NewExtendedTime(date.Time, model.DateKindType, "")
+			et, err = qvalue.NewExtendedTime(date.Time, qvalue.DateKindType, "")
 			if err != nil {
-				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+				return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
 			}
 		}
-		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+		val = qvalue.QValue{Kind: qvalue.QValueKindETime, Value: et}
 	case pgtype.TimeOID:
 		timeVal := value.(*pgtype.Time)
-		var et *model.ExtendedTime
+		var et *qvalue.ExtendedTime
 		if timeVal.Valid {
 			var err error
 			t := time.Unix(0, timeVal.Microseconds*int64(time.Microsecond))
-			et, err = model.NewExtendedTime(t, model.TimeKindType, "")
+			et, err = qvalue.NewExtendedTime(t, qvalue.TimeKindType, "")
 			if err != nil {
-				return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+				return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
 			}
 		}
-		val = model.QValue{Kind: model.QValueKindETime, Value: et}
+		val = qvalue.QValue{Kind: qvalue.QValueKindETime, Value: et}
 	case pgtype.BoolOID:
 		boolVal := value.(*pgtype.Bool)
 		if boolVal.Valid {
-			val = model.QValue{Kind: model.QValueKindBoolean, Value: boolVal.Bool}
+			val = qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: boolVal.Bool}
 		} else {
-			val = model.QValue{Kind: model.QValueKindBoolean, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: nil}
 		}
 	case pgtype.JSONOID, pgtype.JSONBOID:
 		// TODO: improve JSON support
 		strVal := value.(*string)
 		if strVal != nil {
-			val = model.QValue{Kind: model.QValueKindJSON, Value: *strVal}
+			val = qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: *strVal}
 		} else {
-			val = model.QValue{Kind: model.QValueKindJSON, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: nil}
 		}
 	case pgtype.Int2OID:
 		intVal := value.(*pgtype.Int2)
 		if intVal.Valid {
-			val = model.QValue{Kind: model.QValueKindInt16, Value: intVal.Int16}
+			val = qvalue.QValue{Kind: qvalue.QValueKindInt16, Value: intVal.Int16}
 		} else {
-			val = model.QValue{Kind: model.QValueKindInt16, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindInt16, Value: nil}
 		}
 	case pgtype.Int4OID:
 		intVal := value.(*pgtype.Int4)
 		if intVal.Valid {
-			val = model.QValue{Kind: model.QValueKindInt32, Value: intVal.Int32}
+			val = qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: intVal.Int32}
 		} else {
-			val = model.QValue{Kind: model.QValueKindInt32, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: nil}
 		}
 	case pgtype.Int8OID:
 		intVal := value.(*pgtype.Int8)
 		if intVal.Valid {
-			val = model.QValue{Kind: model.QValueKindInt64, Value: intVal.Int64}
+			val = qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: intVal.Int64}
 		} else {
-			val = model.QValue{Kind: model.QValueKindInt64, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: nil}
 		}
 	case pgtype.Float4OID:
 		floatVal := value.(*pgtype.Float4)
 		if floatVal.Valid {
-			val = model.QValue{Kind: model.QValueKindFloat32, Value: floatVal.Float32}
+			val = qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: floatVal.Float32}
 		} else {
-			val = model.QValue{Kind: model.QValueKindFloat32, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: nil}
 		}
 	case pgtype.Float8OID:
 		floatVal := value.(*pgtype.Float8)
 		if floatVal.Valid {
-			val = model.QValue{Kind: model.QValueKindFloat64, Value: floatVal.Float64}
+			val = qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: floatVal.Float64}
 		} else {
-			val = model.QValue{Kind: model.QValueKindFloat64, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: nil}
 		}
 	case pgtype.TextOID, pgtype.VarcharOID:
 		textVal := value.(*pgtype.Text)
 		if textVal.Valid {
-			val = model.QValue{Kind: model.QValueKindString, Value: textVal.String}
+			val = qvalue.QValue{Kind: qvalue.QValueKindString, Value: textVal.String}
 		} else {
-			val = model.QValue{Kind: model.QValueKindString, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindString, Value: nil}
 		}
 	case pgtype.UUIDOID:
 		uuidVal := value.(*pgtype.UUID)
 		if uuidVal.Valid {
-			val = model.QValue{Kind: model.QValueKindUUID, Value: uuidVal.Bytes}
+			val = qvalue.QValue{Kind: qvalue.QValueKindUUID, Value: uuidVal.Bytes}
 		} else {
-			val = model.QValue{Kind: model.QValueKindUUID, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindUUID, Value: nil}
 		}
 	case pgtype.ByteaOID:
 		rawBytes := value.(*sql.RawBytes)
-		val = model.QValue{Kind: model.QValueKindBytes, Value: []byte(*rawBytes)}
+		val = qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: []byte(*rawBytes)}
 	case pgtype.NumericOID:
 		numVal := value.(*pgtype.Numeric)
 		rat, err := numericToRat(numVal)
 		if err != nil {
-			val = model.QValue{Kind: model.QValueKindInvalid, Value: nil}
+			val = qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
 		} else {
-			val = model.QValue{Kind: model.QValueKindNumeric, Value: rat}
+			val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: rat}
 		}
 	default:
 		typ, _ := pgtype.NewMap().TypeForOID(oid)
 		fmt.Printf("QValueKindInvalid => oid: %v, typename: %v\n", oid, typ)
-		val = model.QValue{Kind: model.QValueKindInvalid, Value: nil}
+		val = qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
 	}
 
 	return val, nil

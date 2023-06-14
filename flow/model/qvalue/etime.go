@@ -1,4 +1,4 @@
-package model
+package qvalue
 
 import (
 	"errors"
