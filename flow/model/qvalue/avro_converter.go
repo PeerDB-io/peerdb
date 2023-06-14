@@ -166,7 +166,10 @@ func (c *QValueAvroConverter) processExtendedTime() (interface{}, error) {
 	}
 }
 
-func (c *QValueAvroConverter) processNullableUnion(avroType string, value interface{}) (interface{}, error) {
+func (c *QValueAvroConverter) processNullableUnion(
+	avroType string,
+	value interface{},
+) (interface{}, error) {
 	if c.Nullable {
 		return goavro.Union(avroType, value), nil
 	}

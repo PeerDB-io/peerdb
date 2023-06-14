@@ -9,7 +9,7 @@ import (
 
 type QRecordAvroConverter struct {
 	QRecord        *QRecord
-	TargetDWH       qvalue.QDWHType
+	TargetDWH      qvalue.QDWHType
 	NullableFields *map[string]bool
 	ColNames       []string
 }
@@ -22,7 +22,7 @@ func NewQRecordAvroConverter(
 ) *QRecordAvroConverter {
 	return &QRecordAvroConverter{
 		QRecord:        q,
-		TargetDWH:       targetDWH,
+		TargetDWH:      targetDWH,
 		NullableFields: nullableFields,
 		ColNames:       colNames,
 	}
@@ -31,11 +31,15 @@ func NewQRecordAvroConverter(
 func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
-	for idx, qValue := range qac.QRecord.Entries {
+	for idx := range qac.QRecord.Entries {
 		key := qac.ColNames[idx]
 		nullable, ok := (*qac.NullableFields)[key]
 
-		avroConverter := qvalue.NewQValueAvroConverter(&qValue, qac.TargetDWH, nullable && ok)
+		avroConverter := qvalue.NewQValueAvroConverter(
+			&qac.QRecord.Entries[idx],
+			qac.TargetDWH,
+			nullable && ok,
+		)
 		avroVal, err := avroConverter.ToAvroValue()
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %v", err)
@@ -63,7 +67,10 @@ type QRecordAvroSchemaDefinition struct {
 	NullableFields map[string]bool
 }
 
-func GetAvroSchemaDefinition(dstTableName string, qRecordSchema *QRecordSchema) (*QRecordAvroSchemaDefinition, error) {
+func GetAvroSchemaDefinition(
+	dstTableName string,
+	qRecordSchema *QRecordSchema,
+) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := []QRecordAvroField{}
 	nullableFields := map[string]bool{}
 
