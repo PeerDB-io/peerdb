@@ -24,7 +24,9 @@ type Connector interface {
 	GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error)
 
 	// SetupNormalizedTable sets up the normalized table on the connector.
-	SetupNormalizedTable(req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error)
+	SetupNormalizedTable(
+		req *protos.SetupNormalizedTableInput,
+	) (*protos.SetupNormalizedTableOutput, error)
 
 	// EnsurePullability ensures that the connector is pullable.
 	EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error)
@@ -58,14 +60,24 @@ type Connector interface {
 	SetupQRepMetadataTables(config *protos.QRepConfig) error
 
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
-	GetQRepPartitions(config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
+	GetQRepPartitions(
+		config *protos.QRepConfig,
+		last *protos.QRepPartition,
+	) ([]*protos.QRepPartition, error)
 
 	// GetQRepRecords returns the records for a given partition.
-	PullQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
+	PullQRepRecords(
+		config *protos.QRepConfig,
+		partition *protos.QRepPartition,
+	) (*model.QRecordBatch, error)
 
 	// SyncQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
-	SyncQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition, records *model.QRecordBatch) (int, error)
+	SyncQRepRecords(
+		config *protos.QRepConfig,
+		partition *protos.QRepPartition,
+		records *model.QRecordBatch,
+	) (int, error)
 
 	PullFlowCleanup(jobName string) error
 	SyncFlowCleanup(jobName string) error

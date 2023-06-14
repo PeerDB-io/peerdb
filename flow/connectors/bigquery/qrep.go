@@ -41,7 +41,11 @@ func (c *BigQueryConnector) SyncQRepRecords(
 
 	done, err := c.isPartitionSynced(partition.PartitionId)
 	if err != nil {
-		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
+		return 0, fmt.Errorf(
+			"failed to check if partition %s is synced: %w",
+			partition.PartitionId,
+			err,
+		)
 	}
 
 	if done {
@@ -53,10 +57,22 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	switch syncMode {
 	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
 		stagingTableSync := &QRepStagingTableSync{connector: c}
-		return stagingTableSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, records)
+		return stagingTableSync.SyncQRepRecords(
+			config.FlowJobName,
+			destTable,
+			partition,
+			tblMetadata,
+			records,
+		)
 	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
 		avroSync := &QRepAvroSyncMethod{connector: c, gcsBucket: "peerdb_staging"}
-		return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, records)
+		return avroSync.SyncQRepRecords(
+			config.FlowJobName,
+			destTable,
+			partition,
+			tblMetadata,
+			records,
+		)
 	default:
 		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
 	}
@@ -106,7 +122,11 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 	if err == nil {
 		// table exists, check if the schema matches
 		if !reflect.DeepEqual(meta.Schema, qRepMetadataSchema) {
-			return fmt.Errorf("table %s.%s already exists with different schema", c.datasetID, qRepMetadataTableName)
+			return fmt.Errorf(
+				"table %s.%s already exists with different schema",
+				c.datasetID,
+				qRepMetadataTableName,
+			)
 		} else {
 			return nil
 		}
@@ -117,7 +137,12 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 		Schema: qRepMetadataSchema,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, qRepMetadataTableName, err)
+		return fmt.Errorf(
+			"failed to create table %s.%s: %w",
+			c.datasetID,
+			qRepMetadataTableName,
+			err,
+		)
 	}
 
 	return nil

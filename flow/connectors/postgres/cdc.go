@@ -108,7 +108,7 @@ func (p *PostgresCDCSource) consumeStream(
 	// TODO (kaushik): take into consideration the MaxBatchSize
 	// parameters in the original request.
 	result := &model.RecordBatch{
-		Records:           make([]model.Record, 0),
+		Records:           make([]model.CDCRecord, 0),
 		TablePKeyLastSeen: make(map[model.TableWithPkey]int),
 	}
 
@@ -156,8 +156,12 @@ func (p *PostgresCDCSource) consumeStream(
 				return nil, fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			log.Debugf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
-				pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested)
+			log.Debugf(
+				"Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
+				pkm.ServerWALEnd,
+				pkm.ServerTime,
+				pkm.ReplyRequested,
+			)
 
 			if pkm.ReplyRequested {
 				nextStandbyMessageDeadline = time.Time{}
@@ -231,7 +235,10 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 }
 
-func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogrepl.XLogData) (model.Record, error) {
+func (p *PostgresCDCSource) processMessage(
+	batch *model.RecordBatch,
+	xld pglogrepl.XLogData,
+) (model.CDCRecord, error) {
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
@@ -269,7 +276,7 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 func (p *PostgresCDCSource) processInsertMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
-) (model.Record, error) {
+) (model.CDCRecord, error) {
 
 	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
@@ -277,7 +284,12 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
+	log.Debugf(
+		"InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+		lsn,
+		msg.RelationID,
+		tableName,
+	)
 
 	rel, ok := p.relations[msg.RelationID]
 	if !ok {
@@ -303,7 +315,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 func (p *PostgresCDCSource) processUpdateMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
-) (model.Record, error) {
+) (model.CDCRecord, error) {
 
 	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
@@ -311,7 +323,12 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
+	log.Debugf(
+		"UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+		lsn,
+		msg.RelationID,
+		tableName,
+	)
 
 	rel, ok := p.relations[msg.RelationID]
 	if !ok {
@@ -343,7 +360,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 func (p *PostgresCDCSource) processDeleteMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
-) (model.Record, error) {
+) (model.CDCRecord, error) {
 
 	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
@@ -351,7 +368,12 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
+	log.Debugf(
+		"DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+		lsn,
+		msg.RelationID,
+		tableName,
+	)
 
 	rel, ok := p.relations[msg.RelationID]
 	if !ok {
@@ -420,7 +442,10 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	return items, unchangeToastColumns, nil
 }
 
-func (p *PostgresCDCSource) decodeTextColumnData(data []byte, dataType uint32) (interface{}, error) {
+func (p *PostgresCDCSource) decodeTextColumnData(
+	data []byte,
+	dataType uint32,
+) (interface{}, error) {
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		if dt.Name == "uuid" {
 			// below is required to decode uuid to string
@@ -432,7 +457,10 @@ func (p *PostgresCDCSource) decodeTextColumnData(data []byte, dataType uint32) (
 }
 
 // decodeBinaryColumnData decodes the binary data for a column
-func (p *PostgresCDCSource) decodeBinaryColumnData(data []byte, dataType uint32) (interface{}, error) {
+func (p *PostgresCDCSource) decodeBinaryColumnData(
+	data []byte,
+	dataType uint32,
+) (interface{}, error) {
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		return dt.Codec.DecodeValue(p.typeMap, dataType, pgtype.BinaryFormatCode, data)
 	}

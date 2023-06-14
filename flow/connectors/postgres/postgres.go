@@ -31,7 +31,10 @@ func (t *SchemaTable) String() string {
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
-func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnector(
+	ctx context.Context,
+	pgConfig *protos.PostgresConfig,
+) (*PostgresConnector, error) {
 	connectionString := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
 		pgConfig.Host, pgConfig.Port, pgConfig.User, pgConfig.Password, pgConfig.Database)
 
@@ -135,11 +138,15 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 }
 
 // SyncRecords pushes records to the destination.
-func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *PostgresConnector) SyncRecords(
+	req *model.SyncRecordsRequest,
+) (*model.SyncResponse, error) {
 	panic("not implemented")
 }
 
-func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *PostgresConnector) NormalizeRecords(
+	req *model.NormalizeRecordsRequest,
+) (*model.NormalizeResponse, error) {
 	panic("not implemented")
 }
 
@@ -149,7 +156,10 @@ type SlotCheckResult struct {
 }
 
 // checkSlotAndPublication checks if the replication slot and publication exist.
-func (c *PostgresConnector) checkSlotAndPublication(slot string, publication string) (*SlotCheckResult, error) {
+func (c *PostgresConnector) checkSlotAndPublication(
+	slot string,
+	publication string,
+) (*SlotCheckResult, error) {
 	slotExists := false
 	publicationExists := false
 
@@ -229,7 +239,9 @@ func (c *PostgresConnector) createSlotAndPublication(
 }
 
 // CreateRawTable creates a raw table, implementing the Connector interface.
-func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+func (c *PostgresConnector) CreateRawTable(
+	req *protos.CreateRawTableInput,
+) (*protos.CreateRawTableOutput, error) {
 	panic("not implemented")
 }
 
@@ -248,7 +260,9 @@ func (c *PostgresConnector) getRelIDForTable(schemaTable *SchemaTable) (uint32, 
 }
 
 // GetTableSchema returns the schema for a table, implementing the Connector interface.
-func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *PostgresConnector) GetTableSchema(
+	req *protos.GetTableSchemaInput,
+) (*protos.TableSchema, error) {
 	schemaTable, err := parseSchemaTable(req.TableIdentifier)
 	if err != nil {
 		return nil, err
@@ -272,7 +286,11 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 
 	pkey, err := c.getPrimaryKeyColumn(schemaTable)
 	if err != nil {
-		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		return nil, fmt.Errorf(
+			"error getting primary key column for table %s: %w",
+			schemaTable,
+			err,
+		)
 	}
 
 	res := &protos.TableSchema{
@@ -382,7 +400,10 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	if err != nil {
 		return fmt.Errorf("error dropping publication: %w", err)
 	}
-	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slotName))
+	_, err = pullFlowCleanupTx.Exec(
+		c.ctx,
+		fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slotName),
+	)
 	if err != nil {
 		return fmt.Errorf("error dropping replication slot: %w", err)
 	}

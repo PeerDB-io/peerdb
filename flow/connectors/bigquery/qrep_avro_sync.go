@@ -97,7 +97,11 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	gcsRef.SourceFormat = bigquery.Avro
 
 	// create a staging table name with partitionID replace hyphens with underscores
-	stagingTable := fmt.Sprintf("%s_%s_staging", dstTableName, strings.ReplaceAll(partition.PartitionId, "-", "_"))
+	stagingTable := fmt.Sprintf(
+		"%s_%s_staging",
+		dstTableName,
+		strings.ReplaceAll(partition.PartitionId, "-", "_"),
+	)
 
 	loader := bqClient.Dataset(datasetID).Table(stagingTable).LoaderFrom(gcsRef)
 	loader.UseAvroLogicalTypes = true
@@ -125,7 +129,11 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 
 	stmts = append(stmts, insertStmt)
 
-	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
+	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(
+		partition,
+		flowJobName,
+		startTime,
+	)
 	if err != nil {
 		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
@@ -161,7 +169,10 @@ type AvroSchema struct {
 	Fields []AvroField `json:"fields"`
 }
 
-func DefineAvroSchema(dstTableName string, dstTableMetadata *bigquery.TableMetadata) (string, map[string]bool, error) {
+func DefineAvroSchema(
+	dstTableName string,
+	dstTableMetadata *bigquery.TableMetadata,
+) (string, map[string]bool, error) {
 	avroFields := []AvroField{}
 	nullableFields := map[string]bool{}
 

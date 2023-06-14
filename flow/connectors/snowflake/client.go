@@ -27,7 +27,10 @@ type SnowflakeClient struct {
 	conn *sqlx.DB
 }
 
-func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*SnowflakeClient, error) {
+func NewSnowflakeClient(
+	ctx context.Context,
+	config *protos.SnowflakeConfig,
+) (*SnowflakeClient, error) {
 	privateKey, err := util.DecodePKCS8PrivateKey([]byte(config.PrivateKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %w", err)
@@ -80,7 +83,10 @@ func (s *SnowflakeClient) Close() error {
 // schemaExists checks if the schema exists.
 func (s *SnowflakeClient) schemaExists(schema string) (bool, error) {
 	var exists bool
-	query := fmt.Sprintf("SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '%s'", schema)
+	query := fmt.Sprintf(
+		"SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '%s'",
+		schema,
+	)
 	err := s.conn.QueryRowContext(s.ctx, query).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to query schema: %w", err)
@@ -158,7 +164,11 @@ func (s *SnowflakeClient) CountRows(schema string, tableName string) (int, error
 if the function errors or there are nulls, the function returns false
 else true
 */
-func (s *SnowflakeClient) CheckNull(schema string, tableName string, colNames []string) (bool, error) {
+func (s *SnowflakeClient) CheckNull(
+	schema string,
+	tableName string,
+	colNames []string,
+) (bool, error) {
 	var count int
 	joinedString := strings.Join(colNames, " is null or ") + " is null"
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s WHERE %s",
@@ -174,31 +184,31 @@ func (s *SnowflakeClient) CheckNull(schema string, tableName string, colNames []
 	return true, nil
 }
 
-func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
+func toQValue(kind qvalue.QValueKind, val interface{}) (*qvalue.QValue, error) {
 	switch kind {
 	case qvalue.QValueKindInt32:
 		if v, ok := val.(*int); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: *v}, nil
+			return &qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: *v}, nil
 		}
 	case qvalue.QValueKindInt64:
 		if v, ok := val.(*int64); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: *v}, nil
+			return &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: *v}, nil
 		}
 	case qvalue.QValueKindFloat32:
 		if v, ok := val.(*float32); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: *v}, nil
+			return &qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: *v}, nil
 		}
 	case qvalue.QValueKindFloat64:
 		if v, ok := val.(*float64); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: *v}, nil
+			return &qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: *v}, nil
 		}
 	case qvalue.QValueKindString:
 		if v, ok := val.(*string); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: *v}, nil
+			return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: *v}, nil
 		}
 	case qvalue.QValueKindBoolean:
 		if v, ok := val.(*bool); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: *v}, nil
+			return &qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: *v}, nil
 		}
 	case qvalue.QValueKindNumeric:
 		// convert string to big.Rat
@@ -206,9 +216,9 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			//nolint:gosec
 			ratVal, ok := new(big.Rat).SetString(*v)
 			if !ok {
-				return qvalue.QValue{}, fmt.Errorf("failed to convert string to big.Rat: %s", *v)
+				return &qvalue.QValue{}, fmt.Errorf("failed to convert string to big.Rat: %s", *v)
 			}
-			return qvalue.QValue{
+			return &qvalue.QValue{
 				Kind:  qvalue.QValueKindNumeric,
 				Value: ratVal,
 			}, nil
@@ -217,21 +227,25 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		if v, ok := val.(*time.Time); ok && v != nil {
 			etimeVal, err := qvalue.NewExtendedTime(*v, qvalue.DateTimeKindType, "")
 			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+				return &qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
 			}
-			return qvalue.QValue{
+			return &qvalue.QValue{
 				Kind:  qvalue.QValueKindETime,
 				Value: etimeVal,
 			}, nil
 		}
 	case qvalue.QValueKindBytes:
 		if v, ok := val.(*[]byte); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: *v}, nil
+			return &qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: *v}, nil
 		}
 	}
 
 	// If type is unsupported or doesn't match the specified kind, return error
-	return qvalue.QValue{}, fmt.Errorf("[snowflakeclient] unsupported type %T for kind %s", val, kind)
+	return &qvalue.QValue{}, fmt.Errorf(
+		"[snowflakeclient] unsupported type %T for kind %s",
+		val,
+		kind,
+	)
 }
 
 // databaseTypeNameToQValueKind converts a database type name to a QValueKind.
@@ -340,7 +354,7 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 			return nil, err
 		}
 
-		qValues := make([]qvalue.QValue, len(values))
+		qValues := make([]*qvalue.QValue, len(values))
 		for i, val := range values {
 			qv, err := toQValue(qfields[i].Type, val)
 			if err != nil {
@@ -372,7 +386,11 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 	}, nil
 }
 
-func (s *SnowflakeClient) CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error {
+func (s *SnowflakeClient) CreateTable(
+	schema *model.QRecordSchema,
+	schemaName string,
+	tableName string,
+) error {
 	var fields []string
 	for _, field := range schema.Fields {
 		snowflakeType, err := qValueKindToSnowflakeColTypeString(field.Type)
@@ -382,7 +400,12 @@ func (s *SnowflakeClient) CreateTable(schema *model.QRecordSchema, schemaName st
 		fields = append(fields, fmt.Sprintf("%s %s", field.Name, snowflakeType))
 	}
 
-	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", schemaName, tableName, strings.Join(fields, ", "))
+	command := fmt.Sprintf(
+		"CREATE TABLE %s.%s (%s)",
+		schemaName,
+		tableName,
+		strings.Join(fields, ", "),
+	)
 	fmt.Printf("creating table %s.%s with command %s\n", schemaName, tableName, command)
 
 	_, err := s.conn.ExecContext(s.ctx, command)

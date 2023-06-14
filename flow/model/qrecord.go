@@ -8,19 +8,19 @@ import (
 
 type QRecord struct {
 	NumEntries int
-	Entries    []qvalue.QValue
+	Entries    []*qvalue.QValue
 }
 
 // create a new QRecord with n values
 func NewQRecord(n int) *QRecord {
 	return &QRecord{
 		NumEntries: n,
-		Entries:    make([]qvalue.QValue, n),
+		Entries:    make([]*qvalue.QValue, n),
 	}
 }
 
 // Sets the value at the given index
-func (q *QRecord) Set(idx int, value qvalue.QValue) {
+func (q *QRecord) Set(idx int, value *qvalue.QValue) {
 	q.Entries[idx] = value
 }
 
@@ -33,7 +33,7 @@ func (q *QRecord) equals(other *QRecord) bool {
 
 	for i, entry := range q.Entries {
 		otherEntry := other.Entries[i]
-		if !entry.Equals(&otherEntry) {
+		if !entry.Equals(otherEntry) {
 			fmt.Printf("entry %d: %v != %v\n", i, entry, otherEntry)
 			return false
 		}
