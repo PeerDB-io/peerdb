@@ -21,7 +21,10 @@ type SnowflakeAvroSyncMethod struct {
 	localDir  string
 }
 
-func NewSnowflakeAvroSyncMethod(connector *SnowflakeConnector, localDir string) *SnowflakeAvroSyncMethod {
+func NewSnowflakeAvroSyncMethod(
+	connector *SnowflakeConnector,
+	localDir string,
+) *SnowflakeAvroSyncMethod {
 	return &SnowflakeAvroSyncMethod{
 		connector: connector,
 		localDir:  localDir,
@@ -111,14 +114,23 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		"MATCH_BY_COLUMN_NAME='CASE_INSENSITIVE'",
 	}
 	//nolint:gosec
-	copyCmd := fmt.Sprintf("COPY INTO %s FROM @%s %s", dstTableName, stage, strings.Join(copyOpts, ","))
+	copyCmd := fmt.Sprintf(
+		"COPY INTO %s FROM @%s %s",
+		dstTableName,
+		stage,
+		strings.Join(copyOpts, ","),
+	)
 	if _, err = s.connector.database.Exec(copyCmd); err != nil {
 		return 0, fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
 	log.Infof("copied file from stage %s to table %s", stage, dstTableName)
 
 	// Insert metadata statement
-	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
+	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(
+		partition,
+		flowJobName,
+		startTime,
+	)
 	if err != nil {
 		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}

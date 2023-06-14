@@ -24,7 +24,10 @@ type DropFlowWorkflowExecution struct {
 	logger          log.Logger
 }
 
-func newDropFlowWorkflowExecution(ctx workflow.Context, state *DropFlowWorkflowInput) *DropFlowWorkflowExecution {
+func newDropFlowWorkflowExecution(
+	ctx workflow.Context,
+	state *DropFlowWorkflowInput,
+) *DropFlowWorkflowExecution {
 	return &DropFlowWorkflowExecution{
 		DropFlowWorkflowInput: *state,
 		flowExecutionID:       workflow.GetInfo(ctx).WorkflowExecution.ID,
@@ -46,7 +49,11 @@ func (w *DropFlowWorkflowExecution) fetchConnectionConfigs(
 		PeerFlowName:   w.FlowName,
 	}
 
-	configsFuture := workflow.ExecuteActivity(ctx, fetchConfig.FetchConfig, fetchConfigActivityInput)
+	configsFuture := workflow.ExecuteActivity(
+		ctx,
+		fetchConfig.FetchConfig,
+		fetchConfigActivityInput,
+	)
 
 	flowConnectionConfigs := &protos.FlowConnectionConfigs{}
 	if err := configsFuture.Get(ctx, &flowConnectionConfigs); err != nil {

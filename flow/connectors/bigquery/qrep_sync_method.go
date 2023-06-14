@@ -101,10 +101,19 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 	paritionSelect := fmt.Sprintf("SELECT %s FROM %s.%s WHERE partitionID = '%s' AND runID = %d;",
 		colNamesStr, s.connector.datasetID, stagingTable, partitionID, runID)
-	appendStmt := fmt.Sprintf("INSERT INTO %s.%s %s", s.connector.datasetID, dstTableName, paritionSelect)
+	appendStmt := fmt.Sprintf(
+		"INSERT INTO %s.%s %s",
+		s.connector.datasetID,
+		dstTableName,
+		paritionSelect,
+	)
 	stmts = append(stmts, appendStmt)
 
-	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
+	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(
+		partition,
+		flowJobName,
+		startTime,
+	)
 	if err != nil {
 		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}

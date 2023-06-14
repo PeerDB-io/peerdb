@@ -66,7 +66,10 @@ func (q *QRepFlowExecution) GetPartitions(
 }
 
 // ReplicateParititon replicates the given partition.
-func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *protos.QRepPartition) error {
+func (q *QRepFlowExecution) ReplicatePartition(
+	ctx workflow.Context,
+	partition *protos.QRepPartition,
+) error {
 	q.logger.Info("replicating partition - ", partition.PartitionId)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -115,7 +118,12 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		},
 	})
 
-	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partition), nil
+	return workflow.ExecuteChildWorkflow(
+		partFlowCtx,
+		QRepPartitionWorkflow,
+		q.config,
+		partition,
+	), nil
 }
 
 // processPartitions handles the logic for processing the partitions.
@@ -250,11 +258,21 @@ func QRepFlowWorkflow(
 		"Number of Partitions Processed", numPartitionsProcessed)
 
 	// Continue the workflow with new state
-	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+	return workflow.NewContinueAsNewError(
+		ctx,
+		QRepFlowWorkflow,
+		config,
+		lastPartition,
+		numPartitionsProcessed,
+	)
 }
 
 // QRepPartitionWorkflow replicate a single partition.
-func QRepPartitionWorkflow(ctx workflow.Context, config *protos.QRepConfig, partition *protos.QRepPartition) error {
+func QRepPartitionWorkflow(
+	ctx workflow.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+) error {
 	q := NewQRepFlowExecution(ctx, config)
 	return q.ReplicatePartition(ctx, partition)
 }

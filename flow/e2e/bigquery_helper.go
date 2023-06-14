@@ -194,37 +194,37 @@ func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
 	return int(cntI64), nil
 }
 
-func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
+func toQValue(bqValue bigquery.Value) (*qvalue.QValue, error) {
 	// Based on the real type of the bigquery.Value, we create a qvalue.QValue
 	switch v := bqValue.(type) {
 	case int, int32:
-		return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: v}, nil
+		return &qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: v}, nil
 	case int64:
-		return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: v}, nil
+		return &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: v}, nil
 	case float32:
-		return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: v}, nil
+		return &qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: v}, nil
 	case float64:
-		return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: v}, nil
+		return &qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: v}, nil
 	case string:
-		return qvalue.QValue{Kind: qvalue.QValueKindString, Value: v}, nil
+		return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: v}, nil
 	case bool:
-		return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v}, nil
+		return &qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v}, nil
 	case time.Time:
 		val, err := qvalue.NewExtendedTime(v, qvalue.DateTimeKindType, "")
 		if err != nil {
-			return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			return &qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
 		}
-		return qvalue.QValue{
+		return &qvalue.QValue{
 			Kind:  qvalue.QValueKindETime,
 			Value: val,
 		}, nil
 	case *big.Rat:
-		return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v}, nil
+		return &qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v}, nil
 	case []uint8:
-		return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: v}, nil
+		return &qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: v}, nil
 	default:
 		// If type is unsupported, return error
-		return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
+		return &qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
 	}
 }
 
@@ -307,7 +307,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 		}
 
 		// Convert []bigquery.Value to []qvalue.QValue
-		qValues := make([]qvalue.QValue, len(row))
+		qValues := make([]*qvalue.QValue, len(row))
 		for i, val := range row {
 			qv, err := toQValue(val)
 			if err != nil {
@@ -416,7 +416,12 @@ func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecord
 		fields = append(fields, fmt.Sprintf("%s %s", field.Name, bqType))
 	}
 
-	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.datasetName, tableName, strings.Join(fields, ", "))
+	command := fmt.Sprintf(
+		"CREATE TABLE %s.%s (%s)",
+		b.datasetName,
+		tableName,
+		strings.Join(fields, ", "),
+	)
 	fmt.Printf("creating table %s with command %s\n", tableName, command)
 
 	err := b.RunCommand(command)

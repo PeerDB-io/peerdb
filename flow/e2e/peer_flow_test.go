@@ -856,10 +856,13 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 	s.NoError(err)
 
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_multi_table_bq",
-		TableNameMapping: map[string]string{"e2e_test.test1_bq": "test1_bq", "e2e_test.test2_bq": "test2_bq"},
-		PostgresPort:     postgresPort,
-		Destination:      s.bqHelper.Peer,
+		FlowJobName: "test_multi_table_bq",
+		TableNameMapping: map[string]string{
+			"e2e_test.test1_bq": "test1_bq",
+			"e2e_test.test2_bq": "test2_bq",
+		},
+		PostgresPort: postgresPort,
+		Destination:  s.bqHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -1428,10 +1431,13 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 	table1 := fmt.Sprintf(s.sfHelper.testSchemaName + ".test1_sf")
 	table2 := fmt.Sprintf(s.sfHelper.testSchemaName + ".test2_sf")
 	connectionGen := FlowConnectionGenerationConfig{
-		FlowJobName:      "test_multi_table_sf",
-		TableNameMapping: map[string]string{"e2e_test.test1_sf": table1, "e2e_test.test2_sf": table2},
-		PostgresPort:     postgresPort,
-		Destination:      s.sfHelper.Peer,
+		FlowJobName: "test_multi_table_sf",
+		TableNameMapping: map[string]string{
+			"e2e_test.test1_sf": table1,
+			"e2e_test.test2_sf": table2,
+		},
+		PostgresPort: postgresPort,
+		Destination:  s.sfHelper.Peer,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()

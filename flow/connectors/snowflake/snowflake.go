@@ -227,7 +227,10 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result == 0 {
-		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
+		log.Warnf(
+			"Assuming zero offset means no sync has happened for job %s, returning nil",
+			jobName,
+		)
 		return nil, nil
 	}
 
@@ -237,8 +240,12 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, peerDBInternalSchema,
-		mirrorJobsTableIdentifier), jobName)
+	rows, err := c.database.QueryContext(
+		c.ctx,
+		fmt.Sprintf(getLastSyncBatchID_SQL, peerDBInternalSchema,
+			mirrorJobsTableIdentifier),
+		jobName,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("error querying Snowflake peer for last syncBatchId: %w", err)
 	}
@@ -256,8 +263,12 @@ func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 }
 
 func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, peerDBInternalSchema,
-		mirrorJobsTableIdentifier), jobName)
+	rows, err := c.database.QueryContext(
+		c.ctx,
+		fmt.Sprintf(getLastNormalizeBatchID_SQL, peerDBInternalSchema,
+			mirrorJobsTableIdentifier),
+		jobName,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
 	}
@@ -278,8 +289,11 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 	normalizeBatchID int64) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getDistinctDestinationTableNames, peerDBInternalSchema,
-		rawTableIdentifier, normalizeBatchID, syncBatchID))
+	rows, err := c.database.QueryContext(
+		c.ctx,
+		fmt.Sprintf(getDistinctDestinationTableNames, peerDBInternalSchema,
+			rawTableIdentifier, normalizeBatchID, syncBatchID),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}
@@ -300,8 +314,11 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	normalizeBatchID int64) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNametoUnchangedColsSQL, peerDBInternalSchema,
-		rawTableIdentifier, normalizeBatchID, syncBatchID))
+	rows, err := c.database.QueryContext(
+		c.ctx,
+		fmt.Sprintf(getTableNametoUnchangedColsSQL, peerDBInternalSchema,
+			rawTableIdentifier, normalizeBatchID, syncBatchID),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}
@@ -322,7 +339,9 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *SnowflakeConnector) GetTableSchema(
+	req *protos.GetTableSchemaInput,
+) (*protos.TableSchema, error) {
 	log.Errorf("panicking at call to GetTableSchema for Snowflake flow connector")
 	panic("GetTableSchema is not implemented for the Snowflake flow connector")
 }
@@ -346,7 +365,10 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	}
 
 	// convert the column names and types to Snowflake types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(req.TableIdentifier, req.SourceTableSchema)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
+		req.TableIdentifier,
+		req.SourceTableSchema,
+	)
 	_, err = c.database.ExecContext(c.ctx, normalizedTableCreateSQL)
 	if err != nil {
 		return nil, fmt.Errorf("error while creating normalized table: %w", err)
@@ -363,14 +385,22 @@ func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableS
 	return nil
 }
 
-func (c *SnowflakeConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *SnowflakeConnector) PullRecords(
+	req *model.PullRecordsRequest,
+) (*model.RecordBatch, error) {
 	log.Errorf("panicking at call to PullRecords for Snowflake flow connector")
 	panic("PullRecords is not implemented for the Snowflake flow connector")
 }
 
-func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *SnowflakeConnector) SyncRecords(
+	req *model.SyncRecordsRequest,
+) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	log.Printf("pushing %d records to Snowflake table %s", len(req.Records.Records), rawTableIdentifier)
+	log.Printf(
+		"pushing %d records to Snowflake table %s",
+		len(req.Records.Records),
+		rawTableIdentifier,
+	)
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -471,7 +501,10 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	defer func() {
 		deferErr := syncRecordsTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for SyncRecords: %v", deferErr)
+			log.Errorf(
+				"unexpected error while rolling back transaction for SyncRecords: %v",
+				deferErr,
+			)
 		}
 	}()
 
@@ -508,7 +541,9 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 }
 
 // NormalizeRecords normalizes raw table to destination table.
-func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *SnowflakeConnector) NormalizeRecords(
+	req *model.NormalizeRecordsRequest,
+) (*model.NormalizeResponse, error) {
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err
@@ -536,12 +571,20 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 			Done: true,
 		}, nil
 	}
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(req.FlowJobName, syncBatchID, normalizeBatchID)
+	destinationTableNames, err := c.getDistinctTableNamesInBatch(
+		req.FlowJobName,
+		syncBatchID,
+		normalizeBatchID,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, syncBatchID, normalizeBatchID)
+	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(
+		req.FlowJobName,
+		syncBatchID,
+		normalizeBatchID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
@@ -555,7 +598,10 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	defer func() {
 		deferErr := normalizeRecordsTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for NormalizeRecords: %v", deferErr)
+			log.Errorf(
+				"unexpected error while rolling back transaction for NormalizeRecords: %v",
+				deferErr,
+			)
 		}
 	}()
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
@@ -586,7 +632,9 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}, nil
 }
 
-func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+func (c *SnowflakeConnector) CreateRawTable(
+	req *protos.CreateRawTableInput,
+) (*protos.CreateRawTableOutput, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 
 	createRawTableTx, err := c.database.BeginTx(c.ctx, nil)
@@ -639,12 +687,18 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
+			log.Errorf(
+				"unexpected error while rolling back transaction for flow cleanup: %v",
+				deferErr,
+			)
 		}
 	}()
 
-	_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
-		getRawTableIdentifier(jobName)))
+	_, err = syncFlowCleanupTx.ExecContext(
+		c.ctx,
+		fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
+			getRawTableIdentifier(jobName)),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
@@ -660,8 +714,16 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	return nil
 }
 
-func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) (bool, error) {
-	rows, err := c.database.QueryContext(c.ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier)
+func (c *SnowflakeConnector) checkIfTableExists(
+	schemaIdentifier string,
+	tableIdentifier string,
+) (bool, error) {
+	rows, err := c.database.QueryContext(
+		c.ctx,
+		checkIfTableExistsSQL,
+		schemaIdentifier,
+		tableIdentifier,
+	)
 	if err != nil {
 		return false, err
 	}
@@ -718,7 +780,10 @@ func getSnowflakeTypeForGenericColumnType(colType string) string {
 	}
 }
 
-func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sourceTableSchema *protos.TableSchema) string {
+func generateCreateTableSQLForNormalizedTable(
+	sourceTableIdentifier string,
+	sourceTableSchema *protos.TableSchema,
+) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
@@ -737,8 +802,18 @@ func generateMultiValueInsertSQL(tableIdentifier string, chunkSize int) string {
 	// inferring the width of the raw table from the create table statement
 	rawTableWidth := strings.Count(createRawTableSQL, ",") + 1
 
-	return fmt.Sprintf(rawTableMultiValueInsertSQL, peerDBInternalSchema, tableIdentifier,
-		strings.TrimSuffix(strings.Repeat(fmt.Sprintf("(%s),", strings.TrimSuffix(strings.Repeat("?,", rawTableWidth), ",")), chunkSize), ","))
+	return fmt.Sprintf(
+		rawTableMultiValueInsertSQL,
+		peerDBInternalSchema,
+		tableIdentifier,
+		strings.TrimSuffix(
+			strings.Repeat(
+				fmt.Sprintf("(%s),", strings.TrimSuffix(strings.Repeat("?,", rawTableWidth), ",")),
+				chunkSize,
+			),
+			",",
+		),
+	)
 }
 
 func getRawTableIdentifier(jobName string) string {
@@ -751,11 +826,25 @@ func (c *SnowflakeConnector) insertRecordsInRawTable(rawTableIdentifier string,
 	rawRecordsData := make([]any, 0)
 
 	for _, record := range snowflakeRawRecords {
-		rawRecordsData = append(rawRecordsData, record.uid, record.timestamp, record.destinationTableName,
-			record.data, record.recordType, record.matchData, record.batchID, record.unchangedToastColumns)
+		rawRecordsData = append(
+			rawRecordsData,
+			record.uid,
+			record.timestamp,
+			record.destinationTableName,
+			record.data,
+			record.recordType,
+			record.matchData,
+			record.batchID,
+			record.unchangedToastColumns,
+		)
 	}
-	_, err := syncRecordsTx.ExecContext(c.ctx,
-		generateMultiValueInsertSQL(rawTableIdentifier, len(snowflakeRawRecords)), rawRecordsData...)
+	_, err := syncRecordsTx.ExecContext(
+		c.ctx,
+		generateMultiValueInsertSQL(
+			rawTableIdentifier,
+			len(snowflakeRawRecords),
+		),
+		rawRecordsData...)
 	if err != nil {
 		return fmt.Errorf("failed to insert record into raw table: %w", err)
 	}
@@ -778,20 +867,32 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 		sfType := getSnowflakeTypeForGenericColumnType(genericColumnType)
 		switch genericColumnType {
 		case model.ColumnHexBytes:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
-				"AS %s,", toVariantColumnName, columnName, columnName))
+			flattenedCastsSQLArray = append(
+				flattenedCastsSQLArray,
+				fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
+					"AS %s,", toVariantColumnName, columnName, columnName),
+			)
 		case model.ColumnHexBit:
 			// "c2": {"Bytes": "gA==", "Len": 1,"Valid": true}
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s:Bytes) "+
-				"AS %s,", toVariantColumnName, columnName, columnName))
+			flattenedCastsSQLArray = append(
+				flattenedCastsSQLArray,
+				fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s:Bytes) "+
+					"AS %s,", toVariantColumnName, columnName, columnName),
+			)
 		case model.ColumnTypeTime:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
-				"Microseconds*1000) "+
-				"AS %s,", toVariantColumnName, columnName, columnName))
+			flattenedCastsSQLArray = append(
+				flattenedCastsSQLArray,
+				fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
+					"Microseconds*1000) "+
+					"AS %s,", toVariantColumnName, columnName, columnName),
+			)
 		default:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,",
-				toVariantColumnName,
-				columnName, sfType, columnName))
+			flattenedCastsSQLArray = append(
+				flattenedCastsSQLArray,
+				fmt.Sprintf("CAST(%s:%s AS %s) AS %s,",
+					toVariantColumnName,
+					columnName, sfType, columnName),
+			)
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")
@@ -806,10 +907,19 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	udateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
-	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
-		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
-		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL,
-		updateStringToastCols)
+	mergeStatement := fmt.Sprintf(
+		mergeStatementSQL,
+		destinationTableIdentifier,
+		toVariantColumnName,
+		rawTableIdentifier,
+		normalizeBatchID,
+		syncBatchID,
+		flattenedCastsSQL,
+		normalizedTableSchema.PrimaryKeyColumn,
+		insertColumnsSQL,
+		insertValuesSQL,
+		updateStringToastCols,
+	)
 
 	_, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
@@ -833,8 +943,15 @@ func parseTableName(tableName string) (*tableNameComponents, error) {
 }
 
 func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
-	rows, err := c.database.QueryContext(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
+	rows, err := c.database.QueryContext(
+		c.ctx,
+		fmt.Sprintf(
+			checkIfJobMetadataExistsSQL,
+			peerDBInternalSchema,
+			mirrorJobsTableIdentifier,
+		),
+		jobName,
+	)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if job exists: %w", err)
 	}
@@ -848,7 +965,12 @@ func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
 	return result, nil
 }
 
-func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64, syncRecordsTx *sql.Tx) error {
+func (c *SnowflakeConnector) updateSyncMetadata(
+	flowJobName string,
+	lastCP int64,
+	syncBatchID int64,
+	syncRecordsTx *sql.Tx,
+) error {
 	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
@@ -873,7 +995,11 @@ func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64
 	return nil
 }
 
-func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64, normalizeRecordsTx *sql.Tx) error {
+func (c *SnowflakeConnector) updateNormalizeMetadata(
+	flowJobName string,
+	normalizeBatchID int64,
+	normalizeRecordsTx *sql.Tx,
+) error {
 	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
@@ -882,9 +1008,16 @@ func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string, normali
 		return fmt.Errorf("job metadata does not exist, unable to update")
 	}
 
-	_, err = normalizeRecordsTx.ExecContext(c.ctx,
-		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, peerDBInternalSchema, mirrorJobsTableIdentifier),
-		normalizeBatchID, flowJobName)
+	_, err = normalizeRecordsTx.ExecContext(
+		c.ctx,
+		fmt.Sprintf(
+			updateMetadataForNormalizeRecordsSQL,
+			peerDBInternalSchema,
+			mirrorJobsTableIdentifier,
+		),
+		normalizeBatchID,
+		flowJobName,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
 	}
@@ -893,7 +1026,10 @@ func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string, normali
 }
 
 func (c *SnowflakeConnector) createPeerDBInternalSchema(createsSchemaTx *sql.Tx) error {
-	_, err := createsSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createPeerDBInternalSchemaSQL, peerDBInternalSchema))
+	_, err := createsSchemaTx.ExecContext(
+		c.ctx,
+		fmt.Sprintf(createPeerDBInternalSchemaSQL, peerDBInternalSchema),
+	)
 	if err != nil {
 		return fmt.Errorf("error while creating internal schema for PeerDB: %w", err)
 	}
@@ -922,7 +1058,10 @@ and updating the other columns.
 6. Repeat steps 1-5 for each unique set of unchanged toast column groups.
 7. Return the list of generated update statements.
 */
-func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
+func (c *SnowflakeConnector) generateUpdateStatement(
+	allCols []string,
+	unchangedToastCols []string,
+) []string {
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {

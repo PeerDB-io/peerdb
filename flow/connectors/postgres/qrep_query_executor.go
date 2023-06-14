@@ -183,7 +183,7 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse field: %w", err)
 		}
-		record.Set(i, tmp)
+		record.Set(i, &tmp)
 	}
 
 	return record, nil

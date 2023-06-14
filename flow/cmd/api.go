@@ -44,15 +44,20 @@ func (a *APIServer) CheckTemporalHealth(reqCtx context.Context) string {
 }
 
 // ListAllWorkflows lists all workflows
-func (a *APIServer) ListAllWorkflows(reqCtx context.Context) ([]*workflow.WorkflowExecutionInfo, error) {
+func (a *APIServer) ListAllWorkflows(
+	reqCtx context.Context,
+) ([]*workflow.WorkflowExecutionInfo, error) {
 	var executions []*workflow.WorkflowExecutionInfo = make([]*workflow.WorkflowExecutionInfo, 0)
 	var nextPageToken []byte
 
 	for {
-		resp, err := a.temporalClient.ListWorkflow(reqCtx, &workflowservice.ListWorkflowExecutionsRequest{
-			PageSize:      100,
-			NextPageToken: nextPageToken,
-		})
+		resp, err := a.temporalClient.ListWorkflow(
+			reqCtx,
+			&workflowservice.ListWorkflowExecutionsRequest{
+				PageSize:      100,
+				NextPageToken: nextPageToken,
+			},
+		)
 		if err != nil {
 			return executions, fmt.Errorf("unable to list workflows: %w", err)
 		}
@@ -69,7 +74,10 @@ func (a *APIServer) ListAllWorkflows(reqCtx context.Context) ([]*workflow.Workfl
 }
 
 // StartPeerFlow starts a peer flow workflow
-func (a *APIServer) StartPeerFlow(reqCtx context.Context, input *peerflow.PeerFlowWorkflowInput) (string, error) {
+func (a *APIServer) StartPeerFlow(
+	reqCtx context.Context,
+	input *peerflow.PeerFlowWorkflowInput,
+) (string, error) {
 	workflowID := fmt.Sprintf("%s-peerflow-%s", input.PeerFlowName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
@@ -89,7 +97,10 @@ func (a *APIServer) StartPeerFlow(reqCtx context.Context, input *peerflow.PeerFl
 	return workflowID, nil
 }
 
-func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepConfig) (string, error) {
+func (a *APIServer) StartQRepFlow(
+	reqCtx context.Context,
+	config *protos.QRepConfig,
+) (string, error) {
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", config.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
@@ -110,7 +121,10 @@ func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepCon
 }
 
 // ShutdownPeerFlow signals the peer flow workflow to shutdown
-func (a *APIServer) ShutdownPeerFlow(reqCtx context.Context, input *peerflow.DropFlowWorkflowInput) error {
+func (a *APIServer) ShutdownPeerFlow(
+	reqCtx context.Context,
+	input *peerflow.DropFlowWorkflowInput,
+) error {
 	err := a.temporalClient.SignalWorkflow(
 		reqCtx,
 		input.WorkflowID,

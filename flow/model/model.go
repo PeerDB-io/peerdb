@@ -23,7 +23,7 @@ type PullRecordsRequest struct {
 	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
-type Record interface {
+type CDCRecord interface {
 	// GetCheckPointID returns the ID of the record.
 	GetCheckPointID() int64
 	// get table name
@@ -122,7 +122,7 @@ type TableWithPkey struct {
 
 type RecordBatch struct {
 	// Records are a list of json objects.
-	Records []Record
+	Records []CDCRecord
 	// FirstCheckPointID is the first ID that was pulled.
 	FirstCheckPointID int64
 	// LastCheckPointID is the last ID of the commit that corresponds to this batch.
