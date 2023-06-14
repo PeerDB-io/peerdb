@@ -8,6 +8,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/testsuite"
@@ -90,34 +91,34 @@ func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) 
 func getOwnersSchema() *model.QRecordSchema {
 	return &model.QRecordSchema{
 		Fields: []*model.QField{
-			{Name: "id", Type: model.QValueKindString, Nullable: true},
-			{Name: "card_id", Type: model.QValueKindString, Nullable: true},
-			{Name: "from_v", Type: model.QValueKindETime, Nullable: true},
-			{Name: "price", Type: model.QValueKindNumeric, Nullable: true},
-			{Name: "created_at", Type: model.QValueKindETime, Nullable: true},
-			{Name: "updated_at", Type: model.QValueKindETime, Nullable: true},
-			{Name: "transaction_hash", Type: model.QValueKindBytes, Nullable: true},
-			{Name: "ownerable_type", Type: model.QValueKindString, Nullable: true},
-			{Name: "ownerable_id", Type: model.QValueKindString, Nullable: true},
-			{Name: "user_nonce", Type: model.QValueKindInt64, Nullable: true},
-			{Name: "transfer_type", Type: model.QValueKindInt64, Nullable: true},
-			{Name: "blockchain", Type: model.QValueKindInt64, Nullable: true},
-			{Name: "deal_type", Type: model.QValueKindString, Nullable: true},
-			{Name: "deal_id", Type: model.QValueKindString, Nullable: true},
-			{Name: "ethereum_transaction_id", Type: model.QValueKindString, Nullable: true},
-			{Name: "ignore_price", Type: model.QValueKindBoolean, Nullable: true},
-			{Name: "card_eth_value", Type: model.QValueKindFloat64, Nullable: true},
-			{Name: "paid_eth_price", Type: model.QValueKindFloat64, Nullable: true},
-			{Name: "card_bought_notified", Type: model.QValueKindBoolean, Nullable: true},
-			{Name: "address", Type: model.QValueKindNumeric, Nullable: true},
-			{Name: "account_id", Type: model.QValueKindString, Nullable: true},
-			{Name: "asset_id", Type: model.QValueKindNumeric, Nullable: true},
-			{Name: "status", Type: model.QValueKindInt64, Nullable: true},
-			{Name: "transaction_id", Type: model.QValueKindString, Nullable: true},
-			{Name: "settled_at", Type: model.QValueKindETime, Nullable: true},
-			{Name: "reference_id", Type: model.QValueKindString, Nullable: true},
-			{Name: "settle_at", Type: model.QValueKindETime, Nullable: true},
-			{Name: "settlement_delay_reason", Type: model.QValueKindInt64, Nullable: true},
+			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "from_v", Type: qvalue.QValueKindETime, Nullable: true},
+			{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
+			{Name: "created_at", Type: qvalue.QValueKindETime, Nullable: true},
+			{Name: "updated_at", Type: qvalue.QValueKindETime, Nullable: true},
+			{Name: "transaction_hash", Type: qvalue.QValueKindBytes, Nullable: true},
+			{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
+			{Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
+			{Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
+			{Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
+			{Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
+			{Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
+			{Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "settled_at", Type: qvalue.QValueKindETime, Nullable: true},
+			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "settle_at", Type: qvalue.QValueKindETime, Nullable: true},
+			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
 		},
 	}
 }

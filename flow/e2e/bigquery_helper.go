@@ -13,6 +13,7 @@ import (
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"google.golang.org/api/iterator"
 )
@@ -193,65 +194,65 @@ func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
 	return int(cntI64), nil
 }
 
-func toQValue(bqValue bigquery.Value) (model.QValue, error) {
-	// Based on the real type of the bigquery.Value, we create a model.QValue
+func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
+	// Based on the real type of the bigquery.Value, we create a qvalue.QValue
 	switch v := bqValue.(type) {
 	case int, int32:
-		return model.QValue{Kind: model.QValueKindInt32, Value: v}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: v}, nil
 	case int64:
-		return model.QValue{Kind: model.QValueKindInt64, Value: v}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: v}, nil
 	case float32:
-		return model.QValue{Kind: model.QValueKindFloat32, Value: v}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: v}, nil
 	case float64:
-		return model.QValue{Kind: model.QValueKindFloat64, Value: v}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: v}, nil
 	case string:
-		return model.QValue{Kind: model.QValueKindString, Value: v}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindString, Value: v}, nil
 	case bool:
-		return model.QValue{Kind: model.QValueKindBoolean, Value: v}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v}, nil
 	case time.Time:
-		val, err := model.NewExtendedTime(v, model.DateTimeKindType, "")
+		val, err := qvalue.NewExtendedTime(v, qvalue.DateTimeKindType, "")
 		if err != nil {
-			return model.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
+			return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
 		}
-		return model.QValue{
-			Kind:  model.QValueKindETime,
+		return qvalue.QValue{
+			Kind:  qvalue.QValueKindETime,
 			Value: val,
 		}, nil
 	case *big.Rat:
-		return model.QValue{Kind: model.QValueKindNumeric, Value: v}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v}, nil
 	case []uint8:
-		return model.QValue{Kind: model.QValueKindBytes, Value: v}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: v}, nil
 	default:
 		// If type is unsupported, return error
-		return model.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
+		return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
 	}
 }
 
 // bqFieldTypeToQValueKind converts a bigquery FieldType to a QValueKind.
-func bqFieldTypeToQValueKind(fieldType bigquery.FieldType) (model.QValueKind, error) {
+func bqFieldTypeToQValueKind(fieldType bigquery.FieldType) (qvalue.QValueKind, error) {
 	switch fieldType {
 	case bigquery.StringFieldType:
-		return model.QValueKindString, nil
+		return qvalue.QValueKindString, nil
 	case bigquery.BytesFieldType:
-		return model.QValueKindBytes, nil
+		return qvalue.QValueKindBytes, nil
 	case bigquery.IntegerFieldType:
-		return model.QValueKindInt64, nil
+		return qvalue.QValueKindInt64, nil
 	case bigquery.FloatFieldType:
-		return model.QValueKindFloat64, nil
+		return qvalue.QValueKindFloat64, nil
 	case bigquery.BooleanFieldType:
-		return model.QValueKindBoolean, nil
+		return qvalue.QValueKindBoolean, nil
 	case bigquery.TimestampFieldType:
-		return model.QValueKindETime, nil
+		return qvalue.QValueKindETime, nil
 	case bigquery.RecordFieldType:
-		return model.QValueKindStruct, nil
+		return qvalue.QValueKindStruct, nil
 	case bigquery.DateFieldType:
-		return model.QValueKindETime, nil
+		return qvalue.QValueKindETime, nil
 	case bigquery.TimeFieldType:
-		return model.QValueKindETime, nil
+		return qvalue.QValueKindETime, nil
 	case bigquery.NumericFieldType:
-		return model.QValueKindNumeric, nil
+		return qvalue.QValueKindNumeric, nil
 	case bigquery.GeographyFieldType:
-		return model.QValueKindString, nil
+		return qvalue.QValueKindString, nil
 	default:
 		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
 	}
@@ -305,8 +306,8 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 			return nil, fmt.Errorf("failed to iterate over query results: %w", err)
 		}
 
-		// Convert []bigquery.Value to []model.QValue
-		qValues := make([]model.QValue, len(row))
+		// Convert []bigquery.Value to []qvalue.QValue
+		qValues := make([]qvalue.QValue, len(row))
 		for i, val := range row {
 			qv, err := toQValue(val)
 			if err != nil {
@@ -380,25 +381,25 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool
 	}
 }
 
-func qValueKindToBqColTypeString(val model.QValueKind) (string, error) {
+func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 	switch val {
-	case model.QValueKindInt32:
+	case qvalue.QValueKindInt32:
 		return "INT64", nil
-	case model.QValueKindInt64:
+	case qvalue.QValueKindInt64:
 		return "INT64", nil
-	case model.QValueKindFloat32:
+	case qvalue.QValueKindFloat32:
 		return "FLOAT64", nil
-	case model.QValueKindFloat64:
+	case qvalue.QValueKindFloat64:
 		return "FLOAT64", nil
-	case model.QValueKindString:
+	case qvalue.QValueKindString:
 		return "STRING", nil
-	case model.QValueKindBoolean:
+	case qvalue.QValueKindBoolean:
 		return "BOOL", nil
-	case model.QValueKindETime:
+	case qvalue.QValueKindETime:
 		return "TIMESTAMP", nil
-	case model.QValueKindBytes:
+	case qvalue.QValueKindBytes:
 		return "BYTES", nil
-	case model.QValueKindNumeric:
+	case qvalue.QValueKindNumeric:
 		return "NUMERIC", nil
 	default:
 		return "", fmt.Errorf("unsupported QValueKind: %v", val)
