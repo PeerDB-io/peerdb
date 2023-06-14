@@ -91,7 +91,7 @@ message TableSchema {
   // list of column names and types, types can be one of the following:
   // "string", "int", "float", "bool", "timestamp".
   map<string, string> columns = 2;
-  string primary_key_column = 3;
+  repeated string primary_key_column = 3;
 }
 
 message SetupNormalizedTableInput {

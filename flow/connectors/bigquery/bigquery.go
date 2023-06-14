@@ -655,6 +655,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	updateMetadataStmt := fmt.Sprintf(
 		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name = '%s';",
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
+
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 
@@ -1058,15 +1059,18 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 
 // generateDeDupedCTE generates a de-duped CTE.
 func (m *MergeStmtGenerator) generateDeDupedCTE() string {
-	return `_peerdb_de_duplicated_data_res AS (
+	pkeyCols := m.NormalizedTableSchema.PrimaryKeyColumn
+	// comma separated string of column names
+	csep := strings.Join(pkeyCols, ", ")
+	return fmt.Sprintf(`_peerdb_de_duplicated_data_res AS (
 		SELECT _peerdb_ranked.*
 			FROM (
 				SELECT RANK() OVER (
-					PARTITION BY id ORDER BY _peerdb_timestamp_nanos DESC
+					PARTITION BY %s ORDER BY _peerdb_timestamp_nanos DESC
 				) as rank, * FROM _peerdb_flattened
 			) _peerdb_ranked
 			WHERE rank = 1
-	) SELECT * FROM _peerdb_de_duplicated_data_res`
+	) SELECT * FROM _peerdb_de_duplicated_data_res`, csep)
 }
 
 // generateMergeStmt generates a merge statement.
@@ -1083,15 +1087,29 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 	udateStatementsforToastCols := m.generateUpdateStatement(colNames, m.UnchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
+	template := "_peerdb_target.%s = _peerdb_deduped.%s"
+	pkeyCondition := m.generatePkeyCondition(template, pkey)
+
 	return fmt.Sprintf(`
 	MERGE %s.%s _peerdb_target USING _peerdb_de_duplicated_data _peerdb_deduped
-	ON _peerdb_target.%s = _peerdb_deduped.%s
+	ON %s 
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	DELETE;
-	`, m.Dataset, m.NormalizedTable, pkey, pkey, csep, csep, updateStringToastCols)
+	`, m.Dataset, m.NormalizedTable, pkeyCondition, csep, csep, updateStringToastCols)
+}
+
+func (m *MergeStmtGenerator) generatePkeyCondition(template string, array []string) string {
+	var parts []string
+
+	for _, value := range array {
+		part := fmt.Sprintf(template, value, value)
+		parts = append(parts, part)
+	}
+
+	return strings.Join(parts, " AND ")
 }
 
 /*

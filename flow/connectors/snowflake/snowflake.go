@@ -46,7 +46,7 @@ const (
 		 FROM VARIANT_CONVERTED), DEDUPLICATED_FLATTENED AS (SELECT RANKED.* FROM
 		 (SELECT RANK() OVER (PARTITION BY %s ORDER BY _PEERDB_TIMESTAMP DESC) AS RANK,* FROM FLATTENED)
 		 RANKED WHERE RANK=1)
-		 SELECT * FROM DEDUPLICATED_FLATTENED) SOURCE ON TARGET.ID=SOURCE.ID
+		 SELECT * FROM DEDUPLICATED_FLATTENED) SOURCE ON %s 
 		 WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE != 2) THEN INSERT (%s) VALUES(%s)
 		 %s
 		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN DELETE`
@@ -721,14 +721,11 @@ func getSnowflakeTypeForGenericColumnType(colType string) string {
 func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sourceTableSchema *protos.TableSchema) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
-		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s PRIMARY KEY,",
-				columnName, getSnowflakeTypeForGenericColumnType(genericColumnType)))
-		} else {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s,", columnName,
-				getSnowflakeTypeForGenericColumnType(genericColumnType)))
-		}
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s,", columnName,
+			getSnowflakeTypeForGenericColumnType(genericColumnType)))
 	}
+	pkeyColString := strings.Join(sourceTableSchema.PrimaryKeyColumn, ",")
+	createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY (%s),", pkeyColString))
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
 }
@@ -806,10 +803,13 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	udateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
+	pkeyCols := c.generatePkeyStringinMerge(normalizedTableSchema.PrimaryKeyColumn)
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
-		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL,
+		strings.Join(normalizedTableSchema.PrimaryKeyColumn, ","), pkeyCols, insertColumnsSQL, insertValuesSQL,
 		updateStringToastCols)
+
+	fmt.Printf("MERGE SAI %s", mergeStatement)
 
 	_, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
@@ -817,6 +817,17 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	}
 
 	return nil
+}
+
+func (c *SnowflakeConnector) generatePkeyStringinMerge(array []string) string {
+	var parts []string
+
+	for _, element := range array {
+		part := fmt.Sprintf("TARGET.%s = SOURCE.%s", element, element)
+		parts = append(parts, part)
+	}
+
+	return strings.Join(parts, " AND ")
 }
 
 // parseTableName parses a table name into schema and table name.

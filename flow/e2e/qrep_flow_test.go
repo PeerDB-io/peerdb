@@ -179,36 +179,40 @@ func (s *E2EPeerFlowTestSuite) createQRepWorkflowConfig(
 	return qrepConfig
 }
 
-func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string, colsString string) {
+func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string,
+	colsString string, pkeyCols []string) {
+	pkeyColsString := strings.Join(pkeyCols, ",")
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", colsString, tableName),
+		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY %s", colsString, tableName, pkeyColsString),
 	)
 	s.NoError(err)
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName),
+		fmt.Sprintf("SELECT %s FROM %s ORDER BY %s", colsString, qualifiedTableName, pkeyColsString),
 	)
 	s.NoError(err)
 
 	s.True(pgRows.Equals(bqRows), "rows from source and destination tables are not equal")
 }
 
-func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector string) {
+func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string,
+	selector string, pkeyCols []string) {
+	pkeyColsString := strings.Join(pkeyCols, ",")
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", selector, tableName),
+		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY %s", selector, tableName, pkeyColsString),
 	)
 	s.NoError(err)
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM %s ORDER BY id", selector, qualifiedTableName),
+		fmt.Sprintf("SELECT %s FROM %s ORDER BY %s", selector, qualifiedTableName, pkeyColsString),
 	)
 	s.NoError(err)
 
@@ -276,7 +280,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 	err := env.GetWorkflowError()
 	s.NoError(err)
 
-	s.compareTableContentsBQ(tblName, "*")
+	s.compareTableContentsBQ(tblName, "*", []string{"id"})
 
 	env.AssertExpectations(s.T())
 }
@@ -312,7 +316,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, []string{"id"})
 
 	env.AssertExpectations(s.T())
 }

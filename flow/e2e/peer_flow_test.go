@@ -449,7 +449,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast_bq_1", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast_bq_1", "id,t1,t2,k", []string{"id"})
 	env.AssertExpectations(s.T())
 }
 
@@ -514,7 +514,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast_bq_2", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast_bq_2", "id,t1,t2,k", []string{"id"})
 	env.AssertExpectations(s.T())
 }
 
@@ -525,10 +525,12 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 	_, err := s.pool.Exec(context.Background(), `
 
 		CREATE TABLE e2e_test.test_toast_bq_3 (
-			id SERIAL PRIMARY KEY,
+			id SERIAL,
+			uuid UUID NOT NULL DEFAULT gen_random_uuid(),
 			t1 text,
 			t2 text,
-			k int
+			k int,
+			PRIMARY KEY(id, uuid)
 		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
 		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
@@ -590,7 +592,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast_bq_3", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast_bq_3", "id,uuid,t1,t2,k", []string{"id", "uuid"})
 	env.AssertExpectations(s.T())
 }
 
@@ -687,7 +689,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast_bq_4", "id,t1,k")
+	s.compareTableContentsBQ("test_toast_bq_4", "id,t1,k", []string{"id"})
 	env.AssertExpectations(s.T())
 }
 
@@ -698,7 +700,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 	_, err := s.pool.Exec(context.Background(), `
 
 		CREATE TABLE e2e_test.test_toast_bq_5 (
-			id SERIAL PRIMARY KEY,
+			p SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
 			k int
@@ -740,9 +742,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 			BEGIN;
 			INSERT INTO e2e_test.test_toast_bq_5(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,1);
-			UPDATE e2e_test.test_toast_bq_5 SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast_bq_5 SET t1='dummy' WHERE id=1;
-			UPDATE e2e_test.test_toast_bq_5 SET t2='dummy' WHERE id=1;
+			UPDATE e2e_test.test_toast_bq_5 SET k=102 WHERE p=1;
+			UPDATE e2e_test.test_toast_bq_5 SET t1='dummy' WHERE p=1;
+			UPDATE e2e_test.test_toast_bq_5 SET t2='dummy' WHERE p=1;
 			END;
 		`)
 		s.NoError(err)
@@ -757,7 +759,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 
 	s.NoError(err)
 
-	s.compareTableContentsBQ("test_toast_bq_5", "id,t1,t2,k")
+	s.compareTableContentsBQ("test_toast_bq_5", "p,t1,t2,k", []string{"p"})
 	env.AssertExpectations(s.T())
 }
 
@@ -1041,7 +1043,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_1", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_1", "id,t1,t2,k", []string{"id"})
 	env.AssertExpectations(s.T())
 }
 
@@ -1107,7 +1109,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_2", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_2", "id,t1,t2,k", []string{"id"})
 	env.AssertExpectations(s.T())
 }
 
@@ -1118,10 +1120,12 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 	_, err := s.pool.Exec(context.Background(), `
 
 		CREATE TABLE e2e_test.test_toast_sf_3 (
-			id SERIAL PRIMARY KEY,
+			id SERIAL,
+			uuid UUID NOT NULL DEFAULT gen_random_uuid(),
 			t1 text,
 			t2 text,
-			k int
+			k int,
+			PRIMARY KEY(id, uuid)
 		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
 		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
@@ -1184,7 +1188,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_3", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_3", "id,uuid,t1,t2,k", []string{"id", "uuid"})
 	env.AssertExpectations(s.T())
 }
 
@@ -1255,7 +1259,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_4", "id,t1,k")
+	s.compareTableContentsSF("test_toast_sf_4", "id,t1,k", []string{""})
 	env.AssertExpectations(s.T())
 }
 
@@ -1266,7 +1270,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 	_, err := s.pool.Exec(context.Background(), `
 
 		CREATE TABLE e2e_test.test_toast_sf_5 (
-			id SERIAL PRIMARY KEY,
+			p SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
 			k int
@@ -1309,9 +1313,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 			BEGIN;
 			INSERT INTO e2e_test.test_toast_sf_5(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,1);
-			UPDATE e2e_test.test_toast_sf_5 SET k=102 WHERE id=1;
-			UPDATE e2e_test.test_toast_sf_5 SET t1='dummy' WHERE id=1;
-			UPDATE e2e_test.test_toast_sf_5 SET t2='dummy' WHERE id=1;
+			UPDATE e2e_test.test_toast_sf_5 SET k=102 WHERE p=1;
+			UPDATE e2e_test.test_toast_sf_5 SET t1='dummy' WHERE p=1;
+			UPDATE e2e_test.test_toast_sf_5 SET t2='dummy' WHERE p=1;
 			END;
 		`)
 		s.NoError(err)
@@ -1326,7 +1330,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_5", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_5", "p,t1,t2,k", []string{"p"})
 	env.AssertExpectations(s.T())
 }
 
@@ -1472,6 +1476,132 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 
 	s.Equal(1, count1)
 	s.Equal(1, count2)
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) Test_Composite_Pkey_BQ() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	_, err := s.pool.Exec(context.Background(), `
+		CREATE TABLE e2e_test.test_composite_bq (
+			id SERIAL,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL,
+			PRIMARY KEY (id, key)
+		);
+	`)
+	s.NoError(err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "test_composite_pkey_bq",
+		TableNameMapping: map[string]string{"e2e_test.test_composite_bq": "test_composite_bq"},
+		PostgresPort:     postgresPort,
+		Destination:      s.bqHelper.Peer,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
+
+	peerFlowInput := peerflow.PeerFlowWorkflowInput{
+		PeerFlowName:   connectionGen.FlowJobName,
+		CatalogJdbcURL: postgresJdbcURL,
+		TotalSyncFlows: 2,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert 10 rows into the source table
+	go func() {
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		// insert 10 rows into the source table
+		for i := 0; i < 10; i++ {
+			testKey := fmt.Sprintf("test_key_%d", i)
+			testValue := fmt.Sprintf("test_value_%d", i)
+			_, err = s.pool.Exec(context.Background(), `
+			INSERT INTO e2e_test.test_composite_bq (key, value) VALUES ($1, $2)
+		`, testKey, testValue)
+			s.NoError(err)
+		}
+		fmt.Println("Inserted 10 rows into the source table")
+	}()
+
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// assert that error contains "invalid connection configs"
+	s.NoError(err)
+
+	// TODO: verify that the data is correctly synced to the destination table
+	// on the bigquery side
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) Test_Composite_Pkey_SF() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	_, err := s.pool.Exec(context.Background(), `
+		CREATE TABLE e2e_test.test_composite_sf (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL
+		);
+	`)
+	s.NoError(err)
+	tableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_composite_sf")
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "test_composite_pkey_sf",
+		TableNameMapping: map[string]string{"e2e_test.test_composite_sf": tableName},
+		PostgresPort:     postgresPort,
+		Destination:      s.sfHelper.Peer,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
+
+	peerFlowInput := peerflow.PeerFlowWorkflowInput{
+		PeerFlowName:   connectionGen.FlowJobName,
+		CatalogJdbcURL: postgresJdbcURL,
+		TotalSyncFlows: 2,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert 10 rows into the source table
+	go func() {
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		// insert 10 rows into the source table
+		for i := 0; i < 10; i++ {
+			testKey := fmt.Sprintf("test_key_%d", i)
+			testValue := fmt.Sprintf("test_value_%d", i)
+			_, err = s.pool.Exec(context.Background(), `
+			INSERT INTO e2e_test.test_composite_sf (key, value) VALUES ($1, $2)
+		`, testKey, testValue)
+			s.NoError(err)
+		}
+		fmt.Println("Inserted 10 rows into the source table")
+	}()
+
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// assert that error contains "invalid connection configs"
+	s.NoError(err)
+
+	s.compareTableContentsSF("test_composite_sf", "id,key,value", []string{"id,key"})
 
 	env.AssertExpectations(s.T())
 }

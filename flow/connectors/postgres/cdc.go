@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -189,7 +190,11 @@ func (p *PostgresCDCSource) consumeStream(
 					// should be ideally sourceTableName as we are in pullRecrods.
 					// will change in future
 					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal := rec.GetItems()[pkeyCol]
+					var pkeyColVals []interface{}
+					for _, pkeyCol := range pkeyCol {
+						pkeyColVals = append(pkeyColVals, r.NewItems[pkeyCol])
+					}
+					pkeyColVal := convertArrayToString(pkeyColVals)
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
 						PkeyColVal: pkeyColVal,
@@ -212,7 +217,11 @@ func (p *PostgresCDCSource) consumeStream(
 					}
 				case *model.InsertRecord:
 					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal := rec.GetItems()[pkeyCol]
+					var pkeyColVals []interface{}
+					for _, pkeyCol := range pkeyCol {
+						pkeyColVals = append(pkeyColVals, r.Items[pkeyCol])
+					}
+					pkeyColVal := convertArrayToString(pkeyColVals)
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
 						PkeyColVal: pkeyColVal,
@@ -229,6 +238,14 @@ func (p *PostgresCDCSource) consumeStream(
 			clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
 		}
 	}
+}
+
+func convertArrayToString(array []interface{}) string {
+	var parts []string
+	for _, value := range array {
+		parts = append(parts, fmt.Sprintf("%v", value))
+	}
+	return strings.Join(parts, " ")
 }
 
 func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogrepl.XLogData) (model.Record, error) {
