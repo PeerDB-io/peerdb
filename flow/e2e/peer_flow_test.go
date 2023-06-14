@@ -1259,7 +1259,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_4", "id,t1,k", []string{""})
+	s.compareTableContentsSF("test_toast_sf_4", "id,t1,k", []string{"id"})
 	env.AssertExpectations(s.T())
 }
 

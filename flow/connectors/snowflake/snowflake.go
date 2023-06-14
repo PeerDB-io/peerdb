@@ -809,8 +809,6 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 		strings.Join(normalizedTableSchema.PrimaryKeyColumn, ","), pkeyCols, insertColumnsSQL, insertValuesSQL,
 		updateStringToastCols)
 
-	fmt.Printf("MERGE SAI %s", mergeStatement)
-
 	_, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to merge records into %s: %w", destinationTableIdentifier, err)
