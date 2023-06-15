@@ -2,9 +2,7 @@ package peerflow
 
 import (
 	"fmt"
-	"time"
 
-	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -35,6 +33,8 @@ type PeerFlowWorkflowInput struct {
 	TotalNormalizeFlows int
 	// Maximum number of rows in a sync flow batch.
 	MaxBatchSize int
+	// flow connector configs, inherited from the SetupFlow workflow.
+	FlowConnectionConfigs *protos.FlowConnectionConfigs
 }
 
 type PeerFlowState struct {
@@ -48,8 +48,6 @@ type PeerFlowState struct {
 	NormalizeFlowStatuses []*model.NormalizeResponse
 	// Current signalled state of the peer flow.
 	ActiveSignal shared.PeerFlowSignal
-	// SetupComplete indicates whether the peer flow setup has completed.
-	SetupComplete bool
 	// Errors encountered during child sync flow executions.
 	SyncFlowErrors error
 	// Errors encountered during child sync flow executions.
@@ -71,38 +69,6 @@ func NewPeerFlowWorkflowExecution(ctx workflow.Context, state *PeerFlowState) *P
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
 		logger:          workflow.GetLogger(ctx),
 	}
-}
-
-// fetchConnectionConfigs fetches the connection configs for source and destination peers.
-func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
-	ctx workflow.Context,
-) (*protos.FlowConnectionConfigs, error) {
-	w.logger.Info("fetching connection configs for peer flow - ", w.PeerFlowName)
-
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
-	})
-
-	fetchConfigActivityInput := &activities.FetchConfigActivityInput{
-		CatalogJdbcURL: w.CatalogJdbcURL,
-		PeerFlowName:   w.PeerFlowName,
-	}
-
-	configsFuture := workflow.ExecuteActivity(ctx, fetchConfig.FetchConfig, fetchConfigActivityInput)
-
-	flowConnectionConfigs := &protos.FlowConnectionConfigs{}
-	if err := configsFuture.Get(ctx, &flowConnectionConfigs); err != nil {
-		return nil, fmt.Errorf("failed to fetch connection configs: %w", err)
-	}
-
-	if flowConnectionConfigs == nil ||
-		flowConnectionConfigs.Source == nil ||
-		flowConnectionConfigs.Destination == nil {
-		return nil, fmt.Errorf("invalid connection configs")
-	}
-
-	w.logger.Info("fetched connection configs for peer flow - ", w.PeerFlowName)
-	return flowConnectionConfigs, nil
 }
 
 // getChildWorkflowID returns the child workflow ID for a new sync flow.
@@ -134,7 +100,6 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		Progress:              []string{"started"},
 		SyncFlowStatuses:      []*model.SyncResponse{},
 		NormalizeFlowStatuses: []*model.NormalizeResponse{},
-		SetupComplete:         false,
 		ActiveSignal:          shared.NoopSignal,
 		SyncFlowErrors:        nil,
 	})
@@ -161,38 +126,6 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		c.Receive(ctx, &signalVal)
 		signalHandler(ctx, signalVal)
 	})
-
-	// Fetch the connection configs for the source and destination peers.
-	flowConnectionConfigs, err := w.fetchConnectionConfigs(ctx)
-	if err != nil {
-		return &w.PeerFlowState, err
-	}
-	flowConnectionConfigs.FlowJobName = w.PeerFlowName
-	w.Progress = append(w.Progress, "fetched connection configs")
-
-	{
-		// start the SetupFlow workflow as a child workflow, and wait for it to complete
-		// it should return the table schema for the source peer
-		setupFlowID, err := w.getChildWorkflowID(ctx, "setup-flow", w.PeerFlowName)
-		if err != nil {
-			return &w.PeerFlowState, err
-		}
-		childSetupFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        setupFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 10,
-			},
-		}
-		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
-		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, flowConnectionConfigs)
-		if err := setupFlowFuture.Get(setupFlowCtx, &flowConnectionConfigs); err != nil {
-			return &w.PeerFlowState, fmt.Errorf("failed to execute child workflow: %w", err)
-		}
-
-		w.SetupComplete = true
-		w.Progress = append(w.Progress, "executed setup flow")
-	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{
 		BatchSize: int32(input.MaxBatchSize),
@@ -237,7 +170,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			SyncFlowWorkflow,
-			flowConnectionConfigs,
+			input.FlowConnectionConfigs,
 			syncFlowOptions,
 		)
 
@@ -283,7 +216,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			NormalizeFlowWorkflow,
-			flowConnectionConfigs,
+			input.FlowConnectionConfigs,
 		)
 
 		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {

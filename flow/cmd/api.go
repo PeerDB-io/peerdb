@@ -69,24 +69,56 @@ func (a *APIServer) ListAllWorkflows(reqCtx context.Context) ([]*workflow.Workfl
 }
 
 // StartPeerFlow starts a peer flow workflow
-func (a *APIServer) StartPeerFlow(reqCtx context.Context, input *peerflow.PeerFlowWorkflowInput) (string, error) {
-	workflowID := fmt.Sprintf("%s-peerflow-%s", input.PeerFlowName, uuid.New())
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
+func (a *APIServer) StartPeerFlow(reqCtx context.Context, peerFlowName string,
+	catalogJdbcURL string) (string, error) {
+	setupFlowWorkflowID := fmt.Sprintf("%s-setupflow-%s", peerFlowName, uuid.New())
+	setupFlowWorkflowOptions := client.StartWorkflowOptions{
+		ID:        setupFlowWorkflowID,
 		TaskQueue: shared.PeerFlowTaskQueue,
 	}
 
-	_, err := a.temporalClient.ExecuteWorkflow(
+	setupFlowInput := &peerflow.SetupFlowWorkflowInput{
+		CatalogJdbcURL: catalogJdbcURL,
+		FlowName:       peerFlowName,
+	}
+	setupFlowFuture, err := a.temporalClient.ExecuteWorkflow(
+		reqCtx,                     // context
+		setupFlowWorkflowOptions,   // workflow start options
+		peerflow.SetupFlowWorkflow, // workflow function
+		setupFlowInput,             // workflow input
+	)
+	if err != nil {
+		return "", fmt.Errorf("unable to start SetupFlow workflow: %w", err)
+	}
+	var flowConnectionConfigs *protos.FlowConnectionConfigs
+	if err = setupFlowFuture.Get(reqCtx, flowConnectionConfigs); err != nil {
+		return "", fmt.Errorf("unable to get flow connection configs from SetupFlow workflow: %w", err)
+	}
+
+	peerFlowWorkflowID := fmt.Sprintf("%s-peerflow-%s", peerFlowName, uuid.New())
+	peerFlowWorkflowOptions := client.StartWorkflowOptions{
+		ID:        peerFlowWorkflowID,
+		TaskQueue: shared.PeerFlowTaskQueue,
+	}
+	peerFlowInput := &peerflow.PeerFlowWorkflowInput{
+		CatalogJdbcURL:        catalogJdbcURL,
+		PeerFlowName:          peerFlowName,
+		TotalSyncFlows:        0,
+		TotalNormalizeFlows:   0,
+		MaxBatchSize:          1024 * 1024,
+		FlowConnectionConfigs: flowConnectionConfigs,
+	}
+	_, err = a.temporalClient.ExecuteWorkflow(
 		reqCtx,                    // context
-		workflowOptions,           // workflow start options
+		peerFlowWorkflowOptions,   // workflow start options
 		peerflow.PeerFlowWorkflow, // workflow function
-		input,                     // workflow input
+		peerFlowInput,             // workflow input
 	)
 	if err != nil {
 		return "", fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
-	return workflowID, nil
+	return setupFlowWorkflowID, nil
 }
 
 func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepConfig) (string, error) {
@@ -198,16 +230,8 @@ func APIMain(args *APIServerParams) error {
 			return
 		}
 
-		input := &peerflow.PeerFlowWorkflowInput{
-			CatalogJdbcURL:      args.CatalogJdbcURL,
-			PeerFlowName:        reqJSON.PeerFlowName,
-			TotalSyncFlows:      0,
-			TotalNormalizeFlows: 0,
-			MaxBatchSize:        1024 * 1024,
-		}
-
 		ctx := c.Request.Context()
-		if id, err := apiServer.StartPeerFlow(ctx, input); err != nil {
+		if id, err := apiServer.StartPeerFlow(ctx, reqJSON.PeerFlowName, args.CatalogJdbcURL); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": err.Error(),
 			})
