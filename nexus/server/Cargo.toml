@@ -43,6 +43,7 @@ peer-bigquery = { path = "../peer-bigquery" }
 peer-connections = { path = "../peer-connections" }
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
+peer-snowflake = { path = "../peer-snowflake" }
 peerdb-parser = { path = "../parser" }
 pgwire = "0.14"
 prost = "0.11"
