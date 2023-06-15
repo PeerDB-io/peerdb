@@ -136,13 +136,14 @@ message QRepConfig {
   peerdb.peers.Peer source_peer = 2;
   peerdb.peers.Peer destination_peer = 3;
 
-  string source_table_identifier = 4;
-  string destination_table_identifier = 5;
+  string destination_table_identifier = 4;
 
-  string query = 6;
+  string query = 5;
+
+  string watermark_table = 6;
   string watermark_column = 7;
 
-  bool inital_copy_only = 8;
+  bool initial_copy_only = 8;
   QRepSyncMode sync_mode = 9;
 
   uint32 rows_per_partition = 10;

@@ -233,7 +233,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 // add LIMIT 1 to the root level query.
                 // this is a workaround for the bigquery API not supporting DESCRIBE
                 // queries.
-                query.limit = Some(Expr::Value(Value::Number("1".to_owned(), false)));
+                query.limit = Some(Expr::Value(Value::Number("0".to_owned(), false)));
 
                 let query = query.to_string();
                 let result_set = self.run_tracked(&query).await?;
