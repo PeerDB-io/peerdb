@@ -127,7 +127,7 @@ enum QueryAttemptResult {
 }
 
 impl SnowflakeQueryExecutor {
-    pub async fn new(config: SnowflakeConfig, result_set: ResultSet) -> anyhow::Result<Self> {
+    pub async fn new(config: SnowflakeConfig) -> anyhow::Result<Self> {
         let mut default_headers = header::HeaderMap::new();
         default_headers.insert(
             "X-Snowflake-Authorization-Token-Type",
