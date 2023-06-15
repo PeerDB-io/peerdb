@@ -1,7 +1,9 @@
 package connpostgres
 
 import (
+	"bytes"
 	"fmt"
+	"text/template"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -110,7 +112,10 @@ func (c *PostgresConnector) PullQRepRecords(
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query := fmt.Sprintf("%s WHERE %s BETWEEN $1 AND $2", config.Query, config.WatermarkColumn)
+	query, err := BuildQuery(config.Query)
+	if err != nil {
+		return nil, err
+	}
 
 	executor := NewQRepQueryExecutor(c.pool, c.ctx)
 
@@ -164,7 +169,7 @@ func (c *PostgresConnector) getPartitionQuery(
 				WHERE %[1]s > $1
 			) sub
 			GROUP BY (row - 1) / %[3]d`,
-			config.WatermarkColumn, config.SourceTableIdentifier, config.RowsPerPartition)
+			config.WatermarkColumn, config.WatermarkTable, config.RowsPerPartition)
 
 		return partitionQuery, lastEndValue
 	}
@@ -176,7 +181,30 @@ func (c *PostgresConnector) getPartitionQuery(
 			FROM %[2]s
 		) sub
 		GROUP BY (row - 1) / %[3]d`,
-		config.WatermarkColumn, config.SourceTableIdentifier, config.RowsPerPartition)
+		config.WatermarkColumn, config.WatermarkTable, config.RowsPerPartition)
 
 	return partitionQuery, nil
+}
+
+func BuildQuery(query string) (string, error) {
+	tmpl, err := template.New("query").Parse(query)
+	if err != nil {
+		return "", err
+	}
+
+	data := map[string]interface{}{
+		"start": "$1",
+		"end":   "$2",
+	}
+
+	buf := new(bytes.Buffer)
+
+	err = tmpl.Execute(buf, data)
+	if err != nil {
+		return "", err
+	}
+	res := buf.String()
+
+	log.Infof("templated query: %s", res)
+	return res, nil
 }

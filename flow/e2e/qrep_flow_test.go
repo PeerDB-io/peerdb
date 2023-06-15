@@ -164,7 +164,7 @@ func (s *E2EPeerFlowTestSuite) createQRepWorkflowConfig(
 ) *protos.QRepConfig {
 	connectionGen := QRepFlowConnectionGenerationConfig{
 		FlowJobName:                flowJobName,
-		SourceTableIdentifier:      sourceTable,
+		WatermarkTable:             sourceTable,
 		DestinationTableIdentifier: dstTable,
 		PostgresPort:               postgresPort,
 		Destination:                dest,
@@ -175,7 +175,7 @@ func (s *E2EPeerFlowTestSuite) createQRepWorkflowConfig(
 	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark, syncMode)
 	s.NoError(err)
 
-	qrepConfig.InitalCopyOnly = true
+	qrepConfig.InitialCopyOnly = true
 
 	return qrepConfig
 }
@@ -229,10 +229,12 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert() {
 	s.setupSourceTable(tblName, numRows)
 	s.setupBQDestinationTable(tblName)
 
+	query := fmt.Sprintf("SELECT * FROM e2e_test.%s 'WHERE updated_at BETWEEN {{.start}} AND {{.end}}", tblName)
+
 	qrepConfig := s.createQRepWorkflowConfig("test_qrep_flow_mi",
 		"e2e_test."+tblName,
 		tblName,
-		"SELECT * FROM e2e_test."+tblName,
+		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
 		s.bqHelper.Peer)
 	runQrepFlowWorkflow(env, qrepConfig)
@@ -262,10 +264,12 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 	s.setupSourceTable(tblName, numRows)
 	s.setupBQDestinationTable(tblName)
 
+	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", tblName)
+
 	qrepConfig := s.createQRepWorkflowConfig("test_qrep_flow_avro",
 		"e2e_test."+tblName,
 		tblName,
-		"SELECT * FROM e2e_test."+tblName,
+		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.bqHelper.Peer)
 	runQrepFlowWorkflow(env, qrepConfig)
@@ -294,11 +298,13 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
+	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", tblName)
+
 	qrepConfig := s.createQRepWorkflowConfig(
 		"test_qrep_flow_avro_Sf",
 		"e2e_test."+tblName,
 		dstSchemaQualified,
-		"SELECT * FROM e2e_test."+tblName,
+		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
 	)
