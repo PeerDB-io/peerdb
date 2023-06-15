@@ -229,7 +229,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert() {
 	s.setupSourceTable(tblName, numRows)
 	s.setupBQDestinationTable(tblName)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test.%s 'WHERE updated_at BETWEEN {{.start}} AND {{.end}}", tblName)
+	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", tblName)
 
 	qrepConfig := s.createQRepWorkflowConfig("test_qrep_flow_mi",
 		"e2e_test."+tblName,
