@@ -206,34 +206,42 @@ impl SnowflakeRecordStream {
         })
     }
 
-    async fn advance_partition(&mut self) -> anyhow::Result<bool> {
+    fn advance_partition(&mut self) -> anyhow::Result<bool> {
         if (self.partition_number + 1) == self.result_set.resultSetMetaData.partitionInfo.len() {
             return Ok(false);
         }
         self.partition_number = self.partition_number + 1;
         self.partition_index = 0;
+        let partition_number = self.partition_number;
+        let secret = self.auth.get_jwt().expose_secret().clone();
+        let reqwest_client = self.reqwest_client.clone();
+        let statement_handle = self.result_set.statementHandle.clone();
+        let url = self.endpoint_url.clone();
+        let response_task = tokio::task::spawn(async move {
+            let response = reqwest_client
+                .get(format!("{}/{}", url, statement_handle))
+                .bearer_auth(secret)
+                .query(&[("partition", partition_number)])
+                .send()
+                .await
+                .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
 
-        let response = self
-            .reqwest_client
-            .get(format!(
-                "{}/{}",
-                self.endpoint_url, self.result_set.statementHandle
-            ))
-            .bearer_auth(self.auth.get_jwt().expose_secret())
-            .query(&[("partition", self.partition_number)])
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
-        let partition = response
-            .json::<PartitionResult>()
-            .await
-            .map_err(|_| anyhow::anyhow!("get_partition deserialize failed"))?;
+            response
+                .json::<PartitionResult>()
+                .await
+                .map_err(|_| anyhow::anyhow!("get_partition deserialize failed"))
+        });
+
+        let partition = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(response_task)
+            .unwrap()?;
         self.result_set.data = partition.data;
         Ok(true)
     }
 
-    async fn advance(&mut self) -> anyhow::Result<bool> {
-        Ok((self.partition_index < self.result_set.data.len()) || self.advance_partition().await?)
+    fn advance(&mut self) -> anyhow::Result<bool> {
+        Ok((self.partition_index < self.result_set.data.len()) || self.advance_partition()?)
     }
 }
 
@@ -244,7 +252,6 @@ impl Stream for SnowflakeRecordStream {
         let this = self.get_mut();
         match this
             .advance()
-            .await
             .expect("Could not get next row in result set")
         {
             true => {
