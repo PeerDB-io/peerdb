@@ -14,6 +14,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const qRepMetadataTableName = "_peerdb_query_replication_metadata"
+
 func (c *PostgresConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
@@ -87,7 +89,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 
 	// log the partitions for debugging
-	fmt.Printf("partitions: %v\n", partitions)
+	log.Debugf("partitions: %v\n", partitions)
 
 	return partitions, nil
 }
@@ -130,7 +132,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	fieldDescriptions := rows.FieldDescriptions()
 
 	// log the number of field descriptions and column names
-	fmt.Printf("field descriptions: %v\n", fieldDescriptions)
+	log.Debugf("field descriptions: %v\n", fieldDescriptions)
 
 	// Process the rows and retrieve the records
 	return executor.ProcessRows(rows, fieldDescriptions)
@@ -139,11 +141,52 @@ func (c *PostgresConnector) PullQRepRecords(
 func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
 	partition *protos.QRepPartition, records *model.QRecordBatch,
 ) (int, error) {
-	return 0, fmt.Errorf("SyncQRepRecords not implemented for postgres connector")
+	dstTable, err := parseSchemaTable(config.DestinationTableIdentifier)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse destination table identifier: %w", err)
+	}
+
+	exists, err := c.tableExists(dstTable)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check if table exists: %w", err)
+	}
+
+	if !exists {
+		return 0, fmt.Errorf("table %s does not exist", dstTable)
+	}
+
+	syncMode := config.SyncMode
+	switch syncMode {
+	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
+		stagingTableSync := &QRepStagingTableSync{connector: c}
+		return stagingTableSync.SyncQRepRecords(config.FlowJobName, dstTable, partition, records)
+	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
+		return 0, fmt.Errorf("[postgres] SyncQRepRecords not implemented for storage avro sync mode")
+	default:
+		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
+	}
 }
 
+// SetupQRepMetadataTables function for postgres connector
 func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	panic("SetupQRepMetadataTables not implemented for postgres connector")
+	qRepMetadataSchema := `CREATE TABLE IF NOT EXISTS %s (
+		flowJobName TEXT,
+		partitionID TEXT,
+		syncPartition JSONB,
+		syncStartTime TIMESTAMP,
+		syncFinishTime TIMESTAMP DEFAULT NOW()
+	)`
+
+	// replace table name in schema
+	qRepMetadataSchema = fmt.Sprintf(qRepMetadataSchema, qRepMetadataTableName)
+
+	// execute create table query
+	_, err := c.pool.Exec(c.ctx, qRepMetadataSchema)
+	if err != nil {
+		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
+	}
+
+	return nil
 }
 
 func (c *PostgresConnector) getPartitionQuery(
@@ -207,4 +250,22 @@ func BuildQuery(query string) (string, error) {
 
 	log.Infof("templated query: %s", res)
 	return res, nil
+}
+
+// isPartitionSynced checks whether a specific partition is synced
+func (c *PostgresConnector) isPartitionSynced(partitionID string) (bool, error) {
+	// setup the query string
+	queryString := fmt.Sprintf(
+		"SELECT COUNT(*) FROM %s WHERE partitionID = $1;",
+		qRepMetadataTableName,
+	)
+
+	// prepare and execute the query
+	var count int
+	err := c.pool.QueryRow(c.ctx, queryString, partitionID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return count > 0, nil
 }

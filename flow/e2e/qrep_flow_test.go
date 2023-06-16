@@ -216,6 +216,44 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector
 	s.True(pgRows.Equals(sfRows), "rows from source and destination tables are not equal")
 }
 
+func (s *E2EPeerFlowTestSuite) comparePGTables(srcSchemaQualified, dstSchemaQualified string) error {
+	// Execute the two EXCEPT queries
+	err := s.compareQuery(srcSchemaQualified, dstSchemaQualified)
+	if err != nil {
+		return err
+	}
+
+	err = s.compareQuery(dstSchemaQualified, srcSchemaQualified)
+	if err != nil {
+		return err
+	}
+
+	// If no error is returned, then the contents of the two tables are the same
+	return nil
+}
+
+func (s *E2EPeerFlowTestSuite) compareQuery(schema1, schema2 string) error {
+	query := fmt.Sprintf("SELECT * FROM %s EXCEPT SELECT * FROM %s", schema1, schema2)
+	rows, _ := s.pool.Query(context.Background(), query)
+
+	defer rows.Close()
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return err
+		}
+
+		columns := rows.FieldDescriptions()
+
+		for i, value := range values {
+			fmt.Printf("%s: %v\n", columns[i].Name, value)
+		}
+		fmt.Println("---")
+	}
+
+	return rows.Err()
+}
+
 // Test_Complete_QRep_Flow tests a complete flow with data in the source table.
 // The test inserts 10 rows into the source table and verifies that the data is
 // correctly synced to the destination table this runs a QRep Flow.
@@ -320,6 +358,51 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 
 	sel := getOwnersSelectorString()
 	s.compareTableContentsSF(tblName, sel)
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert_PG() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	numRows := 1
+
+	srcTable := "test_qrep_flow_avro_pg_1"
+	s.setupSourceTable(srcTable, numRows)
+
+	dstTable := "test_qrep_flow_avro_pg_2"
+	s.createSourceTable(dstTable) // the name is misleading, but this is the destination table
+
+	srcSchemaQualified := fmt.Sprintf("%s.%s", "e2e_test", srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s.%s", "e2e_test", dstTable)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", srcTable)
+
+	postgresPeer := GeneratePostgresPeer(postgresPort)
+
+	qrepConfig := s.createQRepWorkflowConfig(
+		"test_qrep_flow_avro_pg",
+		srcSchemaQualified,
+		dstSchemaQualified,
+		query,
+		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
+		postgresPeer,
+	)
+
+	runQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	// assert that error contains "invalid connection configs"
+	err := env.GetWorkflowError()
+	s.NoError(err)
+
+	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified)
+	if err != nil {
+		s.FailNow(err.Error())
+	}
 
 	env.AssertExpectations(s.T())
 }
