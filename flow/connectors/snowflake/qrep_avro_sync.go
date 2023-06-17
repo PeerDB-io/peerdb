@@ -32,88 +32,147 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
-	records *model.QRecordBatch) (int, error) {
+	records *model.QRecordBatch,
+) (int, error) {
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
-
-	// You will need to define your Avro schema as a string
-	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, records.Schema)
+	avroSchema, err := s.getAvroSchema(dstTableName, records.Schema)
 	if err != nil {
-		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
+		return 0, err
 	}
 
-	fmt.Printf("Avro schema: %v\n", avroSchema)
-
-	// Create a local file path with flowJobName and partitionID
-	localFilePath := fmt.Sprintf("%s/%s.avro", s.localDir, partition.PartitionId)
-	err = s.WriteRecordsToAvroFile(records, avroSchema, localFilePath)
+	localFilePath, err := s.writeToAvroFile(records, avroSchema, partition.PartitionId)
 	if err != nil {
-		return 0, fmt.Errorf("failed to write records to Avro file: %w", err)
+		return 0, err
 	}
 
-	// this runID is just used for the staging table name
+	stage, err := s.createStage(dstTableName)
+	if err != nil {
+		return 0, err
+	}
+
+	err = s.putFileToStage(localFilePath, stage)
+	if err != nil {
+		return 0, err
+	}
+
+	err = s.handleWriteMode(config, dstTableName, stage, records)
+	if err != nil {
+		return 0, err
+	}
+
+	err = s.insertMetadata(partition, config.FlowJobName, startTime)
+	if err != nil {
+		return -1, err
+	}
+
+	return len(records.Records), nil
+}
+
+func (s *SnowflakeAvroSyncMethod) getAvroSchema(
+	dstTableName string,
+	schema *model.QRecordSchema,
+) (*model.QRecordAvroSchemaDefinition, error) {
+	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
+	}
+
+	log.Infof("Avro schema: %v\n", avroSchema)
+	return avroSchema, nil
+}
+
+func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
+	records *model.QRecordBatch,
+	avroSchema *model.QRecordAvroSchemaDefinition,
+	partitionID string,
+) (string, error) {
+	localFilePath := fmt.Sprintf("%s/%s.avro", s.localDir, partitionID)
+	err := s.WriteRecordsToAvroFile(records, avroSchema, localFilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to write records to Avro file: %w", err)
+	}
+
+	return localFilePath, nil
+}
+
+func (s *SnowflakeAvroSyncMethod) createStage(dstTableName string) (string, error) {
 	runID, err := util.RandomUInt64()
 	if err != nil {
-		return 0, fmt.Errorf("failed to generate run ID: %w", err)
+		return "", fmt.Errorf("failed to generate run ID: %w", err)
 	}
 
-	// create temp stag
 	stage := fmt.Sprintf("%s_%d", dstTableName, runID)
 	createStageCmd := fmt.Sprintf("CREATE TEMPORARY STAGE %s FILE_FORMAT = (TYPE = AVRO)", stage)
 	if _, err = s.connector.database.Exec(createStageCmd); err != nil {
-		return 0, fmt.Errorf("failed to create temp stage: %w", err)
+		return "", fmt.Errorf("failed to create temp stage: %w", err)
 	}
+
 	log.Infof("created temp stage %s", stage)
+	return stage, nil
+}
 
-	// Put the local Avro file to the Snowflake stage
+func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage string) error {
 	putCmd := fmt.Sprintf("PUT file://%s @%s", localFilePath, stage)
-	if _, err = s.connector.database.Exec(putCmd); err != nil {
-		return 0, fmt.Errorf("failed to put file to stage: %w", err)
+	if _, err := s.connector.database.Exec(putCmd); err != nil {
+		return fmt.Errorf("failed to put file to stage: %w", err)
 	}
-	log.Infof("put file %s to stage %s", localFilePath, stage)
 
-	// write this file to snowflake using COPY INTO statement
+	log.Infof("put file %s to stage %s", localFilePath, stage)
+	return nil
+}
+
+func (s *SnowflakeAvroSyncMethod) handleWriteMode(
+	config *protos.QRepConfig,
+	dstTableName string,
+	stage string,
+	records *model.QRecordBatch,
+) error {
 	copyOpts := []string{
 		"FILE_FORMAT = (TYPE = AVRO)",
 		"MATCH_BY_COLUMN_NAME='CASE_INSENSITIVE'",
 	}
 
 	writeHandler := NewSnowflakeAvroWriteHandler(s.connector.database, dstTableName, stage, copyOpts)
-
-	// based on the write mode we will upsert or append, write mode.
 	writeType := config.WriteMode.WriteType
 	switch writeType {
 	case protos.QRepWriteType_QREP_WRITE_MODE_APPEND:
-		err = writeHandler.HandleAppendMode()
+		err := writeHandler.HandleAppendMode()
 		if err != nil {
-			return 0, fmt.Errorf("failed to handle append mode: %w", err)
+			return fmt.Errorf("failed to handle append mode: %w", err)
 		}
 
 	case protos.QRepWriteType_QREP_WRITE_MODE_UPSERT:
 		colNames := records.Schema.GetColumnNames()
 		upsertKeyCols := config.WriteMode.UpsertKeyColumns
-		err = writeHandler.HandleUpsertMode(colNames, upsertKeyCols)
+		err := writeHandler.HandleUpsertMode(colNames, upsertKeyCols)
 		if err != nil {
-			return 0, fmt.Errorf("failed to handle upsert mode: %w", err)
+			return fmt.Errorf("failed to handle upsert mode: %w", err)
 		}
 
 	default:
-		return 0, fmt.Errorf("unknown write type: %v", writeType)
+		return fmt.Errorf("unknown write type: %v", writeType)
 	}
 
-	// Insert metadata statement
-	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, config.FlowJobName, startTime)
+	return nil
+}
+
+func (s *SnowflakeAvroSyncMethod) insertMetadata(
+	partition *protos.QRepPartition,
+	flowJobName string,
+	startTime time.Time,
+) error {
+	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {
-		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
+		return fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
 
-	// Execute the metadata insert statement
-	if _, err = s.connector.database.Exec(insertMetadataStmt); err != nil {
-		return -1, fmt.Errorf("failed to execute metadata insert statement: %v", err)
+	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
+		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
 	}
+
 	log.Infof("inserted metadata for partition %s", partition)
-
-	return len(records.Records), nil
+	return nil
 }
 
 func (s *SnowflakeAvroSyncMethod) WriteRecordsToAvroFile(
