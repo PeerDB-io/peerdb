@@ -164,7 +164,7 @@ impl Catalog {
         self.get_peer_id(&peer.name).await
     }
 
-    pub async fn get_peer_id(&self, peer_name: &str) -> anyhow::Result<i64> {
+    async fn get_peer_id(&self, peer_name: &str) -> anyhow::Result<i64> {
         let id = self.get_peer_id_i32(peer_name).await?;
         Ok(id as i64)
     }
@@ -181,6 +181,21 @@ impl Catalog {
             .await?
             .map(|row| row.get(0))
             .context("Failed to get peer id")
+    }
+
+    // get the database type for a given peer id
+    pub async fn get_peer_type_for_id(&self, peer_id: i32) -> anyhow::Result<DbType> {
+        let stmt = self
+            .pg
+            .prepare_typed("SELECT type FROM peers WHERE id = $1", &[types::Type::INT4])
+            .await?;
+
+        self.pg
+            .query_opt(&stmt, &[&peer_id])
+            .await?
+            .map(|row| row.get(0))
+            .map(|r#type| DbType::from_i32(r#type).unwrap()) // if row was inserted properly, this should never fail
+            .context("Failed to get peer type")
     }
 
     pub async fn get_peers(&self) -> anyhow::Result<HashMap<String, Peer>> {
@@ -244,11 +259,21 @@ impl Catalog {
             .get_peer_id_i32(&job.source_peer)
             .await
             .context("unable to get source peer id")?;
+        let source_peer_dbtype = self
+            .get_peer_type_for_id(source_peer_id)
+            .await
+            .context("unable to get source peer db type")?;
+        let source_peer_schema_normalize = source_peer_dbtype != DbType::Bigquery;
 
         let destination_peer_id = self
-            .get_peer_id_i32(&job.destination_peer)
+            .get_peer_id_i32(&job.target_peer)
             .await
             .context("unable to get destination peer id")?;
+        let destination_peer_dbtype = self
+            .get_peer_type_for_id(destination_peer_id)
+            .await
+            .context("unable to get destination peer db type")?;
+        let destination_peer_schema_normalize = destination_peer_dbtype != DbType::Bigquery;
 
         let stmt = self
             .pg
@@ -260,20 +285,37 @@ impl Catalog {
             )
             .await?;
 
-        let _rows = self
-            .pg
-            .execute(
-                &stmt,
-                &[
-                    &job.name,
-                    &source_peer_id,
-                    &destination_peer_id,
-                    &job.description,
-                    &job.source_table_identifier,
-                    &job.destination_table_identifier,
-                ],
-            )
-            .await?;
+        for table_mapping in &job.table_mappings {
+            let mut source_table_identifier_parts = table_mapping
+                .source_table_identifier
+                .split('.')
+                .collect::<Vec<&str>>();
+            if source_table_identifier_parts.len() == 1 && source_peer_schema_normalize {
+                source_table_identifier_parts.insert(0, "public");
+            }
+            let mut destination_table_identifier_parts = table_mapping
+                .target_table_identifier
+                .split('.')
+                .collect::<Vec<&str>>();
+            if destination_table_identifier_parts.len() == 1 && destination_peer_schema_normalize {
+                destination_table_identifier_parts.insert(0, "public");
+            }
+
+            let _rows = self
+                .pg
+                .execute(
+                    &stmt,
+                    &[
+                        &job.name,
+                        &source_peer_id,
+                        &destination_peer_id,
+                        &job.description,
+                        &source_table_identifier_parts.join("."),
+                        &destination_table_identifier_parts.join("."),
+                    ],
+                )
+                .await?;
+        }
 
         Ok(())
     }
@@ -290,7 +332,7 @@ impl Catalog {
                 &[&workflow_id, &flow_job_name],
             )
             .await?;
-        if rows != 1 {
+        if rows == 0 {
             return Err(anyhow!("unable to find metadata for flow"));
         }
         Ok(())
@@ -307,7 +349,9 @@ impl Catalog {
                 &[&flow_job_name],
             )
             .await?;
-        if rows.len() != 1 {
+        // currently multiple rows for a flow job exist in catalog, but all mapped to same workflow id
+        // CHANGE LOGIC IF THIS ASSUMPTION CHANGES
+        if rows.len() == 0 {
             tracing::info!("no workflow id found for flow job {}", flow_job_name);
             return Ok(None);
         }
@@ -320,7 +364,7 @@ impl Catalog {
             .pg
             .execute("DELETE FROM FLOWS WHERE NAME = $1", &[&flow_job_name])
             .await?;
-        if rows != 1 {
+        if rows == 0 {
             return Err(anyhow!("unable to delete flow job metadata"));
         }
         Ok(())

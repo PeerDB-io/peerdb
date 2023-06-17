@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS peers (
 
 CREATE TABLE IF NOT EXISTS flows (
   id SERIAL PRIMARY KEY,
-  name VARCHAR(255) NOT NULL UNIQUE,
+  name VARCHAR(255) NOT NULL,
   source_peer INTEGER NOT NULL REFERENCES peers(id),
   destination_peer INTEGER NOT NULL REFERENCES peers(id),
   description TEXT,

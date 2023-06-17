@@ -3,10 +3,11 @@
 use std::{
     collections::{HashMap, HashSet},
     ops::ControlFlow,
+    vec,
 };
 
 use anyhow::Context;
-use flow_rs::FlowJob;
+use flow_rs::{FlowJob, FlowJobTableMapping};
 use pt::peers::{
     peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
 };
@@ -124,32 +125,30 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
             }
             Statement::CreateMirror {
                 mirror_name,
-                source_table,
-                target_table,
+                source_peer,
+                target_peer,
+                table_mappings,
                 with_options: _,
             } => {
-                let source_table = source_table.to_string().to_lowercase();
-                let target_table = target_table.to_string().to_lowercase();
-                let mirror_name = mirror_name.to_string().to_lowercase();
-
-                // get first part of the '.' separated part from the source table as peer name
-                // and rest as the table name with schema
-                let source_table_parts: Vec<&str> = source_table.split('.').collect();
-                let source_peer_name = source_table_parts[0];
-                let source_table_name = source_table_parts[1..].join(".");
-
-                // get first part of the '.' separated part from the target table as peer name
-                // and rest as the table name with schema
-                let target_table_parts: Vec<&str> = target_table.split('.').collect();
-                let target_peer_name = target_table_parts[0];
-                let target_table_name = target_table_parts[1..].join(".");
+                let mut flow_job_table_mappings = vec![];
+                for table_mapping in table_mappings {
+                    flow_job_table_mappings.push(FlowJobTableMapping {
+                        source_table_identifier: table_mapping
+                            .source_table_identifier
+                            .to_string()
+                            .to_lowercase(),
+                        target_table_identifier: table_mapping
+                            .target_table_identifier
+                            .to_string()
+                            .to_lowercase(),
+                    });
+                }
 
                 let flow_job = FlowJob {
-                    name: mirror_name,
-                    source_peer: source_peer_name.to_string(),
-                    source_table_identifier: source_table_name,
-                    destination_peer: target_peer_name.to_string(),
-                    destination_table_identifier: target_table_name,
+                    name: mirror_name.to_string().to_lowercase(),
+                    source_peer: source_peer.to_string().to_lowercase(),
+                    target_peer: target_peer.to_string().to_lowercase(),
+                    table_mappings: flow_job_table_mappings,
                     description: "".to_string(), // TODO: add description
                 };
 
