@@ -134,24 +134,29 @@ func (s *SnowflakeAvroSyncMethod) handleWriteMode(
 	}
 
 	writeHandler := NewSnowflakeAvroWriteHandler(s.connector.database, dstTableName, stage, copyOpts)
-	writeType := config.WriteMode.WriteType
-	switch writeType {
-	case protos.QRepWriteType_QREP_WRITE_MODE_APPEND:
+
+	appendMode := true
+	if config.WriteMode != nil {
+		wirteType := config.WriteMode.WriteType
+		if wirteType == protos.QRepWriteType_QREP_WRITE_MODE_UPSERT {
+			appendMode = false
+		}
+	}
+
+	switch appendMode {
+	case true:
 		err := writeHandler.HandleAppendMode()
 		if err != nil {
 			return fmt.Errorf("failed to handle append mode: %w", err)
 		}
 
-	case protos.QRepWriteType_QREP_WRITE_MODE_UPSERT:
+	case false:
 		colNames := records.Schema.GetColumnNames()
 		upsertKeyCols := config.WriteMode.UpsertKeyColumns
 		err := writeHandler.HandleUpsertMode(colNames, upsertKeyCols)
 		if err != nil {
 			return fmt.Errorf("failed to handle upsert mode: %w", err)
 		}
-
-	default:
-		return fmt.Errorf("unknown write type: %v", writeType)
 	}
 
 	return nil
