@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -413,24 +414,42 @@ func parseSchemaTable(tableName string) (*SchemaTable, error) {
 
 // getPrimaryKeyColumn for table returns the primary key column for a given table
 // errors if there is no primary key column or if there is more than one primary key column.
-func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) (string, error) {
+func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) ([]string, error) {
 	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
-		return "", fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
+		return []string{}, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
 	}
-
-	// Get the primary key column name
-	var pkCol string
-	err = c.pool.QueryRow(c.ctx,
+	// query to get primary key column(s)
+	rows, err := c.pool.Query(c.ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 		 WHERE i.indrelid = $1 AND i.indisprimary`,
-		relID).Scan(&pkCol)
+		relID)
 	if err != nil {
-		return "", fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		return []string{}, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+	}
+	var pkeyCols []string
+	for rows.Next() {
+		var columnName string
+		err := rows.Scan(&columnName)
+		if err != nil {
+			log.Fatal("Error scanning row:", err)
+		}
+		pkeyCols = append(pkeyCols, columnName)
 	}
 
-	return pkCol, nil
+	if err = rows.Err(); err != nil {
+		log.Fatal("Error retrieving rows:", err)
+	}
+
+	if len(pkeyCols) > 0 {
+		fmt.Println("Primary key column(s) for table", schemaTable.Table, ":", pkeyCols)
+	} else {
+		return []string{}, fmt.Errorf("No primary key column for table %s: %w", schemaTable, err)
+	}
+	// sort the primary key columns
+	sort.Strings(pkeyCols)
+	return pkeyCols, nil
 }
 
 func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
