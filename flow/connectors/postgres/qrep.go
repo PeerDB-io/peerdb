@@ -155,6 +155,16 @@ func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
 		return 0, fmt.Errorf("table %s does not exist", dstTable)
 	}
 
+	done, err := c.isPartitionSynced(partition.PartitionId)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check if partition is synced: %w", err)
+	}
+
+	if done {
+		log.Infof("partition %s already synced", partition.PartitionId)
+		return 0, nil
+	}
+
 	syncMode := config.SyncMode
 	switch syncMode {
 	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:

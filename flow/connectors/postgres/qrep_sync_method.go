@@ -51,7 +51,12 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	)
 	_, err = pool.Exec(context.Background(), tmpTableStmt)
 	if err != nil {
-		log.Errorf("failed to create staging temporary table %s, statement: '%s'. Error: %v", stagingTable, tmpTableStmt, err)
+		log.Errorf(
+			"failed to create staging temporary table %s, statement: '%s'. Error: %v",
+			stagingTable,
+			tmpTableStmt,
+			err,
+		)
 		return 0, fmt.Errorf("failed to create staging temporary table %s: %w", stagingTable, err)
 	}
 
