@@ -130,6 +130,16 @@ enum QRepSyncMode {
   QREP_SYNC_MODE_STORAGE_AVRO = 1;
 }
 
+enum QRepWriteType {
+  QREP_WRITE_MODE_APPEND = 0;
+  QREP_WRITE_MODE_UPSERT = 1;
+}
+
+message QRepWriteMode {
+  QRepWriteType write_type = 1;
+  repeated string upsert_key_columns = 2;
+}
+
 message QRepConfig {
   string flow_job_name = 1;
 
@@ -151,6 +161,8 @@ message QRepConfig {
 
   // time to wait between getting partitions to process
   uint32 wait_between_batches_seconds = 12;
+
+  QRepWriteMode write_mode = 13;
 }
 
 message QRepPartition {
