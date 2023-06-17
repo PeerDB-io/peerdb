@@ -60,7 +60,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 			return 0, fmt.Errorf("failed to create temp directory: %w", err)
 		}
 		avroSync := &SnowflakeAvroSyncMethod{connector: c, localDir: tmpDir}
-		return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblSchema, records)
+		return avroSync.SyncQRepRecords(config, partition, tblSchema, records)
 	default:
 		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
 	}
