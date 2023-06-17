@@ -79,11 +79,7 @@ impl SnowflakeAst {
                 over: None,
                 distinct: false,
                 special: false,
-                order_by: vec![OrderByExpr {
-                    expr: expr.clone(),
-                    asc: Some(true),
-                    nulls_first: Some(false),
-                }],
+                order_by: vec![],
             })
         }
     }

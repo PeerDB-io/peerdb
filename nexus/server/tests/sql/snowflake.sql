@@ -1,4 +1,3 @@
-/*Projections*/
 -- SELECT distinct
 SELECT DISTINCT NAME FROM SNOWFLAKE_CI.PUBLIC.USERS LIMIT 1;
 
@@ -20,7 +19,6 @@ SELECT id::text FROM SNOWFLAKE_CI.PUBLIC.USERS LIMIT 1;
 -- CASE in projections
 SELECT CASE when id=1 then id else 0 end from SNOWFLAKE_CI.PUBLIC.USERS LIMIT 1;
 
-/*WHERE*/
 -- Simple WHERE
 SELECT * from SNOWFLAKE_CI.PUBLIC.USERS where id=1;
 
@@ -33,14 +31,11 @@ SELECT id from SNOWFLAKE_CI.PUBLIC.USERS where id>1  and id < 5 LIMIT 1;
 SELECT id from SNOWFLAKE_CI.PUBLIC.USERS where id>1  and id < 5 and country !='India' LIMIT 1;
 SELECT country from SNOWFLAKE_CI.PUBLIC.USERS where id>1  and id <= 5 LIMIT 1;
 
-/* ORDER BY */
 SELECT id from SNOWFLAKE_CI.PUBLIC.USERS ORDER BY country LIMIT 1;
 SELECT id from SNOWFLAKE_CI.PUBLIC.USERS ORDER BY country DESC LIMIT 1;
 SELECT id from SNOWFLAKE_CI.PUBLIC.USERS ORDER BY id DESC LIMIT 1;
 SELECT * from SNOWFLAKE_CI.PUBLIC.USERS ORDER BY country desc,id asc LIMIT 1;
 
-
-/* Aggregates */
 -- Aggregates
 SELECT count(*),sum(id),count(distinct id),avg(id),max(id),min(id) from SNOWFLAKE_CI.PUBLIC.USERS;
 
@@ -124,4 +119,3 @@ SELECT TIMESTAMP_TZ AT TIME ZONE 'Asia/Kolkata' FROM SNOWFLAKE_CI.PUBLIC.DATETIM
 DECLARE liahona CURSOR FOR SELECT NAME FROM SNOWFLAKE_CI.PUBLIC.USERS LIMIT 1000;
 FETCH 1 IN liahona;
 FETCH FORWARD 1 IN liahona;
-FETCH NEXT IN liahona;

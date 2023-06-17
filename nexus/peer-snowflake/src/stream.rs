@@ -1,9 +1,10 @@
 use crate::{auth::SnowflakeAuth, PartitionResult, ResultSet, ResultSetRowType};
-use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures::Stream;
 use peer_cursor::Schema;
 use peer_cursor::{Record, RecordStream, SchemaRef};
 use pgerror::PgError;
+use pgwire::messages::response;
 use pgwire::{
     api::{
         results::{FieldFormat, FieldInfo},
@@ -11,16 +12,18 @@ use pgwire::{
     },
     error::{PgWireError, PgWireResult},
 };
-use reqwest::Client;
+use reqwest::{Client, Response};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use serde_json;
+use std::thread;
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
 use value::Value::{
-    self, BigInt, Binary, Bool, Date, Float, Text, Time, Timestamp, TimestampWithTimeZone,
+    self, BigInt, Binary, Bool, Date, Float, PostgresTimestamp, Text, Time, Timestamp,
+    TimestampWithTimeZone,
 };
 
 #[derive(Clone, Deserialize, Debug)]
@@ -142,6 +145,7 @@ impl SnowflakeRecordStream {
                         SnowflakeDataType::Binary => Binary(hex::decode(elem)?.into()),
                         SnowflakeDataType::Boolean => Bool(elem.parse()?),
                         SnowflakeDataType::Date => {
+                            println!("Entered Date. elem: {:#?}", elem);
                             Date(NaiveDate::parse_from_str(elem, DATE_PARSE_FORMAT)?)
                         }
                         SnowflakeDataType::Time => {
@@ -165,10 +169,9 @@ impl SnowflakeRecordStream {
                                 )),
                             }
                         }
-                        SnowflakeDataType::TimestampNtz => Timestamp(DateTime::<Utc>::from_utc(
-                            DateTime::parse_from_str(elem, TIMESTAMP_PARSE_FORMAT)?.naive_utc(),
-                            Utc,
-                        )),
+                        SnowflakeDataType::TimestampNtz => PostgresTimestamp(
+                            NaiveDateTime::parse_from_str(elem, TIMESTAMP_PARSE_FORMAT)?,
+                        ),
                         SnowflakeDataType::TimestampTz => {
                             match DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT) {
                                 Ok(_) => TimestampWithTimeZone(DateTime::<Utc>::from_utc(
