@@ -20,7 +20,7 @@ use std::{
     task::{Context, Poll},
 };
 use value::Value::{
-    self, Binary, Bool, Date, Float, Text, Time, Timestamp, TimestampWithTimeZone, TinyInt,
+    self, BigInt, Binary, Bool, Date, Float, Text, Time, Timestamp, TimestampWithTimeZone,
 };
 
 #[derive(Clone, Deserialize, Debug)]
@@ -134,7 +134,7 @@ impl SnowflakeRecordStream {
                 Some(elem) => Some(
                     match self.result_set.resultSetMetaData.rowType[index].r#type {
                         SnowflakeDataType::Fixed => match elem.parse::<i64>() {
-                            Ok(_) => TinyInt(elem.parse()?),
+                            Ok(_) => BigInt(elem.parse()?),
                             Err(_) => Text(elem.to_string()),
                         },
                         SnowflakeDataType::Real => Float(elem.parse()?),
@@ -258,7 +258,7 @@ impl Stream for SnowflakeRecordStream {
                 let record = this.convert_result_set_item();
                 let result = record.map_err(|e| {
                     PgWireError::ApiError(Box::new(PgError::Internal {
-                        err_msg: format!("error getting curent row: {}", e),
+                        err_msg: format!("error getting current row: {}", e),
                     }))
                 });
                 Poll::Ready(Some(result))
