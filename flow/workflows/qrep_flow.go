@@ -221,7 +221,7 @@ func QRepFlowWorkflow(
 		return err
 	}
 
-	if config.InitalCopyOnly {
+	if config.InitialCopyOnly {
 		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
 		return nil
 	}

@@ -503,3 +503,21 @@ func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
 		return "", fmt.Errorf("unsupported column type: %s", colType)
 	}
 }
+
+func (c *PostgresConnector) tableExists(schemaTable *SchemaTable) (bool, error) {
+	var exists bool
+	err := c.pool.QueryRow(c.ctx,
+		`SELECT EXISTS (
+			SELECT FROM pg_tables
+			WHERE schemaname = $1
+			AND tablename = $2
+		)`,
+		schemaTable.Schema,
+		schemaTable.Table,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("error checking if table exists: %w", err)
+	}
+
+	return exists, nil
+}

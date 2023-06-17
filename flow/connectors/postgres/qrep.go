@@ -1,7 +1,9 @@
 package connpostgres
 
 import (
+	"bytes"
 	"fmt"
+	"text/template"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -11,6 +13,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
 func (c *PostgresConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
@@ -85,7 +89,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 
 	// log the partitions for debugging
-	fmt.Printf("partitions: %v\n", partitions)
+	log.Debugf("partitions: %v\n", partitions)
 
 	return partitions, nil
 }
@@ -110,7 +114,10 @@ func (c *PostgresConnector) PullQRepRecords(
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query := fmt.Sprintf("%s WHERE %s BETWEEN $1 AND $2", config.Query, config.WatermarkColumn)
+	query, err := BuildQuery(config.Query)
+	if err != nil {
+		return nil, err
+	}
 
 	executor := NewQRepQueryExecutor(c.pool, c.ctx)
 
@@ -125,7 +132,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	fieldDescriptions := rows.FieldDescriptions()
 
 	// log the number of field descriptions and column names
-	fmt.Printf("field descriptions: %v\n", fieldDescriptions)
+	log.Debugf("field descriptions: %v\n", fieldDescriptions)
 
 	// Process the rows and retrieve the records
 	return executor.ProcessRows(rows, fieldDescriptions)
@@ -134,11 +141,62 @@ func (c *PostgresConnector) PullQRepRecords(
 func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
 	partition *protos.QRepPartition, records *model.QRecordBatch,
 ) (int, error) {
-	return 0, fmt.Errorf("SyncQRepRecords not implemented for postgres connector")
+	dstTable, err := parseSchemaTable(config.DestinationTableIdentifier)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse destination table identifier: %w", err)
+	}
+
+	exists, err := c.tableExists(dstTable)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check if table exists: %w", err)
+	}
+
+	if !exists {
+		return 0, fmt.Errorf("table %s does not exist", dstTable)
+	}
+
+	done, err := c.isPartitionSynced(partition.PartitionId)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check if partition is synced: %w", err)
+	}
+
+	if done {
+		log.Infof("partition %s already synced", partition.PartitionId)
+		return 0, nil
+	}
+
+	syncMode := config.SyncMode
+	switch syncMode {
+	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
+		stagingTableSync := &QRepStagingTableSync{connector: c}
+		return stagingTableSync.SyncQRepRecords(config.FlowJobName, dstTable, partition, records)
+	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
+		return 0, fmt.Errorf("[postgres] SyncQRepRecords not implemented for storage avro sync mode")
+	default:
+		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
+	}
 }
 
+// SetupQRepMetadataTables function for postgres connector
 func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	panic("SetupQRepMetadataTables not implemented for postgres connector")
+	qRepMetadataSchema := `CREATE TABLE IF NOT EXISTS %s (
+		flowJobName TEXT,
+		partitionID TEXT,
+		syncPartition JSONB,
+		syncStartTime TIMESTAMP,
+		syncFinishTime TIMESTAMP DEFAULT NOW()
+	)`
+
+	// replace table name in schema
+	qRepMetadataSchema = fmt.Sprintf(qRepMetadataSchema, qRepMetadataTableName)
+
+	// execute create table query
+	_, err := c.pool.Exec(c.ctx, qRepMetadataSchema)
+	if err != nil {
+		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
+	}
+
+	return nil
 }
 
 func (c *PostgresConnector) getPartitionQuery(
@@ -164,7 +222,7 @@ func (c *PostgresConnector) getPartitionQuery(
 				WHERE %[1]s > $1
 			) sub
 			GROUP BY (row - 1) / %[3]d`,
-			config.WatermarkColumn, config.SourceTableIdentifier, config.RowsPerPartition)
+			config.WatermarkColumn, config.WatermarkTable, config.RowsPerPartition)
 
 		return partitionQuery, lastEndValue
 	}
@@ -176,7 +234,48 @@ func (c *PostgresConnector) getPartitionQuery(
 			FROM %[2]s
 		) sub
 		GROUP BY (row - 1) / %[3]d`,
-		config.WatermarkColumn, config.SourceTableIdentifier, config.RowsPerPartition)
+		config.WatermarkColumn, config.WatermarkTable, config.RowsPerPartition)
 
 	return partitionQuery, nil
+}
+
+func BuildQuery(query string) (string, error) {
+	tmpl, err := template.New("query").Parse(query)
+	if err != nil {
+		return "", err
+	}
+
+	data := map[string]interface{}{
+		"start": "$1",
+		"end":   "$2",
+	}
+
+	buf := new(bytes.Buffer)
+
+	err = tmpl.Execute(buf, data)
+	if err != nil {
+		return "", err
+	}
+	res := buf.String()
+
+	log.Infof("templated query: %s", res)
+	return res, nil
+}
+
+// isPartitionSynced checks whether a specific partition is synced
+func (c *PostgresConnector) isPartitionSynced(partitionID string) (bool, error) {
+	// setup the query string
+	queryString := fmt.Sprintf(
+		"SELECT COUNT(*) FROM %s WHERE partitionID = $1;",
+		qRepMetadataTableName,
+	)
+
+	// prepare and execute the query
+	var count int
+	err := c.pool.QueryRow(c.ctx, queryString, partitionID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return count > 0, nil
 }

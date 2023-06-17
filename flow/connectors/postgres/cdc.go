@@ -270,7 +270,6 @@ func (p *PostgresCDCSource) processInsertMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 ) (model.Record, error) {
-
 	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil
@@ -304,7 +303,6 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 ) (model.Record, error) {
-
 	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil
@@ -344,7 +342,6 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 ) (model.Record, error) {
-
 	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil

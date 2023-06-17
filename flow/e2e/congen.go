@@ -54,7 +54,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 
 type QRepFlowConnectionGenerationConfig struct {
 	FlowJobName                string
-	SourceTableIdentifier      string
+	WatermarkTable             string
 	DestinationTableIdentifier string
 	PostgresPort               int
 	Destination                *protos.Peer
@@ -65,7 +65,7 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	query string, watermark string, syncMode protos.QRepSyncMode) (*protos.QRepConfig, error) {
 	ret := &protos.QRepConfig{}
 	ret.FlowJobName = c.FlowJobName
-	ret.SourceTableIdentifier = c.SourceTableIdentifier
+	ret.WatermarkTable = c.WatermarkTable
 	ret.DestinationTableIdentifier = c.DestinationTableIdentifier
 
 	postgresPeer := GeneratePostgresPeer(c.PostgresPort)
