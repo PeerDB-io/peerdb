@@ -1,5 +1,14 @@
 package model
 
+import (
+	"fmt"
+	"math/big"
+
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
 // QRecordBatch holds a batch of QRecord objects.
 type QRecordBatch struct {
 	NumRecords uint32     // NumRecords represents the number of records in the batch.
@@ -31,4 +40,116 @@ func (q *QRecordBatch) Equals(other *QRecordBatch) bool {
 	}
 
 	return true
+}
+
+type QRecordBatchCopyFromSource struct {
+	currentIndex int
+	records      *QRecordBatch
+	err          error
+}
+
+func NewQRecordBatchCopyFromSource(
+	records *QRecordBatch,
+) *QRecordBatchCopyFromSource {
+	return &QRecordBatchCopyFromSource{
+		records: records,
+	}
+}
+
+func (src *QRecordBatchCopyFromSource) Next() bool {
+	return src.currentIndex < len(src.records.Records)
+}
+
+func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
+	record := src.records.Records[src.currentIndex]
+	src.currentIndex++
+
+	numEntries := len(record.Entries)
+
+	values := make([]interface{}, numEntries)
+	for i, qValue := range record.Entries {
+		switch qValue.Kind {
+		case qvalue.QValueKindFloat16, qvalue.QValueKindFloat32:
+			v, ok := qValue.Value.(float32)
+			if !ok {
+				src.err = fmt.Errorf("invalid float32 value")
+				return nil, src.err
+			}
+			values[i] = v
+
+		case qvalue.QValueKindFloat64:
+			v, ok := qValue.Value.(float64)
+			if !ok {
+				src.err = fmt.Errorf("invalid float64 value")
+				return nil, src.err
+			}
+			values[i] = v
+
+		case qvalue.QValueKindInt16, qvalue.QValueKindInt32:
+			v, ok := qValue.Value.(int32)
+			if !ok {
+				src.err = fmt.Errorf("invalid int32 value")
+				return nil, src.err
+			}
+			values[i] = v
+
+		case qvalue.QValueKindInt64:
+			v, ok := qValue.Value.(int64)
+			if !ok {
+				src.err = fmt.Errorf("invalid int64 value")
+				return nil, src.err
+			}
+			values[i] = v
+
+		case qvalue.QValueKindBoolean:
+			values[i] = qValue.Value.(bool)
+
+		case qvalue.QValueKindString:
+			values[i] = qValue.Value.(string)
+
+		case qvalue.QValueKindETime:
+			et, ok := qValue.Value.(*qvalue.ExtendedTime)
+			if !ok {
+				src.err = fmt.Errorf("invalid ExtendedTime value")
+				return nil, src.err
+			}
+			timestamp := pgtype.Timestamp{Time: et.Time, Valid: true}
+			values[i] = timestamp
+
+		case qvalue.QValueKindUUID:
+			v, ok := qValue.Value.([16]byte) // treat it as byte slice
+			if !ok {
+				src.err = fmt.Errorf("invalid UUID value")
+				return nil, src.err
+			}
+			values[i] = uuid.UUID(v)
+
+		case qvalue.QValueKindNumeric:
+			v, ok := qValue.Value.(*big.Rat)
+			if !ok {
+				src.err = fmt.Errorf("invalid Numeric value")
+				return nil, src.err
+			}
+			// TODO: account for precision and scale issues.
+			values[i] = v.FloatString(38)
+
+		case qvalue.QValueKindBytes:
+			v, ok := qValue.Value.([]byte)
+			if !ok {
+				src.err = fmt.Errorf("invalid Bytes value")
+				return nil, src.err
+			}
+			values[i] = v
+
+		// And so on for the other types...
+		default:
+			src.err = fmt.Errorf("unsupported value type %s", qValue.Kind)
+			return nil, src.err
+		}
+	}
+	return values, nil
+}
+
+func (src *QRecordBatchCopyFromSource) Err() error {
+	return src.err
 }
