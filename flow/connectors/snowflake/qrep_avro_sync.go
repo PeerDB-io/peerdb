@@ -282,7 +282,12 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(allCols []string, upsertKey
 	}
 	log.Infof("copied file from stage %s to temp table %s", s.stage, tempTableName)
 
-	upsertKey := strings.Join(upsertKeyCols, ", ")
+	upsertKey := []string{}
+	// upsert key should be like "dst.key1 = src.key1 AND dst.key2 = src.key2"
+	for _, key := range upsertKeyCols {
+		upsertKey = append(upsertKey, fmt.Sprintf("dst.%s = src.%s", key, key))
+	}
+	upsertKeyClause := strings.Join(upsertKey, " AND ")
 
 	updateSetClauses := []string{}
 	insertColumnsClauses := []string{}
@@ -303,8 +308,8 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(allCols []string, upsertKey
 		ON %s
 		WHEN MATCHED THEN UPDATE SET %s
 		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-	`, s.dstTableName, tempTableName, upsertKey, updateSetClause,
-		insertColumnsClause, insertValuesClause)
+	`, s.dstTableName, tempTableName, upsertKeyClause,
+		updateSetClause, insertColumnsClause, insertValuesClause)
 	if _, err := s.db.Exec(mergeCmd); err != nil {
 		return fmt.Errorf("failed to merge data into destination table: %w", err)
 	}

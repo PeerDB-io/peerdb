@@ -96,11 +96,19 @@ func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepCon
 		TaskQueue: shared.PeerFlowTaskQueue,
 	}
 
+	lastPartition := &protos.QRepPartition{
+		PartitionId: "not-applicable-partition",
+		Range:       nil,
+	}
+	numPartitionsProcessed := 0
+
 	_, err := a.temporalClient.ExecuteWorkflow(
 		reqCtx,                    // context
 		workflowOptions,           // workflow start options
 		peerflow.QRepFlowWorkflow, // workflow function
 		config,                    // workflow input
+		lastPartition,             // last partition
+		numPartitionsProcessed,    // number of partitions processed
 	)
 	if err != nil {
 		return "", fmt.Errorf("unable to start QRepFlow workflow: %w", err)
