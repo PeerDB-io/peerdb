@@ -233,6 +233,8 @@ func QRepFlowWorkflow(
 		lastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
+	s.AddDefault(func() {})
+
 	s.Select(ctx)
 	if terminateWorkflow {
 		q.logger.Info("terminating workflow - ", config.FlowJobName)
