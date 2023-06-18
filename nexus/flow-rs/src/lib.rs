@@ -9,12 +9,17 @@ pub struct FlowHandler {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct FlowJobTableMapping {
+    pub source_table_identifier: String,
+    pub target_table_identifier: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct FlowJob {
     pub name: String,
     pub source_peer: String,
-    pub destination_peer: String,
-    pub source_table_identifier: String,
-    pub destination_table_identifier: String,
+    pub target_peer: String,
+    pub table_mappings: Vec<FlowJobTableMapping>,
     pub description: String,
 }
 
