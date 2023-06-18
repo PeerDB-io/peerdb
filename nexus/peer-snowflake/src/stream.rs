@@ -182,8 +182,7 @@ impl SnowflakeRecordStream {
                             }
                         }
                         SnowflakeDataType::Variant => {
-                            let jsonb: serde_json::Value =
-                                serde_json::from_str(&elem).expect("Could not deserialise variant");
+                            let jsonb: serde_json::Value = serde_json::from_str(&elem)?;
                             Value::JsonB(jsonb)
                         }
                     },
@@ -217,8 +216,7 @@ impl SnowflakeRecordStream {
             .set("Authorization", &format!("Bearer {}", secret))
             .set("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
             .set("user-agent", "ureq")
-            .call()
-            .expect("Failed to call")
+            .call()?
             .into_json()
             .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
         println!("Response: {:#?}", response.data);
@@ -237,11 +235,9 @@ impl Stream for SnowflakeRecordStream {
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        match this
-            .advance()
-            .expect("Could not get next row in result set")
-        {
-            true => {
+
+        match this.advance() {
+            Ok(true) => {
                 let record = this.convert_result_set_item();
                 let result = record.map_err(|e| {
                     PgWireError::ApiError(Box::new(PgError::Internal {
@@ -250,7 +246,12 @@ impl Stream for SnowflakeRecordStream {
                 });
                 Poll::Ready(Some(result))
             }
-            false => Poll::Ready(None),
+            Ok(false) => Poll::Ready(None),
+            Err(err) => Poll::Ready(Some(Err(PgWireError::ApiError(Box::new(
+                PgError::Internal {
+                    err_msg: format!("Checking for next row in result set failed: {}", err),
+                },
+            ))))),
         }
     }
 }

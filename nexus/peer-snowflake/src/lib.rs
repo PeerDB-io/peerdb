@@ -230,10 +230,11 @@ impl SnowflakeQueryExecutor {
         let query_str: String = query.to_string();
         info!("Processing SnowFlake query: {}", query_str);
 
-        let result_set = self
-            .process_query(&query_str)
-            .await
-            .expect("[snowflake]: failed to query");
+        let result_set = self.process_query(&query_str).await.map_err(|err| {
+            PgWireError::ApiError(Box::new(PgError::Internal {
+                err_msg: err.to_string(),
+            }))
+        })?;
         Ok(result_set)
     }
 
