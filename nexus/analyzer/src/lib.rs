@@ -9,7 +9,8 @@ use std::{
 use anyhow::Context;
 use flow_rs::{FlowJob, FlowJobTableMapping, QRepFlowJob};
 use pt::peers::{
-    peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+    peer::Config, BigqueryConfig, DbType, KafkaConfig, MongoConfig, Peer, PostgresConfig,
+    SnowflakeConfig,
 };
 use serde_json::Number;
 use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
@@ -18,6 +19,15 @@ use sqlparser::ast::{
     Value,
 };
 
+pub fn ParseVectorString(vec_str: &str) -> Vec<String> {
+    let cleaned_str = vec_str.trim_start_matches('[').trim_end_matches(']');
+    let elements: Vec<&str> = cleaned_str.split(',').collect();
+    let parsed_vec: Vec<String> = elements
+        .iter()
+        .map(|elem| elem.trim().trim_matches('"').to_string())
+        .collect();
+    parsed_vec
+}
 pub trait StatementAnalyzer {
     type Output;
 
@@ -559,6 +569,16 @@ fn parse_db_options(
                     .to_string(),
             };
             let config = Config::PostgresConfig(postgres_config);
+            Some(config)
+        }
+        DbType::Kafka => {
+            let hosts_as_str = opts
+                .get("hosts")
+                .context("no kafka server hosts specified")?;
+
+            let kafka_hosts = ParseVectorString(&hosts_as_str);
+            let kafka_config = KafkaConfig { hosts: kafka_hosts };
+            let config = Config::KafkaConfig(kafka_config);
             Some(config)
         }
     };

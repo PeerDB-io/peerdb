@@ -1822,6 +1822,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "peer-kafka"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "futures",
+ "gcp-bigquery-client",
+ "peer-connections",
+ "peer-cursor",
+ "pgerror",
+ "pgwire",
+ "pt",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sqlparser",
+ "tokio",
+ "tracing",
+ "uuid",
+ "value",
+ "yup-oauth2",
+]
+
+[[package]]
 name = "peer-postgres"
 version = "0.1.0"
 dependencies = [
