@@ -46,7 +46,10 @@ message PostgresConfig {
 }
 
 message KafkaConfig {
-  repeated string hosts = 1;
+  string servers = 1;
+  string security_protocol = 2;
+  string username = 3;
+  string password = 4;
 }
 
 enum DBType {
