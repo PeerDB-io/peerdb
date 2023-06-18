@@ -45,30 +45,19 @@ struct SQLStatement<'a> {
 }
 
 #[allow(non_snake_case)]
-#[allow(dead_code)]
 #[derive(Deserialize)]
 struct QueryStatus {
-    code: String,
-    sqlState: Option<String>,
-    message: String,
     statementHandle: String,
-    createdOn: Option<u64>,
 }
 
 #[allow(non_snake_case)]
-#[allow(dead_code)]
 #[derive(Clone, Deserialize, Debug)]
 pub(crate) struct ResultSetRowType {
     name: String,
     r#type: SnowflakeDataType,
-    length: Option<u64>,
-    precision: Option<u64>,
-    scale: Option<u64>,
-    nullable: bool,
 }
 
 #[allow(non_snake_case)]
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct ResultSetPartitionInfo {
     rowCount: u64,
@@ -77,27 +66,16 @@ struct ResultSetPartitionInfo {
 }
 
 #[allow(non_snake_case)]
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct ResultSetMetadata {
-    numRows: i64,
-    partition: Option<u64>,
     partitionInfo: Vec<ResultSetPartitionInfo>,
-    format: String,
     rowType: Vec<ResultSetRowType>,
 }
 
 #[allow(non_snake_case)]
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct ResultSet {
-    code: String,
-    sqlState: String,
-    message: String,
     statementHandle: String,
-    statementHandles: Option<Vec<String>>,
-    createdOn: u64,
-    statementStatusUrl: String,
     data: Vec<Vec<Option<String>>>,
     resultSetMetaData: ResultSetMetadata,
 }
@@ -106,8 +84,6 @@ pub struct ResultSet {
 struct PartitionResult {
     data: Vec<Vec<Option<String>>>,
 }
-
-#[allow(dead_code)]
 pub struct SnowflakeQueryExecutor {
     config: SnowflakeConfig,
     partition_number: usize,
