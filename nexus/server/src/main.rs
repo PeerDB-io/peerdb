@@ -324,6 +324,13 @@ impl NexusBackend {
                     .unwrap();
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
+            Some(Config::SnowflakeConfig(ref c)) => {
+                let peername = Some(peer.name.clone());
+                let executor = peer_snowflake::SnowflakeQueryExecutor::new(c)
+                    .await
+                    .unwrap();
+                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+            }
             _ => {
                 panic!("peer type not supported: {:?}", peer)
             }

@@ -6,7 +6,7 @@ use gcp_bigquery_client::{
     model::{query_request::QueryRequest, query_response::ResultSet},
     Client,
 };
-use peer_connections::{PeerConnectionTracker, PeerConnections};
+use peer_connections::PeerConnectionTracker;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
