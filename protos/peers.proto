@@ -45,11 +45,16 @@ message PostgresConfig {
   string database = 5;
 }
 
+message KafkaConfig {
+  repeated string hosts = 1;
+}
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
   MONGO = 2;
   POSTGRES = 3;
+  KAFKA = 4;
 }
 
 message Peer {
@@ -60,5 +65,6 @@ message Peer {
     BigqueryConfig bigquery_config = 4;
     MongoConfig mongo_config = 5;
     PostgresConfig postgres_config = 6;
+    KafkaConfig kafka_config = 7;
   }
 }
