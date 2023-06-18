@@ -26,6 +26,7 @@ rsa = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.3"
+ureq = { version = "*", features = ["json", "charset"] }
 reqwest = { version = "0.11", features = ["json", "gzip"] }
 anyhow = "1.0"
 tokio = { version = "1.21", features = ["full"] }

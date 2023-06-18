@@ -2,8 +2,7 @@ use std::ops::ControlFlow;
 
 use sqlparser::ast::{
     visit_expressions_mut, visit_relations_mut, visit_statements_mut, DataType, Expr, Function,
-    FunctionArg, FunctionArgExpr, Ident, JsonOperator, ObjectName, OrderByExpr, Query, Statement,
-    TimezoneInfo,
+    FunctionArg, FunctionArgExpr, Ident, JsonOperator, ObjectName, Query, Statement, TimezoneInfo,
 };
 
 #[derive(Default)]

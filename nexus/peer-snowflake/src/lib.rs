@@ -13,7 +13,7 @@ use pt::peers::SnowflakeConfig;
 use reqwest::{header, StatusCode};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
-use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Query, Statement, Value};
+use sqlparser::ast::{CloseCursor, FetchDirection, Query, Statement};
 use tokio::time::sleep;
 use tracing::info;
 
@@ -225,7 +225,7 @@ impl SnowflakeQueryExecutor {
         let mut query = query.clone();
 
         let ast = ast::SnowflakeAst::default();
-        ast.rewrite(&mut query);
+        let _ = ast.rewrite(&mut query);
 
         let query_str: String = query.to_string();
         info!("Processing SnowFlake query: {}", query_str);
@@ -341,7 +341,6 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                     result_set,
                     self.partition_index,
                     self.partition_number,
-                    self.reqwest_client.clone(),
                     self.endpoint_url.clone(),
                     self.auth.clone(),
                 );

@@ -1,10 +1,9 @@
-use crate::{auth::SnowflakeAuth, PartitionResult, ResultSet, ResultSetRowType};
+use crate::{auth::SnowflakeAuth, PartitionResult, ResultSet};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures::Stream;
 use peer_cursor::Schema;
 use peer_cursor::{Record, RecordStream, SchemaRef};
 use pgerror::PgError;
-use pgwire::messages::response;
 use pgwire::{
     api::{
         results::{FieldFormat, FieldInfo},
@@ -12,18 +11,15 @@ use pgwire::{
     },
     error::{PgWireError, PgWireResult},
 };
-use reqwest::{Client, Response};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use serde_json;
-use std::thread;
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
 use value::Value::{
-    self, BigInt, Binary, Bool, Date, Float, PostgresTimestamp, Text, Time, Timestamp,
-    TimestampWithTimeZone,
+    self, BigInt, Binary, Bool, Date, Float, PostgresTimestamp, Text, Time, TimestampWithTimeZone,
 };
 
 #[derive(Clone, Deserialize, Debug)]
@@ -47,7 +43,6 @@ pub(crate) enum SnowflakeDataType {
 
 pub struct SnowflakeSchema {
     schema: SchemaRef,
-    fields: Vec<ResultSetRowType>,
 }
 
 fn convert_field_type(field_type: &SnowflakeDataType) -> Type {
@@ -68,7 +63,6 @@ fn convert_field_type(field_type: &SnowflakeDataType) -> Type {
 
 impl SnowflakeSchema {
     pub fn from_result_set(result_set: &ResultSet) -> Self {
-        let mut names: Vec<String> = vec![];
         let fields = result_set.resultSetMetaData.rowType.clone();
 
         let schema = SchemaRef::new(Schema {
@@ -81,7 +75,7 @@ impl SnowflakeSchema {
                 .collect(),
         });
 
-        Self { schema, fields }
+        Self { schema }
     }
 
     pub fn schema(&self) -> SchemaRef {
@@ -95,7 +89,7 @@ pub struct SnowflakeRecordStream {
     partition_number: usize,
     schema: SnowflakeSchema,
     auth: SnowflakeAuth,
-    reqwest_client: Client,
+
     endpoint_url: String,
 }
 
@@ -104,7 +98,6 @@ impl SnowflakeRecordStream {
         result_set: ResultSet,
         partition_index: usize,
         partition_number: usize,
-        reqwest_client: Client,
         endpoint_url: String,
         auth: SnowflakeAuth,
     ) -> Self {
@@ -115,7 +108,6 @@ impl SnowflakeRecordStream {
             schema: sf_schema,
             partition_index,
             partition_number,
-            reqwest_client,
             endpoint_url,
             auth,
         }
@@ -217,29 +209,21 @@ impl SnowflakeRecordStream {
         self.partition_index = 0;
         let partition_number = self.partition_number;
         let secret = self.auth.get_jwt().expose_secret().clone();
-        let reqwest_client = self.reqwest_client.clone();
         let statement_handle = self.result_set.statementHandle.clone();
         let url = self.endpoint_url.clone();
-        let response_task = tokio::task::spawn(async move {
-            let response = reqwest_client
-                .get(format!("{}/{}", url, statement_handle))
-                .bearer_auth(secret)
-                .query(&[("partition", partition_number)])
-                .send()
-                .await
-                .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
+        println!("Secret: {:#?}", secret);
+        let response: PartitionResult = ureq::get(&format!("{}/{}", url, statement_handle))
+            .query("partition", &partition_number.to_string())
+            .set("Authorization", &format!("Bearer {}", secret))
+            .set("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
+            .set("user-agent", "ureq")
+            .call()
+            .expect("Failed to call")
+            .into_json()
+            .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
+        println!("Response: {:#?}", response.data);
 
-            response
-                .json::<PartitionResult>()
-                .await
-                .map_err(|_| anyhow::anyhow!("get_partition deserialize failed"))
-        });
-
-        let partition = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(response_task)
-            .unwrap()?;
-        self.result_set.data = partition.data;
+        self.result_set.data = response.data;
         Ok(true)
     }
 
