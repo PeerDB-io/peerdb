@@ -153,7 +153,7 @@ func (s *SnowflakeAvroSyncMethod) handleWriteMode(
 	case false:
 		colNames := records.Schema.GetColumnNames()
 		upsertKeyCols := config.WriteMode.UpsertKeyColumns
-		err := writeHandler.HandleUpsertMode(colNames, upsertKeyCols)
+		err := writeHandler.HandleUpsertMode(colNames, upsertKeyCols, config.WatermarkColumn)
 		if err != nil {
 			return fmt.Errorf("failed to handle upsert mode: %w", err)
 		}
@@ -258,7 +258,11 @@ func (s *SnowflakeAvroWriteHandler) HandleAppendMode() error {
 	return nil
 }
 
-func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(allCols []string, upsertKeyCols []string) error {
+func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
+	allCols []string,
+	upsertKeyCols []string,
+	watermarkCol string,
+) error {
 	runID, err := util.RandomUInt64()
 	if err != nil {
 		return fmt.Errorf("failed to generate run ID: %w", err)
@@ -306,9 +310,9 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(allCols []string, upsertKey
 		MERGE INTO %s dst
 		USING %s src
 		ON %s
-		WHEN MATCHED THEN UPDATE SET %s
+		WHEN MATCHED AND src.%s > dst.%s THEN UPDATE SET %s
 		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-	`, s.dstTableName, tempTableName, upsertKeyClause,
+	`, s.dstTableName, tempTableName, upsertKeyClause, watermarkCol, watermarkCol,
 		updateSetClause, insertColumnsClause, insertValuesClause)
 	if _, err := s.db.Exec(mergeCmd); err != nil {
 		return fmt.Errorf("failed to merge data into destination table: %w", err)
