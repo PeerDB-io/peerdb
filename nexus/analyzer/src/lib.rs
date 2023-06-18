@@ -9,7 +9,8 @@ use std::{
 use anyhow::Context;
 use flow_rs::{FlowJob, FlowJobTableMapping, QRepFlowJob};
 use pt::peers::{
-    peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+    peer::Config, BigqueryConfig, DbType, KafkaConfig, MongoConfig, Peer, PostgresConfig,
+    SnowflakeConfig,
 };
 use qrep::process_options;
 use serde_json::Number;
@@ -393,6 +394,16 @@ fn parse_db_options(
                     .to_string(),
             };
             let config = Config::PostgresConfig(postgres_config);
+            Some(config)
+        }
+        DbType::Kafka => {
+            let hosts_as_str = opts
+                .get("hosts")
+                .context("no kafka server hosts specified")?;
+
+            let kafka_hosts = ParseVectorString(&hosts_as_str);
+            let kafka_config = KafkaConfig { hosts: kafka_hosts };
+            let config = Config::KafkaConfig(kafka_config);
             Some(config)
         }
     };

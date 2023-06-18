@@ -1788,7 +1788,7 @@ dependencies = [
  "peer-connections",
  "peer-cursor",
  "pgerror",
- "pgwire",
+ "pgwire 0.15.0",
  "pt",
  "serde",
  "serde_bytes",
@@ -1822,10 +1822,36 @@ dependencies = [
  "async-trait",
  "futures",
  "pgerror",
- "pgwire",
+ "pgwire 0.15.0",
  "sqlparser",
  "tokio",
  "value",
+]
+
+[[package]]
+name = "peer-kafka"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "futures",
+ "gcp-bigquery-client",
+ "peer-connections",
+ "peer-cursor",
+ "pgerror",
+ "pgwire 0.14.1",
+ "pt",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sqlparser",
+ "tokio",
+ "tracing",
+ "uuid",
+ "value",
+ "yup-oauth2",
 ]
 
 [[package]]
@@ -1840,7 +1866,7 @@ dependencies = [
  "peer-connections",
  "peer-cursor",
  "pgerror",
- "pgwire",
+ "pgwire 0.15.0",
  "pt",
  "serde",
  "serde_bytes",
@@ -1870,7 +1896,7 @@ dependencies = [
  "jsonwebtoken",
  "peer-cursor",
  "pgerror",
- "pgwire",
+ "pgwire 0.15.0",
  "pkcs1",
  "pkcs8",
  "pt",
@@ -1896,7 +1922,7 @@ dependencies = [
  "async-trait",
  "catalog",
  "futures",
- "pgwire",
+ "pgwire 0.15.0",
  "pt",
  "rand",
  "sqlparser",
@@ -1927,7 +1953,7 @@ dependencies = [
  "peer-snowflake",
  "peerdb-parser",
  "pgerror",
- "pgwire",
+ "pgwire 0.15.0",
  "postgres",
  "prost",
  "pt",
@@ -1995,6 +2021,34 @@ dependencies = [
 
 [[package]]
 name = "pgwire"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd92c65406efd0d621cdece478a41a89e472a559e44a6f2b218df4c14e66a888"
+dependencies = [
+ "async-trait",
+ "base64 0.21.0",
+ "bytes",
+ "chrono",
+ "derive-new",
+ "futures",
+ "getset",
+ "hex",
+ "log",
+ "md5",
+ "postgres-types",
+ "rand",
+ "ring",
+ "stringprep",
+ "thiserror",
+ "time 0.3.20",
+ "tokio",
+ "tokio-rustls 0.24.0",
+ "tokio-util",
+ "x509-certificate 0.19.0",
+]
+
+[[package]]
+name = "pgwire"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2de42ee35f9694def25c37c15f564555411d9904b48e33680618ee7359080dc"
@@ -2018,7 +2072,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.24.0",
  "tokio-util",
- "x509-certificate",
+ "x509-certificate 0.20.0",
 ]
 
 [[package]]
@@ -3541,7 +3595,7 @@ dependencies = [
  "bytes",
  "chrono",
  "hex",
- "pgwire",
+ "pgwire 0.15.0",
  "postgres",
  "postgres-types",
  "serde",
@@ -3902,6 +3956,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "x509-certificate"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf14059fbc1dce14de1d08535c411ba0b18749c2550a12550300da90b7ba350b"
+dependencies = [
+ "bcder",
+ "bytes",
+ "chrono",
+ "der 0.7.7",
+ "hex",
+ "pem 1.1.1",
+ "ring",
+ "signature",
+ "spki 0.7.2",
+ "thiserror",
 ]
 
 [[package]]
