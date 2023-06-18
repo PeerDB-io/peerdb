@@ -8,7 +8,7 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
-use peer_bigquery::BigQueryQueryExecutor;
+use peer_bigquery::{BigQueryQueryExecutor, bq_client_from_config};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},

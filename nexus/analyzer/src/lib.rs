@@ -397,12 +397,24 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Kafka => {
-            let hosts_as_str = opts
-                .get("hosts")
-                .context("no kafka server hosts specified")?;
-
-            let kafka_hosts = ParseVectorString(&hosts_as_str);
-            let kafka_config = KafkaConfig { hosts: kafka_hosts };
+            let kafka_config = KafkaConfig { 
+                servers: opts
+                    .get("servers")
+                    .context("no kafka server hosts specified")?
+                    .to_string(),
+                security_protocol: opts
+                    .get("security_protocol")
+                    .context("no security protocol specified")?
+                    .to_string(),
+                username: opts
+                    .get("username")
+                    .context("no sasl username given")?
+                    .to_string(),
+                password: opts
+                    .get("password")
+                    .context("no sasl password given")?
+                    .to_string()
+            };
             let config = Config::KafkaConfig(kafka_config);
             Some(config)
         }
