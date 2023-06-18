@@ -19,15 +19,6 @@ use sqlparser::ast::{
     Value,
 };
 
-pub fn ParseVectorString(vec_str: &str) -> Vec<String> {
-    let cleaned_str = vec_str.trim_start_matches('[').trim_end_matches(']');
-    let elements: Vec<&str> = cleaned_str.split(',').collect();
-    let parsed_vec: Vec<String> = elements
-        .iter()
-        .map(|elem| elem.trim().trim_matches('"').to_string())
-        .collect();
-    parsed_vec
-}
 pub trait StatementAnalyzer {
     type Output;
 
@@ -572,12 +563,24 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Kafka => {
-            let hosts_as_str = opts
-                .get("hosts")
-                .context("no kafka server hosts specified")?;
-
-            let kafka_hosts = ParseVectorString(&hosts_as_str);
-            let kafka_config = KafkaConfig { hosts: kafka_hosts };
+            let kafka_config = KafkaConfig { 
+                servers: opts
+                    .get("servers")
+                    .context("no kafka server hosts specified")?
+                    .to_string(),
+                security_protocol: opts
+                    .get("security_protocol")
+                    .context("no security protocol specified")?
+                    .to_string(),
+                username: opts
+                    .get("username")
+                    .context("no sasl username given")?
+                    .to_string(),
+                password: opts
+                    .get("password")
+                    .context("no sasl password given")?
+                    .to_string()
+            };
             let config = Config::KafkaConfig(kafka_config);
             Some(config)
         }

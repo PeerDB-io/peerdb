@@ -8,7 +8,7 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
-use peer_bigquery::BigQueryQueryExecutor;
+use peer_bigquery::{BigQueryQueryExecutor, bq_client_from_config};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -158,6 +158,14 @@ impl NexusBackend {
                     peer,
                     if_not_exists: _,
                 } => {
+                    let config_validity = match peer.config {
+                        Some(Config::BigqueryConfig(bq_config)) => {
+                            let bq_client = bq_client_from_config(bq_config).await;
+                            bq_client.is_ok()
+                        }
+                        _ => false
+
+                    };
                     let catalog = self.catalog.lock().await;
                     catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
