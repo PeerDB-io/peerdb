@@ -572,9 +572,9 @@ fn parse_db_options(
                     .get("security_protocol")
                     .context("no security protocol specified")?
                     .to_string(),
-                ssl_ca_location: opts
-                    .get("ssl_ca_location")
-                    .context("no security protocol specified")?
+                ssl_certificate: opts
+                    .get("ssl_certificate")
+                    .context("no SSL certificate specified")?
                     .to_string(),
                 username: opts
                     .get("username")

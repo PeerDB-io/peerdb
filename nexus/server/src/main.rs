@@ -35,11 +35,16 @@ use pgwire::{
 use pt::peers::{peer::Config, Peer};
 use rand::Rng;
 use rdkafka::{
+    consumer::{BaseConsumer, Consumer},
     producer::{FutureProducer, FutureRecord},
     ClientConfig,
 };
 use sqlparser::{dialect::GenericDialect, parser};
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    fs::{remove_file, File},
+    io::Write,
+};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -222,41 +227,40 @@ impl NexusBackend {
                                 })?;
                         }
                         Some(Config::KafkaConfig(kafka_config)) => {
-                            let producer: &FutureProducer = &ClientConfig::new()
+                            let mut ssl_certificate = File::create("kafka.pem")?;
+                            let cert = kafka_config.ssl_certificate.as_bytes().to_vec();
+                            let _ = ssl_certificate.write_all(&cert);
+                            let consumer: BaseConsumer = ClientConfig::new()
                                 .set("bootstrap.servers", kafka_config.servers)
                                 .set("security.protocol", kafka_config.security_protocol)
-                                .set("ssl.ca.location", kafka_config.ssl_ca_location)
+                                .set("ssl.ca.location", "kafka.pem")
                                 .set("sasl.mechanism", "PLAIN")
                                 .set("sasl.username", kafka_config.username)
                                 .set("sasl.password", kafka_config.password)
-                                .set("message.timeout.ms", "10000")
                                 .create()
                                 .map_err(|e| {
+                                    let _ = remove_file("kafka.pem");
+                                    PgWireError::UserError(Box::new(ErrorInfo::new(
+                                        "ERROR".to_owned(),
+                                        "internal_error".to_owned(),
+                                        e.to_string(),
+                                    )))
+                                })?;
+
+                            let _ = consumer
+                                .fetch_metadata(None, Duration::from_secs(20))
+                                .map_err(|e| {
+                                    let _ = remove_file("kafka.pem");
                                     PgWireError::UserError(Box::new(ErrorInfo::new(
                                         "ERROR".to_owned(),
                                         "internal_error".to_owned(),
                                         format!(
-                                            "Producer creation from config failed: {:#?}",
+                                            "{}. This could be due to invalid SSL credentials.",
                                             e.to_string()
                                         ),
                                     )))
                                 })?;
-
-                            producer
-                                .send(
-                                    FutureRecord::to("my_topic")
-                                        .payload(&format!("Message {}", "my_message"))
-                                        .key(&format!("Key {}", "my_key")),
-                                    Duration::from_secs(10),
-                                )
-                                .await
-                                .map_err(|e| {
-                                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                                        "ERROR".to_owned(),
-                                        "internal_error".to_owned(),
-                                        e.0.to_string(),
-                                    )))
-                                })?;
+                            let _ = remove_file("kafka.pem");
                         }
                         _ => panic!("Peer config not supported"),
                     };
