@@ -167,11 +167,6 @@ func QRepFlowWorkflow(
 	//   5. Sleep for a while and repeat the loop.
 	logger := workflow.GetLogger(ctx)
 
-	if config.RowsPerPartition == 0 {
-		logger.Info("RowsPerPartition is not set. Defaulting to 10000.")
-		config.RowsPerPartition = 10000
-	}
-
 	maxParallelWorkers := 16
 	if config.MaxParallelWorkers > 0 {
 		maxParallelWorkers = int(config.MaxParallelWorkers)
@@ -180,6 +175,14 @@ func QRepFlowWorkflow(
 	waitBetweenBatches := 5 * time.Second
 	if config.WaitBetweenBatchesSeconds > 0 {
 		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
+	}
+
+	if config.BatchDurationSeconds == 0 {
+		config.BatchDurationSeconds = 60
+	}
+
+	if config.BatchSizeInt == 0 {
+		config.BatchSizeInt = 10000
 	}
 
 	// register a signal handler to terminate the workflow
