@@ -122,6 +122,13 @@ impl SnowflakeQueryExecutor {
             .default_headers(default_headers)
             .build()?;
         let cursor_manager = SnowflakeCursorManager::new();
+        let auth = SnowflakeAuth::new(
+            config.clone().account_id,
+            config.clone().username,
+            config.clone().private_key,
+            DEFAULT_REFRESH_THRESHOLD,
+            DEFAULT_EXPIRY_THRESHOLD,
+        )?;
         Ok(Self {
             config: config.clone(),
             partition_number: 0,
@@ -130,13 +137,7 @@ impl SnowflakeQueryExecutor {
                 "{}{}{}",
                 SNOWFLAKE_URL_PREFIX, config.account_id, SNOWFLAKE_URL_SUFFIX
             ),
-            auth: SnowflakeAuth::new(
-                config.clone().account_id,
-                config.clone().username,
-                config.clone().private_key,
-                DEFAULT_REFRESH_THRESHOLD,
-                DEFAULT_EXPIRY_THRESHOLD,
-            ),
+            auth,
             query_timeout: config.query_timeout,
             reqwest_client,
             cursor_manager,

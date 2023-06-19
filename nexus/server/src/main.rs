@@ -1,10 +1,12 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
-
+use clap::Parser;
+use gcp_bigquery_client::model::query_request::QueryRequest;
+use rdkafka::{producer::{FutureProducer, FutureRecord}, ClientConfig};
+use sqlparser::{parser, dialect::GenericDialect};
 use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
 use catalog::{Catalog, CatalogConfig};
-use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
@@ -14,6 +16,8 @@ use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, SchemaRef,
 };
+use peer_postgres::PostgresQueryExecutor;
+use peer_snowflake::SnowflakeQueryExecutor;
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgerror::PgError;
 use pgwire::{
