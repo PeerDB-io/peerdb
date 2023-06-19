@@ -1418,18 +1418,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7012b1bbb0719e1097c47611d3898568c546d597c2e74d66f6087edd5233ff4"
 
 [[package]]
-name = "libz-sys"
-version = "1.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56ee889ecc9568871456d42f603d6a0ce59ff328d291063a45cbdf0036baf6db"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
- "vcpkg",
-]
-
-[[package]]
 name = "link-cplusplus"
 version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1672,27 +1660,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num_enum"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f646caf906c20226733ed5b1374287eb97e3c2a5c227ce668c1f2ce20ae57c9"
-dependencies = [
- "num_enum_derive",
-]
-
-[[package]]
-name = "num_enum_derive"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcbff9bc912032c62bf65ef1d5aea88983b420f4f839db1e9b0c281a25c9c799"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "num_threads"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1821,7 +1788,7 @@ dependencies = [
  "peer-connections",
  "peer-cursor",
  "pgerror",
- "pgwire 0.15.0",
+ "pgwire",
  "pt",
  "serde",
  "serde_bytes",
@@ -1855,36 +1822,10 @@ dependencies = [
  "async-trait",
  "futures",
  "pgerror",
- "pgwire 0.15.0",
+ "pgwire",
  "sqlparser",
  "tokio",
  "value",
-]
-
-[[package]]
-name = "peer-kafka"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "dashmap",
- "futures",
- "peer-connections",
- "peer-cursor",
- "pgerror",
- "pgwire 0.14.1",
- "pt",
- "rdkafka",
- "serde",
- "serde_bytes",
- "serde_json",
- "sqlparser",
- "tokio",
- "tracing",
- "uuid",
- "value",
- "yup-oauth2",
 ]
 
 [[package]]
@@ -1899,7 +1840,7 @@ dependencies = [
  "peer-connections",
  "peer-cursor",
  "pgerror",
- "pgwire 0.15.0",
+ "pgwire",
  "pt",
  "serde",
  "serde_bytes",
@@ -1929,7 +1870,7 @@ dependencies = [
  "jsonwebtoken",
  "peer-cursor",
  "pgerror",
- "pgwire 0.15.0",
+ "pgwire",
  "pkcs1",
  "pkcs8",
  "pt",
@@ -1955,7 +1896,7 @@ dependencies = [
  "async-trait",
  "catalog",
  "futures",
- "pgwire 0.15.0",
+ "pgwire",
  "pt",
  "rand",
  "sqlparser",
@@ -1986,7 +1927,7 @@ dependencies = [
  "peer-snowflake",
  "peerdb-parser",
  "pgerror",
- "pgwire 0.15.0",
+ "pgwire",
  "postgres",
  "prost",
  "pt",
@@ -2054,34 +1995,6 @@ dependencies = [
 
 [[package]]
 name = "pgwire"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd92c65406efd0d621cdece478a41a89e472a559e44a6f2b218df4c14e66a888"
-dependencies = [
- "async-trait",
- "base64 0.21.0",
- "bytes",
- "chrono",
- "derive-new",
- "futures",
- "getset",
- "hex",
- "log",
- "md5",
- "postgres-types",
- "rand",
- "ring",
- "stringprep",
- "thiserror",
- "time 0.3.20",
- "tokio",
- "tokio-rustls 0.24.0",
- "tokio-util",
- "x509-certificate 0.19.0",
-]
-
-[[package]]
-name = "pgwire"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2de42ee35f9694def25c37c15f564555411d9904b48e33680618ee7359080dc"
@@ -2105,7 +2018,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.24.0",
  "tokio-util",
- "x509-certificate 0.20.0",
+ "x509-certificate",
 ]
 
 [[package]]
@@ -2260,16 +2173,6 @@ checksum = "6c8646e95016a7a6c4adea95bafa8a16baab64b583356217f2c85db4a39d9a86"
 dependencies = [
  "proc-macro2",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "proc-macro-crate"
-version = "1.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f4c021e1093a56626774e81216a4ce732a735e5bad4868a03f3ed65ca0c3919"
-dependencies = [
- "once_cell",
- "toml_edit",
 ]
 
 [[package]]
@@ -2435,36 +2338,6 @@ dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
  "num_cpus",
-]
-
-[[package]]
-name = "rdkafka"
-version = "0.32.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8733bc5dc0b192d1a4b28073f9bff1326ad9e4fecd4d9b025d6fc358d1c3e79"
-dependencies = [
- "futures-channel",
- "futures-util",
- "libc",
- "log",
- "rdkafka-sys",
- "serde",
- "serde_derive",
- "serde_json",
- "slab",
- "tokio",
-]
-
-[[package]]
-name = "rdkafka-sys"
-version = "4.5.0+1.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bb0676c2112342ac7165decdedbc4e7086c0af384479ccce534546b10687a5d"
-dependencies = [
- "libc",
- "libz-sys",
- "num_enum",
- "pkg-config",
 ]
 
 [[package]]
@@ -3668,7 +3541,7 @@ dependencies = [
  "bytes",
  "chrono",
  "hex",
- "pgwire 0.15.0",
+ "pgwire",
  "postgres",
  "postgres-types",
  "serde",
@@ -4029,24 +3902,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d"
 dependencies = [
  "winapi",
-]
-
-[[package]]
-name = "x509-certificate"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf14059fbc1dce14de1d08535c411ba0b18749c2550a12550300da90b7ba350b"
-dependencies = [
- "bcder",
- "bytes",
- "chrono",
- "der 0.7.7",
- "hex",
- "pem 1.1.1",
- "ring",
- "signature",
- "spki 0.7.2",
- "thiserror",
 ]
 
 [[package]]

@@ -1,8 +1,7 @@
 use std::ops::ControlFlow;
 
 use sqlparser::ast::{
-    visit_relations_mut, visit_statements_mut, ObjectName, ObjectType, Query, Statement,
-    TableFactor, TableWithJoins,
+    visit_relations_mut, visit_statements_mut,ObjectType, Query, Statement
 };
 
 #[derive(Default)]
