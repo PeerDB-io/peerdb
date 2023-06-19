@@ -48,7 +48,7 @@ message PostgresConfig {
 message KafkaConfig {
   string servers = 1;
   string security_protocol = 2;
-  string ssl_ca_location = 3;
+  string ssl_certificate = 3;
   string username = 4;
   string password = 5;
 }

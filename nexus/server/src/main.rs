@@ -35,11 +35,16 @@ use pgwire::{
 use pt::peers::{peer::Config, Peer};
 use rand::Rng;
 use rdkafka::{
+    consumer::{BaseConsumer, Consumer},
     producer::{FutureProducer, FutureRecord},
     ClientConfig,
 };
 use sqlparser::{dialect::GenericDialect, parser};
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    fs::{remove_file, File},
+    io::Write,
+};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;
