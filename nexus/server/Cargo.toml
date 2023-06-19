@@ -58,6 +58,11 @@ tracing-subscriber = "0.3"
 uuid = "0.8"
 cargo-deb = "1.43.1"
 pgerror = { path = "../pgerror" }
+gcp-bigquery-client = "0.14"
+
+[dependencies.rdkafka]
+version     = "0.25"
+features    = ["ssl", "sasl"]
 
 [dev-dependencies]
 postgres = "0.19.4"

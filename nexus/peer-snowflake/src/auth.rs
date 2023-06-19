@@ -3,6 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::Context;
 use base64::encode as base64_encode;
 use jsonwebtoken::{encode as jwt_encode, Algorithm, EncodingKey, Header};
 use pkcs1::EncodeRsaPrivateKey;
@@ -44,13 +45,13 @@ impl SnowflakeAuth {
         private_key: String,
         refresh_threshold: u64,
         expiry_threshold: u64,
-    ) -> Self {
+    ) -> anyhow::Result<SnowflakeAuth> {
         let mut snowflake_auth: SnowflakeAuth = SnowflakeAuth {
             // moved normalized_account_id above account_id to satisfy the borrow checker.
             normalized_account_id: SnowflakeAuth::normalize_account_identifier(&account_id),
             account_id,
             username,
-            private_key: DecodePrivateKey::from_pkcs8_pem(&private_key).unwrap(),
+            private_key: DecodePrivateKey::from_pkcs8_pem(&private_key).context("Invalid snowflake private key")?,
             public_key_fp: None,
             refresh_threshold,
             expiry_threshold,
@@ -61,7 +62,7 @@ impl SnowflakeAuth {
             &snowflake_auth.private_key,
         ));
         snowflake_auth.refresh_jwt();
-        snowflake_auth
+        Ok(snowflake_auth)
     }
 
     // Normalize the account identifer to a form that is embedded into the JWT.

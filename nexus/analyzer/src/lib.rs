@@ -572,6 +572,10 @@ fn parse_db_options(
                     .get("security_protocol")
                     .context("no security protocol specified")?
                     .to_string(),
+                ssl_ca_location: opts
+                    .get("ssl_ca_location")
+                    .context("no security protocol specified")?
+                    .to_string(),
                 username: opts
                     .get("username")
                     .context("no sasl username given")?
