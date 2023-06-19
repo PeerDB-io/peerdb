@@ -784,6 +784,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "duct"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37ae3fc31835f74c2a7ceda3aeede378b0ae2e74c8f1c36559fcc9ae2a4e7d3e"
+dependencies = [
+ "libc",
+ "once_cell",
+ "os_pipe",
+ "shared_child",
+]
+
+[[package]]
 name = "either"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1764,6 +1776,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "os_pipe"
+version = "1.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ae859aa07428ca9a929b936690f8b12dc5f11dd8c6992a18ca93919f28bc177"
+dependencies = [
+ "libc",
+ "windows-sys 0.48.0",
+]
+
+[[package]]
 name = "output_vt100"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1852,32 +1874,6 @@ dependencies = [
  "sqlparser",
  "tokio",
  "value",
-]
-
-[[package]]
-name = "peer-kafka"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "dashmap",
- "futures",
- "peer-connections",
- "peer-cursor",
- "pgerror",
- "pgwire",
- "pt",
- "rdkafka",
- "serde",
- "serde_bytes",
- "serde_json",
- "sqlparser",
- "tokio",
- "tracing",
- "uuid",
- "value",
- "yup-oauth2",
 ]
 
 [[package]]
@@ -1970,6 +1966,7 @@ dependencies = [
  "dotenvy",
  "flow-rs",
  "futures",
+ "gcp-bigquery-client",
  "peer-bigquery",
  "peer-connections",
  "peer-cursor",
@@ -1982,6 +1979,7 @@ dependencies = [
  "prost",
  "pt",
  "rand",
+ "rdkafka",
  "sha256",
  "sqlparser",
  "time 0.3.20",
@@ -2392,12 +2390,11 @@ dependencies = [
 
 [[package]]
 name = "rdkafka"
-version = "0.32.2"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8733bc5dc0b192d1a4b28073f9bff1326ad9e4fecd4d9b025d6fc358d1c3e79"
+checksum = "a8acd8f5c5482fdf89e8878227bafa442d8c4409f6287391c85549ca83626c27"
 dependencies = [
- "futures-channel",
- "futures-util",
+ "futures",
  "libc",
  "log",
  "rdkafka-sys",
@@ -2410,14 +2407,16 @@ dependencies = [
 
 [[package]]
 name = "rdkafka-sys"
-version = "4.5.0+1.9.2"
+version = "3.0.0+1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bb0676c2112342ac7165decdedbc4e7086c0af384479ccce534546b10687a5d"
+checksum = "ca35e95c88e08cdc643b25744e38ccee7c93c7e90d1ac6850fe74cbaa40803c3"
 dependencies = [
  "libc",
  "libz-sys",
  "num_enum",
+ "openssl-sys",
  "pkg-config",
+ "sasl2-sys",
 ]
 
 [[package]]
@@ -2700,6 +2699,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sasl2-sys"
+version = "0.1.20+2.1.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e645bd98535fc8fd251c43ba7c7c1f9be1e0369c99b6a5ea719052a773e655c"
+dependencies = [
+ "cc",
+ "duct",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2870,6 +2881,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "900fba806f70c630b0a382d0d825e17a0f19fcd059a2ade1ff237bcddf446b31"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "shared_child"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0d94659ad3c2137fef23ae75b03d5241d633f8acded53d672decfa0e6e0caef"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]

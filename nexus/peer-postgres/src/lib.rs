@@ -132,7 +132,7 @@ impl QueryExecutor for PostgresQueryExecutor {
             }
             _ => {
                 let mut rewritten_stmt = stmt.clone();
-                ast.rewrite_statement(&mut rewritten_stmt);
+                let _ = ast.rewrite_statement(&mut rewritten_stmt);
                 let rewritten_query = rewritten_stmt.to_string();
                 tracing::info!("[peer-postgres] rewritten statement: {}", rewritten_query);
                 let rows_affected =
