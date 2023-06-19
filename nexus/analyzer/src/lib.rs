@@ -397,7 +397,7 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Kafka => {
-            let kafka_config = KafkaConfig { 
+            let kafka_config = KafkaConfig {
                 servers: opts
                     .get("servers")
                     .context("no kafka server hosts specified")?
@@ -417,7 +417,7 @@ fn parse_db_options(
                 password: opts
                     .get("password")
                     .context("no sasl password given")?
-                    .to_string()
+                    .to_string(),
             };
             let config = Config::KafkaConfig(kafka_config);
             Some(config)

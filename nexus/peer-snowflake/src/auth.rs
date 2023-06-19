@@ -51,7 +51,8 @@ impl SnowflakeAuth {
             normalized_account_id: SnowflakeAuth::normalize_account_identifier(&account_id),
             account_id,
             username,
-            private_key: DecodePrivateKey::from_pkcs8_pem(&private_key).context("Invalid snowflake private key")?,
+            private_key: DecodePrivateKey::from_pkcs8_pem(&private_key)
+                .context("Invalid snowflake private key")?,
             public_key_fp: None,
             refresh_threshold,
             expiry_threshold,

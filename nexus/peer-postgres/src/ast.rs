@@ -1,8 +1,6 @@
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{
-    visit_relations_mut, visit_statements_mut,ObjectType, Query, Statement
-};
+use sqlparser::ast::{visit_relations_mut, visit_statements_mut, ObjectType, Query, Statement};
 
 #[derive(Default)]
 pub struct PostgresAst {
