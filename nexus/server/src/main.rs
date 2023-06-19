@@ -1,16 +1,13 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use clap::Parser;
-use gcp_bigquery_client::model::query_request::QueryRequest;
-use rdkafka::{producer::{FutureProducer, FutureRecord}, ClientConfig};
-use sqlparser::{parser, dialect::GenericDialect};
 use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
 use catalog::{Catalog, CatalogConfig};
+use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
-use peer_bigquery::{BigQueryQueryExecutor, bq_client_from_config};
+use gcp_bigquery_client::model::query_request::QueryRequest;
+use peer_bigquery::{bq_client_from_config, BigQueryQueryExecutor};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -37,6 +34,12 @@ use pgwire::{
 };
 use pt::peers::{peer::Config, Peer};
 use rand::Rng;
+use rdkafka::{
+    producer::{FutureProducer, FutureRecord},
+    ClientConfig,
+};
+use sqlparser::{dialect::GenericDialect, parser};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -166,79 +169,96 @@ impl NexusBackend {
                     match peer.clone().config {
                         Some(Config::BigqueryConfig(bq_config)) => {
                             let project_id = bq_config.clone().project_id;
-                            let bq_client = bq_client_from_config(bq_config).await.map_err(|e| {
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "internal_error".to_owned(),
-                                    e.to_string(),
-                                )))})?;
-                            bq_client.job().query(&project_id, QueryRequest::new("SELECT 1;"))
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(Box::new(PgError::Internal {
-                                    err_msg: err.to_string(),
-                                }))
-                            })?;
-                        },
-                        Some(Config::SnowflakeConfig(sf_config)) => {
-                            let sf_client = SnowflakeQueryExecutor::new(&sf_config).await.map_err(|e| {
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "internal_error".to_owned(),
-                                    e.to_string(),
-                                )))})?;
-                            let sql = "SELECT 1;";
-                            let test_stmt = parser::Parser::parse_sql(&GenericDialect{}, sql).unwrap();
-                            sf_client.execute(&test_stmt[0]).await.map_err(|e| {
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "internal_error".to_owned(),
-                                    format!("Invalid configuration for Snowflake: {:#?}",e.to_string()),
-                                )))})?;
-                        },
-                        Some(Config::PostgresConfig(pg_config)) => {
-                            PostgresQueryExecutor::new(
-                                None, &pg_config).await.map_err(|e| {
+                            let bq_client =
+                                bq_client_from_config(bq_config).await.map_err(|e| {
                                     PgWireError::UserError(Box::new(ErrorInfo::new(
                                         "ERROR".to_owned(),
                                         "internal_error".to_owned(),
                                         e.to_string(),
-                                    )))})?;
+                                    )))
+                                })?;
+                            bq_client
+                                .job()
+                                .query(&project_id, QueryRequest::new("SELECT 1;"))
+                                .await
+                                .map_err(|err| {
+                                    PgWireError::ApiError(Box::new(PgError::Internal {
+                                        err_msg: err.to_string(),
+                                    }))
+                                })?;
                         }
-                        Some(Config::KafkaConfig(kafka_config)) => {
-                            let producer: &FutureProducer = &ClientConfig::new()
-                            .set("bootstrap.servers", kafka_config.servers)
-                            .set("security.protocol", kafka_config.security_protocol)
-                            .set("ssl.ca.location", kafka_config.ssl_ca_location)
-                            .set("sasl.mechanism","PLAIN")
-                            .set("sasl.username",kafka_config.username)
-                            .set("sasl.password", kafka_config.password)
-                            .set("message.timeout.ms", "10000")
-                            .create()
-                            .map_err(|e| {
+                        Some(Config::SnowflakeConfig(sf_config)) => {
+                            let sf_client =
+                                SnowflakeQueryExecutor::new(&sf_config).await.map_err(|e| {
+                                    PgWireError::UserError(Box::new(ErrorInfo::new(
+                                        "ERROR".to_owned(),
+                                        "internal_error".to_owned(),
+                                        e.to_string(),
+                                    )))
+                                })?;
+                            let sql = "SELECT 1;";
+                            let test_stmt =
+                                parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+                            sf_client.execute(&test_stmt[0]).await.map_err(|e| {
                                 PgWireError::UserError(Box::new(ErrorInfo::new(
                                     "ERROR".to_owned(),
                                     "internal_error".to_owned(),
                                     format!(
-                                        "Producer creation from config failed: {:#?}",
-                                        e.to_string()),
-                            )))})?;
-          
-                            producer
-                            .send(
-                                FutureRecord::to("my_topic")
-                                    .payload(&format!("Message {}", "my_message"))
-                                    .key(&format!("Key {}", "my_key")),
-                                Duration::from_secs(10),
-                            )
-                            .await.map_err(|e|{
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "internal_error".to_owned(),
-                                    e.0.to_string(),
-                                )))})?;
+                                        "Invalid configuration for Snowflake: {:#?}",
+                                        e.to_string()
+                                    ),
+                                )))
+                            })?;
                         }
-                        _ => panic!("Peer config not supported")
+                        Some(Config::PostgresConfig(pg_config)) => {
+                            PostgresQueryExecutor::new(None, &pg_config)
+                                .await
+                                .map_err(|e| {
+                                    PgWireError::UserError(Box::new(ErrorInfo::new(
+                                        "ERROR".to_owned(),
+                                        "internal_error".to_owned(),
+                                        e.to_string(),
+                                    )))
+                                })?;
+                        }
+                        Some(Config::KafkaConfig(kafka_config)) => {
+                            let producer: &FutureProducer = &ClientConfig::new()
+                                .set("bootstrap.servers", kafka_config.servers)
+                                .set("security.protocol", kafka_config.security_protocol)
+                                .set("ssl.ca.location", kafka_config.ssl_ca_location)
+                                .set("sasl.mechanism", "PLAIN")
+                                .set("sasl.username", kafka_config.username)
+                                .set("sasl.password", kafka_config.password)
+                                .set("message.timeout.ms", "10000")
+                                .create()
+                                .map_err(|e| {
+                                    PgWireError::UserError(Box::new(ErrorInfo::new(
+                                        "ERROR".to_owned(),
+                                        "internal_error".to_owned(),
+                                        format!(
+                                            "Producer creation from config failed: {:#?}",
+                                            e.to_string()
+                                        ),
+                                    )))
+                                })?;
+
+                            producer
+                                .send(
+                                    FutureRecord::to("my_topic")
+                                        .payload(&format!("Message {}", "my_message"))
+                                        .key(&format!("Key {}", "my_key")),
+                                    Duration::from_secs(10),
+                                )
+                                .await
+                                .map_err(|e| {
+                                    PgWireError::UserError(Box::new(ErrorInfo::new(
+                                        "ERROR".to_owned(),
+                                        "internal_error".to_owned(),
+                                        e.0.to_string(),
+                                    )))
+                                })?;
+                        }
+                        _ => panic!("Peer config not supported"),
                     };
 
                     let catalog = self.catalog.lock().await;
