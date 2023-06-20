@@ -24,6 +24,10 @@ func (q *QRecordBatch) Equals(other *QRecordBatch) bool {
 
 	// First check simple attributes
 	if q.NumRecords != other.NumRecords {
+		// print num records
+		fmt.Printf("q.NumRecords: %d\n", q.NumRecords)
+		fmt.Printf("other.NumRecords: %d\n", other.NumRecords)
+
 		return false
 	}
 
