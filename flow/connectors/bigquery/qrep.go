@@ -33,13 +33,14 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
-
+	log.Warnln(bqTable)
 	tblMetadata, err := bqTable.Metadata(c.ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get metadata of table %s: %w", destTable, err)
 	}
 
 	done, err := c.isPartitionSynced(partition.PartitionId)
+	log.Warnln(done)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}

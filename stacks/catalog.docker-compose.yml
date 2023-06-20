@@ -7,7 +7,7 @@ services:
       # mapping is from host to container
       - 7132:5432
     environment:
-      POSTGRES_USER: postgres
+      PGUSER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     extra_hosts:

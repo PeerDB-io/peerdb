@@ -41,6 +41,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	// create a staging table with the same schema as the destination table if it doesn't exist
 	stagingTable := fmt.Sprintf("%s_staging", dstTableName)
 	stagingBQTable := s.connector.client.Dataset(s.connector.datasetID).Table(stagingTable)
+	log.Warnln(stagingBQTable)
 	if _, err := stagingBQTable.Metadata(s.connector.ctx); err != nil {
 		metadata := &bigquery.TableMetadata{
 			Name:   stagingTable,
@@ -67,6 +68,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 	// get an inserter for the staging table and insert the records
 	inserter := stagingBQTable.Inserter()
+	log.Warnln(inserter)
 
 	// Step 2: Insert records into the staging table.
 	numRowsInserted := 0
@@ -77,6 +79,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			PartitionID: partitionID,
 			RunID:       runID,
 		}
+		log.Errorf("toPut: %v", toPut)
 
 		var vs bigquery.ValueSaver = toPut
 		err := inserter.Put(s.connector.ctx, vs)
@@ -86,7 +89,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 		numRowsInserted++
 	}
-
+	log.Warnln(numRowsInserted)
 	// Copy the records into the destination table in a transaction.
 	// append all the statements to one list
 	stmts := []string{}
@@ -114,6 +117,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 	// execute the statements in a transaction
 	_, err = s.connector.client.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
+	log.Warnln("finishes query")
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}

@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -94,6 +96,57 @@ func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepCon
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: shared.PeerFlowTaskQueue,
+	}
+
+	if config.SourcePeer == nil || config.DestinationPeer == nil {
+		sourcePeer, err := activities.FetchPeerConfig(reqCtx, a.pool, config.FlowJobName, "source_peer")
+		if err != nil {
+			return "", fmt.Errorf("unable to fetch source peer config: %w", err)
+		}
+		config.SourcePeer = sourcePeer
+
+		destinationPeer, err := activities.FetchPeerConfig(reqCtx, a.pool, config.FlowJobName, "destination_peer")
+		if err != nil {
+			return "", fmt.Errorf("unable to fetch destination peer config: %w", err)
+		}
+		config.DestinationPeer = destinationPeer
+
+		var destinationTableIdentifier string
+		var rawFlowOptions string
+		var queryString string
+		rows := a.pool.QueryRow(reqCtx,
+			"SELECT DESTINATION_TABLE_IDENTIFIER, QUERY_STRING, FLOW_METADATA FROM FLOWS WHERE NAME = $1", config.FlowJobName)
+		rows.Scan(&destinationTableIdentifier, &queryString, &rawFlowOptions)
+		var flowOptions map[string]interface{}
+		if err := json.Unmarshal([]byte(rawFlowOptions), &flowOptions); err != nil {
+			return "", fmt.Errorf("unable to unmarshal flow options: %w", err)
+		}
+
+		config.InitialCopyOnly = false
+		config.MaxParallelWorkers = uint32(flowOptions["parallelism"].(float64))
+		config.DestinationTableIdentifier = destinationTableIdentifier
+		config.Query = queryString
+		config.WatermarkColumn = flowOptions["watermark_column"].(string)
+		config.WatermarkTable = flowOptions["watermark_table_name"].(string)
+		config.RowsPerPartition = uint32(flowOptions["batch_size_int"].(float64))
+		config.WaitBetweenBatchesSeconds = uint32(flowOptions["refresh_interval"].(float64))
+		if flowOptions["sync_data_format"].(string) == "avro" {
+			config.SyncMode = protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO
+		} else {
+			config.SyncMode = protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT
+		}
+		if flowOptions["mode"].(string) == "append" {
+			tempWriteMode := &protos.QRepWriteMode{
+				WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+			}
+			config.WriteMode = tempWriteMode
+		} else {
+			tempWriteMode := &protos.QRepWriteMode{
+				WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+				UpsertKeyColumns: flowOptions["upsert_key_columns"].([]string),
+			}
+			config.WriteMode = tempWriteMode
+		}
 	}
 
 	lastPartition := &protos.QRepPartition{
