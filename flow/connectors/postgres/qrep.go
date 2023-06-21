@@ -51,8 +51,10 @@ func (c *PostgresConnector) getMinMaxValues(
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			minValue = lastRange.IntRange.End
+			minValue = minValue.(int64) + 1
 		case *protos.PartitionRange_TimestampRange:
 			minValue = lastRange.TimestampRange.End.AsTime()
+			minValue = minValue.(time.Time).Add(1 * time.Microsecond)
 		}
 	} else {
 		// Otherwise get the minimum value from the database
