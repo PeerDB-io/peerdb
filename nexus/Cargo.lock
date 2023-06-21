@@ -1989,6 +1989,7 @@ dependencies = [
  "pt",
  "rand",
  "rdkafka",
+ "sasl2-sys",
  "sha256",
  "sqlparser",
  "time 0.3.20",

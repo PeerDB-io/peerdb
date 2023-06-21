@@ -116,6 +116,7 @@ services:
       context: .
       dockerfile: stacks/nexus.Dockerfile
     environment:
+      SASL2_STATIC: 1
       PEERDB_LOG_DIR: /var/log/peerdb
       PEERDB_CATALOG_HOST: catalog
       PEERDB_CATALOG_PORT: 5432

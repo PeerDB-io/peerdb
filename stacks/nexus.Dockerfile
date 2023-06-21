@@ -12,8 +12,7 @@ FROM chef as builder
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive \
   apt-get install --assume-yes --no-install-recommends \
-  protobuf-compiler build-essential libssl-dev pkg-config \
-  libsasl2-dev
+  protobuf-compiler build-essential libssl-dev libsasl2-dev pkg-config
 WORKDIR /root
 COPY nexus nexus
 COPY protos protos
