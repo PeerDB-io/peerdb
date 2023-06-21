@@ -55,6 +55,9 @@ type IFlowable interface {
 	// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
 	ReplicateQRepPartition(ctx context.Context, partition *protos.QRepPartition) error
 
+	// ConsolidateQRepPartitions consolidates the QRepPartitions into the destination.
+	ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error
+
 	DropFlow(ctx context.Context, config *protos.DropFlowInput) error
 }
 
@@ -344,6 +347,15 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 
 	log.Printf("pushed %d records\n", res)
 	return nil
+}
+
+func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error {
+	dst, err := connectors.GetConnector(ctx, config.DestinationPeer)
+	if err != nil {
+		return fmt.Errorf("failed to get destination connector: %w", err)
+	}
+
+	return dst.ConsolidateQRepPartitions(config)
 }
 
 func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.FlowConnectionConfigs) error {

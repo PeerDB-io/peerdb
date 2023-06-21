@@ -46,17 +46,9 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	stage, err := s.createStage(dstTableName)
-	if err != nil {
-		return 0, err
-	}
+	stage := s.connector.getStageNameForJob(config.FlowJobName)
 
 	err = s.putFileToStage(localFilePath, stage)
-	if err != nil {
-		return 0, err
-	}
-
-	err = s.handleWriteMode(config, dstTableName, stage, records)
 	if err != nil {
 		return 0, err
 	}
@@ -96,22 +88,6 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	return localFilePath, nil
 }
 
-func (s *SnowflakeAvroSyncMethod) createStage(dstTableName string) (string, error) {
-	runID, err := util.RandomUInt64()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate run ID: %w", err)
-	}
-
-	stage := fmt.Sprintf("%s_%d", dstTableName, runID)
-	createStageCmd := fmt.Sprintf("CREATE TEMPORARY STAGE %s FILE_FORMAT = (TYPE = AVRO)", stage)
-	if _, err = s.connector.database.Exec(createStageCmd); err != nil {
-		return "", fmt.Errorf("failed to create temp stage: %w", err)
-	}
-
-	log.Infof("created temp stage %s", stage)
-	return stage, nil
-}
-
 func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage string) error {
 	putCmd := fmt.Sprintf("PUT file://%s @%s", localFilePath, stage)
 	if _, err := s.connector.database.Exec(putCmd); err != nil {
@@ -122,18 +98,19 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage str
 	return nil
 }
 
-func (s *SnowflakeAvroSyncMethod) handleWriteMode(
+func CopyStageToDestination(
+	database *sql.DB,
 	config *protos.QRepConfig,
 	dstTableName string,
 	stage string,
-	records *model.QRecordBatch,
+	allCols []string,
 ) error {
 	copyOpts := []string{
 		"FILE_FORMAT = (TYPE = AVRO)",
 		"MATCH_BY_COLUMN_NAME='CASE_INSENSITIVE'",
 	}
 
-	writeHandler := NewSnowflakeAvroWriteHandler(s.connector.database, dstTableName, stage, copyOpts)
+	writeHandler := NewSnowflakeAvroWriteHandler(database, dstTableName, stage, copyOpts)
 
 	appendMode := true
 	if config.WriteMode != nil {
@@ -151,9 +128,8 @@ func (s *SnowflakeAvroSyncMethod) handleWriteMode(
 		}
 
 	case false:
-		colNames := records.Schema.GetColumnNames()
 		upsertKeyCols := config.WriteMode.UpsertKeyColumns
-		err := writeHandler.HandleUpsertMode(colNames, upsertKeyCols, config.WatermarkColumn)
+		err := writeHandler.HandleUpsertMode(allCols, upsertKeyCols, config.WatermarkColumn)
 		if err != nil {
 			return fmt.Errorf("failed to handle upsert mode: %w", err)
 		}
@@ -305,14 +281,20 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	insertColumnsClause := strings.Join(insertColumnsClauses, ", ")
 	insertValuesClause := strings.Join(insertValuesClauses, ", ")
 
+	selectCmd := fmt.Sprintf(`
+		SELECT *
+		FROM %s
+		QUALIFY ROW_NUMBER() OVER (PARTITION BY %s ORDER BY %s DESC) = 1
+	`, tempTableName, strings.Join(upsertKeyCols, ","), watermarkCol)
+
 	//nolint:gosec
 	mergeCmd := fmt.Sprintf(`
 		MERGE INTO %s dst
-		USING %s src
+		USING (%s) src
 		ON %s
 		WHEN MATCHED AND src.%s > dst.%s THEN UPDATE SET %s
 		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-	`, s.dstTableName, tempTableName, upsertKeyClause, watermarkCol, watermarkCol,
+	`, s.dstTableName, selectCmd, upsertKeyClause, watermarkCol, watermarkCol,
 		updateSetClause, insertColumnsClause, insertValuesClause)
 	if _, err := s.db.Exec(mergeCmd); err != nil {
 		return fmt.Errorf("failed to merge data into destination table: %w", err)
