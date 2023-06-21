@@ -12,11 +12,8 @@ FROM chef as builder
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive \
   apt-get install --assume-yes --no-install-recommends \
-  protobuf-compiler build-essential libssl-dev pkg-config
-WORKDIR /root/nexus
-COPY --from=planner /root/nexus/recipe.json recipe.json
-# Build dependencies - this is the caching Docker layer!
-RUN cargo chef cook --release --recipe-path recipe.json
+  protobuf-compiler build-essential libssl-dev pkg-config \
+  libsasl2-dev
 WORKDIR /root
 COPY nexus nexus
 COPY protos protos

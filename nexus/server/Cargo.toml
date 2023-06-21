@@ -61,7 +61,7 @@ pgerror = { path = "../pgerror" }
 gcp-bigquery-client = "0.14"
 
 [dependencies.rdkafka]
-version     = "0.25"
+version     = "0.32.2"
 features    = ["ssl", "sasl"]
 
 [dev-dependencies]
