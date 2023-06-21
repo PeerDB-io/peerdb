@@ -153,6 +153,23 @@ func (q *QRepFlowExecution) processPartitions(
 	return nil
 }
 
+// For some targets we need to consolidate all the partitions from stages before
+// we proceed to next batch.
+func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
+	q.logger.Info("consolidating partitions")
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+	})
+
+	if err := workflow.ExecuteActivity(ctx, flowable.ConsolidateQRepPartitions, q.config).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to consolidate partitions: %w", err)
+	}
+
+	q.logger.Info("partitions consolidated")
+	return nil
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
@@ -221,6 +238,11 @@ func QRepFlowWorkflow(
 
 	logger.Info("partitions to replicate - ", len(partitions.Partitions))
 	if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
+		return err
+	}
+
+	logger.Info("consolidating partitions for peer flow - ", config.FlowJobName)
+	if err = q.consolidatePartitions(ctx); err != nil {
 		return err
 	}
 
