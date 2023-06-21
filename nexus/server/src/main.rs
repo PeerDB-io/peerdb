@@ -208,7 +208,6 @@ impl NexusBackend {
                     ))])
                 }
                 PeerDDL::CreateMirrorForSelect { qrep_flow_job } => {
-                    tracing::error!("qrep_flow_job: {:?}", qrep_flow_job);
                     let catalog = self.catalog.lock().await;
 
                     catalog
@@ -229,7 +228,6 @@ impl NexusBackend {
                                 err_msg: format!("unable to submit job: {:?}", err),
                             }))
                         })?;
-                    tracing::warn!(workflow_id);
                     let create_mirror_success = format!("CREATE MIRROR {}", qrep_flow_job.name);
                     Ok(vec![Response::Execution(Tag::new_for_execution(
                         &create_mirror_success,
