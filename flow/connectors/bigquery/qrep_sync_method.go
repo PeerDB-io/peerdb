@@ -86,7 +86,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 		numRowsInserted++
 	}
-
 	// Copy the records into the destination table in a transaction.
 	// append all the statements to one list
 	stmts := []string{}

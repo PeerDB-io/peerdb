@@ -21,3 +21,4 @@ tokio-postgres = { version = "0.7.6", features = [
   "with-uuid-0_8",
 ] }
 tracing = "0.1.29"
+serde_json = "1.0"

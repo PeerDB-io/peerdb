@@ -13,3 +13,4 @@ flow-rs = { path = "../flow-rs" }
 pem = "1.1.0"
 pt = { path = "../pt" }
 sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }
+serde_json = "1.0"

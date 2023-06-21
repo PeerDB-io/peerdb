@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -89,11 +90,76 @@ func (a *APIServer) StartPeerFlow(reqCtx context.Context, input *peerflow.PeerFl
 	return workflowID, nil
 }
 
+func genConfigForQRepFlow(config *protos.QRepConfig, flowOptions map[string]interface{},
+	queryString string, destinationTableIdentifier string) error {
+	config.InitialCopyOnly = false
+	config.MaxParallelWorkers = uint32(flowOptions["parallelism"].(float64))
+	config.DestinationTableIdentifier = destinationTableIdentifier
+	config.Query = queryString
+	config.WatermarkColumn = flowOptions["watermark_column"].(string)
+	config.WatermarkTable = flowOptions["watermark_table_name"].(string)
+	config.BatchSizeInt = uint32(flowOptions["batch_size_int"].(float64))
+	config.BatchDurationSeconds = uint32(flowOptions["batch_duration_timestamp"].(float64))
+	config.WaitBetweenBatchesSeconds = uint32(flowOptions["refresh_interval"].(float64))
+	if flowOptions["sync_data_format"].(string) == "avro" {
+		config.SyncMode = protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO
+	} else if flowOptions["sync_data_format"].(string) == "default" {
+		config.SyncMode = protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT
+	} else {
+		return fmt.Errorf("unsupported sync data format: %s", flowOptions["sync_data_format"].(string))
+	}
+	if flowOptions["mode"].(string) == "append" {
+		tempWriteMode := &protos.QRepWriteMode{
+			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+		}
+		config.WriteMode = tempWriteMode
+	} else if flowOptions["mode"].(string) == "upsert" {
+		tempWriteMode := &protos.QRepWriteMode{
+			WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+			UpsertKeyColumns: flowOptions["upsert_key_columns"].([]string),
+		}
+		config.WriteMode = tempWriteMode
+	} else {
+		return fmt.Errorf("unsupported write mode: %s", flowOptions["mode"].(string))
+	}
+	return nil
+}
+
 func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepConfig) (string, error) {
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", config.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: shared.PeerFlowTaskQueue,
+	}
+
+	if config.SourcePeer == nil || config.DestinationPeer == nil {
+		sourcePeer, err := activities.FetchPeerConfig(reqCtx, a.pool, config.FlowJobName, "source_peer")
+		if err != nil {
+			return "", fmt.Errorf("unable to fetch source peer config: %w", err)
+		}
+		config.SourcePeer = sourcePeer
+
+		destinationPeer, err := activities.FetchPeerConfig(reqCtx, a.pool, config.FlowJobName, "destination_peer")
+		if err != nil {
+			return "", fmt.Errorf("unable to fetch destination peer config: %w", err)
+		}
+		config.DestinationPeer = destinationPeer
+
+		var destinationTableIdentifier string
+		var queryString string
+		var flowOptions map[string]interface{}
+		row := a.pool.QueryRow(reqCtx,
+			"SELECT DESTINATION_TABLE_IDENTIFIER, QUERY_STRING, FLOW_METADATA FROM FLOWS WHERE NAME = $1",
+			config.FlowJobName)
+		err = row.Scan(&destinationTableIdentifier, &queryString, &flowOptions)
+		if err != nil {
+			return "", fmt.Errorf("unable to fetch flow metadata: %w", err)
+		}
+
+		err = genConfigForQRepFlow(config, flowOptions, queryString, destinationTableIdentifier)
+		if err != nil {
+			return "", fmt.Errorf("unable to generate config for QRepFlow: %w", err)
+		}
 	}
 
 	lastPartition := &protos.QRepPartition{

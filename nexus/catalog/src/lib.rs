@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Context};
-use flow_rs::FlowJob;
+use flow_rs::{FlowJob, QRepFlowJob};
 use peer_cursor::QueryExecutor;
 use peer_postgres::PostgresQueryExecutor;
 use prost::Message;
@@ -254,26 +254,30 @@ impl Catalog {
         Ok(peers)
     }
 
+    async fn normalize_schema_for_table_identifier(
+        &self,
+        table_identifier: &str,
+        peer_id: i32,
+    ) -> anyhow::Result<String> {
+        let peer_dbtype = self.get_peer_type_for_id(peer_id).await?;
+
+        let mut table_identifier_parts = table_identifier.split('.').collect::<Vec<&str>>();
+        if table_identifier_parts.len() == 1 && (peer_dbtype != DbType::Bigquery) {
+            table_identifier_parts.insert(0, "public");
+        }
+
+        Ok(table_identifier_parts.join("."))
+    }
+
     pub async fn create_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
         let source_peer_id = self
             .get_peer_id_i32(&job.source_peer)
             .await
             .context("unable to get source peer id")?;
-        let source_peer_dbtype = self
-            .get_peer_type_for_id(source_peer_id)
-            .await
-            .context("unable to get source peer db type")?;
-        let source_peer_schema_normalize = source_peer_dbtype != DbType::Bigquery;
-
         let destination_peer_id = self
             .get_peer_id_i32(&job.target_peer)
             .await
             .context("unable to get destination peer id")?;
-        let destination_peer_dbtype = self
-            .get_peer_type_for_id(destination_peer_id)
-            .await
-            .context("unable to get destination peer db type")?;
-        let destination_peer_schema_normalize = destination_peer_dbtype != DbType::Bigquery;
 
         let stmt = self
             .pg
@@ -286,21 +290,6 @@ impl Catalog {
             .await?;
 
         for table_mapping in &job.table_mappings {
-            let mut source_table_identifier_parts = table_mapping
-                .source_table_identifier
-                .split('.')
-                .collect::<Vec<&str>>();
-            if source_table_identifier_parts.len() == 1 && source_peer_schema_normalize {
-                source_table_identifier_parts.insert(0, "public");
-            }
-            let mut destination_table_identifier_parts = table_mapping
-                .target_table_identifier
-                .split('.')
-                .collect::<Vec<&str>>();
-            if destination_table_identifier_parts.len() == 1 && destination_peer_schema_normalize {
-                destination_table_identifier_parts.insert(0, "public");
-            }
-
             let _rows = self
                 .pg
                 .execute(
@@ -310,12 +299,66 @@ impl Catalog {
                         &source_peer_id,
                         &destination_peer_id,
                         &job.description,
-                        &source_table_identifier_parts.join("."),
-                        &destination_table_identifier_parts.join("."),
+                        &self
+                            .normalize_schema_for_table_identifier(
+                                &table_mapping.source_table_identifier,
+                                source_peer_id,
+                            )
+                            .await?,
+                        &self
+                            .normalize_schema_for_table_identifier(
+                                &table_mapping.target_table_identifier,
+                                destination_peer_id,
+                            )
+                            .await?,
                     ],
                 )
                 .await?;
         }
+
+        Ok(())
+    }
+
+    pub async fn create_qrep_flow_job_entry(&self, job: &QRepFlowJob) -> anyhow::Result<()> {
+        let source_peer_id = self
+            .get_peer_id_i32(&job.source_peer)
+            .await
+            .context("unable to get source peer id")?;
+        let destination_peer_id = self
+            .get_peer_id_i32(&job.target_peer)
+            .await
+            .context("unable to get destination peer id")?;
+
+        let stmt = self
+            .pg
+            .prepare_typed(
+                "INSERT INTO flows (name, source_peer, destination_peer, description,
+                     destination_table_identifier, query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT,
+                 types::Type::TEXT, types::Type::TEXT, types::Type::JSONB],
+            )
+            .await?;
+
+        let _rows = self
+            .pg
+            .execute(
+                &stmt,
+                &[
+                    &job.name,
+                    &source_peer_id,
+                    &destination_peer_id,
+                    &job.description,
+                    &job.flow_options
+                        .get("destination_table_name")
+                        .unwrap()
+                        .as_str()
+                        .unwrap(),
+                    &job.query_string,
+                    &serde_json::to_value(job.flow_options.clone())
+                        .context("unable to serialize flow options")?,
+                ],
+            )
+            .await?;
 
         Ok(())
     }
