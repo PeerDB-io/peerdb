@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
+	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -86,6 +87,8 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
+	case *protos.Peer_KafkaConfig:
+		return connkafka.NewKafkaConnector(ctx, config.GetKafkaConfig())
 	default:
 		return nil, fmt.Errorf("requested connector is not yet implemented")
 	}
