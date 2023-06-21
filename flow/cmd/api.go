@@ -148,9 +148,13 @@ func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepCon
 		var destinationTableIdentifier string
 		var queryString string
 		var flowOptions map[string]interface{}
-		rows := a.pool.QueryRow(reqCtx,
-			"SELECT DESTINATION_TABLE_IDENTIFIER, QUERY_STRING, FLOW_METADATA FROM FLOWS WHERE NAME = $1", config.FlowJobName)
-		rows.Scan(&destinationTableIdentifier, &queryString, &flowOptions)
+		row := a.pool.QueryRow(reqCtx,
+			"SELECT DESTINATION_TABLE_IDENTIFIER, QUERY_STRING, FLOW_METADATA FROM FLOWS WHERE NAME = $1",
+			config.FlowJobName)
+		err = row.Scan(&destinationTableIdentifier, &queryString, &flowOptions)
+		if err != nil {
+			return "", fmt.Errorf("unable to fetch flow metadata: %w", err)
+		}
 
 		err = genConfigForQRepFlow(config, flowOptions, queryString, destinationTableIdentifier)
 		if err != nil {
