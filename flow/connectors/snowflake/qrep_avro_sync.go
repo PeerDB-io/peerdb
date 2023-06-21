@@ -281,14 +281,20 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	insertColumnsClause := strings.Join(insertColumnsClauses, ", ")
 	insertValuesClause := strings.Join(insertValuesClauses, ", ")
 
+	selectCmd := fmt.Sprintf(`
+		SELECT *
+		FROM %s
+		QUALIFY ROW_NUMBER() OVER (PARTITION BY %s ORDER BY %s DESC) = 1
+	`, tempTableName, strings.Join(upsertKeyCols, ","), watermarkCol)
+
 	//nolint:gosec
 	mergeCmd := fmt.Sprintf(`
 		MERGE INTO %s dst
-		USING %s src
+		USING (%s) src
 		ON %s
 		WHEN MATCHED AND src.%s > dst.%s THEN UPDATE SET %s
 		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-	`, s.dstTableName, tempTableName, upsertKeyClause, watermarkCol, watermarkCol,
+	`, s.dstTableName, selectCmd, upsertKeyClause, watermarkCol, watermarkCol,
 		updateSetClause, insertColumnsClause, insertValuesClause)
 	if _, err := s.db.Exec(mergeCmd); err != nil {
 		return fmt.Errorf("failed to merge data into destination table: %w", err)
