@@ -6,15 +6,15 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
-use gcp_bigquery_client::model::query_request::QueryRequest;
-use peer_bigquery::{bq_client_from_config, BigQueryQueryExecutor};
+use peer_bigquery::{bq_connection_valid, BigQueryQueryExecutor};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, SchemaRef,
 };
-use peer_postgres::PostgresQueryExecutor;
-use peer_snowflake::SnowflakeQueryExecutor;
+use peer_kafka::kf_connection_valid;
+use peer_postgres::pg_connection_valid;
+use peer_snowflake::sf_connection_valid;
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgerror::PgError;
 use pgwire::{
@@ -34,12 +34,6 @@ use pgwire::{
 };
 use pt::peers::{peer::Config, Peer};
 use rand::Rng;
-use rdkafka::{
-    consumer::{BaseConsumer, Consumer},
-    producer::{FutureProducer, FutureRecord},
-    ClientConfig,
-};
-use sqlparser::{dialect::GenericDialect, parser};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use std::{
     fs::{remove_file, File},
