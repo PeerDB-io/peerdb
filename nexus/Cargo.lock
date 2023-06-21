@@ -1877,6 +1877,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "peer-kafka"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pt",
+ "rdkafka",
+ "sasl2-sys",
+]
+
+[[package]]
 name = "peer-postgres"
 version = "0.1.0"
 dependencies = [
@@ -1966,10 +1976,10 @@ dependencies = [
  "dotenvy",
  "flow-rs",
  "futures",
- "gcp-bigquery-client",
  "peer-bigquery",
  "peer-connections",
  "peer-cursor",
+ "peer-kafka",
  "peer-postgres",
  "peer-snowflake",
  "peerdb-parser",
@@ -1979,8 +1989,6 @@ dependencies = [
  "prost",
  "pt",
  "rand",
- "rdkafka",
- "sasl2-sys",
  "sha256",
  "sqlparser",
  "time 0.3.20",

@@ -13,6 +13,11 @@ use tokio_postgres::Client;
 mod ast;
 mod stream;
 
+pub async fn pg_connection_valid(pg_config: PostgresConfig) -> anyhow::Result<bool> {
+    let _ = PostgresQueryExecutor::new(None, &pg_config).await?;
+    Ok(true)
+}
+
 // PostgresQueryExecutor is a QueryExecutor that uses a Postgres database as its
 // backing store.
 pub struct PostgresQueryExecutor {

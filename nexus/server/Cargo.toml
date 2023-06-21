@@ -44,6 +44,7 @@ peer-connections = { path = "../peer-connections" }
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 peer-snowflake = { path = "../peer-snowflake" }
+peer-kafka = { path = "../peer-kafka" }
 peerdb-parser = { path = "../parser" }
 pgwire = "0.14"
 prost = "0.11"
@@ -57,13 +58,7 @@ tracing-appender = "0.2"
 tracing-subscriber = "0.3"
 uuid = "0.8"
 cargo-deb = "1.43.1"
-sasl2-sys = { version = "0.1.20", features = ["vendored"] }
 pgerror = { path = "../pgerror" }
-gcp-bigquery-client = "0.14"
-
-[dependencies.rdkafka]
-version     = "0.32.2"
-features    = ["ssl-vendored", "sasl"]
 
 [dev-dependencies]
 postgres = "0.19.4"

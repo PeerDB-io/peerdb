@@ -6,15 +6,15 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
-use gcp_bigquery_client::model::query_request::QueryRequest;
-use peer_bigquery::{bq_client_from_config, BigQueryQueryExecutor};
+use peer_bigquery::{bq_connection_valid, BigQueryQueryExecutor};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, SchemaRef,
 };
-use peer_postgres::PostgresQueryExecutor;
-use peer_snowflake::SnowflakeQueryExecutor;
+use peer_kafka::kf_connection_valid;
+use peer_postgres::pg_connection_valid;
+use peer_snowflake::sf_connection_valid;
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgerror::PgError;
 use pgwire::{
@@ -34,12 +34,6 @@ use pgwire::{
 };
 use pt::peers::{peer::Config, Peer};
 use rand::Rng;
-use rdkafka::{
-    consumer::{BaseConsumer, Consumer},
-    producer::{FutureProducer, FutureRecord},
-    ClientConfig,
-};
-use sqlparser::{dialect::GenericDialect, parser};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use std::{
     fs::{remove_file, File},
@@ -173,97 +167,30 @@ impl NexusBackend {
                     // Checking if you can connect to the peer with the config
                     match peer.clone().config {
                         Some(Config::BigqueryConfig(bq_config)) => {
-                            let project_id = bq_config.clone().project_id;
-                            let bq_client =
-                                bq_client_from_config(bq_config).await.map_err(|e| {
-                                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                                        "ERROR".to_owned(),
-                                        "internal_error".to_owned(),
-                                        e.to_string(),
-                                    )))
-                                })?;
-                            bq_client
-                                .job()
-                                .query(&project_id, QueryRequest::new("SELECT 1;"))
-                                .await
-                                .map_err(|err| {
-                                    PgWireError::ApiError(Box::new(PgError::Internal {
-                                        err_msg: err.to_string(),
-                                    }))
-                                })?;
+                            bq_connection_valid(bq_config).await
                         }
                         Some(Config::SnowflakeConfig(sf_config)) => {
-                            let sf_client =
-                                SnowflakeQueryExecutor::new(&sf_config).await.map_err(|e| {
-                                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                                        "ERROR".to_owned(),
-                                        "internal_error".to_owned(),
-                                        e.to_string(),
-                                    )))
-                                })?;
-                            let sql = "SELECT 1;";
-                            let test_stmt =
-                                parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
-                            sf_client.execute(&test_stmt[0]).await.map_err(|e| {
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "internal_error".to_owned(),
-                                    format!(
-                                        "Invalid configuration for Snowflake: {:#?}",
-                                        e.to_string()
-                                    ),
-                                )))
-                            })?;
+                            sf_connection_valid(sf_config).await
                         }
                         Some(Config::PostgresConfig(pg_config)) => {
-                            PostgresQueryExecutor::new(None, &pg_config)
-                                .await
-                                .map_err(|e| {
-                                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                                        "ERROR".to_owned(),
-                                        "internal_error".to_owned(),
-                                        e.to_string(),
-                                    )))
-                                })?;
+                            pg_connection_valid(pg_config).await
                         }
                         Some(Config::KafkaConfig(kafka_config)) => {
                             let mut ssl_certificate = File::create("kafka.pem")?;
                             let cert = kafka_config.ssl_certificate.as_bytes().to_vec();
                             let _ = ssl_certificate.write_all(&cert);
-                            let consumer: BaseConsumer = ClientConfig::new()
-                                .set("bootstrap.servers", kafka_config.servers)
-                                .set("security.protocol", kafka_config.security_protocol)
-                                .set("ssl.ca.location", "kafka.pem")
-                                .set("sasl.mechanism", "PLAIN")
-                                .set("sasl.username", kafka_config.username)
-                                .set("sasl.password", kafka_config.password)
-                                .create()
-                                .map_err(|e| {
-                                    let _ = remove_file("kafka.pem");
-                                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                                        "ERROR".to_owned(),
-                                        "internal_error".to_owned(),
-                                        e.to_string(),
-                                    )))
-                                })?;
-
-                            let _ = consumer
-                                .fetch_metadata(None, Duration::from_secs(20))
-                                .map_err(|e| {
-                                    let _ = remove_file("kafka.pem");
-                                    PgWireError::UserError(Box::new(ErrorInfo::new(
-                                        "ERROR".to_owned(),
-                                        "internal_error".to_owned(),
-                                        format!(
-                                            "{}. This could be due to invalid SSL credentials.",
-                                            e.to_string()
-                                        ),
-                                    )))
-                                })?;
-                            let _ = remove_file("kafka.pem");
+                            kf_connection_valid(kafka_config).await
                         }
                         _ => panic!("Peer config not supported"),
-                    };
+                    }
+                    .map_err(|e| {
+                        let _ = remove_file("kafka.pem");
+                        PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "internal_error".to_owned(),
+                            e.to_string(),
+                        )))
+                    })?;
 
                     let catalog = self.catalog.lock().await;
                     catalog.create_peer(peer.as_ref()).await.map_err(|e| {
