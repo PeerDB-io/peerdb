@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools protobuf-compiler gcc-multilib \
-            protobuf-compiler libssl-dev pkg-config build-essential
+            protobuf-compiler libssl-dev pkg-config build-essential libsasl2-dev
 
       - name: install cargo binstall
         run: |
