@@ -306,7 +306,12 @@ impl NexusBackend {
                     }
                 };
 
-                self.execute_statement(executor, &stmt, peer_holder).await
+                let res = self.execute_statement(executor, &stmt, peer_holder).await;
+                // log the error if execution failed
+                if let Err(err) = &res {
+                    tracing::error!("query execution failed: {:?}", err);
+                }
+                res
             }
 
             NexusStatement::PeerCursor { stmt, cursor } => {
