@@ -126,7 +126,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	}
 	defer rows.Close()
 
-	// Use rows.FieldDescriptions() to get field descriptions
 	fieldDescriptions := rows.FieldDescriptions()
 
 	batch, err := qe.ProcessRows(rows, fieldDescriptions)
@@ -168,6 +167,8 @@ func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord
 			scanArgs[i] = new(pgtype.UUID)
 		case pgtype.ByteaOID:
 			scanArgs[i] = new(sql.RawBytes)
+		case pgtype.DateOID:
+			scanArgs[i] = new(pgtype.Date)
 		default:
 			scanArgs[i] = new(pgtype.Text)
 		}
@@ -227,11 +228,13 @@ func parseField(oid uint32, value interface{}) (qvalue.QValue, error) {
 		}
 		val = qvalue.QValue{Kind: qvalue.QValueKindETime, Value: et}
 	case pgtype.TimeOID:
-		timeVal := value.(*pgtype.Time)
+		timeVal := value.(*pgtype.Text)
 		var et *qvalue.ExtendedTime
 		if timeVal.Valid {
-			var err error
-			t := time.Unix(0, timeVal.Microseconds*int64(time.Microsecond))
+			t, err := time.Parse("15:04:05.999999", timeVal.String)
+			if err != nil {
+				return qvalue.QValue{}, fmt.Errorf("failed to parse time: %w", err)
+			}
 			et, err = qvalue.NewExtendedTime(t, qvalue.TimeKindType, "")
 			if err != nil {
 				return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
@@ -247,9 +250,9 @@ func parseField(oid uint32, value interface{}) (qvalue.QValue, error) {
 		}
 	case pgtype.JSONOID, pgtype.JSONBOID:
 		// TODO: improve JSON support
-		strVal := value.(*string)
+		strVal := value.(*pgtype.Text)
 		if strVal != nil {
-			val = qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: *strVal}
+			val = qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: strVal.String}
 		} else {
 			val = qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: nil}
 		}
