@@ -30,6 +30,10 @@ func (c *KafkaConnector) SyncQRepRecords(
 	panic("not implemented")
 }
 
+func (c *KafkaConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
+	return nil
+}
+
 func (c *KafkaConnector) createMetadataInsertStatement(
 	partition *protos.QRepPartition,
 	jobName string,

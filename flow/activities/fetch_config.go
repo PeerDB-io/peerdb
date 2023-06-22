@@ -113,6 +113,13 @@ func FetchPeerConfig(ctx context.Context, pool *pgxpool.Pool, flowName string, l
 			return nil, fmt.Errorf("failed to unmarshal snowflake config: %w", err)
 		}
 		res.Config = &protos.Peer_SnowflakeConfig{SnowflakeConfig: &peerConfig}
+	case protos.DBType_KAFKA:
+		var peerConfig protos.KafkaConfig
+		err = proto.Unmarshal(opts, &peerConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal kafka config: %w", err)
+		}
+		res.Config = &protos.Peer_KafkaConfig{KafkaConfig: &peerConfig}
 	default:
 		return nil, fmt.Errorf("unsupported database type: %d", dbtype)
 	}
