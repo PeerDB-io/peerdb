@@ -27,17 +27,23 @@ pub struct BigQueryQueryExecutor {
 }
 
 pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Client> {
+    let auth_config = config.auth_config.ok_or_else(|| {
+        anyhow::anyhow!(
+            "missing auth_config in bigquery config: {:?}",
+            config.dataset_id
+        )
+    })?;
     let sa_key = yup_oauth2::ServiceAccountKey {
-        key_type: Some(config.auth_type.clone()),
-        project_id: Some(config.project_id.clone()),
-        private_key_id: Some(config.private_key_id.clone()),
-        private_key: config.private_key.clone(),
-        client_email: config.client_email.clone(),
-        client_id: Some(config.client_id.clone()),
-        auth_uri: Some(config.auth_uri.clone()),
-        token_uri: config.token_uri.clone(),
-        auth_provider_x509_cert_url: Some(config.auth_provider_x509_cert_url.clone()),
-        client_x509_cert_url: Some(config.client_x509_cert_url.clone()),
+        key_type: Some(auth_config.auth_type.clone()),
+        project_id: Some(auth_config.project_id.clone()),
+        private_key_id: Some(auth_config.private_key_id.clone()),
+        private_key: auth_config.private_key.clone(),
+        client_email: auth_config.client_email.clone(),
+        client_id: Some(auth_config.client_id.clone()),
+        auth_uri: Some(auth_config.auth_uri.clone()),
+        token_uri: auth_config.token_uri.clone(),
+        auth_provider_x509_cert_url: Some(auth_config.auth_provider_x509_cert_url.clone()),
+        client_x509_cert_url: Some(auth_config.client_x509_cert_url.clone()),
     };
     let client = Client::from_service_account_key(sa_key, false)
         .await
@@ -79,10 +85,16 @@ impl BigQueryQueryExecutor {
                 }))
             })?;
 
+        let auth_config = self.config.auth_config.as_ref().ok_or_else(|| {
+            PgWireError::ApiError(Box::new(PgError::Internal {
+                err_msg: "missing auth_config in bigquery config".to_owned(),
+            }))
+        })?;
+
         let result_set = self
             .client
             .job()
-            .query(&self.config.project_id, query_req)
+            .query(&auth_config.project_id, query_req)
             .await
             .map_err(|err| {
                 tracing::error!("error running query: {}", err);

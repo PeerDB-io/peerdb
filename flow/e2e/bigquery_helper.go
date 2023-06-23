@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
+	"github.com/PeerDB-io/peer-flow/connectors/googlecloud"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -58,12 +58,12 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	// suffix the dataset with the runID to namespace stateful schemas.
 	config.DatasetId = fmt.Sprintf("%s_%d", config.DatasetId, runID)
 
-	bqsa, err := peer_bq.NewBigQueryServiceAccount(&config)
+	gcsa, err := googlecloud.NewGoogleCloudServiceAccount(config.AuthConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
 	}
 
-	client, err := bqsa.CreateBigQueryClient(context.Background())
+	client, err := gcsa.CreateBigQueryClient(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}

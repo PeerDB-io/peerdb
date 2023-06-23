@@ -12,13 +12,13 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
+	"github.com/PeerDB-io/peer-flow/connectors/googlecloud"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 )
 
 const (
@@ -40,19 +40,6 @@ const (
 	MirrorJobsTable      = "peerdb_mirror_jobs"
 	SyncRecordsBatchSize = 1024
 )
-
-type BigQueryServiceAccount struct {
-	Type                    string `json:"type"`
-	ProjectID               string `json:"project_id"`
-	PrivateKeyID            string `json:"private_key_id"`
-	PrivateKey              string `json:"private_key"`
-	ClientEmail             string `json:"client_email"`
-	ClientID                string `json:"client_id"`
-	AuthURI                 string `json:"auth_uri"`
-	TokenURI                string `json:"token_uri"`
-	AuthProviderX509CertURL string `json:"auth_provider_x509_cert_url"`
-	ClientX509CertURL       string `json:"client_x509_cert_url"`
-}
 
 // BigQueryConnector is a Connector implementation for BigQuery.
 type BigQueryConnector struct {
@@ -77,93 +64,19 @@ type StagingBQRecord struct {
 	unchangedToastColumns string    `bigquery:"_peerdb_unchanged_toast_columns"`
 }
 
-// Create BigQueryServiceAccount from BigqueryConfig
-func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*BigQueryServiceAccount, error) {
-	var serviceAccount BigQueryServiceAccount
-	serviceAccount.Type = bqConfig.AuthType
-	serviceAccount.ProjectID = bqConfig.ProjectId
-	serviceAccount.PrivateKeyID = bqConfig.PrivateKeyId
-	serviceAccount.PrivateKey = bqConfig.PrivateKey
-	serviceAccount.ClientEmail = bqConfig.ClientEmail
-	serviceAccount.ClientID = bqConfig.ClientId
-	serviceAccount.AuthURI = bqConfig.AuthUri
-	serviceAccount.TokenURI = bqConfig.TokenUri
-	serviceAccount.AuthProviderX509CertURL = bqConfig.AuthProviderX509CertUrl
-	serviceAccount.ClientX509CertURL = bqConfig.ClientX509CertUrl
-
-	if err := serviceAccount.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to validate BigQueryServiceAccount: %w", err)
-	}
-
-	return &serviceAccount, nil
-}
-
-// Validate validates a BigQueryServiceAccount, that none of the fields are empty.
-func (bqsa *BigQueryServiceAccount) Validate() error {
-	v := reflect.ValueOf(*bqsa)
-	for i := 0; i < v.NumField(); i++ {
-		if v.Field(i).String() == "" {
-			return fmt.Errorf("field %s is empty", v.Type().Field(i).Name)
-		}
-	}
-	return nil
-}
-
-// Return BigQueryServiceAccount as JSON byte array
-func (bqsa *BigQueryServiceAccount) ToJSON() ([]byte, error) {
-	return json.Marshal(bqsa)
-}
-
-// CreateBigQueryClient creates a new BigQuery client from a BigQueryServiceAccount.
-func (bqsa *BigQueryServiceAccount) CreateBigQueryClient(ctx context.Context) (*bigquery.Client, error) {
-	bqsaJSON, err := bqsa.ToJSON()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get json: %v", err)
-	}
-
-	client, err := bigquery.NewClient(
-		ctx,
-		bqsa.ProjectID,
-		option.WithCredentialsJSON(bqsaJSON),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
-	}
-
-	return client, nil
-}
-
-// CreateStorageClient creates a new Storage client from a BigQueryServiceAccount.
-func (bqsa *BigQueryServiceAccount) CreateStorageClient(ctx context.Context) (*storage.Client, error) {
-	bqsaJSON, err := bqsa.ToJSON()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get json: %v", err)
-	}
-
-	client, err := storage.NewClient(
-		ctx,
-		option.WithCredentialsJSON(bqsaJSON),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Storage client: %v", err)
-	}
-
-	return client, nil
-}
-
 // NewBigQueryConnector creates a new BigQueryConnector from a PeerConnectionConfig.
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
-	bqsa, err := NewBigQueryServiceAccount(config)
+	gcsa, err := googlecloud.NewGoogleCloudServiceAccount(config.AuthConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
+		return nil, fmt.Errorf("failed to create GoogleCloudServiceAccount: %v", err)
 	}
 
-	client, err := bqsa.CreateBigQueryClient(ctx)
+	client, err := gcsa.CreateBigQueryClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
 
-	storageClient, err := bqsa.CreateStorageClient(ctx)
+	storageClient, err := gcsa.CreateStorageClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Storage client: %v", err)
 	}
@@ -181,6 +94,12 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 func (c *BigQueryConnector) Close() error {
 	if c == nil || c.client == nil {
 		return nil
+	}
+	if c.storageClient != nil {
+		err := c.storageClient.Close()
+		if err != nil {
+			return fmt.Errorf("failed to close storage client: %w", err)
+		}
 	}
 	return c.client.Close()
 }

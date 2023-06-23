@@ -13,6 +13,7 @@ impl From<PeerType> for DbType {
             PeerType::Snowflake => DbType::Snowflake,
             PeerType::Postgres => DbType::Postgres,
             PeerType::Kafka => todo!("Add Kafka support"),
+            PeerType::CloudStorage => DbType::CloudStorage,
         }
     }
 }

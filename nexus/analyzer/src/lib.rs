@@ -9,7 +9,8 @@ use std::{
 use anyhow::Context;
 use flow_rs::{FlowJob, FlowJobTableMapping, QRepFlowJob};
 use pt::peers::{
-    peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+    peer::Config, BigqueryConfig, CloudStorageConfig, DbType, MongoConfig, Peer, PostgresConfig,
+    SnowflakeConfig, GoogleCloudAuthConfig,
 };
 use serde_json::Number;
 use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
@@ -305,7 +306,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                         if !processed_options.contains_key("sync_data_format") {
                             processed_options.insert(
                                 "sync_data_format".to_string(),
-                                serde_json::Value::String("default".to_string())
+                                serde_json::Value::String("default".to_string()),
                             );
                         }
 
@@ -440,7 +441,7 @@ fn parse_db_options(
                 .ok_or_else(|| anyhow::anyhow!("missing private_key option for bigquery"))?;
             pem::parse(pem_str.as_bytes())
                 .map_err(|err| anyhow::anyhow!("unable to parse private_key: {:?}", err))?;
-            let bq_config = BigqueryConfig {
+            let google_cloud_auth_config = GoogleCloudAuthConfig {
                 auth_type: opts
                     .remove("type")
                     .ok_or_else(|| anyhow::anyhow!("missing type option for bigquery"))?,
@@ -471,6 +472,9 @@ fn parse_db_options(
                 client_x509_cert_url: opts.remove("client_x509_cert_url").ok_or_else(|| {
                     anyhow::anyhow!("missing client_x509_cert_url option for bigquery")
                 })?,
+            };
+            let bq_config = BigqueryConfig {
+                auth_config: Some(google_cloud_auth_config),
                 dataset_id: opts
                     .remove("dataset_id")
                     .ok_or_else(|| anyhow::anyhow!("missing dataset_id in peer options"))?,
@@ -559,6 +563,53 @@ fn parse_db_options(
                     .to_string(),
             };
             let config = Config::PostgresConfig(postgres_config);
+            Some(config)
+        }
+        DbType::CloudStorage => {
+            let pem_str = opts
+                .remove("private_key")
+                .ok_or_else(|| anyhow::anyhow!("missing private_key option for bigquery"))?;
+            pem::parse(pem_str.as_bytes())
+                .map_err(|err| anyhow::anyhow!("unable to parse private_key: {:?}", err))?;
+            let google_cloud_auth_config = GoogleCloudAuthConfig {
+                auth_type: opts
+                    .remove("type")
+                    .ok_or_else(|| anyhow::anyhow!("missing type option for bigquery"))?,
+                project_id: opts
+                    .remove("project_id")
+                    .ok_or_else(|| anyhow::anyhow!("missing project_id in peer options"))?,
+                private_key_id: opts
+                    .remove("private_key_id")
+                    .ok_or_else(|| anyhow::anyhow!("missing private_key_id option for bigquery"))?,
+                private_key: pem_str,
+                client_email: opts
+                    .remove("client_email")
+                    .ok_or_else(|| anyhow::anyhow!("missing client_email option for bigquery"))?,
+                client_id: opts
+                    .remove("client_id")
+                    .ok_or_else(|| anyhow::anyhow!("missing client_id option for bigquery"))?,
+                auth_uri: opts
+                    .remove("auth_uri")
+                    .ok_or_else(|| anyhow::anyhow!("missing auth_uri option for bigquery"))?,
+                token_uri: opts
+                    .remove("token_uri")
+                    .ok_or_else(|| anyhow::anyhow!("missing token_uri option for bigquery"))?,
+                auth_provider_x509_cert_url: opts
+                    .remove("auth_provider_x509_cert_url")
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("missing auth_provider_x509_cert_url option for bigquery")
+                    })?,
+                client_x509_cert_url: opts.remove("client_x509_cert_url").ok_or_else(|| {
+                    anyhow::anyhow!("missing client_x509_cert_url option for bigquery")
+                })?,
+            };
+            let cloudstorage_config = CloudStorageConfig {
+                auth_config: Some(google_cloud_auth_config),
+                bucket_id: opts
+                    .remove("bucket_id")
+                    .ok_or_else(|| anyhow::anyhow!("missing bucket_id in peer options"))?,
+            };
+            let config = Config::CloudStorageConfig(cloudstorage_config);
             Some(config)
         }
     };

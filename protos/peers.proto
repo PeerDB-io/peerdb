@@ -14,7 +14,7 @@ message SnowflakeConfig {
   uint64 query_timeout = 8;
 }
 
-message BigqueryConfig {
+message GoogleCloudAuthConfig {
   string auth_type = 1;
   string project_id = 2;
   string private_key_id = 3;
@@ -25,7 +25,11 @@ message BigqueryConfig {
   string token_uri = 8;
   string auth_provider_x509_cert_url = 9;
   string client_x509_cert_url = 10;
-  string dataset_id = 11;
+}
+
+message BigqueryConfig {
+  GoogleCloudAuthConfig auth_config = 1;
+  string dataset_id = 2;
 }
 
 message MongoConfig {
@@ -44,11 +48,17 @@ message PostgresConfig {
   string database = 5;
 }
 
+message CloudStorageConfig {
+  GoogleCloudAuthConfig auth_config = 1;
+  string bucket_id = 2;
+}
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
   MONGO = 2;
   POSTGRES = 3;
+  CLOUD_STORAGE = 4;
 }
 
 message Peer {
@@ -59,5 +69,6 @@ message Peer {
     BigqueryConfig bigquery_config = 4;
     MongoConfig mongo_config = 5;
     PostgresConfig postgres_config = 6;
+    CloudStorageConfig cloud_storage_config = 7;
   }
 }

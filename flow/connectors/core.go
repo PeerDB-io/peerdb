@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
+	connbigquery "github.com/PeerDB-io/peer-flow/connectors/googlecloud/bigquery"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/generated/protos"

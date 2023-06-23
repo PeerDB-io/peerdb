@@ -127,7 +127,7 @@ impl Catalog {
                 Config::SnowflakeConfig(snowflake_config) => {
                     let config_len = snowflake_config.encoded_len();
                     buf.reserve(config_len);
-                    snowflake_config.encode(&mut buf)?;
+                    snowflake_config.encode(&mut buf)?
                 }
                 Config::BigqueryConfig(bigquery_config) => {
                     let config_len = bigquery_config.encoded_len();
@@ -143,7 +143,12 @@ impl Catalog {
                     let config_len = postgres_config.encoded_len();
                     buf.reserve(config_len);
                     postgres_config.encode(&mut buf)?;
-                }
+                },
+                Config::CloudStorageConfig(cloudstorage_config) => {
+                    let config_len = cloudstorage_config.encoded_len();
+                    buf.reserve(config_len);
+                    cloudstorage_config.encode(&mut buf)?;
+                },
             };
 
             buf
@@ -238,7 +243,13 @@ impl Catalog {
                     let postgres_config =
                         pt::peers::PostgresConfig::decode(options.as_slice()).context(err)?;
                     Some(Config::PostgresConfig(postgres_config))
-                }
+                },
+                Some(DbType::CloudStorage) => {
+                    let err = format!("unable to decode {} options for peer {}", "cloudstorage", name);
+                    let cloudstorage_config =
+                        pt::peers::CloudStorageConfig::decode(options.as_slice()).context(err)?;
+                    Some(Config::CloudStorageConfig(cloudstorage_config))
+                },
                 None => None,
             };
 
