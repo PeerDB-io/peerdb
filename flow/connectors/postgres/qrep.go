@@ -27,9 +27,11 @@ func (c *PostgresConnector) GetQRepPartitions(
 	var partitions []*protos.QRepPartition
 	switch v := minValue.(type) {
 	case int32, int64:
-		partitions, err = c.getIntPartitions(v.(int64), maxValue.(int64), config.BatchSizeInt)
+		maxValue := maxValue.(int64) + 1
+		partitions, err = c.getIntPartitions(v.(int64), maxValue, config.BatchSizeInt)
 	case time.Time:
-		partitions, err = c.getTimePartitions(v, maxValue.(time.Time), config.BatchDurationSeconds)
+		maxValue := maxValue.(time.Time).Add(time.Microsecond)
+		partitions, err = c.getTimePartitions(v, maxValue, config.BatchDurationSeconds)
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
@@ -239,7 +241,7 @@ func (c *PostgresConnector) getTimePartitions(
 	batchDuration := time.Duration(batchDurationSeconds) * time.Second
 	var partitions []*protos.QRepPartition
 
-	for start.Before(end) || start.Equal(end) {
+	for start.Before(end) {
 		partitionEnd := start.Add(batchDuration)
 		if partitionEnd.After(end) {
 			partitionEnd = end
@@ -258,10 +260,6 @@ func (c *PostgresConnector) getTimePartitions(
 			PartitionId: uuid.New().String(),
 			Range:       &rangePartition,
 		})
-
-		if partitionEnd.Equal(end) {
-			break
-		}
 
 		start = partitionEnd
 	}
