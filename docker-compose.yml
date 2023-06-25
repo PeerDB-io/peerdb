@@ -3,9 +3,35 @@ version: '3.9'
 services:
   temporalite:
     image: slamdev/temporalite:0.3.0
+    entrypoint: temporalite start -n default --ip 0.0.0.0 -f /data/temporal.db --log-level warn
+    volumes:
+      - temporalitedata:/data
     ports:
       - 7233:7233
       - 8233:8233
+
+  temporal-admin-tools:
+    container_name: temporal-admin-tools
+    depends_on:
+      - temporalite
+    environment:
+      - TEMPORAL_CLI_ADDRESS=temporalite:7233
+    image: temporalio/admin-tools:1.17.5
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "tctl",
+          "--address",
+          "temporalite:7233",
+          "workflow",
+          "list"
+        ]
+      interval: 1s
+      timeout: 5s
+      retries: 30
 
   catalog:
     image: debezium/postgres:14-alpine
@@ -18,14 +44,8 @@ services:
       POSTGRES_DB: postgres
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command:
-      [
-        "postgres",
-        "-c",
-        "log_statement=all",
-        "-c",
-        "log_destination=stderr"
-      ]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test:
         [
@@ -50,9 +70,17 @@ services:
     environment:
       CATALOG_DSN: postgres://postgres:postgres@catalog:5432/postgres?sslmode=disable
       TEMPORAL_HOST_PORT: temporalite:7233
+      GIN_MODE: release
     depends_on:
-      - catalog
-      - temporalite
+      catalog:
+        condition: service_healthy
+      temporal-admin-tools:
+        condition: service_healthy
+    healthcheck:
+      test: "curl --fail http://flow_api:8112/health || exit 1"
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   flow_worker:
     build:
@@ -61,7 +89,8 @@ services:
     environment:
       TEMPORAL_HOST_PORT: temporalite:7233
     depends_on:
-      - temporalite
+      temporal-admin-tools:
+        condition: service_healthy
 
   peerdb:
     build:
@@ -79,5 +108,11 @@ services:
     ports:
       - 9900:9900
     depends_on:
-      - catalog
-      - flow_api
+      catalog:
+        condition: service_healthy
+      flow_api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  temporalitedata:
