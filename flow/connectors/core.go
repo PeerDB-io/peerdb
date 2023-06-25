@@ -67,6 +67,9 @@ type Connector interface {
 	// returns the number of records synced.
 	SyncQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition, records *model.QRecordBatch) (int, error)
 
+	// ConsolidateQRepPartitions consolidates the partitions for a given table.
+	ConsolidateQRepPartitions(config *protos.QRepConfig) error
+
 	PullFlowCleanup(jobName string) error
 	SyncFlowCleanup(jobName string) error
 }

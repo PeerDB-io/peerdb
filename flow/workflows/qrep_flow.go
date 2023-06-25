@@ -153,6 +153,23 @@ func (q *QRepFlowExecution) processPartitions(
 	return nil
 }
 
+// For some targets we need to consolidate all the partitions from stages before
+// we proceed to next batch.
+func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
+	q.logger.Info("consolidating partitions")
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Hour,
+	})
+
+	if err := workflow.ExecuteActivity(ctx, flowable.ConsolidateQRepPartitions, q.config).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to consolidate partitions: %w", err)
+	}
+
+	q.logger.Info("partitions consolidated")
+	return nil
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
@@ -167,11 +184,6 @@ func QRepFlowWorkflow(
 	//   5. Sleep for a while and repeat the loop.
 	logger := workflow.GetLogger(ctx)
 
-	if config.RowsPerPartition == 0 {
-		logger.Info("RowsPerPartition is not set. Defaulting to 10000.")
-		config.RowsPerPartition = 10000
-	}
-
 	maxParallelWorkers := 16
 	if config.MaxParallelWorkers > 0 {
 		maxParallelWorkers = int(config.MaxParallelWorkers)
@@ -180,6 +192,14 @@ func QRepFlowWorkflow(
 	waitBetweenBatches := 5 * time.Second
 	if config.WaitBetweenBatchesSeconds > 0 {
 		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
+	}
+
+	if config.BatchDurationSeconds == 0 {
+		config.BatchDurationSeconds = 60
+	}
+
+	if config.BatchSizeInt == 0 {
+		config.BatchSizeInt = 10000
 	}
 
 	// register a signal handler to terminate the workflow
@@ -218,6 +238,11 @@ func QRepFlowWorkflow(
 
 	logger.Info("partitions to replicate - ", len(partitions.Partitions))
 	if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
+		return err
+	}
+
+	logger.Info("consolidating partitions for peer flow - ", config.FlowJobName)
+	if err = q.consolidatePartitions(ctx); err != nil {
 		return err
 	}
 

@@ -170,7 +170,7 @@ impl NexusBackend {
                         "OK", None,
                     ))])
                 }
-                PeerDDL::CreateMirror { flow_job } => {
+                PeerDDL::CreateMirrorForCDC { flow_job } => {
                     let catalog = self.catalog.lock().await;
                     catalog
                         .create_flow_job_entry(&flow_job)
@@ -200,7 +200,35 @@ impl NexusBackend {
                                 err_msg: format!("unable to save job metadata: {:?}", err),
                             }))
                         })?;
+
                     let create_mirror_success = format!("CREATE MIRROR {}", flow_job.name);
+                    Ok(vec![Response::Execution(Tag::new_for_execution(
+                        &create_mirror_success,
+                        None,
+                    ))])
+                }
+                PeerDDL::CreateMirrorForSelect { qrep_flow_job } => {
+                    let catalog = self.catalog.lock().await;
+
+                    catalog
+                        .create_qrep_flow_job_entry(&qrep_flow_job)
+                        .await
+                        .map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to create mirror job entry: {:?}", err),
+                            }))
+                        })?;
+                    // make a request to the flow service to start the job.
+                    let workflow_id = self
+                        .flow_handler
+                        .start_qrep_flow_job(&qrep_flow_job)
+                        .await  
+                        .map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to submit job: {:?}", err),
+                            }))
+                        })?;
+                    let create_mirror_success = format!("CREATE MIRROR {}", qrep_flow_job.name);
                     Ok(vec![Response::Execution(Tag::new_for_execution(
                         &create_mirror_success,
                         None,

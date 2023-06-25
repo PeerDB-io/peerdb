@@ -150,5 +150,94 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 	}
 
 	log.Infof("Created table %s", qRepMetadataTableName)
+
+	stageName := c.getStageNameForJob(config.FlowJobName)
+	stageStatement := `
+		CREATE STAGE IF NOT EXISTS %s
+		FILE_FORMAT = (TYPE = AVRO);
+	`
+	stmt := fmt.Sprintf(stageStatement, stageName)
+
+	// Execute the query
+	_, err = c.database.Exec(stmt)
+	if err != nil {
+		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
+	}
+
+	log.Infof("Created stage %s", stageName)
 	return nil
+}
+
+func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
+	log.Infof("Consolidating partitions for flow job %s", config.FlowJobName)
+
+	destTable := config.DestinationTableIdentifier
+	stageName := c.getStageNameForJob(config.FlowJobName)
+
+	syncMode := config.SyncMode
+	switch syncMode {
+	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
+		return fmt.Errorf("multi-insert sync mode not supported for snowflake")
+	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
+		allCols, err := c.getColsFromTable(destTable)
+		if err != nil {
+			log.Errorf("failed to get columns from table %s: %v", destTable, err)
+			return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
+		}
+
+		err = CopyStageToDestination(c.database, config, destTable, stageName, allCols)
+		if err != nil {
+			log.Errorf("failed to copy stage to destination: %v", err)
+			return fmt.Errorf("failed to copy stage to destination: %w", err)
+		}
+
+		return c.dropStage(config.FlowJobName)
+	default:
+		return fmt.Errorf("unsupported sync mode: %s", syncMode)
+	}
+}
+
+func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, error) {
+	//nolint:gosec
+	queryString := fmt.Sprintf(`
+	SELECT column_name
+	FROM information_schema.columns
+	WHERE table_name = '%s'
+	`, tableName)
+
+	rows, err := c.database.Query(queryString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var cols []string
+	for rows.Next() {
+		var col string
+		if err := rows.Scan(&col); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		cols = append(cols, col)
+	}
+
+	return cols, nil
+}
+
+// dropStage drops the stage for the given job.
+func (c *SnowflakeConnector) dropStage(job string) error {
+	stageName := c.getStageNameForJob(job)
+	stmt := fmt.Sprintf("DROP STAGE IF EXISTS %s", stageName)
+
+	_, err := c.database.Exec(stmt)
+	if err != nil {
+		return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
+	}
+
+	log.Infof("Dropped stage %s", stageName)
+	return nil
+}
+
+func (c *SnowflakeConnector) getStageNameForJob(job string) string {
+	// TODO move this from public to peerdb internal schema.
+	return fmt.Sprintf("public.peerdb_stage_%s", job)
 }

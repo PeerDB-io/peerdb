@@ -33,7 +33,6 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
-
 	tblMetadata, err := bqTable.Metadata(c.ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get metadata of table %s: %w", destTable, err)
@@ -120,6 +119,12 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 		return fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, qRepMetadataTableName, err)
 	}
 
+	return nil
+}
+
+func (c *BigQueryConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
+	log.Infof("Consolidating partitions for flow job %s", config.FlowJobName)
+	log.Infof("This is a no-op for BigQuery")
 	return nil
 }
 
