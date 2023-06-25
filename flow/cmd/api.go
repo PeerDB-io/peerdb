@@ -114,9 +114,14 @@ func genConfigForQRepFlow(config *protos.QRepConfig, flowOptions map[string]inte
 		}
 		config.WriteMode = tempWriteMode
 	} else if flowOptions["mode"].(string) == "upsert" {
+		upsertKeyColumns := make([]string, 0)
+		for _, column := range flowOptions["unique_key_columns"].([]interface{}) {
+			upsertKeyColumns = append(upsertKeyColumns, column.(string))
+		}
+
 		tempWriteMode := &protos.QRepWriteMode{
 			WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
-			UpsertKeyColumns: flowOptions["upsert_key_columns"].([]string),
+			UpsertKeyColumns: upsertKeyColumns,
 		}
 		config.WriteMode = tempWriteMode
 	} else {
