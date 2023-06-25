@@ -29,6 +29,20 @@ func main() {
 		EnvVars: []string{"TEMPORAL_HOST_PORT"},
 	}
 
+	profilingFlag := &cli.BoolFlag{
+		Name:    "enable-profiling",
+		Value:   false, // Default is off
+		Usage:   "Enable profiling for the application",
+		EnvVars: []string{"ENABLE_PROFILING"},
+	}
+
+	profilingServerFlag := &cli.StringFlag{
+		Name:    "profiling-server",
+		Value:   "localhost:6060", // Default is localhost:6060
+		Usage:   "HTTP server address for profiling",
+		EnvVars: []string{"PROFILING_SERVER"},
+	}
+
 	app := &cli.App{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -38,10 +52,14 @@ func main() {
 					temporalHostPort := ctx.String("temporal-host-port")
 					return WorkerMain(&WorkerOptions{
 						TemporalHostPort: temporalHostPort,
+						EnableProfiling:  ctx.Bool("enable-profiling"),
+						ProfilingServer:  ctx.String("profiling-server"),
 					})
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
+					profilingFlag,
+					profilingServerFlag,
 				},
 			},
 			{
