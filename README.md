@@ -71,8 +71,8 @@ Query supported data-stores with a Postgres-compatible SQL interface
 | Data-store | Support | Status |
 | --- | --- | --- |
 | BigQuery | SELECT commands | STABLE |
-| Snowflake | SELECT commands | Under development |
-| PostgreSQL | DML + SELECT commands | Under development |
+| Snowflake | SELECT commands | Beta |
+| PostgreSQL | DML + SELECT commands | Beta |
 
 ### PeerDB MIRROR
 
@@ -84,8 +84,8 @@ Real-time syncing of data from source to target based on change-feed or CDC (log
 
 | Feature | Source | Target | Status |
 | --- | --- | --- | --- |
-| CDC | PostgreSQL | BigQuery | Under development |
-| CDC | PostgreSQL | Snowflake | Under development |
+| CDC | PostgreSQL | BigQuery | Beta |
+| CDC | PostgreSQL | Snowflake | Beta |
 | Initial Load | PostgreSQL | BigQuery | Coming Soon! |
 | Initial Load | PostgreSQL | Snowflake | Coming Soon! |
 
