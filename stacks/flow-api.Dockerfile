@@ -9,7 +9,9 @@ RUN go mod download
 WORKDIR /root/cmd
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /root/peer-flow .
 
-FROM gcr.io/distroless/static-debian11 AS peer-flow-api
+FROM ubuntu:20.04
+RUN apt-get update && apt-get install -y ca-certificates curl
+WORKDIR /root/
 COPY --from=builder /root/peer-flow .
 EXPOSE 8112
 ENTRYPOINT ["./peer-flow", "api", "--port", "8112"]
