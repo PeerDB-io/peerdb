@@ -46,7 +46,7 @@ const (
 		 FROM VARIANT_CONVERTED), DEDUPLICATED_FLATTENED AS (SELECT RANKED.* FROM
 		 (SELECT RANK() OVER (PARTITION BY %s ORDER BY _PEERDB_TIMESTAMP DESC) AS RANK,* FROM FLATTENED)
 		 RANKED WHERE RANK=1)
-		 SELECT * FROM DEDUPLICATED_FLATTENED) SOURCE ON TARGET.ID=SOURCE.ID
+		 SELECT * FROM DEDUPLICATED_FLATTENED) SOURCE ON %s
 		 WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE != 2) THEN INSERT (%s) VALUES(%s)
 		 %s
 		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN DELETE`
@@ -806,9 +806,13 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	udateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
+	// TARGET.<pkey> = SOURCE.<pkey>
+	pkeyColStr := fmt.Sprintf("TARGET.%s = SOURCE.%s",
+		normalizedTableSchema.PrimaryKeyColumn, normalizedTableSchema.PrimaryKeyColumn)
+
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
-		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL,
+		normalizedTableSchema.PrimaryKeyColumn, pkeyColStr, insertColumnsSQL, insertValuesSQL,
 		updateStringToastCols)
 
 	_, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)

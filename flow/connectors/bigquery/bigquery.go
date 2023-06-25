@@ -1058,15 +1058,17 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 
 // generateDeDupedCTE generates a de-duped CTE.
 func (m *MergeStmtGenerator) generateDeDupedCTE() string {
-	return `_peerdb_de_duplicated_data_res AS (
+	const cte = `_peerdb_de_duplicated_data_res AS (
 		SELECT _peerdb_ranked.*
 			FROM (
 				SELECT RANK() OVER (
-					PARTITION BY id ORDER BY _peerdb_timestamp_nanos DESC
+					PARTITION BY %s ORDER BY _peerdb_timestamp_nanos DESC
 				) as rank, * FROM _peerdb_flattened
 			) _peerdb_ranked
 			WHERE rank = 1
 	) SELECT * FROM _peerdb_de_duplicated_data_res`
+	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
+	return fmt.Sprintf(cte, pkey)
 }
 
 // generateMergeStmt generates a merge statement.
@@ -1120,7 +1122,7 @@ func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchanged
 			tmpArray = append(tmpArray, fmt.Sprintf("%s = _peerdb_deduped.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ", ")
-		updateStmt := fmt.Sprintf(`WHEN MATCHED AND 
+		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 		(_peerdb_deduped._peerdb_record_type != 2) AND _peerdb_unchanged_toast_columns='%s'
 		THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
