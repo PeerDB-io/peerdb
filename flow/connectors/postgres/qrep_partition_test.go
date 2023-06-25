@@ -121,7 +121,7 @@ func TestGetQRepPartitions(t *testing.T) {
 			false,
 		).appendPartition(
 			time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC),
-			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
+			time.Date(2010, time.January, 30, 10, 0, 0, 1000, time.UTC),
 		),
 		newTestCase(
 			schemaName,
@@ -132,6 +132,9 @@ func TestGetQRepPartitions(t *testing.T) {
 			time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC),
 			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
 			29,
+		).appendPartition(
+			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
+			time.Date(2010, time.January, 30, 10, 0, 0, 1000, time.UTC),
 		),
 		newTestCase(
 			schemaName,
@@ -142,6 +145,9 @@ func TestGetQRepPartitions(t *testing.T) {
 			time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC),
 			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
 			58,
+		).appendPartition(
+			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
+			time.Date(2010, time.January, 30, 10, 0, 0, 1000, time.UTC),
 		),
 		newTestCase(
 			schemaName,
