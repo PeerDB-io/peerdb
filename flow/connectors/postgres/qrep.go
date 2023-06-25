@@ -27,15 +27,16 @@ func (c *PostgresConnector) GetQRepPartitions(
 	var partitions []*protos.QRepPartition
 	switch v := minValue.(type) {
 	case int32, int64:
-		partitions = c.getIntPartitions(v.(int64), maxValue.(int64), config.BatchSizeInt)
+		partitions, err = c.getIntPartitions(v.(int64), maxValue.(int64), config.BatchSizeInt)
 	case time.Time:
-		partitions = c.getTimePartitions(v, maxValue.(time.Time), config.BatchDurationSeconds)
+		partitions, err = c.getTimePartitions(v, maxValue.(time.Time), config.BatchDurationSeconds)
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
 
-	// log the partitions for debugging
-	log.Infof("partitions: %v\n", partitions)
+	if err != nil {
+		return nil, err
+	}
 
 	return partitions, nil
 }
@@ -51,16 +52,15 @@ func (c *PostgresConnector) getMinMaxValues(
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			minValue = lastRange.IntRange.End
-			minValue = minValue.(int64) + 1
 		case *protos.PartitionRange_TimestampRange:
 			minValue = lastRange.TimestampRange.End.AsTime()
-			minValue = minValue.(time.Time).Add(1 * time.Microsecond)
 		}
 	} else {
 		// Otherwise get the minimum value from the database
 		minQuery := fmt.Sprintf("SELECT MIN(%[1]s) FROM %[2]s", config.WatermarkColumn, config.WatermarkTable)
 		row := c.pool.QueryRow(c.ctx, minQuery)
 		if err := row.Scan(&minValue); err != nil {
+			log.Errorf("failed to query [%s] for min value: %v", minQuery, err)
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)
 		}
 	}
@@ -231,7 +231,11 @@ func (c *PostgresConnector) getTimePartitions(
 	start time.Time,
 	end time.Time,
 	batchDurationSeconds uint32,
-) []*protos.QRepPartition {
+) ([]*protos.QRepPartition, error) {
+	if batchDurationSeconds == 0 {
+		return nil, fmt.Errorf("batch duration must be greater than 0")
+	}
+
 	batchDuration := time.Duration(batchDurationSeconds) * time.Second
 	var partitions []*protos.QRepPartition
 
@@ -262,12 +266,17 @@ func (c *PostgresConnector) getTimePartitions(
 		start = partitionEnd
 	}
 
-	return partitions
+	return partitions, nil
 }
 
-func (c *PostgresConnector) getIntPartitions(start int64, end int64, batchSizeInt uint32) []*protos.QRepPartition {
+func (c *PostgresConnector) getIntPartitions(
+	start int64, end int64, batchSizeInt uint32) ([]*protos.QRepPartition, error) {
 	var partitions []*protos.QRepPartition
 	batchSize := int64(batchSizeInt)
+
+	if batchSize == 0 {
+		return nil, fmt.Errorf("batch size cannot be 0")
+	}
 
 	for start <= end {
 		partitionEnd := start + batchSize
@@ -296,5 +305,5 @@ func (c *PostgresConnector) getIntPartitions(start int64, end int64, batchSizeIn
 		start = partitionEnd
 	}
 
-	return partitions
+	return partitions, nil
 }
