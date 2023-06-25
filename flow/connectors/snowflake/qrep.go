@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -198,12 +199,22 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 }
 
 func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, error) {
+	// parse the table name to get the schema and table name
+	components, err := parseTableName(tableName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse table name: %w", err)
+	}
+
+	// convert tableIdentifier and schemaIdentifier to upper case
+	components.tableIdentifier = strings.ToUpper(components.tableIdentifier)
+	components.schemaIdentifier = strings.ToUpper(components.schemaIdentifier)
+
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
 	SELECT column_name
 	FROM information_schema.columns
-	WHERE table_name = '%s'
-	`, tableName)
+	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
+	`, components.tableIdentifier, components.schemaIdentifier)
 
 	rows, err := c.database.Query(queryString)
 	if err != nil {
