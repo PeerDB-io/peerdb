@@ -101,26 +101,26 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  # peerdb:
-  #   build:
-  #     context: .
-  #     dockerfile: stacks/nexus.Dockerfile
-  #   environment:
-  #     PEERDB_LOG_DIR: /var/log/peerdb
-  #     PEERDB_CATALOG_HOST: catalog
-  #     PEERDB_CATALOG_PORT: 5432
-  #     PEERDB_CATALOG_USER: postgres
-  #     PEERDB_CATALOG_PASSWORD: postgres
-  #     PEERDB_CATALOG_DB: postgres
-  #     PEERDB_PASSWORD: peerdb
-  #     PEERDB_FLOW_SERVER_ADDRESS: http://flow_api:8112
-  #   ports:
-  #     - 9900:9900
-  #   depends_on:
-  #     catalog:
-  #       condition: service_healthy
-  #     flow_api:
-  #       condition: service_healthy
+  peerdb:
+    build:
+      context: .
+      dockerfile: stacks/nexus.Dockerfile
+    environment:
+      PEERDB_LOG_DIR: /var/log/peerdb
+      PEERDB_CATALOG_HOST: catalog
+      PEERDB_CATALOG_PORT: 5432
+      PEERDB_CATALOG_USER: postgres
+      PEERDB_CATALOG_PASSWORD: postgres
+      PEERDB_CATALOG_DB: postgres
+      PEERDB_PASSWORD: peerdb
+      PEERDB_FLOW_SERVER_ADDRESS: http://flow_api:8112
+    ports:
+      - 9900:9900
+    depends_on:
+      catalog:
+        condition: service_healthy
+      flow_api:
+        condition: service_healthy
 
 volumes:
   pgdata:
