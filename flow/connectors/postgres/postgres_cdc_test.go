@@ -97,7 +97,6 @@ func (suite *PostgresCDCTestSuite) randBytea(n int) []byte {
 func (suite *PostgresCDCTestSuite) randString(n int) string {
 	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-	rand.Int()
 	b := make([]byte, n)
 	for i := range b {
 		//nolint:gosec
@@ -312,6 +311,7 @@ func (suite *PostgresCDCTestSuite) TestNonImplementedFunctions() {
 		})
 	}, "not implemented")
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.NormalizeRecords(&model.NormalizeRecordsRequest{
 			FlowJobName: "normalize_records_panic",
 		})
@@ -335,6 +335,7 @@ func (suite *PostgresCDCTestSuite) TestNonImplementedFunctions() {
 		//nolint:errcheck
 		testMap := make(map[string]*protos.TableSchema)
 		testMap["initialize_table_schema_panic"] = nil
+		//nolint:errcheck
 		suite.connector.InitializeTableSchema(testMap)
 	}, "not implemented")
 	suite.Panics(func() {
