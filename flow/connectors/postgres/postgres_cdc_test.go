@@ -54,7 +54,10 @@ func (suite *PostgresCDCTestSuite) validateInsertedSimpleRecords(records []model
 func (suite *PostgresCDCTestSuite) mutateSimpleRecords(srcTableName string) {
 	mutateRecordsTx, err := suite.connector.pool.Begin(context.Background())
 	suite.failTestError(err)
-	defer mutateRecordsTx.Rollback(context.Background())
+	defer func() {
+		err := mutateRecordsTx.Rollback(context.Background())
+		suite.failTestError(err)
+	}()
 
 	_, err = mutateRecordsTx.Exec(context.Background(),
 		fmt.Sprintf("UPDATE %s SET name = 'slow' WHERE id = 2", srcTableName))
@@ -103,7 +106,10 @@ func (suite *PostgresCDCTestSuite) randString(n int) string {
 func (suite *PostgresCDCTestSuite) insertToastRecords(srcTableName string) {
 	insertRecordsTx, err := suite.connector.pool.Begin(context.Background())
 	suite.failTestError(err)
-	defer insertRecordsTx.Rollback(context.Background())
+	defer func() {
+		err := insertRecordsTx.Rollback(context.Background())
+		suite.failTestError(err)
+	}()
 
 	for i := 0; i < 4; i++ {
 		_, err := insertRecordsTx.Exec(context.Background(),
@@ -137,7 +143,10 @@ func (suite *PostgresCDCTestSuite) validateInsertedToastRecords(records []model.
 func (suite *PostgresCDCTestSuite) mutateToastRecords(srcTableName string) {
 	mutateRecordsTx, err := suite.connector.pool.Begin(context.Background())
 	suite.failTestError(err)
-	defer mutateRecordsTx.Rollback(context.Background())
+	defer func() {
+		err := mutateRecordsTx.Rollback(context.Background())
+		suite.failTestError(err)
+	}()
 
 	_, err = mutateRecordsTx.Exec(context.Background(),
 		fmt.Sprintf("UPDATE %s SET n_t = $1 WHERE id = 1", srcTableName), suite.randString(65536))
@@ -223,7 +232,10 @@ func (suite *PostgresCDCTestSuite) SetupSuite() {
 
 	setupTx, err := suite.connector.pool.Begin(context.Background())
 	suite.failTestError(err)
-	defer setupTx.Rollback(context.Background())
+	defer func() {
+		err := setupTx.Rollback(context.Background())
+		suite.failTestError(err)
+	}()
 	_, err = setupTx.Exec(context.Background(), "DROP SCHEMA IF EXISTS pgpeer_test CASCADE")
 	suite.failTestError(err)
 	_, err = setupTx.Exec(context.Background(), "CREATE SCHEMA pgpeer_test")
@@ -235,7 +247,10 @@ func (suite *PostgresCDCTestSuite) SetupSuite() {
 func (suite *PostgresCDCTestSuite) TearDownSuite() {
 	teardownTx, err := suite.connector.pool.Begin(context.Background())
 	suite.failTestError(err)
-	defer teardownTx.Rollback(context.Background())
+	defer func() {
+		err := teardownTx.Rollback(context.Background())
+		suite.failTestError(err)
+	}()
 	_, err = teardownTx.Exec(context.Background(), "DROP SCHEMA IF EXISTS pgpeer_test CASCADE")
 	suite.failTestError(err)
 	err = teardownTx.Commit(context.Background())
@@ -267,25 +282,28 @@ func (suite *PostgresCDCTestSuite) TestParseSchemaTable() {
 
 func (suite *PostgresCDCTestSuite) TestNonImplementedFunctions() {
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.SetupMetadataTables()
 	}, "not implemented")
 	suite.False(suite.connector.NeedsSetupMetadataTables())
 	suite.Panicsf(func() {
-		suite.connector.SetupMetadataTables()
-	}, "not implemented")
-	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.GetLastOffset("offset_panic")
 	}, "not implemented")
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.GetLastSyncBatchID("sync_batch_id_panic")
 	}, "not implemented")
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.GetLastNormalizeBatchID("normalize_batch_id_panic")
 	}, "not implemented")
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.GetDistinctTableNamesInBatch("distinct_table_names_in_batch_panic", 0, 0)
 	}, "not implemented")
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.SyncRecords(&model.SyncRecordsRequest{
 			FlowJobName: "sync_records_panic",
 			Records:     nil,
@@ -297,12 +315,14 @@ func (suite *PostgresCDCTestSuite) TestNonImplementedFunctions() {
 		})
 	}, "not implemented")
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.CreateRawTable(&protos.CreateRawTableInput{
 			FlowJobName:          "create_raw_table_panic",
 			PeerConnectionConfig: nil,
 		})
 	}, "not implemented")
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		suite.connector.SetupNormalizedTable(&protos.SetupNormalizedTableInput{
 			TableIdentifier:      "normalized_table_panic",
 			SourceTableSchema:    nil,
@@ -310,11 +330,13 @@ func (suite *PostgresCDCTestSuite) TestNonImplementedFunctions() {
 		})
 	}, "not implemented")
 	suite.Panicsf(func() {
+		//nolint:errcheck
 		testMap := make(map[string]*protos.TableSchema)
 		testMap["initialize_table_schema_panic"] = nil
 		suite.connector.InitializeTableSchema(testMap)
 	}, "not implemented")
 	suite.Panics(func() {
+		//nolint:errcheck
 		suite.connector.SyncFlowCleanup("sync_flow_cleanup_panic")
 	})
 }
@@ -354,7 +376,8 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		PeerConnectionConfig: nil, // not used by the connector itself.
 	})
 	suite.Errorf(err,
-		"error creating replication slot and publication: error creating publication: ERROR: relation \"%s\" does not exist (SQLSTATE 42P01)",
+		"error creating replication slot and publication: error creating publication: "+
+			"ERROR: relation \"%s\" does not exist (SQLSTATE 42P01)",
 		nonExistentFlowSrcTableName)
 
 	tableSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
@@ -389,7 +412,8 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	suite.Errorf(err, "publication peerflow_pub_%s does not exist", nonExistentFlowName)
 
 	err = suite.connector.PullFlowCleanup(nonExistentFlowName)
-	suite.Errorf(err, "error dropping replication slot: ERROR: replication slot \"%s\" does not exist (SQLSTATE 42704)", nonExistentFlowName)
+	suite.Errorf(err, "error dropping replication slot:"+
+		"ERROR: replication slot \"%s\" does not exist (SQLSTATE 42704)", nonExistentFlowName)
 
 	// creating table and the replication slots for it, and dropping before pull records.
 	_, err = suite.connector.pool.Exec(context.Background(),
@@ -401,9 +425,9 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		PeerConnectionConfig:  nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
-	tableRelId := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
+	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
 	relIDTableNameMapping = map[uint32]string{
-		tableRelId: nonExistentFlowSrcTableName,
+		tableRelID: nonExistentFlowSrcTableName,
 	}
 	err = suite.connector.SetupReplication(&protos.SetupReplicationInput{
 		FlowJobName:          nonExistentFlowName,
@@ -443,10 +467,10 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		PeerConnectionConfig:  nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
-	tableRelId := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
+	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
 
 	relIDTableNameMapping := map[uint32]string{
-		tableRelId: simpleHappyFlowSrcTableName,
+		tableRelID: simpleHappyFlowSrcTableName,
 	}
 	tableNameMapping := map[string]string{
 		simpleHappyFlowSrcTableName: simpleHappyFlowDstTableName,
@@ -552,10 +576,10 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 		PeerConnectionConfig:  nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
-	tableRelId := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
+	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
 
 	relIDTableNameMapping := map[uint32]string{
-		tableRelId: allTypesHappyFlowSrcTableName,
+		tableRelID: allTypesHappyFlowSrcTableName,
 	}
 	tableNameMapping := map[string]string{
 		allTypesHappyFlowSrcTableName: allTypesHappyFlowDstTableName,
@@ -663,10 +687,10 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		PeerConnectionConfig:  nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
-	tableRelId := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
+	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
 
 	relIDTableNameMapping := map[uint32]string{
-		tableRelId: toastHappyFlowSrcTableName,
+		tableRelID: toastHappyFlowSrcTableName,
 	}
 	tableNameMapping := map[string]string{
 		toastHappyFlowSrcTableName: toastHappyFlowDstTableName,
