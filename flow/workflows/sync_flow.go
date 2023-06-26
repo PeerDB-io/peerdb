@@ -67,13 +67,13 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		FlowJobName:          s.PeerFlowName,
 	}
 	lastSyncFuture := workflow.ExecuteActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
-	var dstSyncStaste *protos.LastSyncState
-	if err := lastSyncFuture.Get(syncMetaCtx, &dstSyncStaste); err != nil {
+	var dstSyncState *protos.LastSyncState
+	if err := lastSyncFuture.Get(syncMetaCtx, &dstSyncState); err != nil {
 		return nil, fmt.Errorf("failed to get last synced ID from destination peer: %w", err)
 	}
 
-	if dstSyncStaste != nil {
-		msg := fmt.Sprintf("last synced ID from destination peer - %d\n", dstSyncStaste.Checkpoint)
+	if dstSyncState != nil {
+		msg := fmt.Sprintf("last synced ID from destination peer - %d\n", dstSyncState.Checkpoint)
 		s.logger.Info(msg)
 	} else {
 		s.logger.Info("no last synced ID from destination peer")
@@ -89,7 +89,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	// execute StartFlow on the peers to start the flow
 	startFlowInput := &protos.StartFlowInput{
 		FlowConnectionConfigs: config,
-		LastSyncState:         dstSyncStaste,
+		LastSyncState:         dstSyncState,
 		SyncFlowOptions:       opts,
 	}
 	fStartFlow := workflow.ExecuteActivity(syncFlowCtx, flowable.StartFlow, startFlowInput)

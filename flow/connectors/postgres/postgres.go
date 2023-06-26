@@ -61,7 +61,10 @@ func (c *PostgresConnector) Close() error {
 
 // ConnectionActive returns true if the connection is active.
 func (c *PostgresConnector) ConnectionActive() bool {
-	return c.pool != nil
+	if c.pool == nil {
+		return false
+	}
+	return c.pool.Ping(c.ctx) == nil
 }
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
@@ -99,6 +102,18 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	// Publication name would be the job name prefixed with "peerflow_pub_"
 	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
 
+	// Check if the replication slot and publication exist
+	exists, err := c.checkSlotAndPublication(slotName, publicationName)
+	if err != nil {
+		return nil, fmt.Errorf("error checking for replication slot and publication: %w", err)
+	}
+	if !exists.PublicationExists {
+		return nil, fmt.Errorf("publication %s does not exist", publicationName)
+	}
+	if !exists.SlotExists {
+		return nil, fmt.Errorf("replication slot %s does not exist", slotName)
+	}
+
 	// ensure that replication is set to database
 	connConfig, err := pgxpool.ParseConfig(c.connStr)
 	if err != nil {
@@ -117,7 +132,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
-	cdc, err := NewPostgresCDCSource(&PostrgesCDCConfig{
+	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:            c.ctx,
 		Connection:            replPool,
 		SrcTableIDNameMapping: req.SrcTableIDNameMapping,
@@ -194,15 +209,6 @@ func (c *PostgresConnector) createSlotAndPublication(
 	publication string,
 	tableNameMapping map[string]string,
 ) error {
-	if !s.SlotExists {
-		// Create the logical replication slot
-		_, err := c.pool.Exec(c.ctx,
-			"SELECT * FROM pg_create_logical_replication_slot($1, 'pgoutput')",
-			slot)
-		if err != nil {
-			return fmt.Errorf("error creating replication slot: %w", err)
-		}
-	}
 	/*
 		iterating through source tables and creating a publication.
 		expecting tablenames to be schema qualified
@@ -222,6 +228,17 @@ func (c *PostgresConnector) createSlotAndPublication(
 		_, err := c.pool.Exec(c.ctx, stmt)
 		if err != nil {
 			return fmt.Errorf("error creating publication: %w", err)
+		}
+	}
+
+	// create slot only after we succeeded in creating publication.
+	if !s.SlotExists {
+		// Create the logical replication slot
+		_, err := c.pool.Exec(c.ctx,
+			"SELECT * FROM pg_create_logical_replication_slot($1, 'pgoutput')",
+			slot)
+		if err != nil {
+			return fmt.Errorf("error creating replication slot: %w", err)
 		}
 	}
 
@@ -256,7 +273,7 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 
 	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
+		return nil, err
 	}
 
 	// Get the column names and types
@@ -327,7 +344,7 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput
 	// check if the table exists by getting the relation ID
 	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
-		return nil, fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
+		return nil, err
 	}
 	return &protos.EnsurePullabilityOutput{TableIdentifier: &protos.TableIdentifier{
 		TableIdentifier: &protos.TableIdentifier_PostgresTableIdentifier{
@@ -378,7 +395,7 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 			log.Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
 		}
 	}()
-	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("DROP PUBLICATION %s", publicationName))
+	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s", publicationName))
 	if err != nil {
 		return fmt.Errorf("error dropping publication: %w", err)
 	}
