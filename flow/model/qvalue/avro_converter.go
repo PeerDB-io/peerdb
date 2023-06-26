@@ -97,7 +97,7 @@ func NewQValueAvroConverter(value *QValue, targetDWH QDWHType, nullable bool) *Q
 func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	switch c.Value.Kind {
 	case QValueKindInvalid:
-		return nil, fmt.Errorf("invalid QValueKind")
+		return nil, fmt.Errorf("invalid QValueKind: %v", c.Value)
 	case QValueKindETime:
 		t, err := c.processExtendedTime()
 		if err != nil || t == nil {
@@ -179,6 +179,10 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
 	num, ok := c.Value.Value.(*big.Rat)
 	if !ok {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
