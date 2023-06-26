@@ -82,7 +82,7 @@ func GetAvroSchemaDefinition(
 
 		consolidatedType := avroType.AvroLogicalSchema
 
-		if avroType.RespectNull && qField.Nullable {
+		if qField.Nullable {
 			consolidatedType = []interface{}{"null", consolidatedType}
 			nullableFields[qField.Name] = true
 		}
