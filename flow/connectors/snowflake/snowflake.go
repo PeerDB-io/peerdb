@@ -402,7 +402,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				matchData:             "",
 				batchID:               syncBatchID,
 				items:                 typedRecord.Items,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 		case *model.UpdateRecord:
 			newItemsJSON, err := json.Marshal(typedRecord.NewItems)
@@ -442,7 +442,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				matchData:             string(itemsJSON),
 				batchID:               syncBatchID,
 				items:                 typedRecord.Items,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
