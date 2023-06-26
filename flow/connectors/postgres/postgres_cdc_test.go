@@ -88,6 +88,7 @@ func (suite *PostgresCDCTestSuite) validateSimpleMutatedRecords(records []model.
 
 func (suite *PostgresCDCTestSuite) randBytea(n int) []byte {
 	b := make([]byte, n)
+	//nolint:gosec
 	_, err := rand.Read(b)
 	suite.failTestError(err)
 	return b
@@ -99,6 +100,7 @@ func (suite *PostgresCDCTestSuite) randString(n int) string {
 	rand.Int()
 	b := make([]byte, n)
 	for i := range b {
+		//nolint:gosec
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 	return string(b)
