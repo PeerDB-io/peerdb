@@ -31,13 +31,11 @@ jobs:
 
       - name: install cargo binaries
         run: |
-          cargo binstall --no-confirm --no-symlinks cargo-deb cargo-zigbuild
+          cargo binstall --no-confirm --no-symlinks cargo-deb
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-
-      - uses: goto-bus-stop/setup-zig@v2
 
       - name: Set Cargo version as Git tag
         working-directory: ./nexus/server
@@ -47,7 +45,7 @@ jobs:
 
       - name: build project release
         working-directory: ./nexus
-        run: cargo zigbuild --release --target=x86_64-unknown-linux-musl
+        run: cargo build --release --target=x86_64-unknown-linux-musl
 
       - name: create peerdb-server deb package
         working-directory: ./nexus/
