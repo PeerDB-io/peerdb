@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	log "github.com/sirupsen/logrus"
 )
 
 type QRepQueryExecutor struct {
@@ -64,7 +65,14 @@ func fieldDescriptionToQValueKind(fd pgconn.FieldDescription) qvalue.QValueKind 
 	case pgtype.NumericOID:
 		return qvalue.QValueKindNumeric
 	default:
-		return qvalue.QValueKindInvalid
+		typeName, ok := pgtype.NewMap().TypeForOID(fd.DataTypeOID)
+		if !ok {
+			log.Warnf("failed to get type name for oid: %v", fd.DataTypeOID)
+			return qvalue.QValueKindInvalid
+		} else {
+			log.Warnf("unsupported field type: %v - type name - %s", fd.DataTypeOID, typeName.Name)
+			return qvalue.QValueKindInvalid
+		}
 	}
 }
 
@@ -312,7 +320,8 @@ func parseField(oid uint32, value interface{}) (qvalue.QValue, error) {
 		numVal := value.(*pgtype.Numeric)
 		rat, err := numericToRat(numVal)
 		if err != nil {
-			val = qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
+			log.Warnf("failed to convert numeric [%v] to rat: %v", value, err)
+			val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: nil}
 		} else {
 			val = qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: rat}
 		}
