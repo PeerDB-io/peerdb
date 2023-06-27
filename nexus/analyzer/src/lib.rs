@@ -397,27 +397,29 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Kafka => {
+            let security_protocol = opts
+                .get("security_protocol")
+                .context("no security protocol specified")?
+                .to_string();
+
             let kafka_config = KafkaConfig {
                 servers: opts
                     .get("servers")
                     .context("no kafka server hosts specified")?
                     .to_string(),
-                security_protocol: opts
-                    .get("security_protocol")
-                    .context("no security protocol specified")?
-                    .to_string(),
-                ssl_certificate: opts
-                    .get("ssl_certificate")
-                    .context("no SSL certificate specified")?
-                    .to_string(),
-                username: opts
-                    .get("username")
-                    .context("no sasl username given")?
-                    .to_string(),
-                password: opts
-                    .get("password")
-                    .context("no sasl password given")?
-                    .to_string(),
+                security_protocol,
+                ssl_certificate: match opts.get("ssl_certificate") {
+                    Some(certificate) => certificate.to_string(),
+                    None => String::new(),
+                },
+                username: match opts.get("username") {
+                    Some(certificate) => certificate.to_string(),
+                    None => String::new(),
+                },
+                password: match opts.get("password") {
+                    Some(certificate) => certificate.to_string(),
+                    None => String::new(),
+                },
             };
             let config = Config::KafkaConfig(kafka_config);
             Some(config)

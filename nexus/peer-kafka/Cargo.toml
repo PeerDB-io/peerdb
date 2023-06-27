@@ -9,7 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 pt = { path = "../pt" }
 sasl2-sys = { version = "0.1.20", features = ["vendored"] }
-
+libz-sys = { version = "1.1.9", features = ["static"] }
 [dependencies.rdkafka]
 version     = "0.32.2"
-features    = ["ssl-vendored", "sasl", "gssapi-vendored"]
+features    = ["ssl-vendored", "sasl", "libz", "gssapi-vendored"]

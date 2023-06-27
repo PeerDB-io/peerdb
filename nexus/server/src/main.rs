@@ -34,11 +34,8 @@ use pgwire::{
 };
 use pt::peers::{peer::Config, Peer};
 use rand::Rng;
+use std::fs::remove_file;
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use std::{
-    fs::{remove_file, File},
-    io::Write,
-};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;

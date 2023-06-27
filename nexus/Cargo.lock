@@ -1897,6 +1897,7 @@ name = "peer-kafka"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "libz-sys",
  "pt",
  "rdkafka",
  "sasl2-sys",

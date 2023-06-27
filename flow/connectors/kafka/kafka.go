@@ -26,24 +26,39 @@ type KafkaConnector struct {
 
 func NewKafkaConnector(ctx context.Context,
 	kafkaProtoConfig *protos.KafkaConfig) (*KafkaConnector, error) {
+	securityProtocol := kafkaProtoConfig.SecurityProtocol
 	username := kafkaProtoConfig.Username
 	password := kafkaProtoConfig.Password
-	saslMechanism := plain.Mechanism{
-		Username: username,
-		Password: password,
-	}
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM([]byte(kafkaProtoConfig.SslCertificate))
+
 	brokers := strings.Split(kafkaProtoConfig.Servers, ",")
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		RootCAs:            caCertPool,
-	}
+
 	dialer := &kafka.Dialer{
-		Timeout:       10 * time.Second,
-		DualStack:     true,
-		TLS:           tlsConfig,
-		SASLMechanism: saslMechanism,
+		Timeout:   10 * time.Second,
+		DualStack: true,
+	}
+
+	writer := &kafka.Writer{
+		Addr:                   kafka.TCP(brokers...),
+		AllowAutoTopicCreation: true,
+	}
+
+	if securityProtocol == "SASL_SSL" {
+		saslMechanism := plain.Mechanism{
+			Username: username,
+			Password: password,
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM([]byte(kafkaProtoConfig.SslCertificate))
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+			RootCAs:            caCertPool,
+		}
+		dialer.TLS = tlsConfig
+		dialer.SASLMechanism = saslMechanism
+		writer.Transport = &kafka.Transport{
+			TLS:  tlsConfig,
+			SASL: saslMechanism,
+		}
 	}
 
 	conn, err := dialer.Dial("tcp", brokers[0])
@@ -64,17 +79,7 @@ func NewKafkaConnector(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection to leader controller: %w", err)
 	}
-	brokers = append(brokers, leaderConn)
 	log.Println("Obtained controller connection.")
-
-	writer := &kafka.Writer{
-		Addr: kafka.TCP(brokers...),
-		Transport: &kafka.Transport{
-			TLS:  tlsConfig,
-			SASL: saslMechanism,
-		},
-		AllowAutoTopicCreation: true,
-	}
 
 	return &KafkaConnector{
 		ctx:        ctx,
@@ -157,7 +162,7 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 			createErr := c.connection.CreateTopics(kafka.TopicConfig{
 				Topic:             destinationTopicName,
 				NumPartitions:     1,
-				ReplicationFactor: 3,
+				ReplicationFactor: 1,
 			})
 
 			if createErr != nil {
