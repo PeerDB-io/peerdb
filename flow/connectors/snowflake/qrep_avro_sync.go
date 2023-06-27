@@ -80,7 +80,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	partitionID string,
 ) (string, error) {
 	localFilePath := fmt.Sprintf("%s/%s.avro", s.localDir, partitionID)
-	err := s.WriteRecordsToAvroFile(records, avroSchema, localFilePath)
+	err := WriteRecordsToAvroFile(records, avroSchema, localFilePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to write records to Avro file: %w", err)
 	}
@@ -156,7 +156,7 @@ func (s *SnowflakeAvroSyncMethod) insertMetadata(
 	return nil
 }
 
-func (s *SnowflakeAvroSyncMethod) WriteRecordsToAvroFile(
+func WriteRecordsToAvroFile(
 	records *model.QRecordBatch,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	filePath string,

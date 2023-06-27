@@ -103,10 +103,16 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		if err != nil || t == nil {
 			return t, err
 		}
-		return goavro.Union("long.timestamp-micros", t), nil
+		if c.Nullable {
+			return goavro.Union("long.timestamp-micros", t), nil
+		} else {
+			return t, nil
+		}
 	case QValueKindString:
 		return c.processNullableUnion("string", c.Value.Value)
-	case QValueKindFloat16, QValueKindFloat32, QValueKindFloat64:
+	case QValueKindFloat16, QValueKindFloat32:
+		return c.processNullableUnion("float", c.Value.Value)
+	case QValueKindFloat64:
 		return c.processNullableUnion("double", c.Value.Value)
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
 		return c.processNullableUnion("long", c.Value.Value)
@@ -134,6 +140,10 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processExtendedTime() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
 	et, ok := c.Value.Value.(*ExtendedTime)
 	if !ok {
 		return nil, fmt.Errorf("invalid ExtendedTime value")
@@ -144,19 +154,13 @@ func (c *QValueAvroConverter) processExtendedTime() (interface{}, error) {
 	}
 
 	switch et.NestedKind.Type {
-	case DateTimeKindType:
+	case DateTimeKindType, DateKindType, TimeKindType:
 		ret := et.Time.UnixMicro()
 		// Snowflake has issues with avro timestamp types
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		if c.TargetDWH == QDWHTypeSnowflake {
 			ret = ret / 1000000
 		}
-		return ret, nil
-	case DateKindType:
-		ret := et.Time.Format("2006-01-02")
-		return ret, nil
-	case TimeKindType:
-		ret := et.Time.Format("15:04:05.999999")
 		return ret, nil
 	default:
 		return nil, fmt.Errorf("unsupported ExtendedTimeKindType: %s", et.NestedKind.Type)
@@ -167,7 +171,7 @@ func (c *QValueAvroConverter) processNullableUnion(
 	avroType string,
 	value interface{},
 ) (interface{}, error) {
-	if value == nil {
+	if value == nil && c.Nullable {
 		return nil, nil
 	}
 
@@ -196,6 +200,10 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processBytes() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
 	byteData, ok := c.Value.Value.([]byte)
 	if !ok {
 		return nil, fmt.Errorf("invalid Bytes value")
@@ -215,12 +223,16 @@ func (c *QValueAvroConverter) processUUID() (interface{}, error) {
 
 	byteData, ok := c.Value.Value.([16]byte)
 	if !ok {
-		return nil, fmt.Errorf("invalid UUID value %v", c.Value.Value)
+		// attempt to convert google.uuid to [16]byte
+		byteData, ok = c.Value.Value.(uuid.UUID)
+		if !ok {
+			return nil, fmt.Errorf("[conversion] invalid UUID value %v", c.Value.Value)
+		}
 	}
 
 	u, err := uuid.FromBytes(byteData[:])
 	if err != nil {
-		return nil, fmt.Errorf("conversion of invalid UUID value: %v", err)
+		return nil, fmt.Errorf("[conversion] conversion of invalid UUID value: %v", err)
 	}
 
 	uuidString := u.String()
