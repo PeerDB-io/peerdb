@@ -172,7 +172,7 @@ func DefineAvroSchema(dstTableName string, dstTableMetadata *bigquery.TableMetad
 		}
 
 		// If a field is nullable, its Avro type should be ["null", actualType]
-		if !bqField.Required && bqField.Type != bigquery.TimestampFieldType {
+		if !bqField.Required {
 			avroType = []interface{}{"null", avroType}
 			nullableFields[bqField.Name] = true
 		}

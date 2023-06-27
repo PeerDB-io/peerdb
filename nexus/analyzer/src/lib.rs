@@ -3,14 +3,20 @@
 use std::{
     collections::{HashMap, HashSet},
     ops::ControlFlow,
+    vec,
 };
 
 use anyhow::Context;
-use flow_rs::FlowJob;
+use flow_rs::{FlowJob, FlowJobTableMapping, QRepFlowJob};
 use pt::peers::{
     peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
 };
+use serde_json::Number;
 use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
+use sqlparser::ast::{
+    CreateMirror::{Select, CDC},
+    Value,
+};
 
 pub trait StatementAnalyzer {
     type Output;
@@ -89,13 +95,86 @@ pub enum PeerDDL {
         peer: Box<pt::peers::Peer>,
         if_not_exists: bool,
     },
-    CreateMirror {
+    CreateMirrorForCDC {
         flow_job: FlowJob,
+    },
+    CreateMirrorForSelect {
+        qrep_flow_job: QRepFlowJob,
     },
     DropMirror {
         if_exists: bool,
         flow_job_name: String,
     },
+}
+
+impl PeerDDLAnalyzer {
+    fn parse_string_for_options(
+        raw_options: &HashMap<&str, &Value>,
+        processed_options: &mut HashMap<String, serde_json::Value>,
+        key: &str,
+        is_required: bool,
+        accepted_values: Option<&[&str]>,
+    ) -> anyhow::Result<()> {
+        if raw_options.get(key).is_none() {
+            if is_required {
+                anyhow::bail!("{} is required", key);
+            } else {
+                Ok(())
+            }
+        } else {
+            let raw_value = *raw_options.get(key).unwrap();
+            match raw_value {
+                sqlparser::ast::Value::SingleQuotedString(str) => {
+                    if accepted_values.is_some() {
+                        let accepted_values = accepted_values.unwrap();
+                        if !accepted_values.contains(&str.as_str()) {
+                            anyhow::bail!("{} must be one of {:?}", key, accepted_values);
+                        }
+                    }
+                    processed_options
+                        .insert(key.to_string(), serde_json::Value::String(str.clone()));
+                    Ok(())
+                }
+                _ => {
+                    anyhow::bail!("invalid value for {}", key);
+                }
+            }
+        }
+    }
+
+    fn parse_number_for_options(
+        raw_options: &HashMap<&str, &Value>,
+        processed_options: &mut HashMap<String, serde_json::Value>,
+        key: &str,
+        min_value: u32,
+        default_value: u32,
+    ) -> anyhow::Result<()> {
+        if raw_options.get(key).is_none() {
+            processed_options.insert(
+                key.to_string(),
+                serde_json::Value::Number(Number::from(default_value)),
+            );
+            Ok(())
+        } else {
+            let raw_value = *raw_options.get(key).unwrap();
+            match raw_value {
+                sqlparser::ast::Value::Number(str, _) => {
+                    let value = str.parse::<u32>()?;
+                    if value < min_value {
+                        anyhow::bail!("{} must be greater than {}", key, min_value - 1);
+                    }
+                    processed_options.insert(
+                        key.to_string(),
+                        serde_json::Value::Number(Number::from(value)),
+                    );
+                    Ok(())
+                }
+                _ => {
+                    anyhow::bail!("invalid value for {}", key);
+                }
+            }
+        }
+    }
 }
 
 impl StatementAnalyzer for PeerDDLAnalyzer {
@@ -122,38 +201,157 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                     if_not_exists: *if_not_exists,
                 }))
             }
-            Statement::CreateMirror {
-                mirror_name,
-                source_table,
-                target_table,
-                with_options: _,
-            } => {
-                let source_table = source_table.to_string().to_lowercase();
-                let target_table = target_table.to_string().to_lowercase();
-                let mirror_name = mirror_name.to_string().to_lowercase();
+            Statement::CreateMirror { create_mirror } => {
+                match create_mirror {
+                    CDC(cdc) => {
+                        let mut flow_job_table_mappings = vec![];
+                        for table_mapping in &cdc.table_mappings {
+                            flow_job_table_mappings.push(FlowJobTableMapping {
+                                source_table_identifier: table_mapping
+                                    .source_table_identifier
+                                    .to_string()
+                                    .to_lowercase(),
+                                target_table_identifier: table_mapping
+                                    .target_table_identifier
+                                    .to_string()
+                                    .to_lowercase(),
+                            });
+                        }
 
-                // get first part of the '.' separated part from the source table as peer name
-                // and rest as the table name with schema
-                let source_table_parts: Vec<&str> = source_table.split('.').collect();
-                let source_peer_name = source_table_parts[0];
-                let source_table_name = source_table_parts[1..].join(".");
+                        let flow_job = FlowJob {
+                            name: cdc.mirror_name.to_string().to_lowercase(),
+                            source_peer: cdc.source_peer.to_string().to_lowercase(),
+                            target_peer: cdc.target_peer.to_string().to_lowercase(),
+                            table_mappings: flow_job_table_mappings,
+                            description: "".to_string(), // TODO: add description
+                        };
 
-                // get first part of the '.' separated part from the target table as peer name
-                // and rest as the table name with schema
-                let target_table_parts: Vec<&str> = target_table.split('.').collect();
-                let target_peer_name = target_table_parts[0];
-                let target_table_name = target_table_parts[1..].join(".");
+                        Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
+                    }
+                    Select(select) => {
+                        let mut raw_options = HashMap::new();
+                        for option in &select.with_options {
+                            raw_options.insert(&option.name.value as &str, &option.value);
+                        }
 
-                let flow_job = FlowJob {
-                    name: mirror_name,
-                    source_peer: source_peer_name.to_string(),
-                    source_table_identifier: source_table_name,
-                    destination_peer: target_peer_name.to_string(),
-                    destination_table_identifier: target_table_name,
-                    description: "".to_string(), // TODO: add description
-                };
+                        let mut processed_options = HashMap::new();
 
-                Ok(Some(PeerDDL::CreateMirror { flow_job }))
+                        // processing options that are REQUIRED and take a string value.
+                        for key in [
+                            "destination_table_name",
+                            "watermark_column",
+                            "watermark_table_name",
+                        ] {
+                            PeerDDLAnalyzer::parse_string_for_options(
+                                &raw_options,
+                                &mut processed_options,
+                                key,
+                                true,
+                                None,
+                            )?;
+                        }
+                        PeerDDLAnalyzer::parse_string_for_options(
+                            &raw_options,
+                            &mut processed_options,
+                            "mode",
+                            true,
+                            Some(&["append", "upsert"]),
+                        )?;
+                        // processing options that are OPTIONAL and take a string value.
+                        PeerDDLAnalyzer::parse_string_for_options(
+                            &raw_options,
+                            &mut processed_options,
+                            "unique_key_columns",
+                            false,
+                            None,
+                        )?;
+                        PeerDDLAnalyzer::parse_string_for_options(
+                            &raw_options,
+                            &mut processed_options,
+                            "sync_data_format",
+                            false,
+                            Some(&["default", "avro"]),
+                        )?;
+                        // processing options that are OPTIONAL and take a number value which a minimum and default value.
+                        PeerDDLAnalyzer::parse_number_for_options(
+                            &raw_options,
+                            &mut processed_options,
+                            "parallelism",
+                            1,
+                            2,
+                        )?;
+                        PeerDDLAnalyzer::parse_number_for_options(
+                            &raw_options,
+                            &mut processed_options,
+                            "refresh_interval",
+                            10,
+                            10,
+                        )?;
+                        PeerDDLAnalyzer::parse_number_for_options(
+                            &raw_options,
+                            &mut processed_options,
+                            "batch_size_int",
+                            1,
+                            10000,
+                        )?;
+                        PeerDDLAnalyzer::parse_number_for_options(
+                            &raw_options,
+                            &mut processed_options,
+                            "batch_duration_timestamp",
+                            1,
+                            60,
+                        )?;
+
+                        if !processed_options.contains_key("sync_data_format") {
+                            processed_options.insert(
+                                "sync_data_format".to_string(),
+                                serde_json::Value::String("default".to_string())
+                            );
+                        }
+
+                        // unique_key_columns should only be specified if mode is upsert
+                        if processed_options.contains_key("unique_key_columns")
+                            ^ (processed_options.get("mode").unwrap() == "upsert")
+                        {
+                            if processed_options.get("mode").unwrap() == "upsert" {
+                                anyhow::bail!(
+                                    "unique_key_columns should be specified if mode is upsert"
+                                );
+                            } else {
+                                anyhow::bail!(
+                                    "mode should be upsert if unique_key_columns is specified"
+                                );
+                            }
+                        }
+
+                        if processed_options.contains_key("unique_key_columns") {
+                            processed_options.insert(
+                                "unique_key_columns".to_string(),
+                                serde_json::Value::Array(
+                                    processed_options
+                                        .get("unique_key_columns")
+                                        .unwrap()
+                                        .as_str()
+                                        .unwrap()
+                                        .split(',')
+                                        .map(|s| serde_json::Value::String(s.to_string()))
+                                        .collect(),
+                                ),
+                            );
+                        }
+
+                        let qrep_flow_job = QRepFlowJob {
+                            name: select.mirror_name.to_string().to_lowercase(),
+                            source_peer: select.source_peer.to_string().to_lowercase(),
+                            target_peer: select.target_peer.to_string().to_lowercase(),
+                            query_string: select.query_string.to_string(),
+                            flow_options: processed_options,
+                            description: "".to_string(), // TODO: add description
+                        };
+
+                        Ok(Some(PeerDDL::CreateMirrorForSelect { qrep_flow_job }))
+                    }
+                }
             }
             Statement::DropMirror {
                 if_exists,

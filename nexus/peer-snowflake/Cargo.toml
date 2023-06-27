@@ -1,0 +1,35 @@
+[package]
+name = "peer-snowflake"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+catalog = { path = "../catalog" }
+peer-cursor = { path = "../peer-cursor" }
+sqlparser = { path = "../sqlparser-rs" }
+value = { path = "../value" }
+tracing = "0.1"
+pgerror = { path = "../pgerror" }
+secrecy = { version = "0.8.0" }
+async-trait = "0.1.57"
+jsonwebtoken = { version = "8.0", features = ["use_pem"] }
+base64 = "0.13"
+dashmap = "5.0"
+pgwire = "0.14"
+sha2 = "0.10"
+pt = { path = "../pt" }
+pkcs8 = { version = "0.8", features = ["std", "pem"] }
+pkcs1 = "0.3"
+rsa = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+futures = "0.3"
+ureq = { version = "*", features = ["json", "charset"] }
+reqwest = { version = "0.11", features = ["json", "gzip"] }
+anyhow = "1.0"
+tokio = { version = "1.21", features = ["full"] }
+hex = "0.4"
+chrono = { version = "0.4.22", default-features = false }
+async-recursion = "1.0.0"

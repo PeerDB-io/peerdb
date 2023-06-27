@@ -1,36 +1,33 @@
+use crate::SnowflakeQueryExecutor;
 use dashmap::DashMap;
-use tokio::sync::Mutex;
-
 use futures::StreamExt;
 use peer_cursor::{QueryExecutor, QueryOutput, Records, SchemaRef, SendableStream};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::ast::Statement;
+use tokio::sync::Mutex;
 
-use crate::BigQueryQueryExecutor;
-
-pub struct BigQueryCursor {
+pub struct SnowflakeCursor {
     stmt: Statement,
     position: usize,
     stream: Mutex<SendableStream>,
     schema: SchemaRef,
 }
 
-pub struct BigQueryCursorManager {
-    cursors: DashMap<String, BigQueryCursor>,
+pub struct SnowflakeCursorManager {
+    cursors: DashMap<String, SnowflakeCursor>,
 }
 
-impl BigQueryCursorManager {
+impl SnowflakeCursorManager {
     pub fn new() -> Self {
         Self {
             cursors: DashMap::new(),
         }
     }
-
     pub async fn create_cursor(
         &self,
         name: &str,
         stmt: &Statement,
-        executor: &BigQueryQueryExecutor,
+        executor: &SnowflakeQueryExecutor,
     ) -> PgWireResult<()> {
         // Execute the query to obtain a stream of records
         let output = executor.execute(stmt).await?;
@@ -41,7 +38,7 @@ impl BigQueryCursorManager {
                 let schema = stream.schema();
 
                 // Create a new cursor
-                let cursor = BigQueryCursor {
+                let cursor = SnowflakeCursor {
                     stmt: stmt.clone(),
                     position: 0,
                     stream: Mutex::new(stream),
@@ -69,7 +66,7 @@ impl BigQueryCursorManager {
             PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
-                format!("[bigquery] Cursor {} does not exist", name),
+                format!("[snowflake] Cursor {} does not exist", name),
             )))
         })?;
 
@@ -83,7 +80,7 @@ impl BigQueryCursorManager {
                     Some(Ok(record)) => {
                         records.push(record);
                         cursor_position += 1;
-                        tracing::info!("cusror position: {}", cursor_position);
+                        tracing::info!("cursor position: {}", cursor_position);
                     }
                     Some(Err(err)) => return Err(err),
                     None => break,
@@ -101,7 +98,7 @@ impl BigQueryCursorManager {
 
     pub async fn close(&self, name: &str) -> PgWireResult<()> {
         // log that we are removing the cursor from bq
-        tracing::info!("Removing cursor {} from BigQuery", name);
+        tracing::info!("Removing cursor {} from Snowflake", name);
 
         self.cursors
             .remove(name)
@@ -118,7 +115,7 @@ impl BigQueryCursorManager {
     // close all the cursors
     pub async fn close_all_cursors(&self) -> PgWireResult<Vec<String>> {
         // log that we are removing all the cursors from bq
-        tracing::info!("Removing all cursors from BigQuery");
+        tracing::info!("Removing all cursors from Snowflake");
 
         let keys: Vec<_> = self
             .cursors

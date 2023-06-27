@@ -10,11 +10,9 @@ import (
 )
 
 // QValueKindAvroSchema defines a structure for representing Avro schemas.
-// AvroLogicalSchema holds the Avro logical schema for a corresponding QValueKind,
-// while RespectNull indicates if null values should be respected in the Avro schema.
+// AvroLogicalSchema holds the Avro logical schema for a corresponding QValueKind.
 type QValueKindAvroSchema struct {
 	AvroLogicalSchema interface{}
-	RespectNull       bool
 }
 
 // GetAvroSchemaFromQValueKind returns the Avro schema for a given QValueKind.
@@ -22,8 +20,7 @@ type QValueKindAvroSchema struct {
 // Avro schema should respect null values. It returns a QValueKindAvroSchema object
 // representing the Avro schema and an error if the QValueKind is unsupported.
 //
-// For example, QValueKindInt64 would return an AvroLogicalSchema of "long" and
-// RespectNull would be set to the nullable value passed in. Unsupported QValueKinds
+// For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
 //
 // The function currently does not support the following QValueKinds:
@@ -39,32 +36,26 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 	case QValueKindString, QValueKindUUID:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "string",
-			RespectNull:       nullable,
 		}, nil
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "long",
-			RespectNull:       nullable,
 		}, nil
 	case QValueKindFloat16, QValueKindFloat32:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "float",
-			RespectNull:       nullable,
 		}, nil
 	case QValueKindFloat64:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "double",
-			RespectNull:       nullable,
 		}, nil
 	case QValueKindBoolean:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "boolean",
-			RespectNull:       nullable,
 		}, nil
 	case QValueKindBytes:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "bytes",
-			RespectNull:       nullable,
 		}, nil
 	case QValueKindNumeric:
 		return &QValueKindAvroSchema{
@@ -74,7 +65,6 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 				"precision":   38,
 				"scale":       9,
 			},
-			RespectNull: false,
 		}, nil
 	case QValueKindETime:
 		return &QValueKindAvroSchema{
@@ -82,7 +72,6 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 				"type":        "long",
 				"logicalType": "timestamp-micros",
 			},
-			RespectNull: false,
 		}, nil
 	case QValueKindJSON, QValueKindArray, QValueKindStruct, QValueKindBit:
 		return nil, fmt.Errorf("complex or unsupported types: %s", kind)
@@ -108,12 +97,22 @@ func NewQValueAvroConverter(value *QValue, targetDWH QDWHType, nullable bool) *Q
 func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	switch c.Value.Kind {
 	case QValueKindInvalid:
-		return nil, fmt.Errorf("invalid QValueKind")
+		return nil, fmt.Errorf("invalid QValueKind: %v", c.Value)
 	case QValueKindETime:
-		return c.processExtendedTime()
+		t, err := c.processExtendedTime()
+		if err != nil || t == nil {
+			return t, err
+		}
+		if c.Nullable {
+			return goavro.Union("long.timestamp-micros", t), nil
+		} else {
+			return t, nil
+		}
 	case QValueKindString:
 		return c.processNullableUnion("string", c.Value.Value)
-	case QValueKindFloat16, QValueKindFloat32, QValueKindFloat64:
+	case QValueKindFloat16, QValueKindFloat32:
+		return c.processNullableUnion("float", c.Value.Value)
+	case QValueKindFloat64:
 		return c.processNullableUnion("double", c.Value.Value)
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
 		return c.processNullableUnion("long", c.Value.Value)
@@ -141,25 +140,27 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processExtendedTime() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
 	et, ok := c.Value.Value.(*ExtendedTime)
 	if !ok {
 		return nil, fmt.Errorf("invalid ExtendedTime value")
 	}
 
+	if et == nil {
+		return nil, nil
+	}
+
 	switch et.NestedKind.Type {
-	case DateTimeKindType:
+	case DateTimeKindType, DateKindType, TimeKindType:
 		ret := et.Time.UnixMicro()
 		// Snowflake has issues with avro timestamp types
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		if c.TargetDWH == QDWHTypeSnowflake {
 			ret = ret / 1000000
 		}
-		return ret, nil
-	case DateKindType:
-		ret := et.Time.Format("2006-01-02")
-		return ret, nil
-	case TimeKindType:
-		ret := et.Time.Format("15:04:05.999999")
 		return ret, nil
 	default:
 		return nil, fmt.Errorf("unsupported ExtendedTimeKindType: %s", et.NestedKind.Type)
@@ -170,13 +171,22 @@ func (c *QValueAvroConverter) processNullableUnion(
 	avroType string,
 	value interface{},
 ) (interface{}, error) {
+	if value == nil && c.Nullable {
+		return nil, nil
+	}
+
 	if c.Nullable {
 		return goavro.Union(avroType, value), nil
 	}
+
 	return value, nil
 }
 
 func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
 	num, ok := c.Value.Value.(*big.Rat)
 	if !ok {
 		return nil, fmt.Errorf("invalid Numeric value: expected *big.Rat, got %T", c.Value.Value)
@@ -190,6 +200,10 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processBytes() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
 	byteData, ok := c.Value.Value.([]byte)
 	if !ok {
 		return nil, fmt.Errorf("invalid Bytes value")
@@ -203,14 +217,22 @@ func (c *QValueAvroConverter) processBytes() (interface{}, error) {
 }
 
 func (c *QValueAvroConverter) processUUID() (interface{}, error) {
+	if c.Value.Value == nil {
+		return nil, nil
+	}
+
 	byteData, ok := c.Value.Value.([16]byte)
 	if !ok {
-		return nil, fmt.Errorf("invalid UUID value")
+		// attempt to convert google.uuid to [16]byte
+		byteData, ok = c.Value.Value.(uuid.UUID)
+		if !ok {
+			return nil, fmt.Errorf("[conversion] invalid UUID value %v", c.Value.Value)
+		}
 	}
 
 	u, err := uuid.FromBytes(byteData[:])
 	if err != nil {
-		return nil, fmt.Errorf("conversion of invalid UUID value: %v", err)
+		return nil, fmt.Errorf("[conversion] conversion of invalid UUID value: %v", err)
 	}
 
 	uuidString := u.String()
