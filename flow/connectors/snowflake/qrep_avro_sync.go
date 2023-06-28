@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -234,6 +235,56 @@ func (s *SnowflakeAvroWriteHandler) HandleAppendMode() error {
 	return nil
 }
 
+func GenerateMergeCommand(
+	allCols []string,
+	upsertKeyCols []string,
+	watermarkCol string,
+	tempTableName string,
+	dstTable string,
+) (string, error) {
+	upsertKeys := []string{}
+	partitionKeyCols := []string{}
+	for _, key := range upsertKeyCols {
+		quotedKey := utils.QuoteIdentifier(key)
+		upsertKeys = append(upsertKeys, fmt.Sprintf("dst.%s = src.%s", quotedKey, quotedKey))
+		partitionKeyCols = append(partitionKeyCols, quotedKey)
+	}
+	upsertKeyClause := strings.Join(upsertKeys, " AND ")
+
+	updateSetClauses := []string{}
+	insertColumnsClauses := []string{}
+	insertValuesClauses := []string{}
+	for _, column := range allCols {
+		quotedColumn := utils.QuoteIdentifier(column)
+		updateSetClauses = append(updateSetClauses, fmt.Sprintf("%s = src.%s", quotedColumn, quotedColumn))
+		insertColumnsClauses = append(insertColumnsClauses, quotedColumn)
+		insertValuesClauses = append(insertValuesClauses, fmt.Sprintf("src.%s", quotedColumn))
+	}
+	updateSetClause := strings.Join(updateSetClauses, ", ")
+	insertColumnsClause := strings.Join(insertColumnsClauses, ", ")
+	insertValuesClause := strings.Join(insertValuesClauses, ", ")
+
+	quotedWMC := utils.QuoteIdentifier(watermarkCol)
+
+	selectCmd := fmt.Sprintf(`
+		SELECT *
+		FROM %s
+		QUALIFY ROW_NUMBER() OVER (PARTITION BY %s ORDER BY %s DESC) = 1
+	`, tempTableName, strings.Join(partitionKeyCols, ","), quotedWMC)
+
+	mergeCmd := fmt.Sprintf(`
+		MERGE INTO %s dst
+		USING (%s) src
+		ON %s
+		WHEN MATCHED AND src.%s > dst.%s THEN UPDATE SET %s
+		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
+	`, dstTable, selectCmd, upsertKeyClause, quotedWMC, quotedWMC,
+		updateSetClause, insertColumnsClause, insertValuesClause)
+
+	return mergeCmd, nil
+}
+
+// HandleUpsertMode handles the upsert mode
 func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	allCols []string,
 	upsertKeyCols []string,
@@ -262,43 +313,15 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	}
 	log.Infof("copied file from stage %s to temp table %s", s.stage, tempTableName)
 
-	upsertKey := []string{}
-	// upsert key should be like "dst.key1 = src.key1 AND dst.key2 = src.key2"
-	for _, key := range upsertKeyCols {
-		upsertKey = append(upsertKey, fmt.Sprintf("dst.%s = src.%s", key, key))
+	mergeCmd, err := GenerateMergeCommand(allCols, upsertKeyCols, watermarkCol, tempTableName, s.dstTableName)
+	if err != nil {
+		return fmt.Errorf("failed to generate merge command: %w", err)
 	}
-	upsertKeyClause := strings.Join(upsertKey, " AND ")
 
-	updateSetClauses := []string{}
-	insertColumnsClauses := []string{}
-	insertValuesClauses := []string{}
-	for _, column := range allCols {
-		updateSetClauses = append(updateSetClauses, fmt.Sprintf("%s = src.%s", column, column))
-		insertColumnsClauses = append(insertColumnsClauses, column)
-		insertValuesClauses = append(insertValuesClauses, fmt.Sprintf("src.%s", column))
-	}
-	updateSetClause := strings.Join(updateSetClauses, ", ")
-	insertColumnsClause := strings.Join(insertColumnsClauses, ", ")
-	insertValuesClause := strings.Join(insertValuesClauses, ", ")
-
-	selectCmd := fmt.Sprintf(`
-		SELECT *
-		FROM %s
-		QUALIFY ROW_NUMBER() OVER (PARTITION BY %s ORDER BY %s DESC) = 1
-	`, tempTableName, strings.Join(upsertKeyCols, ","), watermarkCol)
-
-	//nolint:gosec
-	mergeCmd := fmt.Sprintf(`
-		MERGE INTO %s dst
-		USING (%s) src
-		ON %s
-		WHEN MATCHED AND src.%s > dst.%s THEN UPDATE SET %s
-		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-	`, s.dstTableName, selectCmd, upsertKeyClause, watermarkCol, watermarkCol,
-		updateSetClause, insertColumnsClause, insertValuesClause)
 	if _, err := s.db.Exec(mergeCmd); err != nil {
-		return fmt.Errorf("failed to merge data into destination table: %w", err)
+		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
 	}
+
 	log.Infof("merged data from temp table %s into destination table %s",
 		tempTableName, s.dstTableName)
 	return nil
