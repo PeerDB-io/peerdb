@@ -242,6 +242,19 @@ func GenerateMergeCommand(
 	tempTableName string,
 	dstTable string,
 ) (string, error) {
+	// all cols are acquired from snowflake schema, so let us try to make upsert key cols match the case
+	// and also the watermark col, then the quoting should be fine
+	caseMatchedCols := map[string]string{}
+	for _, col := range allCols {
+		caseMatchedCols[strings.ToLower(col)] = col
+	}
+
+	for i, col := range upsertKeyCols {
+		upsertKeyCols[i] = caseMatchedCols[strings.ToLower(col)]
+	}
+
+	watermarkCol = caseMatchedCols[strings.ToLower(watermarkCol)]
+
 	upsertKeys := []string{}
 	partitionKeyCols := []string{}
 	for _, key := range upsertKeyCols {
