@@ -413,7 +413,7 @@ func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecord
 		if err != nil {
 			return err
 		}
-		fields = append(fields, fmt.Sprintf("%s %s", field.Name, bqType))
+		fields = append(fields, fmt.Sprintf("`%s` %s", field.Name, bqType))
 	}
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.datasetName, tableName, strings.Join(fields, ", "))
