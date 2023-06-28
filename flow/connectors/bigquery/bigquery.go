@@ -459,7 +459,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				matchData:             "",
 				batchID:               syncBatchID,
 				stagingBatchID:        stagingBatchID,
-				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 		case *model.UpdateRecord:
 			// create the 5 required fields
@@ -516,7 +516,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				matchData:             string(itemsJSON),
 				batchID:               syncBatchID,
 				stagingBatchID:        stagingBatchID,
-				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 		default:
 			return nil, fmt.Errorf("record type %T not supported", r)

@@ -284,17 +284,16 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// create empty map of string to interface{}
-	items, unchangedToastColumns, err := p.convertTupleToMap(msg.Tuple, rel)
+	items, _, err := p.convertTupleToMap(msg.Tuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.InsertRecord{
-		CheckPointID:          int64(lsn),
-		Items:                 items,
-		DestinationTableName:  p.TableNameMapping[tableName],
-		SourceTableName:       tableName,
-		UnchangedToastColumns: unchangedToastColumns,
+		CheckPointID:         int64(lsn),
+		Items:                items,
+		DestinationTableName: p.TableNameMapping[tableName],
+		SourceTableName:      tableName,
 	}, nil
 }
 
@@ -356,17 +355,16 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	// create empty map of string to interface{}
-	items, unchangedToastColumns, err := p.convertTupleToMap(msg.OldTuple, rel)
+	items, _, err := p.convertTupleToMap(msg.OldTuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.DeleteRecord{
-		CheckPointID:          int64(lsn),
-		Items:                 items,
-		DestinationTableName:  p.TableNameMapping[tableName],
-		SourceTableName:       tableName,
-		UnchangedToastColumns: unchangedToastColumns,
+		CheckPointID:         int64(lsn),
+		Items:                items,
+		DestinationTableName: p.TableNameMapping[tableName],
+		SourceTableName:      tableName,
 	}, nil
 }
 
