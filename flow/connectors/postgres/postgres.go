@@ -74,7 +74,7 @@ func (c *PostgresConnector) NeedsSetupMetadataTables() bool {
 }
 
 // SetupMetadataTables sets up the metadata tables.
-func (c *PostgresConnector) SetupMetadataTables() error {
+func (c *PostgresConnector) SetupMetadataTables(jobName string) error {
 	panic("not implemented")
 }
 

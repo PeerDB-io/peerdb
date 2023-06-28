@@ -85,7 +85,7 @@ func (a *FlowableActivity) CheckConnection(
 }
 
 // SetupMetadataTables implements IFlowable.SetupMetadataTables.
-func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.Peer) error {
+func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.Peer, jobName string) error {
 	conn, err := connectors.GetConnector(ctx, config)
 	defer connectors.CloseConnector(conn)
 
@@ -93,7 +93,7 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	if err := conn.SetupMetadataTables(); err != nil {
+	if err := conn.SetupMetadataTables(jobName); err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 

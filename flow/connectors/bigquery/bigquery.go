@@ -204,7 +204,7 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 }
 
 // SetupMetadataTables sets up the metadata tables.
-func (c *BigQueryConnector) SetupMetadataTables() error {
+func (c *BigQueryConnector) SetupMetadataTables(jobName string) error {
 	// check if the dataset exists
 	dataset := c.client.Dataset(c.datasetID)
 	if _, err := dataset.Metadata(c.ctx); err != nil {

@@ -182,7 +182,7 @@ func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
 	return !result
 }
 
-func (c *SnowflakeConnector) SetupMetadataTables() error {
+func (c *SnowflakeConnector) SetupMetadataTables(jobName string) error {
 	createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
