@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -18,7 +19,7 @@ func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
-		`from_v TIMESTAMP NOT NULL`,
+		`"from" TIMESTAMP NOT NULL`,
 		"price NUMERIC",
 		"created_at TIMESTAMP NOT NULL",
 		"updated_at TIMESTAMP NOT NULL",
@@ -61,7 +62,7 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 	for i := 0; i < rowCount; i++ {
 		_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test.%s (
-				id, card_id, from_v, price, created_at,
+				id, card_id, "from", price, created_at,
 				updated_at, transaction_hash, ownerable_type, ownerable_id,
 				user_nonce, transfer_type, blockchain, deal_type,
 				deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
@@ -93,7 +94,7 @@ func getOwnersSchema() *model.QRecordSchema {
 		Fields: []*model.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "from_v", Type: qvalue.QValueKindETime, Nullable: true},
+			{Name: "from", Type: qvalue.QValueKindETime, Nullable: true},
 			{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "created_at", Type: qvalue.QValueKindETime, Nullable: true},
 			{Name: "updated_at", Type: qvalue.QValueKindETime, Nullable: true},
@@ -127,7 +128,8 @@ func getOwnersSelectorString() string {
 	schema := getOwnersSchema()
 	var fields []string
 	for _, field := range schema.Fields {
-		fields = append(fields, field.Name)
+		// append quoted field name
+		fields = append(fields, fmt.Sprintf(`"%s"`, field.Name))
 	}
 	return strings.Join(fields, ",")
 }
@@ -137,7 +139,7 @@ func (s *E2EPeerFlowTestSuite) setupBQDestinationTable(dstTable string) {
 	err := s.bqHelper.CreateTable(dstTable, schema)
 
 	// fail if table creation fails
-	s.NoError(err)
+	require.NoError(s.T(), err)
 
 	fmt.Printf("created table on bigquery: %s.%s. %v\n", s.bqHelper.Config.DatasetId, dstTable, err)
 }
@@ -148,7 +150,7 @@ func (s *E2EPeerFlowTestSuite) setupSFDestinationTable(dstTable string) {
 
 	// fail if table creation fails
 	if err != nil {
-		s.Fail("unable to create table on snowflake", err)
+		s.FailNow("unable to create table on snowflake", err)
 	}
 
 	fmt.Printf("created table on snowflake: %s.%s. %v\n", s.sfHelper.testSchemaName, dstTable, err)
@@ -204,14 +206,14 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", selector, tableName),
 	)
-	s.NoError(err)
+	require.NoError(s.T(), err)
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
-	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM %s ORDER BY id", selector, qualifiedTableName),
-	)
-	s.NoError(err)
+	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
+	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
+	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
+	require.NoError(s.T(), err)
 
 	s.True(pgRows.Equals(sfRows), "rows from source and destination tables are not equal")
 }

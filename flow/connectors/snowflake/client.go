@@ -379,7 +379,7 @@ func (s *SnowflakeClient) CreateTable(schema *model.QRecordSchema, schemaName st
 		if err != nil {
 			return err
 		}
-		fields = append(fields, fmt.Sprintf("%s %s", field.Name, snowflakeType))
+		fields = append(fields, fmt.Sprintf(`"%s" %s`, field.Name, snowflakeType))
 	}
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", schemaName, tableName, strings.Join(fields, ", "))

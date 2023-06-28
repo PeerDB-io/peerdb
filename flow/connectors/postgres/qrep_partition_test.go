@@ -24,7 +24,7 @@ type testCase struct {
 func newTestCase(schema string, name string, duration uint32, wantErr bool) *testCase {
 	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
 	query := fmt.Sprintf(
-		"SELECT * FROM %s WHERE timestamp >= {{.start}} AND timestamp < {{.end}}",
+		`SELECT * FROM %s WHERE "from" >= {{.start}} AND "from" < {{.end}}`,
 		schemaQualifiedTable)
 	return &testCase{
 		name: name,
@@ -33,7 +33,7 @@ func newTestCase(schema string, name string, duration uint32, wantErr bool) *tes
 			BatchDurationSeconds: duration,
 			Query:                query,
 			WatermarkTable:       schemaQualifiedTable,
-			WatermarkColumn:      "timestamp",
+			WatermarkColumn:      "from",
 		},
 		want:    []*protos.QRepPartition{},
 		wantErr: wantErr,
@@ -99,7 +99,7 @@ func TestGetQRepPartitions(t *testing.T) {
 		CREATE TABLE IF NOT EXISTS %s.test (
 			id SERIAL PRIMARY KEY,
 			value INT NOT NULL,
-			timestamp TIMESTAMP NOT NULL
+			"from" TIMESTAMP NOT NULL
 		)
 	`, schemaName))
 	if err != nil {
@@ -209,7 +209,7 @@ func prepareTestData(test *testing.T, pool *pgxpool.Pool, schema string) {
 	// Insert the test data
 	for i, t := range times {
 		_, err := pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s.test (value, timestamp) VALUES ($1, $2)
+			INSERT INTO %s.test (value, "from") VALUES ($1, $2)
 		`, schema), i+1, t)
 		if err != nil {
 			test.Fatalf("Failed to insert test data: %v", err)
