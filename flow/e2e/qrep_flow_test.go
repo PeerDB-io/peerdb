@@ -364,6 +364,48 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 	env.AssertExpectations(s.T())
 }
 
+func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	numRows := 10
+
+	tblName := "test_qrep_flow_avro_sf_ups"
+	s.setupSourceTable(tblName, numRows)
+	s.setupSFDestinationTable(tblName)
+
+	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}", tblName)
+
+	qrepConfig := s.createQRepWorkflowConfig(
+		"test_qrep_flow_avro_Sf",
+		"e2e_test."+tblName,
+		dstSchemaQualified,
+		query,
+		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		s.sfHelper.Peer,
+	)
+	qrepConfig.WriteMode = &protos.QRepWriteMode{
+		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+		UpsertKeyColumns: []string{"id"},
+	}
+
+	runQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	// assert that error contains "invalid connection configs"
+	err := env.GetWorkflowError()
+	s.NoError(err)
+
+	sel := getOwnersSelectorString()
+	s.compareTableContentsSF(tblName, sel)
+
+	env.AssertExpectations(s.T())
+}
+
 func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
