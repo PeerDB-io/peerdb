@@ -48,6 +48,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	last *protos.QRepPartition,
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
+	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
 
 	if last != nil && last.Range != nil {
 		// If there's a last partition, start from its end
@@ -59,7 +60,7 @@ func (c *PostgresConnector) getMinMaxValues(
 		}
 	} else {
 		// Otherwise get the minimum value from the database
-		minQuery := fmt.Sprintf("SELECT MIN(%[1]s) FROM %[2]s", config.WatermarkColumn, config.WatermarkTable)
+		minQuery := fmt.Sprintf("SELECT MIN(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
 		row := c.pool.QueryRow(c.ctx, minQuery)
 		if err := row.Scan(&minValue); err != nil {
 			log.Errorf("failed to query [%s] for min value: %v", minQuery, err)
@@ -68,7 +69,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	}
 
 	// Get the maximum value from the database
-	maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", config.WatermarkColumn, config.WatermarkTable)
+	maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
 	row := c.pool.QueryRow(c.ctx, maxQuery)
 	if err := row.Scan(&maxValue); err != nil {
 		return nil, nil, fmt.Errorf("failed to query for max value: %w", err)
