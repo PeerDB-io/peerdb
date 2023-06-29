@@ -31,7 +31,8 @@ fn get_connection_string(config: &PostgresConfig) -> String {
     connection_string.push_str(&config.user);
     if !config.password.is_empty() {
         connection_string.push_str(" password=");
-        connection_string.push_str(&config.password);
+        let encoded_password = urlencoding::encode(&config.password);
+        connection_string.push_str(&encoded_password);
     }
     connection_string.push_str(" dbname=");
     connection_string.push_str(&config.database);
@@ -132,7 +133,12 @@ impl QueryExecutor for PostgresQueryExecutor {
             }
             _ => {
                 let mut rewritten_stmt = stmt.clone();
-                ast.rewrite_statement(&mut rewritten_stmt);
+                ast.rewrite_statement(&mut rewritten_stmt).map_err(|e| {
+                    tracing::error!("error rewriting statement: {}", e);
+                    PgWireError::ApiError(Box::new(PgError::Internal {
+                        err_msg: format!("error rewriting statement: {}", e),
+                    }))
+                })?;
                 let rewritten_query = rewritten_stmt.to_string();
                 tracing::info!("[peer-postgres] rewritten statement: {}", rewritten_query);
                 let rows_affected =
