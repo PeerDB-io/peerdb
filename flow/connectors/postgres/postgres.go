@@ -7,6 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
@@ -271,17 +272,9 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 		return nil, err
 	}
 
-	relID, err := c.getRelIDForTable(schemaTable)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
-		`SELECT a.attname, t.typname FROM pg_attribute a
-		 JOIN pg_type t ON t.oid = a.atttypid
-		 WHERE a.attnum > 0 AND NOT a.attisdropped AND a.attrelid = $1`,
-		relID)
+		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, req.TableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
@@ -298,20 +291,13 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 		PrimaryKeyColumn: pkey,
 	}
 
-	for rows.Next() {
-		var colName string
-		var colType string
-		err = rows.Scan(&colName, &colType)
-		if err != nil {
-			return nil, fmt.Errorf("error scanning table schema: %w", err)
+	for _, fieldDescription := range rows.FieldDescriptions() {
+		genericColType := getQValueKindForPostgresOID(fieldDescription.DataTypeOID)
+		if genericColType == qvalue.QValueKindInvalid {
+			return nil, fmt.Errorf("error converting Postgres OID to QValueKind")
 		}
 
-		colType, err = convertPostgresColumnTypeToGeneric(colType)
-		if err != nil {
-			return nil, fmt.Errorf("error converting postgres column type: %w", err)
-		}
-
-		res.Columns[colName] = colType
+		res.Columns[fieldDescription.Name] = string(genericColType)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -448,77 +434,6 @@ func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) (strin
 	}
 
 	return pkCol, nil
-}
-
-func convertPostgresColumnTypeToGeneric(colType string) (string, error) {
-	switch colType {
-	case "int2":
-		return model.ColumnTypeInt16, nil
-	case "int4":
-		return model.ColumnTypeInt32, nil
-	case "int8":
-		return model.ColumnTypeInt64, nil
-	case "float4":
-		return model.ColumnTypeFloat32, nil
-	case "float8":
-		return model.ColumnTypeFloat64, nil
-	case "bool":
-		return model.ColumnTypeBoolean, nil
-	case "text":
-		return model.ColumnTypeString, nil
-	case "date":
-		return model.ColumnTypeDate, nil
-	case "timestamp":
-		return model.ColumnTypeTimestamp, nil
-	case "timestamptz":
-		return model.ColumnTypeTimeStampWithTimeZone, nil
-	case "varchar":
-		return model.ColumnTypeString, nil
-	case "char":
-		return model.ColumnTypeString, nil
-	case "bpchar":
-		return model.ColumnTypeString, nil
-	case "numeric":
-		return model.ColumnTypeNumeric, nil
-	case "uuid":
-		return model.ColumnTypeString, nil
-	case "json":
-		return model.ColumnTypeJSON, nil
-	case "jsonb":
-		return model.ColumnTypeJSON, nil
-	case "xml":
-		return model.ColumnTypeString, nil
-	case "tsvector":
-		return model.ColumnTypeString, nil
-	case "tsquery":
-		return model.ColumnTypeString, nil
-	case "bytea":
-		return model.ColumnHexBytes, nil
-	case "bit":
-		return model.ColumnHexBit, nil
-	case "varbit":
-		return model.ColumnHexBit, nil
-	case "cidr":
-		return model.ColumnTypeString, nil
-	case "inet":
-		return model.ColumnTypeString, nil
-	case "interval":
-		return model.ColumnTypeInterval, nil
-	case "macaddr":
-		return model.ColumnTypeString, nil
-	case "money":
-		return model.ColumnTypeString, nil
-	case "oid":
-		return model.ColumnTypeInt64, nil
-	case "time":
-		return model.ColumnTypeTime, nil
-	case "timetz":
-		return model.ColumnTypeTimeWithTimeZone, nil
-	case "txid_snapshot":
-		return model.ColumnTypeString, nil
-	default:
-		return "", fmt.Errorf("unsupported column type: %s", colType)
-	}
 }
 
 func (c *PostgresConnector) tableExists(schemaTable *SchemaTable) (bool, error) {

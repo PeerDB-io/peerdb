@@ -15,26 +15,26 @@ const (
 
 type ExtendedTime struct {
 	time.Time
-	NestedKind NestedKind
+	NestedKind ExtendedTimeKind
 }
 
-type NestedKind struct {
+type ExtendedTimeKind struct {
 	Type   ExtendedTimeKindType
 	Format string
 }
 
 var (
-	DateTime = NestedKind{
+	DateTime = ExtendedTimeKind{
 		Type:   DateTimeKindType,
 		Format: time.RFC3339Nano,
 	}
 
-	Date = NestedKind{
+	Date = ExtendedTimeKind{
 		Type:   DateKindType,
 		Format: "2006-01-02",
 	}
 
-	Time = NestedKind{
+	Time = ExtendedTimeKind{
 		Type:   TimeKindType,
 		Format: "15:04:05.999999",
 	}
@@ -45,7 +45,7 @@ func NewExtendedTime(
 	kindType ExtendedTimeKindType,
 	originalFormat string,
 ) (*ExtendedTime, error) {
-	var nk NestedKind
+	var nk ExtendedTimeKind
 
 	switch kindType {
 	case DateTimeKindType:
@@ -59,7 +59,7 @@ func NewExtendedTime(
 	}
 
 	if originalFormat != "" {
-		nk = NestedKind{
+		nk = ExtendedTimeKind{
 			Type:   nk.Type,
 			Format: originalFormat,
 		}

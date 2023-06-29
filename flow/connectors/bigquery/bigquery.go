@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/api/iterator"
@@ -442,8 +443,8 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			//   1. _peerdb_uid - uuid
 			//   2. _peerdb_timestamp - current timestamp
 			//   2. _peerdb_timestamp_nanos - current timestamp in nano seconds
-			//   3. _peerdb_data - json of `r.Items`
-			json, err := json.Marshal(r.Items)
+			//   3. _peerdb_data - itemsJSON of `r.Items`
+			itemsJSON, err := r.Items.ToJSON()
 			if err != nil {
 				return nil, fmt.Errorf("failed to create items to json: %v", err)
 			}
@@ -454,7 +455,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				timestamp:             time.Now(),
 				timestampNanos:        time.Now().UnixNano(),
 				destinationTableName:  r.DestinationTableName,
-				data:                  string(json),
+				data:                  itemsJSON,
 				recordType:            0,
 				matchData:             "",
 				batchID:               syncBatchID,
@@ -469,12 +470,12 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			//   4. _peerdb_record_type - 1
 			//   5. _peerdb_match_data - json of `r.OldItems`
 
-			newItemsJSON, err := json.Marshal(r.NewItems)
+			newItemsJSON, err := r.NewItems.ToJSON()
 			if err != nil {
 				return nil, fmt.Errorf("failed to create new items to json: %v", err)
 			}
 
-			oldItemsJSON, err := json.Marshal(r.OldItems)
+			oldItemsJSON, err := r.OldItems.ToJSON()
 			if err != nil {
 				return nil, fmt.Errorf("failed to create old items to json: %v", err)
 			}
@@ -485,9 +486,9 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				timestamp:             time.Now(),
 				timestampNanos:        time.Now().UnixNano(),
 				destinationTableName:  r.DestinationTableName,
-				data:                  string(newItemsJSON),
+				data:                  newItemsJSON,
 				recordType:            1,
-				matchData:             string(oldItemsJSON),
+				matchData:             oldItemsJSON,
 				batchID:               syncBatchID,
 				stagingBatchID:        stagingBatchID,
 				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
@@ -500,7 +501,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			//   4. _peerdb_match_data - json of `r.Items`
 
 			// json.Marshal converts bytes in Hex automatically to BASE64 string.
-			itemsJSON, err := json.Marshal(r.Items)
+			itemsJSON, err := r.Items.ToJSON()
 			if err != nil {
 				return nil, fmt.Errorf("failed to create items to json: %v", err)
 			}
@@ -511,9 +512,9 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				timestamp:             time.Now(),
 				timestampNanos:        time.Now().UnixNano(),
 				destinationTableName:  r.DestinationTableName,
-				data:                  string(itemsJSON),
+				data:                  itemsJSON,
 				recordType:            2,
-				matchData:             string(itemsJSON),
+				matchData:             itemsJSON,
 				batchID:               syncBatchID,
 				stagingBatchID:        stagingBatchID,
 				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
@@ -823,7 +824,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	for colName, genericColType := range sourceSchema.Columns {
 		columns[idx] = &bigquery.FieldSchema{
 			Name: colName,
-			Type: getBigQueryColumnTypeForGenericColType(genericColType),
+			Type: getBigQueryTypeForGenericColumnType(genericColType),
 		}
 		idx++
 	}
@@ -923,45 +924,6 @@ func (c *BigQueryConnector) truncateTable(tableIdentifier string) error {
 	return nil
 }
 
-func getBigQueryColumnTypeForGenericColType(colType string) bigquery.FieldType {
-	switch colType {
-	// boolean
-	case model.ColumnTypeBoolean:
-		return bigquery.BooleanFieldType
-	// integer types
-	case model.ColumnTypeInt16, model.ColumnTypeInt32, model.ColumnTypeInt64:
-		return bigquery.IntegerFieldType
-	// decimal types
-	case model.ColumnTypeFloat16, model.ColumnTypeFloat32, model.ColumnTypeFloat64:
-		return bigquery.FloatFieldType
-	case model.ColumnTypeNumeric:
-		return bigquery.NumericFieldType
-	// string related
-	case model.ColumnTypeString:
-		return bigquery.StringFieldType
-	// json also is stored as string for now
-	case model.ColumnTypeJSON:
-		return bigquery.StringFieldType
-	// time related
-	case model.ColumnTypeTimestamp, model.ColumnTypeTimeStampWithTimeZone:
-		return bigquery.TimestampFieldType
-	case model.ColumnTypeTime:
-		return bigquery.TimeFieldType
-	case model.ColumnTypeTimeWithTimeZone:
-		return bigquery.StringFieldType
-	case model.ColumnTypeDate:
-		return bigquery.TimestampFieldType
-	case model.ColumnTypeInterval:
-		return bigquery.IntervalFieldType
-	// bytes
-	case model.ColumnHexBytes, model.ColumnHexBit:
-		return bigquery.BytesFieldType
-	// rest will be strings
-	default:
-		return bigquery.StringFieldType
-	}
-}
-
 type MergeStmtGenerator struct {
 	// dataset of all the tables
 	Dataset string
@@ -1003,40 +965,42 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	// statement.
 	flattenedProjs := make([]string, 0)
 	for colName, colType := range m.NormalizedTableSchema.Columns {
-		bqType := getBigQueryColumnTypeForGenericColType(colType)
+		bqType := getBigQueryTypeForGenericColumnType(colType)
 		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
 		if bqType == bigquery.FloatFieldType {
 			bqType = "FLOAT64"
 		}
 		var castStmt string
 
-		switch colType {
-		case model.ColumnTypeJSON:
+		switch qvalue.QValueKind(colType) {
+		case qvalue.QValueKindJSON:
 			//if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS %s",
 				colName, bqType, colName)
 		// expecting data in BASE64 format
-		case model.ColumnHexBytes:
+		case qvalue.QValueKindBytes:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS %s",
 				colName, colName)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
 		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
 		// this needs to be handled again
-		case model.ColumnTypeInterval:
-			castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
-				"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
-				"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
-				colName, colName, colName, colName)
-		case model.ColumnHexBit:
+		// TODO add interval types again
+		// case model.ColumnTypeInterval:
+		// 	castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
+		// 		"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
+		// 		"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
+		// 		colName, colName, colName, colName)
+		case qvalue.QValueKindBit:
 			// sample raw data for BIT {"a":{"Bytes":"oA==","Len":3,"Valid":true},"id":1}
 			// need to check correctness TODO
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Bytes')) AS %s",
 				colName, colName)
-		case model.ColumnTypeTime:
-			castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds')"+
-				" AS int64))) AS %s",
-				colName, colName)
+		// TODO add proper granularity for time types, then restore this
+		// case model.ColumnTypeTime:
+		// 	castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds')"+
+		// 		" AS int64))) AS %s",
+		// 		colName, colName)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
 				colName, bqType, colName)

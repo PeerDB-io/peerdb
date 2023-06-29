@@ -207,7 +207,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 		tableNameSchemaMapping[flowConnectionConfigs.TableNameMapping[srcTableName]] = srcTableSchema
 
-		s.logger.Info("setting up normalized table for table %s for peer flow - ", srcTableSchema, s.PeerFlowName)
+		s.logger.Info("setting up normalized table for table %s for peer flow - %s", srcTableName, s.PeerFlowName)
 
 		// now setup the normalized tables on the destination peer
 		setupConfig := &protos.SetupNormalizedTableInput{

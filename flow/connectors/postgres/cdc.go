@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -386,10 +387,10 @@ It takes a tuple and a relation message as input and returns
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
-) (map[string]interface{}, map[string]bool, error) {
+) (model.RecordItems, map[string]bool, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return make(map[string]interface{}), make(map[string]bool), nil
+		return make(model.RecordItems), make(map[string]bool), nil
 	}
 
 	// create empty map of string to interface{}
@@ -400,20 +401,20 @@ func (p *PostgresCDCSource) convertTupleToMap(
 		colName := rel.Columns[idx].Name
 		switch col.DataType {
 		case 'n': // null
-			items[colName] = nil
+			items[colName] = qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
 		case 't': // text
 			/* bytea also appears here as a hex */
-			data, err := p.decodeTextColumnData(col.Data, rel.Columns[idx].DataType)
+			data, err := p.decodeColumnData(col.Data, rel.Columns[idx].DataType, pgtype.TextFormatCode)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error decoding text column data: %w", err)
 			}
-			items[colName] = data
+			items[colName] = *data
 		case 'b': // binary
-			data, err := p.decodeBinaryColumnData(col.Data, rel.Columns[idx].DataType)
+			data, err := p.decodeColumnData(col.Data, rel.Columns[idx].DataType, pgtype.BinaryFormatCode)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error decoding binary column data: %w", err)
 			}
-			items[colName] = data
+			items[colName] = *data
 		case 'u': // unchanged toast
 			unchangedToastColumns[colName] = true
 		default:
@@ -423,21 +424,22 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	return items, unchangedToastColumns, nil
 }
 
-func (p *PostgresCDCSource) decodeTextColumnData(data []byte, dataType uint32) (interface{}, error) {
+func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, formatCode int16) (*qvalue.QValue, error) {
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		if dt.Name == "uuid" {
 			// below is required to decode uuid to string
-			return dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
+			parsedData, err := dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
+			if err != nil {
+				return nil, err
+			}
+			return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: parsedData}, nil
+		} else {
+			parsedData, err := dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
+			if err != nil {
+				return nil, err
+			}
+			return &qvalue.QValue{Kind: getQValueKindForPostgresOID(dataType), Value: parsedData}, nil
 		}
-		return dt.Codec.DecodeValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
 	}
-	return string(data), nil
-}
-
-// decodeBinaryColumnData decodes the binary data for a column
-func (p *PostgresCDCSource) decodeBinaryColumnData(data []byte, dataType uint32) (interface{}, error) {
-	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
-		return dt.Codec.DecodeValue(p.typeMap, dataType, pgtype.BinaryFormatCode, data)
-	}
-	return string(data), nil
+	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }
