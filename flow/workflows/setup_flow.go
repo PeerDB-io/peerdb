@@ -110,7 +110,6 @@ func (s *SetupFlowExecution) ensurePullability(
 	tmpMap := make(map[uint32]string)
 
 	for srcTableName := range config.TableNameMapping {
-
 		// create EnsurePullabilityInput for the srcTableName
 		ensurePullabilityInput := &protos.EnsurePullabilityInput{
 			PeerConnectionConfig:  config.Source,
@@ -129,7 +128,6 @@ func (s *SetupFlowExecution) ensurePullability(
 		case *protos.TableIdentifier_PostgresTableIdentifier:
 			tmpMap[typedEnsurePullabilityOutput.PostgresTableIdentifier.RelId] = srcTableName
 		}
-
 	}
 	config.SrcTableIdNameMapping = tmpMap
 	return nil

@@ -329,7 +329,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
 		normalizedTableNameComponents.tableIdentifier)
 	if err != nil {
-		return nil, fmt.Errorf("error occured while checking if normalized table exists: %w", err)
+		return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
 	if tableAlreadyExists {
 		return &protos.SetupNormalizedTableOutput{

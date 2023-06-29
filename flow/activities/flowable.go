@@ -242,11 +242,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 	})
 
-	log.Println("pushed records")
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
+	log.Println("pushed records")
 
 	return res, nil
 }

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,14 +23,12 @@ type KafkaRecord struct {
 	After  map[string]interface{} `json:"after"`
 }
 
-const (
-	rawTablePrefix = "_PEERDB_RAW"
-)
-
 type KafkaConnector struct {
-	ctx        context.Context
-	connection *kafka.Conn
-	writer     *kafka.Writer
+	ctx          context.Context
+	dialer       kafka.Dialer
+	connection   *kafka.Conn
+	writer       *kafka.Writer
+	readerConfig *kafka.ReaderConfig
 }
 
 func NewKafkaConnector(ctx context.Context,
@@ -60,8 +57,7 @@ func NewKafkaConnector(ctx context.Context,
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM([]byte(kafkaProtoConfig.SslCertificate))
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true,
-			RootCAs:            caCertPool,
+			RootCAs: caCertPool,
 		}
 		dialer.TLS = tlsConfig
 		dialer.SASLMechanism = saslMechanism
@@ -70,20 +66,14 @@ func NewKafkaConnector(ctx context.Context,
 			SASL: saslMechanism,
 		}
 	}
-
 	conn, err := dialer.Dial("tcp", brokers[0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Kafka cluster: %w", err)
 	}
-
-	log.Println("Opened connection to cluster.")
-
 	controller, err := conn.Controller()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get controller to leader of Kafka cluster: %w", err)
 	}
-
-	log.Println("Obtained controller of leader.")
 	leaderConn := net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port))
 	controllerConn, err := dialer.Dial("tcp", leaderConn)
 	if err != nil {
@@ -91,10 +81,16 @@ func NewKafkaConnector(ctx context.Context,
 	}
 	log.Println("Obtained controller connection.")
 	writer.Addr = controllerConn.RemoteAddr()
+	readerConfig := &kafka.ReaderConfig{
+		Brokers: append(brokers, leaderConn),
+		Dialer:  dialer,
+	}
 	return &KafkaConnector{
-		ctx:        ctx,
-		connection: controllerConn,
-		writer:     writer,
+		ctx:          ctx,
+		dialer:       *dialer,
+		connection:   controllerConn,
+		writer:       writer,
+		readerConfig: readerConfig,
 	}, nil
 }
 
@@ -137,7 +133,46 @@ func (c *KafkaConnector) SetupMetadataTables(jobName string) error {
 }
 
 func (c *KafkaConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
-	return nil, nil
+	metadataTopicName := "peerdb_" + jobName
+	conn, err := c.dialer.DialLeader(c.ctx, "tcp", c.connection.RemoteAddr().String(), metadataTopicName, 0)
+	if err != nil {
+		return nil, fmt.Errorf("unable to dial metadata table: %w", err)
+	}
+	last, err := conn.ReadLastOffset()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get last offset of metadata table: %w", err)
+	}
+	offsetReaderConfig := c.readerConfig
+	offsetReaderConfig.Topic = metadataTopicName
+	offsetReader := kafka.NewReader(*offsetReaderConfig)
+	if last == 0 {
+		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
+		return nil, nil
+	}
+	setErr := offsetReader.SetOffset(last - 1)
+	if setErr != nil {
+		return nil, fmt.Errorf("failed to set offset to the last: %w", setErr)
+	}
+	lastMessage, err := offsetReader.ReadMessage(c.ctx)
+
+	if err != nil {
+		log.Warnf("error fetching last offset: %s", err)
+		return nil, nil
+	}
+
+	lastCheckpoint, integerParseErr := strconv.ParseInt(string(lastMessage.Value), 10, 64)
+	if integerParseErr != nil {
+		log.Warnf("error converting checkpoint string to int64: %s", integerParseErr)
+		return nil, nil
+	}
+
+	if err := offsetReader.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close last offset reader: %w", err)
+	}
+
+	return &protos.LastSyncState{
+		Checkpoint: lastCheckpoint,
+	}, nil
 }
 
 func (c *KafkaConnector) GetLastSyncBatchID(jobName string) (int64, error) {
@@ -154,14 +189,23 @@ func (c *KafkaConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*proto
 	panic("GetTableSchema is not implemented for the Kafka flow connector")
 }
 
-func getRawTableIdentifier(jobName string) string {
-	jobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(jobName, "_")
-	return fmt.Sprintf("%s_%s", rawTablePrefix, jobName)
-}
-
 func (c *KafkaConnector) SetupNormalizedTable(
 	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
-	return nil, nil
+	destinationTopicName := "peerdb_final_" + req.SourceTableSchema.TableIdentifier
+	createErr := c.connection.CreateTopics(kafka.TopicConfig{
+		Topic:             destinationTopicName,
+		NumPartitions:     1,
+		ReplicationFactor: 1,
+	})
+
+	if createErr != nil {
+		return nil, fmt.
+			Errorf("failed to create Kafka topic: %w", createErr)
+	}
+	return &protos.SetupNormalizedTableOutput{
+		TableIdentifier: destinationTopicName,
+		AlreadyExists:   false,
+	}, nil
 }
 
 func (c *KafkaConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
@@ -174,12 +218,16 @@ func (c *KafkaConnector) PullRecords(req *model.PullRecordsRequest) (*model.Reco
 }
 
 func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	destinationTopicName := getRawTableIdentifier(req.FlowJobName)
+	var destinationTopicName string
+	if len(req.Records.Records) > 0 {
+		destinationTopicName = "peerdb_final_" + req.Records.Records[0].GetTableName()
+	}
 	var destinationMessage kafka.Message
 	numRecords := 0
 	first := true
 	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
+
 	for _, record := range req.Records.Records {
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
@@ -235,7 +283,11 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 			}
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Kafka flow connector", typedRecord)
+		}
+		writeErr := c.writer.WriteMessages(c.ctx, destinationMessage)
 
+		if writeErr != nil {
+			return nil, fmt.Errorf("failed to write message to Kafka topic: %w", writeErr)
 		}
 		if first {
 			firstCP = record.GetCheckPointID()
@@ -250,10 +302,9 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 		}, nil
 	}
 
-	writeErr := c.writer.WriteMessages(c.ctx, destinationMessage)
-
-	if writeErr != nil {
-		return nil, fmt.Errorf("failed to write message to Kafka topic: %w", writeErr)
+	updateErr := c.updateSyncMetadata(req.FlowJobName, lastCP)
+	if updateErr != nil {
+		return nil, updateErr
 	}
 
 	return &model.SyncResponse{
@@ -261,6 +312,20 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 		LastSyncedCheckPointID:  lastCP,
 		NumRecordsSynced:        int64(numRecords),
 	}, nil
+}
+
+func (c *KafkaConnector) updateSyncMetadata(flowJobName string, lastCP int64) error {
+	metadataTopicName := "peerdb_" + flowJobName
+	checkpointBytes := []byte(strconv.FormatInt(lastCP, 10))
+	writeErr := c.writer.WriteMessages(c.ctx, kafka.Message{
+		Topic: metadataTopicName,
+		Key:   []byte("checkpoint"),
+		Value: checkpointBytes,
+	})
+	if writeErr != nil {
+		return fmt.Errorf("could not write new checkpoint to metatable: %w", writeErr)
+	}
+	return nil
 }
 
 func (c *KafkaConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
@@ -272,20 +337,7 @@ func (c *KafkaConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*
 }
 
 func (c *KafkaConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	destinationTopicName := getRawTableIdentifier(req.FlowJobName)
-	createErr := c.connection.CreateTopics(kafka.TopicConfig{
-		Topic:             destinationTopicName,
-		NumPartitions:     1,
-		ReplicationFactor: 1,
-	})
-
-	if createErr != nil {
-		return nil, fmt.
-			Errorf("failed to create Kafka topic: %w", createErr)
-	}
-	return &protos.CreateRawTableOutput{
-		TableIdentifier: destinationTopicName,
-	}, nil
+	return nil, nil
 }
 
 func (c *KafkaConnector) EnsurePullability(req *protos.EnsurePullabilityInput,
@@ -305,6 +357,5 @@ func (c *KafkaConnector) PullFlowCleanup(jobName string) error {
 }
 
 func (c *KafkaConnector) SyncFlowCleanup(jobName string) error {
-
 	return nil
 }
