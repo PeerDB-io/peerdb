@@ -45,7 +45,7 @@ peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 peer-snowflake = { path = "../peer-snowflake" }
 peerdb-parser = { path = "../parser" }
-pgwire = "0.14"
+pgwire = "0.15"
 prost = "0.11"
 pt = { path = "../pt" }
 sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }

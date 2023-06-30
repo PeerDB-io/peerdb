@@ -34,11 +34,17 @@ dependencies = [
  "async-trait",
  "catalog",
  "flow-rs",
- "pem",
+ "pem 1.1.1",
  "pt",
  "serde_json",
  "sqlparser",
 ]
+
+[[package]]
+name = "android-tzdata"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
 
 [[package]]
 name = "android_system_properties"
@@ -270,9 +276,9 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "bcder"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69dfb7dc0d4aee3f8c723c43553b55662badf692b541ff8e4426df75dae8da9a"
+checksum = "ab26f019795af36086f2ca879aeeaae7566bdfd2fe0821a0328d3fdd9d1da2d9"
 dependencies = [
  "bytes",
  "smallvec",
@@ -393,13 +399,13 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.24"
+version = "0.4.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e3c5919066adf22df73762e50cffcde3a758f2a848b113b586d1f86728b673b"
+checksum = "ec837a71355b28f6556dbd569b37b3f363091c0bd4b2e735674521b4c5fd9bc5"
 dependencies = [
+ "android-tzdata",
  "iana-time-zone",
  "js-sys",
- "num-integer",
  "num-traits",
  "serde",
  "time 0.1.45",
@@ -735,9 +741,9 @@ dependencies = [
 
 [[package]]
 name = "der"
-version = "0.7.3"
+version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82b10af9f9f9f2134a42d3f8aa74658660f2e0234b0eb81bd171df8aa32779ed"
+checksum = "0c7ed52955ce76b1554f509074bb357d3fb8ac9b51288a65a3fd480d1dfba946"
 dependencies = [
  "const-oid 0.9.2",
  "zeroize",
@@ -1382,7 +1388,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
 dependencies = [
  "base64 0.21.0",
- "pem",
+ "pem 1.1.1",
  "ring",
  "serde",
  "serde_json",
@@ -1894,6 +1900,7 @@ dependencies = [
  "rand",
  "sqlparser",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1944,6 +1951,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pem"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b13fe415cdf3c8e44518e18a7c95a13431d9bdf6d15367d82b23c377fdd441a"
+dependencies = [
+ "base64 0.21.0",
+ "serde",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1977,9 +1994,9 @@ dependencies = [
 
 [[package]]
 name = "pgwire"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd66851a4b1d6631371c931810e453b0319eb260bbd5853ebe98e37b15105b80"
+checksum = "e2de42ee35f9694def25c37c15f564555411d9904b48e33680618ee7359080dc"
 dependencies = [
  "async-trait",
  "base64 0.21.0",
@@ -2896,12 +2913,12 @@ dependencies = [
 
 [[package]]
 name = "spki"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37a5be806ab6f127c3da44b7378837ebf01dadca8510a0e572460216b228bd0e"
+checksum = "9d1e996ef02c474957d681f1b05213dfb0abab947b446a62d37770b23500184a"
 dependencies = [
  "base64ct",
- "der 0.7.3",
+ "der 0.7.7",
 ]
 
 [[package]]
@@ -3888,19 +3905,19 @@ dependencies = [
 
 [[package]]
 name = "x509-certificate"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf14059fbc1dce14de1d08535c411ba0b18749c2550a12550300da90b7ba350b"
+checksum = "2133ce6c08c050a5b368730a67c53a603ffd4a4a6c577c5218675a19f7782c05"
 dependencies = [
  "bcder",
  "bytes",
  "chrono",
- "der 0.7.3",
+ "der 0.7.7",
  "hex",
- "pem",
+ "pem 2.0.1",
  "ring",
  "signature",
- "spki 0.7.1",
+ "spki 0.7.2",
  "thiserror",
 ]
 
