@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -70,17 +72,44 @@ func main() {
 						Aliases: []string{"p"},
 						Value:   8110,
 					},
-					// JDBC connection string for catalog database
 					&cli.StringFlag{
-						Name:    "catalog-dsn",
-						Aliases: []string{"c"},
-						Value:   "postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable",
-						EnvVars: []string{"CATALOG_DSN"},
+						Name:    "catalog-host",
+						Value:   "localhost",
+						EnvVars: []string{"PEERDB_CATALOG_HOST"},
+					},
+					&cli.UintFlag{
+						Name:    "catalog-port",
+						Value:   5432,
+						EnvVars: []string{"PEERDB_CATALOG_PORT"},
+					},
+					&cli.StringFlag{
+						Name:    "catalog-user",
+						Value:   "postgres",
+						EnvVars: []string{"PEERDB_CATALOG_USER"},
+					},
+					&cli.StringFlag{
+						Name:    "catalog-password",
+						Value:   "postgres",
+						EnvVars: []string{"PEERDB_CATALOG_PASSWORD"},
+					},
+					&cli.StringFlag{
+						Name:    "catalog-db",
+						Value:   "postgres",
+						EnvVars: []string{"PEERDB_CATALOG_DB"},
 					},
 					temporalHostPortFlag,
 				},
 				Action: func(ctx *cli.Context) error {
-					catalogURL := ctx.String("catalog-dsn")
+					catalogHost := ctx.String("catalog-host")
+					catalogPort := ctx.String("catalog-port")
+					catalogUser := ctx.String("catalog-user")
+					catalogPassword := url.QueryEscape(ctx.String("catalog-password"))
+					catalogDB := ctx.String("catalog-db")
+
+					// create the catalogURL from the host, port, user, password, and db
+					catalogURL := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?sslmode=disable",
+						catalogUser, catalogPassword, catalogHost, catalogPort, catalogDB)
+
 					temporalHostPort := ctx.String("temporal-host-port")
 
 					return APIMain(&APIServerParams{

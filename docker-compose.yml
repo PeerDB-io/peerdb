@@ -72,8 +72,12 @@ services:
     ports:
       - 8112:8112
     environment:
-      CATALOG_DSN: postgres://postgres:postgres@catalog:5432/postgres?sslmode=disable
       TEMPORAL_HOST_PORT: temporalite:7233
+      PEERDB_CATALOG_DB: postgres
+      PEERDB_CATALOG_HOST: catalog
+      PEERDB_CATALOG_PASSWORD: postgres
+      PEERDB_CATALOG_PORT: 5432
+      PEERDB_CATALOG_USER: postgres
       GIN_MODE: release
     depends_on:
       catalog:

@@ -27,5 +27,6 @@ tokio-postgres = { version = "0.7.6", features = [
   "with-uuid-0_8",
 ] }
 tracing = "0.1"
+urlencoding = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 value = { path = "../value" }
