@@ -137,7 +137,9 @@ func (s *E2EPeerFlowTestSuite) setupSnowflake() error {
 func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		// it's okay if the .env file is not present
+		// we will use the default values
+		log.Infof("Unable to load .env file, using default values from env")
 	}
 
 	log.SetReportCaller(true)
