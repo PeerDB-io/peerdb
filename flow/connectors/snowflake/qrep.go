@@ -3,10 +3,10 @@ package connsnowflake
 import (
 	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
@@ -55,12 +55,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
 		return 0, fmt.Errorf("multi-insert sync mode not supported for snowflake")
 	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
-		// create a temp directory for storing avro files
-		tmpDir, err := os.MkdirTemp("", "peerdb-avro")
-		if err != nil {
-			return 0, fmt.Errorf("failed to create temp directory: %w", err)
-		}
-		avroSync := &SnowflakeAvroSyncMethod{connector: c, localDir: tmpDir}
+		avroSync := NewSnowflakeAvroSyncMethod(config, c)
 		return avroSync.SyncQRepRecords(config, partition, tblSchema, records)
 	default:
 		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
@@ -153,15 +148,38 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 	log.Infof("Created table %s", qRepMetadataTableName)
 
 	stageName := c.getStageNameForJob(config.FlowJobName)
-	stageStatement := `
-		CREATE STAGE IF NOT EXISTS %s
-		FILE_FORMAT = (TYPE = AVRO);
-	`
-	stmt := fmt.Sprintf(stageStatement, stageName)
+
+	var createStageStmt string
+	// if config staging path starts with S3 we need to create an external stage.
+	if strings.HasPrefix(config.StagingPath, "s3://") {
+		awsCreds, err := utils.GetAWSSecrets()
+		if err != nil {
+			log.Errorf("failed to get AWS secrets: %v", err)
+			return fmt.Errorf("failed to get AWS secrets: %w", err)
+		}
+
+		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
+			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
+
+		stageStatement := `
+			CREATE OR REPLACE STAGE %s
+			URL = '%s/%s'
+			%s
+			FILE_FORMAT = (TYPE = AVRO);
+			`
+		createStageStmt = fmt.Sprintf(stageStatement, stageName, config.StagingPath, config.FlowJobName, credsStr)
+	} else {
+		stageStatement := `
+			CREATE OR REPLACE STAGE %s
+			FILE_FORMAT = (TYPE = AVRO);
+			`
+		createStageStmt = fmt.Sprintf(stageStatement, stageName)
+	}
 
 	// Execute the query
-	_, err = c.database.Exec(stmt)
+	_, err = c.database.Exec(createStageStmt)
 	if err != nil {
+		log.Errorf("failed to create stage %s: %v", stageName, err)
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
 	}
 

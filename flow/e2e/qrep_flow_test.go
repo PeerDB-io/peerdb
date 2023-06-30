@@ -451,6 +451,45 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	env.AssertExpectations(s.T())
 }
 
+func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_S3() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	numRows := 10
+
+	tblName := "test_qrep_flow_avro_sf_s3"
+	s.setupSourceTable(tblName, numRows)
+	s.setupSFDestinationTable(tblName)
+
+	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}", tblName)
+
+	qrepConfig := s.createQRepWorkflowConfig(
+		"test_qrep_flow_avro_sf",
+		"e2e_test."+tblName,
+		dstSchemaQualified,
+		query,
+		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		s.sfHelper.Peer,
+	)
+	qrepConfig.StagingPath = "s3://peerdb-test-bucket/avro"
+
+	runQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	// assert that error contains "invalid connection configs"
+	err := env.GetWorkflowError()
+	s.NoError(err)
+
+	sel := getOwnersSelectorString()
+	s.compareTableContentsSF(tblName, sel)
+
+	env.AssertExpectations(s.T())
+}
+
 func runQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
 	lastPartition := &protos.QRepPartition{
 		PartitionId: "not-applicable-partition",

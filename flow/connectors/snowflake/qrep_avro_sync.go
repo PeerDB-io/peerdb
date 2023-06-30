@@ -10,22 +10,22 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
-	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
 	_ "github.com/snowflakedb/gosnowflake"
 )
 
 type SnowflakeAvroSyncMethod struct {
+	config    *protos.QRepConfig
 	connector *SnowflakeConnector
-	localDir  string
 }
 
-func NewSnowflakeAvroSyncMethod(connector *SnowflakeConnector, localDir string) *SnowflakeAvroSyncMethod {
+func NewSnowflakeAvroSyncMethod(
+	config *protos.QRepConfig,
+	connector *SnowflakeConnector) *SnowflakeAvroSyncMethod {
 	return &SnowflakeAvroSyncMethod{
+		config:    config,
 		connector: connector,
-		localDir:  localDir,
 	}
 }
 
@@ -80,16 +80,55 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
 ) (string, error) {
-	localFilePath := fmt.Sprintf("%s/%s.avro", s.localDir, partitionID)
-	err := WriteRecordsToAvroFile(records, avroSchema, localFilePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to write records to Avro file: %w", err)
+	if s.config.StagingPath == "" {
+		tmpDir, err := os.MkdirTemp("", "peerdb-avro")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp dir: %w", err)
+		}
+
+		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
+		err = WriteRecordsToAvroFile(records, avroSchema, localFilePath)
+		if err != nil {
+			return "", fmt.Errorf("failed to write records to Avro file: %w", err)
+		}
+
+		return localFilePath, nil
+	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
+		// users will have set AWS_REGION, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+		// in their environment.
+
+		// Remove s3:// prefix
+		stagingPath := strings.TrimPrefix(s.config.StagingPath, "s3://")
+
+		// Split into bucket and prefix
+		splitPath := strings.SplitN(stagingPath, "/", 2)
+
+		bucket := splitPath[0]
+		prefix := ""
+		if len(splitPath) > 1 {
+			// Remove leading and trailing slashes from prefix
+			prefix = strings.Trim(splitPath[1], "/")
+		}
+
+		s3Key := fmt.Sprintf("%s/%s/%s.avro", prefix, s.config.FlowJobName, partitionID)
+
+		err := WriteRecordsToS3(records, avroSchema, bucket, s3Key)
+		if err != nil {
+			return "", fmt.Errorf("failed to write records to S3: %w", err)
+		}
+
+		return "", nil
 	}
 
-	return localFilePath, nil
+	return "", fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
 }
 
 func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage string) error {
+	if localFilePath == "" {
+		log.Infof("no file to put to stage")
+		return nil
+	}
+
 	putCmd := fmt.Sprintf("PUT file://%s @%s", localFilePath, stage)
 	if _, err := s.connector.database.Exec(putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
@@ -157,52 +196,6 @@ func (s *SnowflakeAvroSyncMethod) insertMetadata(
 	return nil
 }
 
-func WriteRecordsToAvroFile(
-	records *model.QRecordBatch,
-	avroSchema *model.QRecordAvroSchemaDefinition,
-	filePath string,
-) error {
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-	defer file.Close()
-
-	// Create OCF Writer
-	ocfWriter, err := goavro.NewOCFWriter(goavro.OCFConfig{
-		W:      file,
-		Schema: avroSchema.Schema,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create OCF writer: %w", err)
-	}
-
-	colNames := records.Schema.GetColumnNames()
-
-	// Write each QRecord to the OCF file
-	for _, qRecord := range records.Records {
-		avroConverter := model.NewQRecordAvroConverter(
-			qRecord,
-			qvalue.QDWHTypeSnowflake,
-			&avroSchema.NullableFields,
-			colNames,
-		)
-		avroMap, err := avroConverter.Convert()
-		if err != nil {
-			log.Errorf("failed to convert QRecord to Avro compatible map: %v", err)
-			return fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
-		}
-
-		err = ocfWriter.Append([]interface{}{avroMap})
-		if err != nil {
-			log.Errorf("failed to write record to OCF file: %v", err)
-			return fmt.Errorf("failed to write record to OCF file: %w", err)
-		}
-	}
-
-	return nil
-}
-
 type SnowflakeAvroWriteHandler struct {
 	db           *sql.DB
 	dstTableName string
@@ -228,6 +221,7 @@ func NewSnowflakeAvroWriteHandler(
 func (s *SnowflakeAvroWriteHandler) HandleAppendMode() error {
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s FROM @%s %s", s.dstTableName, s.stage, strings.Join(s.copyOpts, ","))
+	log.Infof("running copy command: %s", copyCmd)
 	if _, err := s.db.Exec(copyCmd); err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
