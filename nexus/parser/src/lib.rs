@@ -4,6 +4,7 @@ use analyzer::{
     CursorEvent, PeerCursorAnalyzer, PeerDDL, PeerDDLAnalyzer, PeerExistanceAnalyzer,
     QueryAssocation, StatementAnalyzer,
 };
+use async_trait::async_trait;
 use catalog::Catalog;
 use pgwire::{
     api::{stmt::QueryParser, Type},
@@ -32,6 +33,7 @@ pub enum NexusStatement {
         stmt: Statement,
         cursor: CursorEvent,
     },
+    Empty,
 }
 
 impl NexusStatement {
@@ -114,13 +116,17 @@ impl NexusQueryParser {
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         if stmts.len() > 1 {
             let err_msg = format!("unsupported sql: {}, statements: {:?}", sql, stmts);
-
             // TODO (kaushik): Better error message for this. When do we start seeing multiple statements?
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "42P14".to_owned(),
                 err_msg,
             ))))
+        } else if stmts.is_empty() {
+            Ok(NexusParsedStatement {
+                statement: NexusStatement::Empty,
+                query: sql.to_owned(),
+            })
         } else {
             let stmt = stmts.remove(0);
             let peers = self.get_peers_bridge()?;
@@ -133,10 +139,11 @@ impl NexusQueryParser {
     }
 }
 
+#[async_trait]
 impl QueryParser for NexusQueryParser {
     type Statement = NexusParsedStatement;
 
-    fn parse_sql(&self, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> {
+    async fn parse_sql(&self, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> {
         let mut stmts =
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         if stmts.len() > 1 {
@@ -146,6 +153,11 @@ impl QueryParser for NexusQueryParser {
                 "42P14".to_owned(),
                 err_msg,
             ))))
+        } else if stmts.is_empty() {
+            Ok(NexusParsedStatement {
+                statement: NexusStatement::Empty,
+                query: sql.to_owned(),
+            })
         } else {
             let stmt = stmts.remove(0);
             let peers = self.get_peers_bridge()?;

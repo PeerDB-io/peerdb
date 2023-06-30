@@ -17,7 +17,7 @@ async-trait = "0.1.57"
 jsonwebtoken = { version = "8.0", features = ["use_pem"] }
 base64 = "0.13"
 dashmap = "5.0"
-pgwire = "0.14"
+pgwire = "0.15"
 sha2 = "0.10"
 pt = { path = "../pt" }
 pkcs8 = { version = "0.8", features = ["std", "pem"] }

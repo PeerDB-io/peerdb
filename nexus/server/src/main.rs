@@ -222,7 +222,7 @@ impl NexusBackend {
                     let workflow_id = self
                         .flow_handler
                         .start_qrep_flow_job(&qrep_flow_job)
-                        .await  
+                        .await
                         .map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
                                 err_msg: format!("unable to submit job: {:?}", err),
@@ -333,6 +333,8 @@ impl NexusBackend {
 
                 self.execute_statement(executor, &stmt, peer_holder).await
             }
+
+            NexusStatement::Empty => Ok(vec![Response::EmptyQuery]),
         }
     }
 
@@ -491,6 +493,7 @@ impl ExtendedQueryHandler for NexusBackend {
         match stmt {
             NexusStatement::PeerDDL { .. } => Ok(DescribeResponse::no_data()),
             NexusStatement::PeerCursor { .. } => Ok(DescribeResponse::no_data()),
+            NexusStatement::Empty => Ok(DescribeResponse::no_data()),
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<SchemaRef> = match assoc {
                     QueryAssocation::Peer(peer) => {
