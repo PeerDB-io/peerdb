@@ -272,6 +272,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             false,
                             Some(&["default", "avro"]),
                         )?;
+                        PeerDDLAnalyzer::parse_string_for_options(
+                            &raw_options,
+                            &mut processed_options,
+                            "staging_path",
+                            false,
+                            None,
+                        )?;
                         // processing options that are OPTIONAL and take a number value which a minimum and default value.
                         PeerDDLAnalyzer::parse_number_for_options(
                             &raw_options,
@@ -305,7 +312,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                         if !processed_options.contains_key("sync_data_format") {
                             processed_options.insert(
                                 "sync_data_format".to_string(),
-                                serde_json::Value::String("default".to_string())
+                                serde_json::Value::String("default".to_string()),
                             );
                         }
 
