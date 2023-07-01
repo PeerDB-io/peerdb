@@ -103,6 +103,12 @@ func genConfigForQRepFlow(config *protos.QRepConfig, flowOptions map[string]inte
 	config.WaitBetweenBatchesSeconds = uint32(flowOptions["refresh_interval"].(float64))
 	if flowOptions["sync_data_format"].(string) == "avro" {
 		config.SyncMode = protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO
+		if _, ok := flowOptions["staging_path"]; ok {
+			config.StagingPath = flowOptions["staging_path"].(string)
+		} else {
+			// if staging_path is not present, set it to empty string
+			config.StagingPath = ""
+		}
 	} else if flowOptions["sync_data_format"].(string) == "default" {
 		config.SyncMode = protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT
 	} else {

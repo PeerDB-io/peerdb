@@ -60,5 +60,8 @@ jobs:
           gotestsum --format testname -- -p 1 ./...
         working-directory: ./flow
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json

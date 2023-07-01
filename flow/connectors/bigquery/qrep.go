@@ -128,6 +128,13 @@ func (c *BigQueryConnector) ConsolidateQRepPartitions(config *protos.QRepConfig)
 	return nil
 }
 
+// CleanupQRepFlow function for bigquery connector
+func (c *BigQueryConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
+	log.Infof("Cleaning up flow job %s", config.FlowJobName)
+	log.Infof("This is a no-op for BigQuery")
+	return nil
+}
+
 func (c *BigQueryConnector) isPartitionSynced(partitionID string) (bool, error) {
 	queryString := fmt.Sprintf(
 		"SELECT COUNT(*) FROM %s._peerdb_query_replication_metadata WHERE partitionID = '%s';",

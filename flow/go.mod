@@ -5,6 +5,7 @@ go 1.19
 require (
 	cloud.google.com/go/bigquery v1.51.2
 	cloud.google.com/go/storage v1.30.1
+	github.com/aws/aws-sdk-go v1.44.293
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
@@ -88,6 +89,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
 	github.com/jackc/puddle/v2 v2.2.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/asmfmt v1.3.2 // indirect
 	github.com/klauspost/compress v1.16.5 // indirect

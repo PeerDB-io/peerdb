@@ -121,6 +121,8 @@ func (qe *QRepQueryExecutor) ProcessRows(
 		Schema:     fieldDescriptionsToSchema(fieldDescriptions),
 	}
 
+	log.Infof("[postgres] pulled %d records", batch.NumRecords)
+
 	return batch, nil
 }
 

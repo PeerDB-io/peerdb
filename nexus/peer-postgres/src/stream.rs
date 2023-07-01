@@ -53,7 +53,7 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                         .unwrap_or(Value::Null)
                 }
                 &Type::NAME
-                | &Type::NAME_ARRAY
+                | &Type::REGNAMESPACE
                 | &Type::REGPROC
                 | &Type::REGPROCEDURE
                 | &Type::REGOPER
@@ -62,9 +62,13 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 | &Type::REGTYPE
                 | &Type::REGCONFIG
                 | &Type::REGDICTIONARY
-                | &Type::REGNAMESPACE
                 | &Type::REGROLE
-                | &Type::REGCOLLATION
+                | &Type::REGCOLLATION => {
+                    let s: Option<String> = row.get(i);
+                    s.map(Value::Text).unwrap_or(Value::Null)
+                }
+                &Type::NAME_ARRAY
+                | &Type::REGNAMESPACE_ARRAY
                 | &Type::REGPROCEDURE_ARRAY
                 | &Type::REGOPER_ARRAY
                 | &Type::REGOPERATOR_ARRAY
@@ -72,11 +76,12 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 | &Type::REGTYPE_ARRAY
                 | &Type::REGCONFIG_ARRAY
                 | &Type::REGDICTIONARY_ARRAY
-                | &Type::REGNAMESPACE_ARRAY
                 | &Type::REGROLE_ARRAY
                 | &Type::REGCOLLATION_ARRAY => {
-                    let s: Option<String> = row.get(i);
-                    s.map(Value::Text).unwrap_or(Value::Null)
+                    let s: Option<Vec<String>> = row.get(i);
+                    s.map(ArrayValue::VarChar)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
                 }
                 &Type::INT2 => {
                     let int: Option<i16> = row.get(i);

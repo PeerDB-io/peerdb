@@ -11,7 +11,10 @@ import (
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
 )
@@ -124,18 +127,27 @@ func (s *E2EPeerFlowTestSuite) setupSnowflake() error {
 	s.sfHelper = sfHelper
 
 	// for every test, drop the _PEERDB_INTERNAL schema
-	s.sfHelper.client.DropSchema("_PEERDB_INTERNAL")
+	err = s.sfHelper.client.DropSchema("_PEERDB_INTERNAL")
+	require.NoError(s.T(), err)
 
 	return nil
 }
 
 // Implement SetupAllSuite interface to setup the test suite
 func (s *E2EPeerFlowTestSuite) SetupSuite() {
-	// seed the random number generator with current time
+	err := godotenv.Load()
+	if err != nil {
+		// it's okay if the .env file is not present
+		// we will use the default values
+		log.Infof("Unable to load .env file, using default values from env")
+	}
 
+	log.SetReportCaller(true)
+
+	// seed the random number generator with current time
 	rand.Seed(time.Now().UnixNano())
 
-	err := s.setupPostgres()
+	err = s.setupPostgres()
 	if err != nil {
 		s.Fail("failed to setup postgres", err)
 	}
