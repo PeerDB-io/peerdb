@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type AWSSecrets struct {
@@ -31,5 +32,31 @@ func GetAWSSecrets() (*AWSSecrets, error) {
 		AccessKeyID:     awsKey,
 		SecretAccessKey: awsSecret,
 		Region:          awsRegion,
+	}, nil
+}
+
+type S3BucketAndPrefix struct {
+	Bucket string
+	Prefix string
+}
+
+// path would be something like s3://bucket/prefix
+func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
+	// Remove s3:// prefix
+	stagingPath := strings.TrimPrefix(s3Path, "s3://")
+
+	// Split into bucket and prefix
+	splitPath := strings.SplitN(stagingPath, "/", 2)
+
+	bucket := splitPath[0]
+	prefix := ""
+	if len(splitPath) > 1 {
+		// Remove leading and trailing slashes from prefix
+		prefix = strings.Trim(splitPath[1], "/")
+	}
+
+	return &S3BucketAndPrefix{
+		Bucket: bucket,
+		Prefix: prefix,
 	}, nil
 }

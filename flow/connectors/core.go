@@ -70,6 +70,9 @@ type Connector interface {
 	// ConsolidateQRepPartitions consolidates the partitions for a given table.
 	ConsolidateQRepPartitions(config *protos.QRepConfig) error
 
+	// CleanupQRepFlow cleans up the QRep flow for a given table.
+	CleanupQRepFlow(config *protos.QRepConfig) error
+
 	PullFlowCleanup(jobName string) error
 	SyncFlowCleanup(jobName string) error
 }

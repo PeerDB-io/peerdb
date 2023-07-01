@@ -94,25 +94,13 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 
 		return localFilePath, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		// users will have set AWS_REGION, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-		// in their environment.
-
-		// Remove s3:// prefix
-		stagingPath := strings.TrimPrefix(s.config.StagingPath, "s3://")
-
-		// Split into bucket and prefix
-		splitPath := strings.SplitN(stagingPath, "/", 2)
-
-		bucket := splitPath[0]
-		prefix := ""
-		if len(splitPath) > 1 {
-			// Remove leading and trailing slashes from prefix
-			prefix = strings.Trim(splitPath[1], "/")
+		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse staging path: %w", err)
 		}
 
-		s3Key := fmt.Sprintf("%s/%s/%s.avro", prefix, s.config.FlowJobName, partitionID)
-
-		err := WriteRecordsToS3(records, avroSchema, bucket, s3Key)
+		s3Key := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
+		err = WriteRecordsToS3(records, avroSchema, s3o.Bucket, s3Key)
 		if err != nil {
 			return "", fmt.Errorf("failed to write records to S3: %w", err)
 		}
