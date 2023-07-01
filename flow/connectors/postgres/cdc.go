@@ -27,7 +27,7 @@ type PostgresCDCSource struct {
 	startLSN              pglogrepl.LSN
 }
 
-type PostrgesCDCConfig struct {
+type PostgresCDCConfig struct {
 	AppContext            context.Context
 	Connection            *pgxpool.Pool
 	Slot                  string
@@ -37,14 +37,14 @@ type PostrgesCDCConfig struct {
 }
 
 // Create a new PostgresCDCSource
-func NewPostgresCDCSource(cdcConfing *PostrgesCDCConfig) (*PostgresCDCSource, error) {
+func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
 	return &PostgresCDCSource{
-		ctx:                   cdcConfing.AppContext,
-		conn:                  cdcConfing.Connection,
-		SrcTableIDNameMapping: cdcConfing.SrcTableIDNameMapping,
-		TableNameMapping:      cdcConfing.TableNameMapping,
-		slot:                  cdcConfing.Slot,
-		publication:           cdcConfing.Publication,
+		ctx:                   cdcConfig.AppContext,
+		conn:                  cdcConfig.Connection,
+		SrcTableIDNameMapping: cdcConfig.SrcTableIDNameMapping,
+		TableNameMapping:      cdcConfig.TableNameMapping,
+		slot:                  cdcConfig.Slot,
+		publication:           cdcConfig.Publication,
 		relations:             make(map[uint32]*pglogrepl.RelationMessage),
 		typeMap:               pgtype.NewMap(),
 	}, nil
@@ -114,6 +114,12 @@ func (p *PostgresCDCSource) consumeStream(
 
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
+	defer func() {
+		err := conn.Close(p.ctx)
+		if err != nil {
+			log.Errorf("unexpected error closing replication connection: %v", err)
+		}
+	}()
 
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) {
@@ -388,7 +394,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 
 	// create empty map of string to interface{}
 	items := make(map[string]interface{})
-	unchangeToastColumns := make(map[string]bool)
+	unchangedToastColumns := make(map[string]bool)
 
 	for idx, col := range tuple.Columns {
 		colName := rel.Columns[idx].Name
@@ -409,12 +415,12 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			}
 			items[colName] = data
 		case 'u': // unchanged toast
-			unchangeToastColumns[colName] = true
+			unchangedToastColumns[colName] = true
 		default:
 			return nil, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
 		}
 	}
-	return items, unchangeToastColumns, nil
+	return items, unchangedToastColumns, nil
 }
 
 func (p *PostgresCDCSource) decodeTextColumnData(data []byte, dataType uint32) (interface{}, error) {
