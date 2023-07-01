@@ -58,6 +58,9 @@ type IFlowable interface {
 	// ConsolidateQRepPartitions consolidates the QRepPartitions into the destination.
 	ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error
 
+	// CleanupQrepFlow cleans up the QRep flow.
+	CleanupQrepFlow(ctx context.Context, config *protos.QRepConfig) error
+
 	DropFlow(ctx context.Context, config *protos.DropFlowInput) error
 }
 
@@ -356,6 +359,15 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	}
 
 	return dst.ConsolidateQRepPartitions(config)
+}
+
+func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
+	dst, err := connectors.GetConnector(ctx, config.DestinationPeer)
+	if err != nil {
+		return fmt.Errorf("failed to get destination connector: %w", err)
+	}
+
+	return dst.CleanupQRepFlow(config)
 }
 
 func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.FlowConnectionConfigs) error {

@@ -167,6 +167,14 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	}
 
 	q.logger.Info("partitions consolidated")
+
+	// clean up qrep flow as well
+	if err := workflow.ExecuteActivity(ctx, flowable.CleanupQRepFlow, q.config).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to cleanup qrep flow: %w", err)
+	}
+
+	q.logger.Info("qrep flow cleaned up")
+
 	return nil
 }
 
