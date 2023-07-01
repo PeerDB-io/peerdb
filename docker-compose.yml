@@ -102,6 +102,9 @@ services:
       ENABLE_PROFILING: true
       PROFILING_SERVER: 0.0.0.0:6060
       TEMPORAL_HOST_PORT: temporalite:7233
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
+      AWS_REGION: ${AWS_REGION:-""}
     ports:
       - 6060:6060
     depends_on:
