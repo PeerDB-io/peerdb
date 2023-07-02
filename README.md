@@ -86,6 +86,7 @@ Real-time syncing of data from source to target based on change-feed or CDC (log
 | --- | --- | --- | --- |
 | CDC | PostgreSQL | BigQuery | Beta |
 | CDC | PostgreSQL | Snowflake | Beta |
+| CDC | PostgreSQL | Kafka | Beta |
 | Initial Load | PostgreSQL | BigQuery | Coming Soon! |
 | Initial Load | PostgreSQL | Snowflake | Coming Soon! |
 
@@ -95,8 +96,9 @@ Continuous syncing of data from source to target based on any SELECT query on th
 
 | Source | Target | Status |
 | --- | --- | --- |
-| PostgreSQL | BigQuery | Under development |
-| PostgreSQL | Snowflake | Under development |
+| PostgreSQL | BigQuery | Beta |
+| PostgreSQL | Snowflake | Beta |
+| PostgreSQL | S3 | Under development |
 
 ## License
 
