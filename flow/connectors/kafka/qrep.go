@@ -32,3 +32,7 @@ func (c *KafkaConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) er
 func (c *KafkaConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
 	panic("kafka does not yet support query replication")
 }
+
+func (c *KafkaConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
+	panic("kafka does not yet support query replication")
+}
