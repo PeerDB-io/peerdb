@@ -130,55 +130,52 @@ func (c *SnowflakeConnector) isPartitionSynced(partitionID string) (bool, error)
 }
 
 func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
+	err := c.createQRepMetadataTable()
+	if err != nil {
+		return err
+	}
+
+	stageName := c.getStageNameForJob(config.FlowJobName)
+
+	err = c.createStage(stageName, config)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *SnowflakeConnector) createQRepMetadataTable() error {
 	// Define the schema
 	schemaStatement := `
-		CREATE TABLE IF NOT EXISTS %s.%s (
+	CREATE TABLE IF NOT EXISTS %s.%s (
 			flowJobName STRING,
 			partitionID STRING,
 			syncPartition STRING,
 			syncStartTime TIMESTAMP_LTZ,
 			syncFinishTime TIMESTAMP_LTZ
-		);
+	);
 	`
 	queryString := fmt.Sprintf(schemaStatement, "public", qRepMetadataTableName)
 
-	// Execute the query
 	_, err := c.database.Exec(queryString)
 	if err != nil {
+		log.Errorf("failed to create table %s.%s: %v", "public", qRepMetadataTableName, err)
 		return fmt.Errorf("failed to create table %s.%s: %w", "public", qRepMetadataTableName, err)
 	}
 
 	log.Infof("Created table %s", qRepMetadataTableName)
+	return nil
+}
 
-	stageName := c.getStageNameForJob(config.FlowJobName)
-
+func (c *SnowflakeConnector) createStage(stageName string, config *protos.QRepConfig) error {
 	var createStageStmt string
-	// if config staging path starts with S3 we need to create an external stage.
 	if strings.HasPrefix(config.StagingPath, "s3://") {
-		awsCreds, err := utils.GetAWSSecrets()
+		stmt, err := c.createExternalStage(stageName, config)
 		if err != nil {
-			log.Errorf("failed to get AWS secrets: %v", err)
-			return fmt.Errorf("failed to get AWS secrets: %w", err)
+			return err
 		}
-
-		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
-			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
-
-		s3o, err := utils.NewS3BucketAndPrefix(config.StagingPath)
-		if err != nil {
-			log.Errorf("failed to create S3 bucket and prefix: %v", err)
-			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
-		}
-
-		cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
-
-		stageStatement := `
-			CREATE OR REPLACE STAGE %s
-			URL = '%s'
-			%s
-			FILE_FORMAT = (TYPE = AVRO);
-			`
-		createStageStmt = fmt.Sprintf(stageStatement, stageName, cleanURL, credsStr)
+		createStageStmt = stmt
 	} else {
 		stageStatement := `
 			CREATE OR REPLACE STAGE %s
@@ -188,7 +185,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 	}
 
 	// Execute the query
-	_, err = c.database.Exec(createStageStmt)
+	_, err := c.database.Exec(createStageStmt)
 	if err != nil {
 		log.Errorf("failed to create stage %s: %v", stageName, err)
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
@@ -196,6 +193,42 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 
 	log.Infof("Created stage %s", stageName)
 	return nil
+}
+
+func (c *SnowflakeConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
+	awsCreds, err := utils.GetAWSSecrets()
+	if err != nil {
+		log.Errorf("failed to get AWS secrets: %v", err)
+		return "", fmt.Errorf("failed to get AWS secrets: %w", err)
+	}
+
+	s3o, err := utils.NewS3BucketAndPrefix(config.StagingPath)
+	if err != nil {
+		log.Errorf("failed to extract S3 bucket and prefix: %v", err)
+		return "", fmt.Errorf("failed to extract S3 bucket and prefix: %w", err)
+	}
+
+	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
+
+	s3Int := config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	if s3Int == "" {
+		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
+			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
+
+		stageStatement := `
+		CREATE OR REPLACE STAGE %s
+		URL = '%s'
+		%s
+		FILE_FORMAT = (TYPE = AVRO);`
+		return fmt.Sprintf(stageStatement, stageName, cleanURL, credsStr), nil
+	} else {
+		stageStatement := `
+		CREATE OR REPLACE STAGE %s
+		URL = '%s'
+		STORAGE_INTEGRATION = %s
+		FILE_FORMAT = (TYPE = AVRO);`
+		return fmt.Sprintf(stageStatement, stageName, cleanURL, s3Int), nil
+	}
 }
 
 func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {

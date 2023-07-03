@@ -12,6 +12,7 @@ message SnowflakeConfig {
   string warehouse = 6;
   string role = 7;
   uint64 query_timeout = 8;
+  string s3_integration = 9;
 }
 
 message BigqueryConfig {
