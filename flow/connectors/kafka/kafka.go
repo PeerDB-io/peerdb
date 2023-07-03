@@ -348,11 +348,13 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 		return nil, fmt.Errorf("failed to begin transaction: %w", beginErr)
 	}
 
-	writeErr := c.producer.Produce(&destinationMessage, nil)
-	if writeErr != nil {
-		abortErr := c.producer.AbortTransaction(c.ctx)
-		if abortErr != nil {
-			return nil, fmt.Errorf("destination write failed, but could not abort transaction: %w", abortErr)
+	for _, record := range records {
+		writeErr := c.producer.Produce(&record, nil)
+		if writeErr != nil {
+			abortErr := c.producer.AbortTransaction(c.ctx)
+			if abortErr != nil {
+				return nil, fmt.Errorf("destination write failed, but could not abort transaction: %w", abortErr)
+			}
 		}
 	}
 
