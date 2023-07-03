@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	log "github.com/sirupsen/logrus"
@@ -131,55 +130,52 @@ func (c *SnowflakeConnector) isPartitionSynced(partitionID string) (bool, error)
 }
 
 func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
+	err := c.createQRepMetadataTable()
+	if err != nil {
+		return err
+	}
+
+	stageName := c.getStageNameForJob(config.FlowJobName)
+
+	err = c.createStage(stageName, config)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *SnowflakeConnector) createQRepMetadataTable() error {
 	// Define the schema
 	schemaStatement := `
-		CREATE TABLE IF NOT EXISTS %s.%s (
+	CREATE TABLE IF NOT EXISTS %s.%s (
 			flowJobName STRING,
 			partitionID STRING,
 			syncPartition STRING,
 			syncStartTime TIMESTAMP_LTZ,
 			syncFinishTime TIMESTAMP_LTZ
-		);
+	);
 	`
 	queryString := fmt.Sprintf(schemaStatement, "public", qRepMetadataTableName)
 
-	// Execute the query
 	_, err := c.database.Exec(queryString)
 	if err != nil {
+		log.Errorf("failed to create table %s.%s: %v", "public", qRepMetadataTableName, err)
 		return fmt.Errorf("failed to create table %s.%s: %w", "public", qRepMetadataTableName, err)
 	}
 
 	log.Infof("Created table %s", qRepMetadataTableName)
+	return nil
+}
 
-	stageName := c.getStageNameForJob(config.FlowJobName)
-
+func (c *SnowflakeConnector) createStage(stageName string, config *protos.QRepConfig) error {
 	var createStageStmt string
-	// if config staging path starts with S3 we need to create an external stage.
 	if strings.HasPrefix(config.StagingPath, "s3://") {
-		awsCreds, err := utils.GetAWSSecrets()
+		stmt, err := c.createExternalStage(stageName, config)
 		if err != nil {
-			log.Errorf("failed to get AWS secrets: %v", err)
-			return fmt.Errorf("failed to get AWS secrets: %w", err)
+			return err
 		}
-
-		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
-			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
-
-		s3o, err := utils.NewS3BucketAndPrefix(config.StagingPath)
-		if err != nil {
-			log.Errorf("failed to create S3 bucket and prefix: %v", err)
-			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
-		}
-
-		cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
-
-		stageStatement := `
-			CREATE OR REPLACE STAGE %s
-			URL = '%s'
-			%s
-			FILE_FORMAT = (TYPE = AVRO);
-			`
-		createStageStmt = fmt.Sprintf(stageStatement, stageName, cleanURL, credsStr)
+		createStageStmt = stmt
 	} else {
 		stageStatement := `
 			CREATE OR REPLACE STAGE %s
@@ -189,7 +185,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 	}
 
 	// Execute the query
-	_, err = c.database.Exec(createStageStmt)
+	_, err := c.database.Exec(createStageStmt)
 	if err != nil {
 		log.Errorf("failed to create stage %s: %v", stageName, err)
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
@@ -197,6 +193,42 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 
 	log.Infof("Created stage %s", stageName)
 	return nil
+}
+
+func (c *SnowflakeConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
+	awsCreds, err := utils.GetAWSSecrets()
+	if err != nil {
+		log.Errorf("failed to get AWS secrets: %v", err)
+		return "", fmt.Errorf("failed to get AWS secrets: %w", err)
+	}
+
+	s3o, err := utils.NewS3BucketAndPrefix(config.StagingPath)
+	if err != nil {
+		log.Errorf("failed to extract S3 bucket and prefix: %v", err)
+		return "", fmt.Errorf("failed to extract S3 bucket and prefix: %w", err)
+	}
+
+	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
+
+	s3Int := config.DestinationPeer.GetSnowflakeConfig().S3Integration
+	if s3Int == "" {
+		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
+			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
+
+		stageStatement := `
+		CREATE OR REPLACE STAGE %s
+		URL = '%s'
+		%s
+		FILE_FORMAT = (TYPE = AVRO);`
+		return fmt.Sprintf(stageStatement, stageName, cleanURL, credsStr), nil
+	} else {
+		stageStatement := `
+		CREATE OR REPLACE STAGE %s
+		URL = '%s'
+		STORAGE_INTEGRATION = %s
+		FILE_FORMAT = (TYPE = AVRO);`
+		return fmt.Sprintf(stageStatement, stageName, cleanURL, s3Int), nil
+	}
 }
 
 func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
@@ -282,12 +314,6 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 
 	// if s3 we need to delete the contents of the bucket
 	if strings.HasPrefix(stagingPath, "s3://") {
-		awsCreds, err := utils.GetAWSSecrets()
-		if err != nil {
-			log.Errorf("failed to get AWS secrets: %v", err)
-			return fmt.Errorf("failed to get AWS secrets: %w", err)
-		}
-
 		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 		if err != nil {
 			log.Errorf("failed to create S3 bucket and prefix: %v", err)
@@ -297,20 +323,20 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		log.Infof("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job)
 
 		// deleting the contents of the bucket with prefix
-		sess := session.Must(session.NewSession(&aws.Config{
-			Region: aws.String(awsCreds.Region),
-		}))
-
-		s3Svc := s3.New(sess)
-		s3Client := s3manager.NewBatchDelete(sess)
+		s3svc, err := utils.CreateS3Client()
+		if err != nil {
+			log.Errorf("failed to create S3 client: %v", err)
+			return fmt.Errorf("failed to create S3 client: %w", err)
+		}
 
 		// Create a list of all objects with the defined prefix in the bucket
-		iter := s3manager.NewDeleteListIterator(s3Svc, &s3.ListObjectsInput{
+		iter := s3manager.NewDeleteListIterator(s3svc, &s3.ListObjectsInput{
 			Bucket: aws.String(s3o.Bucket),
 			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
 		})
 
 		// Iterate through the objects in the bucket with the prefix and delete them
+		s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
 		if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
 			log.Errorf("failed to delete objects from bucket: %v", err)
 			return fmt.Errorf("failed to delete objects from bucket: %w", err)

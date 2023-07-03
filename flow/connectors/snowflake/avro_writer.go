@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
@@ -76,20 +75,14 @@ func WriteRecordsToS3(
 		}
 	}()
 
-	awsSecrets, err := utils.GetAWSSecrets()
+	s3svc, err := utils.CreateS3Client()
 	if err != nil {
-		log.Errorf("failed to get AWS secrets: %v", err)
-		return fmt.Errorf("failed to get AWS secrets: %w", err)
+		log.Errorf("failed to create S3 client: %v", err)
+		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
-	// Initialize a session that the SDK will use to load
-	// credentials from the shared credentials file. (~/.aws/credentials).
-	sess := session.Must(session.NewSession(&aws.Config{
-		Region: aws.String(awsSecrets.Region),
-	}))
-
 	// Create an uploader with the session and default options
-	uploader := s3manager.NewUploader(sess)
+	uploader := s3manager.NewUploaderWithClient(s3svc)
 
 	// Upload the file to S3.
 	result, err := uploader.Upload(&s3manager.UploadInput{

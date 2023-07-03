@@ -486,6 +486,11 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Snowflake => {
+            let s3_int = opts
+                .get("s3_integration")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+
             let snowflake_config = SnowflakeConfig {
                 account_id: opts
                     .get("account_id")
@@ -513,6 +518,7 @@ fn parse_db_options(
                     .context("no query_timeout specified")?
                     .parse::<u64>()
                     .context("unable to parse query_timeout")?,
+                s3_integration: s3_int,
             };
             let config = Config::SnowflakeConfig(snowflake_config);
             Some(config)
