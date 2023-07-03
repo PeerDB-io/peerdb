@@ -394,7 +394,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	}
 
 	// create empty map of string to interface{}
-	items := make(map[string]interface{})
+	items := make(model.RecordItems)
 	unchangedToastColumns := make(map[string]bool)
 
 	for idx, col := range tuple.Columns {
