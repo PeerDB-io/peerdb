@@ -824,7 +824,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	for colName, genericColType := range sourceSchema.Columns {
 		columns[idx] = &bigquery.FieldSchema{
 			Name: colName,
-			Type: getBigQueryTypeForGenericColumnType(genericColType),
+			Type: qValueKindToBigQueryType(genericColType),
 		}
 		idx++
 	}
@@ -965,7 +965,7 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 	// statement.
 	flattenedProjs := make([]string, 0)
 	for colName, colType := range m.NormalizedTableSchema.Columns {
-		bqType := getBigQueryTypeForGenericColumnType(colType)
+		bqType := qValueKindToBigQueryType(colType)
 		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
 		if bqType == bigquery.FloatFieldType {
 			bqType = "FLOAT64"

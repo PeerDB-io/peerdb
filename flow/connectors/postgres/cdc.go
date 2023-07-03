@@ -425,21 +425,24 @@ func (p *PostgresCDCSource) convertTupleToMap(
 }
 
 func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, formatCode int16) (*qvalue.QValue, error) {
+	var parsedData any
+	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		if dt.Name == "uuid" {
 			// below is required to decode uuid to string
-			parsedData, err := dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
-			if err != nil {
-				return nil, err
-			}
-			return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: parsedData}, nil
+			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
+
 		} else {
-			parsedData, err := dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
-			if err != nil {
-				return nil, err
-			}
-			return &qvalue.QValue{Kind: getQValueKindForPostgresOID(dataType), Value: parsedData}, nil
+			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
+		if err != nil {
+			return nil, err
+		}
+		retVal, err := parseFieldFromPostgresOID(dataType, parsedData)
+		if err != nil {
+			return nil, err
+		}
+		return retVal, nil
 	}
 	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }

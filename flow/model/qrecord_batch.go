@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
@@ -73,7 +74,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 	values := make([]interface{}, numEntries)
 	for i, qValue := range record.Entries {
 		switch qValue.Kind {
-		case qvalue.QValueKindFloat16, qvalue.QValueKindFloat32:
+		case qvalue.QValueKindFloat32:
 			v, ok := qValue.Value.(float32)
 			if !ok {
 				src.err = fmt.Errorf("invalid float32 value")
@@ -111,15 +112,23 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueKindString:
 			values[i] = qValue.Value.(string)
 
-		case qvalue.QValueKindETime:
-			et, ok := qValue.Value.(*qvalue.ExtendedTime)
+		case qvalue.QValueKindTimestamp:
+			t, ok := qValue.Value.(time.Time)
 			if !ok {
 				src.err = fmt.Errorf("invalid ExtendedTime value")
 				return nil, src.err
 			}
-			timestamp := pgtype.Timestamp{Time: et.Time, Valid: true}
+			timestamp := pgtype.Timestamp{Time: t, Valid: true}
 			values[i] = timestamp
 
+		case qvalue.QValueKindTimestampTZ:
+			t, ok := qValue.Value.(time.Time)
+			if !ok {
+				src.err = fmt.Errorf("invalid ExtendedTime value")
+				return nil, src.err
+			}
+			timestampTZ := pgtype.Timestamptz{Time: t, Valid: true}
+			values[i] = timestampTZ
 		case qvalue.QValueKindUUID:
 			if qValue.Value == nil {
 				values[i] = nil

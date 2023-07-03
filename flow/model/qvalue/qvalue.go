@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -19,8 +20,6 @@ func (q *QValue) Equals(other *QValue) bool {
 	switch q.Kind {
 	case QValueKindInvalid:
 		return false // both are invalid we always return false
-	case QValueKindFloat16:
-		return compareFloat32(q.Value, other.Value)
 	case QValueKindFloat32:
 		return compareFloat32(q.Value, other.Value)
 	case QValueKindFloat64:
@@ -39,8 +38,10 @@ func (q *QValue) Equals(other *QValue) bool {
 		return compareStruct(q.Value, other.Value)
 	case QValueKindString:
 		return compareString(q.Value, other.Value)
-	case QValueKindETime:
-		return compareETime(q.Value, other.Value)
+	// all internally represented as a Golang time.Time
+	case QValueKindTime, QValueKindTimeTZ, QValueKindDate,
+		QValueKindTimestamp, QValueKindTimestampTZ:
+		return compareGoTime(q.Value, other.Value)
 	case QValueKindNumeric:
 		return compareNumeric(q.Value, other.Value)
 	case QValueKindBytes:
@@ -86,9 +87,9 @@ func compareFloat64(value1, value2 interface{}) bool {
 	return ok1 && ok2 && float1 == float2
 }
 
-func compareETime(value1, value2 interface{}) bool {
-	et1, ok1 := value1.(*ExtendedTime)
-	et2, ok2 := value2.(*ExtendedTime)
+func compareGoTime(value1, value2 interface{}) bool {
+	et1, ok1 := value1.(*time.Time)
+	et2, ok2 := value2.(*time.Time)
 
 	if !ok1 || !ok2 {
 		return false
@@ -96,8 +97,8 @@ func compareETime(value1, value2 interface{}) bool {
 
 	// TODO: this is a hack, we should be comparing the actual time values
 	// currently this is only used for testing so that is OK.
-	t1 := et1.Time.UnixMilli() / 1000
-	t2 := et2.Time.UnixMilli() / 1000
+	t1 := et1.UnixMilli() / 1000
+	t2 := et2.UnixMilli() / 1000
 
 	return t1 == t2
 }

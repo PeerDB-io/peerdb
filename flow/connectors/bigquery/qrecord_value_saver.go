@@ -3,6 +3,7 @@ package connbigquery
 import (
 	"fmt"
 	"math/big"
+	"time"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -91,12 +92,12 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			}
 			bqValues[k] = val
 
-		case qvalue.QValueKindETime:
-			val, ok := v.Value.(*qvalue.ExtendedTime)
+		case qvalue.QValueKindTimestamp, qvalue.QValueKindDate, qvalue.QValueKindTime:
+			val, ok := v.Value.(*time.Time)
 			if !ok {
-				return nil, "", fmt.Errorf("failed to convert %v to ExtendedTime", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to time.Time", v.Value)
 			}
-			bqValues[k] = val.Time
+			bqValues[k] = val
 
 		case qvalue.QValueKindNumeric:
 			val, ok := v.Value.(*big.Rat)

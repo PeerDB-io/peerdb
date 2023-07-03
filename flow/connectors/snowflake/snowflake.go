@@ -671,10 +671,10 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sour
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
 			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s PRIMARY KEY,",
-				columnName, getSnowflakeTypeForGenericColumnType(genericColumnType)))
+				columnName, qValueKindToSnowflakeType(genericColumnType)))
 		} else {
 			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s,", columnName,
-				getSnowflakeTypeForGenericColumnType(genericColumnType)))
+				qValueKindToSnowflakeType(genericColumnType)))
 		}
 	}
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
@@ -723,7 +723,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		sfType := getSnowflakeTypeForGenericColumnType(genericColumnType)
+		sfType := qValueKindToSnowflakeType(genericColumnType)
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
