@@ -4,33 +4,39 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 type AWSSecrets struct {
 	AccessKeyID     string
 	SecretAccessKey string
+	AwsRoleArn      string
 	Region          string
 }
 
 func GetAWSSecrets() (*AWSSecrets, error) {
-	awsKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	if awsKey == "" {
-		return nil, fmt.Errorf("AWS_ACCESS_KEY_ID must be set")
-	}
-
-	awsSecret := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	if awsSecret == "" {
-		return nil, fmt.Errorf("AWS_SECRET_ACCESS_KEY must be set")
-	}
-
 	awsRegion := os.Getenv("AWS_REGION")
 	if awsRegion == "" {
 		return nil, fmt.Errorf("AWS_REGION must be set")
 	}
 
+	awsKey := os.Getenv("AWS_ACCESS_KEY_ID")
+	awsSecret := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	awsRoleArn := os.Getenv("AWS_ROLE_ARN")
+
+	// one of (awsKey and awsSecret) or awsRoleArn must be set
+	if awsKey == "" && awsSecret == "" && awsRoleArn == "" {
+		return nil, fmt.Errorf("one of (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY) or AWS_ROLE_ARN must be set")
+	}
+
 	return &AWSSecrets{
 		AccessKeyID:     awsKey,
 		SecretAccessKey: awsSecret,
+		AwsRoleArn:      awsRoleArn,
 		Region:          awsRegion,
 	}, nil
 }
@@ -59,4 +65,29 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 		Bucket: bucket,
 		Prefix: prefix,
 	}, nil
+}
+
+func CreateS3Client() (*s3.S3, error) {
+	awsSecrets, err := GetAWSSecrets()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get AWS secrets: %w", err)
+	}
+
+	if awsSecrets.AwsRoleArn != "" {
+		sess := session.Must(session.NewSession(&aws.Config{
+			Region: aws.String(awsSecrets.Region),
+		}))
+
+		creds := stscreds.NewCredentials(sess, awsSecrets.AwsRoleArn)
+
+		s3svc := s3.New(sess, &aws.Config{Credentials: creds})
+		return s3svc, nil
+	} else {
+		sess := session.Must(session.NewSession(&aws.Config{
+			Region: aws.String(awsSecrets.Region),
+		}))
+
+		s3svc := s3.New(sess)
+		return s3svc, nil
+	}
 }

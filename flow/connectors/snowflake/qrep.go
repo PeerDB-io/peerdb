@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	log "github.com/sirupsen/logrus"
@@ -282,12 +281,6 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 
 	// if s3 we need to delete the contents of the bucket
 	if strings.HasPrefix(stagingPath, "s3://") {
-		awsCreds, err := utils.GetAWSSecrets()
-		if err != nil {
-			log.Errorf("failed to get AWS secrets: %v", err)
-			return fmt.Errorf("failed to get AWS secrets: %w", err)
-		}
-
 		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 		if err != nil {
 			log.Errorf("failed to create S3 bucket and prefix: %v", err)
@@ -297,20 +290,20 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		log.Infof("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job)
 
 		// deleting the contents of the bucket with prefix
-		sess := session.Must(session.NewSession(&aws.Config{
-			Region: aws.String(awsCreds.Region),
-		}))
-
-		s3Svc := s3.New(sess)
-		s3Client := s3manager.NewBatchDelete(sess)
+		s3svc, err := utils.CreateS3Client()
+		if err != nil {
+			log.Errorf("failed to create S3 client: %v", err)
+			return fmt.Errorf("failed to create S3 client: %w", err)
+		}
 
 		// Create a list of all objects with the defined prefix in the bucket
-		iter := s3manager.NewDeleteListIterator(s3Svc, &s3.ListObjectsInput{
+		iter := s3manager.NewDeleteListIterator(s3svc, &s3.ListObjectsInput{
 			Bucket: aws.String(s3o.Bucket),
 			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
 		})
 
 		// Iterate through the objects in the bucket with the prefix and delete them
+		s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
 		if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
 			log.Errorf("failed to delete objects from bucket: %v", err)
 			return fmt.Errorf("failed to delete objects from bucket: %w", err)
