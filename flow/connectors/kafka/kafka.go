@@ -37,11 +37,17 @@ func NewKafkaConnector(ctx context.Context,
 
 	if securityProtocol == "SASL_SSL" {
 		rootCertToVerifyBroker := kafkaProtoConfig.SslCertificate
-		connectorConfig.SetKey("security.protocol", "SASL_SSL")
-		connectorConfig.SetKey("ssl.ca.pem", rootCertToVerifyBroker)
-		connectorConfig.SetKey("sasl.mechanism", "PLAIN")
-		connectorConfig.SetKey("sasl.username", kafkaProtoConfig.Username)
-		connectorConfig.SetKey("sasl.password", kafkaProtoConfig.Password)
+		sslConfig := kafka.ConfigMap{
+			"security.protocol": "SASL_SSL",
+			"ssl.ca.location":   rootCertToVerifyBroker,
+			"sasl.mechanisms":   "PLAIN",
+			"sasl.username":     kafkaProtoConfig.Username,
+			"sasl.password":     kafkaProtoConfig.Password,
+		}
+
+		for key, value := range sslConfig {
+			(connectorConfig)[key] = value
+		}
 	}
 
 	producerConfig := &kafka.ConfigMap{
