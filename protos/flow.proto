@@ -22,6 +22,11 @@ message FlowConnectionConfigs {
   map<string, TableSchema> table_name_schema_mapping = 7;
 }
 
+message SetupMetadataTablesInput {
+  peerdb.peers.Peer peer = 1;
+  string flow_job_name = 2;
+}
+
 message SyncFlowOptions { int32 batch_size = 1; }
 
 message NormalizeFlowOptions {

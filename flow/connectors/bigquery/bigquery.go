@@ -192,7 +192,7 @@ func (c *BigQueryConnector) ConnectionActive() bool {
 }
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
-func (c *BigQueryConnector) NeedsSetupMetadataTables() bool {
+func (c *BigQueryConnector) NeedsSetupMetadataTables(jobName string) bool {
 	_, err := c.client.Dataset(c.datasetID).Table(MirrorJobsTable).Metadata(c.ctx)
 	return err != nil
 }

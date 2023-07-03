@@ -69,7 +69,7 @@ func (c *PostgresConnector) ConnectionActive() bool {
 }
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
-func (c *PostgresConnector) NeedsSetupMetadataTables() bool {
+func (c *PostgresConnector) NeedsSetupMetadataTables(jobName string) bool {
 	return false
 }
 

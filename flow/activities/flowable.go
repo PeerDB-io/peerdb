@@ -70,30 +70,32 @@ type FlowableActivity struct{}
 // CheckConnection implements IFlowable.CheckConnection.
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
-	config *protos.Peer,
+	config *protos.SetupMetadataTablesInput,
 ) (*CheckConnectionResult, error) {
-	conn, err := connectors.GetConnector(ctx, config)
+	conn, err := connectors.GetConnector(ctx, config.Peer)
 	defer connectors.CloseConnector(conn)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-
+	needMetadataTables := conn.NeedsSetupMetadataTables(config.FlowJobName)
+	log.Println("Need metadata table for ", config.Peer.Name, " ?", needMetadataTables)
 	return &CheckConnectionResult{
-		NeedsSetupMetadataTables: conn.NeedsSetupMetadataTables(),
+		NeedsSetupMetadataTables: needMetadataTables,
 	}, nil
 }
 
 // SetupMetadataTables implements IFlowable.SetupMetadataTables.
-func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.Peer, jobName string) error {
-	conn, err := connectors.GetConnector(ctx, config)
+func (a *FlowableActivity) SetupMetadataTables(ctx context.Context,
+	config *protos.SetupMetadataTablesInput) error {
+	conn, err := connectors.GetConnector(ctx, config.Peer)
 	defer connectors.CloseConnector(conn)
 
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	if err := conn.SetupMetadataTables(jobName); err != nil {
+	if err := conn.SetupMetadataTables(config.FlowJobName); err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 
@@ -198,7 +200,8 @@ func (a *FlowableActivity) CreateNormalizedTable(
 }
 
 // StartFlow implements IFlowable.StartFlow.
-func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlowInput) (*model.SyncResponse, error) {
+func (a *FlowableActivity) StartFlow(ctx context.Context,
+	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	conn := input.FlowConnectionConfigs
 
 	src, err := connectors.GetConnector(ctx, conn.Source)

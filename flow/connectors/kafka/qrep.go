@@ -8,13 +8,13 @@ import (
 func (c *KafkaConnector) GetQRepPartitions(config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	panic("not implemented")
+	panic("kafka does not yet support query replication")
 }
 
 func (c *KafkaConnector) PullQRepRecords(config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 ) (*model.QRecordBatch, error) {
-	panic("not implemented")
+	panic("kafka does not yet support query replication")
 }
 
 func (c *KafkaConnector) SyncQRepRecords(
@@ -22,13 +22,13 @@ func (c *KafkaConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	records *model.QRecordBatch,
 ) (int, error) {
-	panic("not implemented")
+	panic("kafka does not yet support query replication")
 }
 
 func (c *KafkaConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	return nil
+	panic("kafka does not yet support query replication")
 }
 
 func (c *KafkaConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	panic("not implemented")
+	panic("kafka does not yet support query replication")
 }

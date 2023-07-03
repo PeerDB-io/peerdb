@@ -174,7 +174,7 @@ func (c *SnowflakeConnector) ConnectionActive() bool {
 	return c.database.PingContext(c.ctx) == nil
 }
 
-func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
+func (c *SnowflakeConnector) NeedsSetupMetadataTables(jobName string) bool {
 	result, err := c.checkIfTableExists(peerDBInternalSchema, mirrorJobsTableIdentifier)
 	if err != nil {
 		return true

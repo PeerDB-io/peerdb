@@ -15,7 +15,7 @@ import (
 type Connector interface {
 	Close() error
 	ConnectionActive() bool
-	NeedsSetupMetadataTables() bool
+	NeedsSetupMetadataTables(jobName string) bool
 	SetupMetadataTables(jobName string) error
 	GetLastOffset(jobName string) (*protos.LastSyncState, error)
 	GetLastSyncBatchID(jobName string) (int64, error)

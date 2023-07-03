@@ -60,14 +60,16 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	})
 
 	// first check the source peer connection
-	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Source)
+	srcConfig := &protos.SetupMetadataTablesInput{Peer: config.Source, FlowJobName: config.FlowJobName}
+	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, srcConfig)
 	var srcConnStatus activities.CheckConnectionResult
 	if err := srcConnStatusFuture.Get(ctx, &srcConnStatus); err != nil {
 		return fmt.Errorf("failed to check source peer connection: %w", err)
 	}
 
 	// then check the destination peer connection
-	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Destination)
+	destConfig := &protos.SetupMetadataTablesInput{Peer: config.Destination, FlowJobName: config.FlowJobName}
+	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, destConfig)
 	var destConnStatus activities.CheckConnectionResult
 	if err := destConnStatusFuture.Get(ctx, &destConnStatus); err != nil {
 		return fmt.Errorf("failed to check destination peer connection: %w", err)
@@ -76,7 +78,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	s.logger.Info("ensuring metadata table exists - ", s.PeerFlowName)
 
 	if srcConnStatus.NeedsSetupMetadataTables {
-		fSrc := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Source, config.FlowJobName)
+		fSrc := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, srcConfig)
 		if err := fSrc.Get(ctx, nil); err != nil {
 			return fmt.Errorf("failed to setup source peer metadata tables: %w", err)
 		}
@@ -86,7 +88,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	// then setup the destination peer metadata tables
 	if destConnStatus.NeedsSetupMetadataTables {
-		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Destination)
+		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, destConfig)
 		if err := fDst.Get(ctx, nil); err != nil {
 			return fmt.Errorf("failed to setup destination peer metadata tables: %w", err)
 		}
