@@ -31,7 +31,7 @@ pub struct QRepFlowJob {
     pub target_peer: String,
     pub query_string: String,
     pub flow_options: HashMap<String, Value>,
-    pub description: String
+    pub description: String,
 }
 
 impl FlowHandler {
