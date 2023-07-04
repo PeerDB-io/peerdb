@@ -732,7 +732,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 			// "c2": {"Bytes": "gA==", "Len": 1,"Valid": true}
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s:Bytes) "+
 				"AS %s,", toVariantColumnName, columnName, columnName))
-		// handle time types and interval types
+		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
 		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
 		// 		"Microseconds*1000) "+

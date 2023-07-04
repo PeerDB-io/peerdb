@@ -203,11 +203,12 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		if err := fSrcTableSchema.Get(ctx, &srcTableSchema); err != nil {
 			return nil, fmt.Errorf("failed to fetch schema for source table %s: %w", srcTableName, err)
 		}
-		s.logger.Info("fetched schema for table %s for peer flow %s ", srcTableSchema, s.PeerFlowName)
+		s.logger.Info(fmt.Sprintf("fetched schema for table %s for peer flow %s ", srcTableSchema, s.PeerFlowName))
 
 		tableNameSchemaMapping[flowConnectionConfigs.TableNameMapping[srcTableName]] = srcTableSchema
 
-		s.logger.Info("setting up normalized table for table %s for peer flow - %s", srcTableName, s.PeerFlowName)
+		s.logger.Info(fmt.Sprintf("setting up normalized table for table %s for peer flow - %s",
+			srcTableName, s.PeerFlowName))
 
 		// now setup the normalized tables on the destination peer
 		setupConfig := &protos.SetupNormalizedTableInput{

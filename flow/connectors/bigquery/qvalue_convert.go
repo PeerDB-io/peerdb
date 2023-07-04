@@ -29,11 +29,13 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 	// time related
 	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:
 		return bigquery.TimestampFieldType
+	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - DATE support is incomplete
 	case qvalue.QValueKindDate:
 		return bigquery.DateFieldType
+	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - TIME/TIMETZ support is incomplete
 	case qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
 		return bigquery.TimeFieldType
-	// TODO: handle INTERVAL types again
+	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle INTERVAL types again,
 	// bytes
 	case qvalue.QValueKindBit, qvalue.QValueKindBytes:
 		return bigquery.BytesFieldType
