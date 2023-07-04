@@ -987,10 +987,10 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 		// this needs to be handled again
 		// TODO add interval types again
 		// case model.ColumnTypeInterval:
-		// 	castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
-		// 		"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
-		// 		"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
-		// 		colName, colName, colName, colName)
+		// castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
+		// 	"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
+		// 	"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
+		// 	colName, colName, colName, colName)
 		case qvalue.QValueKindBit:
 			// sample raw data for BIT {"a":{"Bytes":"oA==","Len":3,"Valid":true},"id":1}
 			// need to check correctness TODO
