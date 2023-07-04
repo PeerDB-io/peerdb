@@ -349,7 +349,8 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 	}
 
 	for _, record := range records {
-		writeErr := c.producer.Produce(&record, nil)
+		pushedRecord := record
+		writeErr := c.producer.Produce(&pushedRecord, nil)
 		if writeErr != nil {
 			abortErr := c.producer.AbortTransaction(c.ctx)
 			if abortErr != nil {
