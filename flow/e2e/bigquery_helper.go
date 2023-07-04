@@ -11,7 +11,6 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/civil"
-	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -226,7 +225,7 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 }
 
 func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (*model.QField, error) {
-	qValueKind, err := connbigquery.BigQueryTypeToQValueKind(fieldSchema.Type)
+	qValueKind, err := peer_bq.BigQueryTypeToQValueKind(fieldSchema.Type)
 	if err != nil {
 		return nil, err
 	}
