@@ -114,6 +114,11 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindFloat32:
 		return c.processNullableUnion("float", c.Value.Value)
 	case QValueKindFloat64:
+		if c.TargetDWH == QDWHTypeSnowflake || c.TargetDWH == QDWHTypeBigQuery {
+			if f32Val, ok := c.Value.Value.(float32); ok {
+				return c.processNullableUnion("double", float64(f32Val))
+			}
+		}
 		return c.processNullableUnion("double", c.Value.Value)
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
 		return c.processNullableUnion("long", c.Value.Value)
@@ -145,12 +150,9 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 		return nil, nil
 	}
 
-	t, ok := c.Value.Value.(*time.Time)
+	t, ok := c.Value.Value.(time.Time)
 	if !ok {
 		return nil, fmt.Errorf("invalid Time value")
-	}
-	if t == nil {
-		return nil, nil
 	}
 
 	ret := t.UnixMicro()

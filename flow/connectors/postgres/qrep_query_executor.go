@@ -2,13 +2,11 @@ package connpostgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 )
@@ -103,51 +101,17 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	return batch, nil
 }
 
-func mapRowToQRecord(row pgx.Row, fds []pgconn.FieldDescription) (*model.QRecord, error) {
+func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription) (*model.QRecord, error) {
 	// make vals an empty array of QValue of size len(fds)
 	record := model.NewQRecord(len(fds))
 
-	scanArgs := make([]interface{}, len(fds))
-	for i := range scanArgs {
-		switch fds[i].DataTypeOID {
-		case pgtype.BoolOID:
-			scanArgs[i] = new(pgtype.Bool)
-		case pgtype.TimestampOID:
-			scanArgs[i] = new(pgtype.Timestamp)
-		case pgtype.TimestamptzOID:
-			scanArgs[i] = new(pgtype.Timestamptz)
-		case pgtype.Int4OID:
-			scanArgs[i] = new(pgtype.Int4)
-		case pgtype.Int8OID:
-			scanArgs[i] = new(pgtype.Int8)
-		case pgtype.Float4OID:
-			scanArgs[i] = new(pgtype.Float4)
-		case pgtype.Float8OID:
-			scanArgs[i] = new(pgtype.Float8)
-		case pgtype.TextOID:
-			scanArgs[i] = new(pgtype.Text)
-		case pgtype.VarcharOID:
-			scanArgs[i] = new(pgtype.Text)
-		case pgtype.NumericOID:
-			scanArgs[i] = new(pgtype.Numeric)
-		case pgtype.UUIDOID:
-			scanArgs[i] = new(pgtype.UUID)
-		case pgtype.ByteaOID:
-			scanArgs[i] = new(sql.RawBytes)
-		case pgtype.DateOID:
-			scanArgs[i] = new(pgtype.Date)
-		default:
-			scanArgs[i] = new(pgtype.Text)
-		}
-	}
-
-	err := row.Scan(scanArgs...)
+	values, err := row.Values()
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
 
 	for i, fd := range fds {
-		tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, scanArgs[i])
+		tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse field: %w", err)
 		}

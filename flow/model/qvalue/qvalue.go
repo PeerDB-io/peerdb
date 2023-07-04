@@ -3,6 +3,7 @@ package qvalue
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"reflect"
 	"strconv"
@@ -55,6 +56,22 @@ func (q *QValue) Equals(other *QValue) bool {
 	}
 
 	return false
+}
+
+func (q *QValue) GoTimeConvert() (string, error) {
+	if q.Kind == QValueKindTime {
+		return q.Value.(time.Time).Format("15:04:05.999999"), nil
+	} else if q.Kind == QValueKindTimeTZ {
+		return q.Value.(time.Time).Format("15:04:05.999999-0700"), nil
+	} else if q.Kind == QValueKindDate {
+		return q.Value.(time.Time).Format("2006-01-02"), nil
+	} else if q.Kind == QValueKindTimestamp {
+		return q.Value.(time.Time).Format("2006-01-02 15:04:05.999999"), nil
+	} else if q.Kind == QValueKindTimestampTZ {
+		return q.Value.(time.Time).Format("2006-01-02 15:04:05.999999-0700"), nil
+	} else {
+		return "", fmt.Errorf("unsupported QValueKind: %s", q.Kind)
+	}
 }
 
 func compareInt16(value1, value2 interface{}) bool {

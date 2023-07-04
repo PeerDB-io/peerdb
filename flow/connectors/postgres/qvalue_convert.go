@@ -1,7 +1,7 @@
 package connpostgres
 
 import (
-	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -67,106 +67,88 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 
 	switch qvalueKind {
 	case qvalue.QValueKindTimestamp:
-		timestamp := value.(*pgtype.Timestamp)
-		if timestamp.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindTimestamp, Value: timestamp.Time}
-		}
+		timestamp := value.(time.Time)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindTimestamp, Value: timestamp}
 	case qvalue.QValueKindTimestampTZ:
-		timestamp := value.(*pgtype.Timestamptz)
-		if timestamp.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindTimestampTZ, Value: timestamp.Time}
-		}
+		timestamp := value.(time.Time)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindTimestampTZ, Value: timestamp}
 	case qvalue.QValueKindDate:
-		date := value.(*pgtype.Date)
-		if date.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindDate, Value: date.Time}
-		}
+		date := value.(time.Time)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindDate, Value: date}
 	case qvalue.QValueKindTime:
-		timeVal := value.(*pgtype.Text)
+		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
+			var timeValStr any
+			timeValStr, err := timeVal.Value()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse time: %w", err)
+			}
 			// edge case, only Postgres supports this extreme value for time
-			timeVal.String = strings.Replace(timeVal.String, "24:00:00.000000", "23:59:59.999999", 1)
-			t, err := time.Parse("15:04:05.999999", timeVal.String)
+			timeValStr = strings.Replace(timeValStr.(string), "24:00:00.000000", "23:59:59.999999", 1)
+			t, err := time.Parse("15:04:05.999999", timeValStr.(string))
+			t = t.AddDate(1970, 0, 0)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse time: %w", err)
 			}
 			val = &qvalue.QValue{Kind: qvalue.QValueKindTime, Value: t}
 		}
 	case qvalue.QValueKindTimeTZ:
-		timeVal := value.(*pgtype.Text)
-		if timeVal.Valid {
-			// edge case, Postgres supports this extreme value for time
-			timeVal.String = strings.Replace(timeVal.String, "24:00:00.000000", "23:59:59.999999", 1)
-			t, err := time.Parse("15:04:05.999999-07:00", timeVal.String)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse time: %w", err)
-			}
-			val = &qvalue.QValue{Kind: qvalue.QValueKindTime, Value: t}
+		timeVal := value.(string)
+		// edge case, Postgres supports this extreme value for time
+		timeVal = strings.Replace(timeVal, "24:00:00.000000", "23:59:59.999999", 1)
+		t, err := time.Parse("15:04:05.999999-0700", timeVal)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse time: %w", err)
 		}
+		t = t.AddDate(1970, 0, 0)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindTime, Value: t}
+
 	case qvalue.QValueKindBoolean:
-		boolVal := value.(*pgtype.Bool)
-		if boolVal.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: boolVal.Bool}
-		}
+		boolVal := value.(bool)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: boolVal}
 	case qvalue.QValueKindJSON:
 		// TODO: improve JSON support
-		strVal := value.(*pgtype.Text)
-		if strVal != nil {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: strVal.String}
+		jsonVal := value.(map[string]interface{})
+		jsonValStr, err := json.Marshal(jsonVal)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse json: %w", err)
 		}
+		val = &qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: string(jsonValStr)}
 	case qvalue.QValueKindInt16:
-		intVal, ok := value.(*pgtype.Int2)
-		if ok && intVal.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: intVal.Int16}
-		} else if !ok {
-			intVal2 := value.(int16)
-			val = &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: intVal2}
-		}
+		intVal := value.(int16)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindInt16, Value: intVal}
 	case qvalue.QValueKindInt32:
-		intVal, ok := value.(*pgtype.Int4)
-		if ok && intVal.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: intVal.Int32}
-		} else if !ok {
-			intVal2 := value.(int32)
-			val = &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: intVal2}
-		}
+		intVal := value.(int32)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: intVal}
 	case qvalue.QValueKindInt64:
-		intVal, ok := value.(*pgtype.Int8)
-		if ok && intVal.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: intVal.Int64}
-		} else if !ok {
-			intVal2 := value.(int64)
-			val = &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: intVal2}
-		}
-	// TODO: check for handling of QValueKindFloat16
+		intVal := value.(int64)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: intVal}
 	case qvalue.QValueKindFloat32:
-		floatVal := value.(*pgtype.Float4)
-		if floatVal.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: floatVal.Float32}
-		}
+		floatVal := value.(float32)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: floatVal}
 	case qvalue.QValueKindFloat64:
-		floatVal := value.(*pgtype.Float8)
-		if floatVal.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: floatVal.Float64}
-		}
+		floatVal := value.(float64)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: floatVal}
 	case qvalue.QValueKindString:
-		textVal := value.(*pgtype.Text)
-		if textVal.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindString, Value: textVal.String}
-		}
+		textVal := value.(string)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindString, Value: textVal}
 	case qvalue.QValueKindUUID:
-		uuidVal := value.(*pgtype.UUID)
-		if uuidVal.Valid {
-			val = &qvalue.QValue{Kind: qvalue.QValueKindUUID, Value: uuidVal.Bytes}
+		switch value.(type) {
+		case string:
+			val = &qvalue.QValue{Kind: qvalue.QValueKindUUID, Value: value}
+		case [16]byte:
+			val = &qvalue.QValue{Kind: qvalue.QValueKindUUID, Value: value}
+		default:
+			return nil, fmt.Errorf("failed to parse UUID: %v", value)
 		}
 	case qvalue.QValueKindBytes:
-		rawBytes := value.(*sql.RawBytes)
-		val = &qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: []byte(*rawBytes)}
+		rawBytes := value.([]byte)
+		val = &qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: rawBytes}
 	// TODO: check for handling of QValueKindBit
 	case qvalue.QValueKindNumeric:
-		numVal := value.(*pgtype.Numeric)
+		numVal := value.(pgtype.Numeric)
 		if numVal.Valid {
-			rat, err := numericToRat(numVal)
+			rat, err := numericToRat(&numVal)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert numeric [%v] to rat: %w", value, err)
 			}

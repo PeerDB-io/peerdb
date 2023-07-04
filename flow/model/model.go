@@ -39,7 +39,17 @@ type RecordItems map[string]qvalue.QValue
 func (r RecordItems) ToJSON() (string, error) {
 	jsonStruct := make(map[string]interface{})
 	for k, v := range r {
-		jsonStruct[k] = v.Value
+		var err error
+		switch v.Kind {
+		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
+			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
+			jsonStruct[k], err = v.GoTimeConvert()
+			if err != nil {
+				return "", err
+			}
+		default:
+			jsonStruct[k] = v.Value
+		}
 	}
 	jsonBytes, err := json.Marshal(jsonStruct)
 	if err != nil {

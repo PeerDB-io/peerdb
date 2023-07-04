@@ -3,7 +3,6 @@ package connbigquery
 import (
 	"fmt"
 	"math/big"
-	"time"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -64,10 +63,17 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			}
 			bqValues[k] = val
 
+		case qvalue.QValueKindInt16:
+			val, ok := v.Value.(int16)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to int16", v.Value)
+			}
+			bqValues[k] = val
+
 		case qvalue.QValueKindInt32:
 			val, ok := v.Value.(int32)
 			if !ok {
-				return nil, "", fmt.Errorf("failed to convert %v to int64", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to int32", v.Value)
 			}
 			bqValues[k] = val
 
@@ -93,11 +99,11 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			bqValues[k] = val
 
 		case qvalue.QValueKindTimestamp, qvalue.QValueKindDate, qvalue.QValueKindTime:
-			val, ok := v.Value.(*time.Time)
-			if !ok {
-				return nil, "", fmt.Errorf("failed to convert %v to time.Time", v.Value)
+			var err error
+			bqValues[k], err = v.GoTimeConvert()
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to convert parse %v into time.Time", v)
 			}
-			bqValues[k] = val
 
 		case qvalue.QValueKindNumeric:
 			val, ok := v.Value.(*big.Rat)
