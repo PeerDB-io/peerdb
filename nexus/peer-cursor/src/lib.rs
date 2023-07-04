@@ -51,4 +51,6 @@ pub trait QueryExecutor: Send + Sync {
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput>;
 
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>>;
+
+    async fn is_connection_valid(&self) -> anyhow::Result<bool>;
 }

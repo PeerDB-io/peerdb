@@ -16,7 +16,7 @@ mod stream;
 // PostgresQueryExecutor is a QueryExecutor that uses a Postgres database as its
 // backing store.
 pub struct PostgresQueryExecutor {
-    _config: PostgresConfig,
+    config: PostgresConfig,
     peername: Option<String>,
     client: Box<Client>,
 }
@@ -59,7 +59,7 @@ impl PostgresQueryExecutor {
             })?;
 
         Ok(Self {
-            _config: config.clone(),
+            config: config.clone(),
             peername,
             client: Box::new(client),
         })
@@ -172,5 +172,10 @@ impl QueryExecutor for PostgresQueryExecutor {
             }
             _ => Ok(None),
         }
+    }
+
+    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
+        let _ = PostgresQueryExecutor::new(None, &self.config).await?;
+        Ok(true)
     }
 }

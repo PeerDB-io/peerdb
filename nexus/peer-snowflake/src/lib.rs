@@ -4,6 +4,8 @@ use cursor::SnowflakeCursorManager;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use sqlparser::dialect::GenericDialect;
+use sqlparser::parser;
 use std::cmp::min;
 use std::{collections::HashMap, time::Duration};
 use stream::SnowflakeDataType;
@@ -84,6 +86,7 @@ pub struct ResultSet {
 struct PartitionResult {
     data: Vec<Vec<Option<String>>>,
 }
+
 pub struct SnowflakeQueryExecutor {
     config: SnowflakeConfig,
     partition_number: usize,
@@ -433,5 +436,12 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 "only SELECT statements are supported in bigquery".to_owned(),
             )))),
         }
+    }
+
+    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
+        let sql = "SELECT 1;";
+        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+        let _ = self.execute(&test_stmt[0]).await?;
+        Ok(true)
     }
 }
