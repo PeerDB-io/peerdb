@@ -87,13 +87,6 @@ struct PartitionResult {
     data: Vec<Vec<Option<String>>>,
 }
 
-pub async fn sf_connection_valid(sf_config: SnowflakeConfig) -> anyhow::Result<bool> {
-    let sf_client = SnowflakeQueryExecutor::new(&sf_config).await?;
-    let sql = "SELECT 1;";
-    let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
-    let _ = sf_client.execute(&test_stmt[0]).await?;
-    Ok(true)
-}
 pub struct SnowflakeQueryExecutor {
     config: SnowflakeConfig,
     partition_number: usize,
@@ -443,5 +436,12 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 "only SELECT statements are supported in bigquery".to_owned(),
             )))),
         }
+    }
+
+    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
+        let sql = "SELECT 1;";
+        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+        let _ = self.execute(&test_stmt[0]).await?;
+        Ok(true)
     }
 }

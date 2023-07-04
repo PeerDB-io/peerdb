@@ -11,22 +11,16 @@ use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peers::BigqueryConfig;
-use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
+use sqlparser::{
+    ast::{CloseCursor, Expr, FetchDirection, Statement, Value},
+    dialect::GenericDialect,
+    parser,
+};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;
 mod cursor;
 mod stream;
-
-pub async fn bq_connection_valid(bq_config: BigqueryConfig) -> anyhow::Result<bool> {
-    let project_id = bq_config.clone().project_id;
-    let bq_client = bq_client_from_config(bq_config).await?;
-    let _ = bq_client
-        .job()
-        .query(&project_id, QueryRequest::new("SELECT 1;"))
-        .await?;
-    Ok(true)
-}
 
 pub struct BigQueryQueryExecutor {
     peer_name: String,
@@ -264,5 +258,11 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 "only SELECT statements are supported in bigquery".to_owned(),
             )))),
         }
+    }
+    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
+        let sql = "SELECT 1;";
+        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+        let _ = self.execute(&test_stmt[0]).await?;
+        Ok(true)
     }
 }

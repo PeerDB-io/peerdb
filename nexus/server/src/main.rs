@@ -8,14 +8,12 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
-use peer_bigquery::{bq_connection_valid, BigQueryQueryExecutor};
+use peer_bigquery::BigQueryQueryExecutor;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, SchemaRef,
 };
-use peer_postgres::pg_connection_valid;
-use peer_snowflake::sf_connection_valid;
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgerror::PgError;
 use pgwire::{
@@ -160,20 +158,13 @@ impl NexusBackend {
                     peer,
                     if_not_exists: _,
                 } => {
-                    // Checking if you can connect to the peer with the config
-                    match peer.clone().config {
-                        Some(Config::BigqueryConfig(bq_config)) => {
-                            bq_connection_valid(bq_config).await
-                        }
-                        Some(Config::SnowflakeConfig(sf_config)) => {
-                            sf_connection_valid(sf_config).await
-                        }
-                        Some(Config::PostgresConfig(pg_config)) => {
-                            pg_connection_valid(pg_config).await
-                        }
-                        _ => panic!("Peer config not supported"),
-                    }
-                    .map_err(|e| {
+                    let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
+                        PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: format!("unable to get peer executor: {:?}", err),
+                        }))
+                    })?;
+                    peer_executor.is_connection_valid().await.map_err(|e| {
+                        self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
                         PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
                             "internal_error".to_owned(),
@@ -241,7 +232,7 @@ impl NexusBackend {
                             }))
                         })?;
                     // make a request to the flow service to start the job.
-                    let workflow_id = self
+                    let _workflow_id = self
                         .flow_handler
                         .start_qrep_flow_job(&qrep_flow_job)
                         .await
@@ -319,7 +310,11 @@ impl NexusBackend {
                     QueryAssocation::Peer(peer) => {
                         tracing::info!("handling peer[{}] query: {}", peer.name, stmt);
                         peer_holder = Some(peer.clone());
-                        self.get_peer_executor(&peer).await
+                        self.get_peer_executor(&peer).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to get peer executor: {:?}", err),
+                            }))
+                        })?
                     }
                     QueryAssocation::Catalog => {
                         tracing::info!("handling catalog query: {}", stmt);
@@ -349,7 +344,11 @@ impl NexusBackend {
                             let catalog = self.catalog.lock().await;
                             catalog.get_executor()
                         }
-                        Some(peer) => self.get_peer_executor(peer).await,
+                        Some(peer) => self.get_peer_executor(peer).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to get peer executor: {:?}", err),
+                            }))
+                        })?,
                     }
                 };
 
@@ -360,32 +359,25 @@ impl NexusBackend {
         }
     }
 
-    async fn get_peer_executor(&self, peer: &Peer) -> Arc<Box<dyn QueryExecutor>> {
+    async fn get_peer_executor(&self, peer: &Peer) -> anyhow::Result<Arc<Box<dyn QueryExecutor>>> {
         if let Some(executor) = self.executors.get(&peer.name) {
-            return Arc::clone(executor.value());
+            return Ok(Arc::clone(executor.value()));
         }
 
         let executor = match &peer.config {
             Some(Config::BigqueryConfig(ref c)) => {
                 let peer_name = peer.name.clone();
                 let executor =
-                    BigQueryQueryExecutor::new(peer_name, c, self.peer_connections.clone())
-                        .await
-                        .unwrap();
+                    BigQueryQueryExecutor::new(peer_name, c, self.peer_connections.clone()).await?;
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
             Some(Config::PostgresConfig(ref c)) => {
                 let peername = Some(peer.name.clone());
-                let executor = peer_postgres::PostgresQueryExecutor::new(peername, c)
-                    .await
-                    .unwrap();
+                let executor = peer_postgres::PostgresQueryExecutor::new(peername, c).await?;
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
             Some(Config::SnowflakeConfig(ref c)) => {
-                let peername = Some(peer.name.clone());
-                let executor = peer_snowflake::SnowflakeQueryExecutor::new(c)
-                    .await
-                    .unwrap();
+                let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
             _ => {
@@ -395,7 +387,7 @@ impl NexusBackend {
 
         self.executors
             .insert(peer.name.clone(), Arc::clone(&executor));
-        executor
+        Ok(executor)
     }
 }
 
@@ -522,7 +514,15 @@ impl ExtendedQueryHandler for NexusBackend {
                         // if the peer is of type bigquery, let us route the query to bq.
                         match &peer.config {
                             Some(Config::BigqueryConfig(_)) => {
-                                let executor = self.get_peer_executor(peer).await;
+                                let executor =
+                                    self.get_peer_executor(peer).await.map_err(|err| {
+                                        PgWireError::ApiError(Box::new(PgError::Internal {
+                                            err_msg: format!(
+                                                "unable to get peer executor: {:?}",
+                                                err
+                                            ),
+                                        }))
+                                    })?;
                                 executor.describe(stmt).await?
                             }
                             _ => {
