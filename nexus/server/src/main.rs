@@ -8,12 +8,14 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
-use peer_bigquery::BigQueryQueryExecutor;
+use peer_bigquery::{bq_connection_valid, BigQueryQueryExecutor};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, SchemaRef,
 };
+use peer_postgres::pg_connection_valid;
+use peer_snowflake::sf_connection_valid;
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgerror::PgError;
 use pgwire::{
@@ -158,6 +160,26 @@ impl NexusBackend {
                     peer,
                     if_not_exists: _,
                 } => {
+                    // Checking if you can connect to the peer with the config
+                    match peer.clone().config {
+                        Some(Config::BigqueryConfig(bq_config)) => {
+                            bq_connection_valid(bq_config).await
+                        }
+                        Some(Config::SnowflakeConfig(sf_config)) => {
+                            sf_connection_valid(sf_config).await
+                        }
+                        Some(Config::PostgresConfig(pg_config)) => {
+                            pg_connection_valid(pg_config).await
+                        }
+                        _ => panic!("Peer config not supported"),
+                    }
+                    .map_err(|e| {
+                        PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "internal_error".to_owned(),
+                            format!("[peer]: invalid configuration: {}", e.to_string()),
+                        )))
+                    })?;
                     let catalog = self.catalog.lock().await;
                     catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(

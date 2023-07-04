@@ -4,6 +4,8 @@ use cursor::SnowflakeCursorManager;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use sqlparser::dialect::GenericDialect;
+use sqlparser::parser;
 use std::cmp::min;
 use std::{collections::HashMap, time::Duration};
 use stream::SnowflakeDataType;
@@ -83,6 +85,14 @@ pub struct ResultSet {
 #[derive(Deserialize)]
 struct PartitionResult {
     data: Vec<Vec<Option<String>>>,
+}
+
+pub async fn sf_connection_valid(sf_config: SnowflakeConfig) -> anyhow::Result<bool> {
+    let sf_client = SnowflakeQueryExecutor::new(&sf_config).await?;
+    let sql = "SELECT 1;";
+    let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+    let _ = sf_client.execute(&test_stmt[0]).await?;
+    Ok(true)
 }
 pub struct SnowflakeQueryExecutor {
     config: SnowflakeConfig,

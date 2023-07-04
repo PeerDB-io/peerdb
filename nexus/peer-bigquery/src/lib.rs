@@ -18,6 +18,16 @@ mod ast;
 mod cursor;
 mod stream;
 
+pub async fn bq_connection_valid(bq_config: BigqueryConfig) -> anyhow::Result<bool> {
+    let project_id = bq_config.clone().project_id;
+    let bq_client = bq_client_from_config(bq_config).await?;
+    let _ = bq_client
+        .job()
+        .query(&project_id, QueryRequest::new("SELECT 1;"))
+        .await?;
+    Ok(true)
+}
+
 pub struct BigQueryQueryExecutor {
     peer_name: String,
     config: BigqueryConfig,
@@ -41,7 +51,7 @@ pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Cli
     };
     let client = Client::from_service_account_key(sa_key, false)
         .await
-        .expect("unable to create GcpClient.");
+        .context("unable to create GcpClient.")?;
 
     Ok(client)
 }
