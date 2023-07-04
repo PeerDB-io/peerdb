@@ -216,13 +216,13 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 		}, nil
 	case bigquery.DateFieldType:
 		return map[string]string{
-			"type":        "int",
-			"logicalType": "date",
+			"type":        "long",
+			"logicalType": "timestamp-micros",
 		}, nil
 	case bigquery.TimeFieldType:
 		return map[string]string{
 			"type":        "long",
-			"logicalType": "time-micros",
+			"logicalType": "timestamp-micros",
 		}, nil
 	case bigquery.DateTimeFieldType:
 		return map[string]interface{}{

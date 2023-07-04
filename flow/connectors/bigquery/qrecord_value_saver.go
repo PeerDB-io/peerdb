@@ -63,10 +63,17 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			}
 			bqValues[k] = val
 
+		case qvalue.QValueKindInt16:
+			val, ok := v.Value.(int16)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to int16", v.Value)
+			}
+			bqValues[k] = val
+
 		case qvalue.QValueKindInt32:
 			val, ok := v.Value.(int32)
 			if !ok {
-				return nil, "", fmt.Errorf("failed to convert %v to int64", v.Value)
+				return nil, "", fmt.Errorf("failed to convert %v to int32", v.Value)
 			}
 			bqValues[k] = val
 
@@ -91,12 +98,12 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			}
 			bqValues[k] = val
 
-		case qvalue.QValueKindETime:
-			val, ok := v.Value.(*qvalue.ExtendedTime)
-			if !ok {
-				return nil, "", fmt.Errorf("failed to convert %v to ExtendedTime", v.Value)
+		case qvalue.QValueKindTimestamp, qvalue.QValueKindDate, qvalue.QValueKindTime:
+			var err error
+			bqValues[k], err = v.GoTimeConvert()
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to convert parse %v into time.Time", v)
 			}
-			bqValues[k] = val.Time
 
 		case qvalue.QValueKindNumeric:
 			val, ok := v.Value.(*big.Rat)

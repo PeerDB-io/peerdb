@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -133,11 +134,11 @@ func (suite *PostgresCDCTestSuite) validateInsertedToastRecords(records []model.
 		suite.Equal(dstTableName, insertRecord.DestinationTableName)
 		suite.Equal(5, len(insertRecord.Items))
 
-		suite.Equal(int32(idx+1), insertRecord.Items["id"].(int32))
-		suite.Equal(32768, len(insertRecord.Items["n_t"].(string)))
-		suite.Equal(32768, len(insertRecord.Items["lz4_t"].(string)))
-		suite.Equal(32768, len(insertRecord.Items["n_b"].([]byte)))
-		suite.Equal(32768, len(insertRecord.Items["lz4_b"].([]byte)))
+		suite.Equal(int32(idx+1), insertRecord.Items["id"].Value.(int32))
+		suite.Equal(32768, len(insertRecord.Items["n_t"].Value.(string)))
+		suite.Equal(32768, len(insertRecord.Items["lz4_t"].Value.(string)))
+		suite.Equal(32768, len(insertRecord.Items["n_b"].Value.([]byte)))
+		suite.Equal(32768, len(insertRecord.Items["lz4_b"].Value.([]byte)))
 	}
 }
 
@@ -175,8 +176,8 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
 	suite.Equal(2, len(updateRecord.NewItems))
-	suite.Equal(int32(1), updateRecord.NewItems["id"].(int32))
-	suite.Equal(65536, len(updateRecord.NewItems["n_t"].(string)))
+	suite.Equal(int32(1), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(65536, len(updateRecord.NewItems["n_t"].Value.(string)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
 	suite.True(updateRecord.UnchangedToastColumns["n_b"])
@@ -187,8 +188,8 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
 	suite.Equal(2, len(updateRecord.NewItems))
-	suite.Equal(int32(2), updateRecord.NewItems["id"].(int32))
-	suite.Equal(65536, len(updateRecord.NewItems["lz4_b"].([]byte)))
+	suite.Equal(int32(2), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(65536, len(updateRecord.NewItems["lz4_b"].Value.([]byte)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
 	suite.True(updateRecord.UnchangedToastColumns["n_b"])
@@ -199,8 +200,8 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
 	suite.Equal(2, len(updateRecord.NewItems))
-	suite.Equal(int32(3), updateRecord.NewItems["id"].(int32))
-	suite.Equal(65536, len(updateRecord.NewItems["n_b"].([]byte)))
+	suite.Equal(int32(3), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(65536, len(updateRecord.NewItems["n_b"].Value.([]byte)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
 	suite.True(updateRecord.UnchangedToastColumns["n_t"])
@@ -211,7 +212,7 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(srcTableName, deleteRecord.SourceTableName)
 	suite.Equal(dstTableName, deleteRecord.DestinationTableName)
 	suite.Equal(5, len(deleteRecord.Items))
-	suite.Equal(int32(3), deleteRecord.Items["id"].(int32))
+	suite.Equal(int32(3), deleteRecord.Items["id"].Value.(int32))
 	suite.Nil(deleteRecord.Items["n_t"])
 	suite.Nil(deleteRecord.Items["lz4_t"])
 	suite.Nil(deleteRecord.Items["n_b"])
@@ -397,8 +398,8 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	tableNameSchemaMapping[nonExistentFlowDstTableName] = &protos.TableSchema{
 		TableIdentifier: nonExistentFlowSrcTableName,
 		Columns: map[string]string{
-			"id":   model.ColumnTypeInt32,
-			"name": model.ColumnTypeString,
+			"id":   string(qvalue.QValueKindInt32),
+			"name": string(qvalue.QValueKindString),
 		},
 		PrimaryKeyColumn: "id",
 	}
@@ -494,8 +495,8 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	suite.Equal(&protos.TableSchema{
 		TableIdentifier: simpleHappyFlowSrcTableName,
 		Columns: map[string]string{
-			"id":   model.ColumnTypeInt32,
-			"name": model.ColumnTypeString,
+			"id":   string(qvalue.QValueKindInt32),
+			"name": string(qvalue.QValueKindString),
 		},
 		PrimaryKeyColumn: "id",
 	}, tableNameSchema)
@@ -603,36 +604,36 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 	suite.Equal(&protos.TableSchema{
 		TableIdentifier: allTypesHappyFlowSrcTableName,
 		Columns: map[string]string{
-			"id":  model.ColumnTypeInt64,
-			"c1":  model.ColumnTypeInt64,
+			"id":  string(qvalue.QValueKindInt64),
+			"c1":  string(qvalue.QValueKindInt64),
 			"c2":  model.ColumnHexBit,
 			"c3":  model.ColumnHexBit,
-			"c4":  model.ColumnTypeBoolean,
-			"c6":  model.ColumnHexBytes,
-			"c7":  model.ColumnTypeString,
-			"c8":  model.ColumnTypeString,
-			"c9":  model.ColumnTypeString,
-			"c11": model.ColumnTypeDate,
-			"c12": model.ColumnTypeFloat64,
-			"c13": model.ColumnTypeFloat64,
+			"c4":  string(qvalue.QValueKindBoolean),
+			"c6":  string(qvalue.QValueKindBytes),
+			"c7":  string(qvalue.QValueKindString),
+			"c8":  string(qvalue.QValueKindString),
+			"c9":  string(qvalue.QValueKindString),
+			"c11": string(qvalue.QValueKindDate),
+			"c12": string(qvalue.QValueKindFloat64),
+			"c13": string(qvalue.QValueKindFloat64),
 			"c14": model.ColumnTypeString,
-			"c15": model.ColumnTypeInt32,
+			"c15": string(qvalue.QValueKindInt32),
 			"c16": model.ColumnTypeInterval,
-			"c17": model.ColumnTypeJSON,
-			"c18": model.ColumnTypeJSON,
+			"c17": string(qvalue.QValueKindJSON),
+			"c18": string(qvalue.QValueKindJSON),
 			"c21": model.ColumnTypeString,
 			"c22": model.ColumnTypeString,
-			"c23": model.ColumnTypeNumeric,
-			"c24": model.ColumnTypeInt64,
-			"c28": model.ColumnTypeFloat32,
-			"c29": model.ColumnTypeInt16,
-			"c30": model.ColumnTypeInt16,
-			"c31": model.ColumnTypeInt32,
+			"c23": string(qvalue.QValueKindNumeric),
+			"c24": string(qvalue.QValueKindInt64),
+			"c28": string(qvalue.QValueKindFloat32),
+			"c29": string(qvalue.QValueKindInt16),
+			"c30": string(qvalue.QValueKindInt16),
+			"c31": string(qvalue.QValueKindInt32),
 			"c32": model.ColumnTypeString,
-			"c33": model.ColumnTypeTimestamp,
-			"c34": model.ColumnTypeTimeStampWithTimeZone,
-			"c35": model.ColumnTypeTime,
-			"c36": model.ColumnTypeTimeWithTimeZone,
+			"c33": string(qvalue.QValueKindTimestamp),
+			"c34": string(qvalue.QValueKindTimestampTZ),
+			"c35": string(qvalue.QValueKindTime),
+			"c36": string(qvalue.QValueKindTimeTZ),
 			"c37": model.ColumnTypeString,
 			"c38": model.ColumnTypeString,
 			"c39": model.ColumnTypeString,
@@ -714,11 +715,11 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	suite.Equal(&protos.TableSchema{
 		TableIdentifier: toastHappyFlowSrcTableName,
 		Columns: map[string]string{
-			"id":    model.ColumnTypeInt32,
-			"n_t":   model.ColumnTypeString,
-			"lz4_t": model.ColumnTypeString,
-			"n_b":   model.ColumnHexBytes,
-			"lz4_b": model.ColumnHexBytes,
+			"id":    string(qvalue.QValueKindInt32),
+			"n_t":   string(qvalue.QValueKindString),
+			"lz4_t": string(qvalue.QValueKindString),
+			"n_b":   string(qvalue.QValueKindBytes),
+			"lz4_b": string(qvalue.QValueKindBytes),
 		},
 		PrimaryKeyColumn: "id",
 	}, tableNameSchema)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro"
@@ -41,7 +42,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "long",
 		}, nil
-	case QValueKindFloat16, QValueKindFloat32:
+	case QValueKindFloat32:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "float",
 		}, nil
@@ -66,7 +67,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 				"scale":       9,
 			},
 		}, nil
-	case QValueKindETime:
+	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]string{
 				"type":        "long",
@@ -98,8 +99,8 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	switch c.Value.Kind {
 	case QValueKindInvalid:
 		return nil, fmt.Errorf("invalid QValueKind: %v", c.Value)
-	case QValueKindETime:
-		t, err := c.processExtendedTime()
+	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
+		t, err := c.processGoTime()
 		if err != nil || t == nil {
 			return t, err
 		}
@@ -110,9 +111,14 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		}
 	case QValueKindString:
 		return c.processNullableUnion("string", c.Value.Value)
-	case QValueKindFloat16, QValueKindFloat32:
+	case QValueKindFloat32:
 		return c.processNullableUnion("float", c.Value.Value)
 	case QValueKindFloat64:
+		if c.TargetDWH == QDWHTypeSnowflake || c.TargetDWH == QDWHTypeBigQuery {
+			if f32Val, ok := c.Value.Value.(float32); ok {
+				return c.processNullableUnion("double", float64(f32Val))
+			}
+		}
 		return c.processNullableUnion("double", c.Value.Value)
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
 		return c.processNullableUnion("long", c.Value.Value)
@@ -139,32 +145,23 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	}
 }
 
-func (c *QValueAvroConverter) processExtendedTime() (interface{}, error) {
+func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 	if c.Value.Value == nil && c.Nullable {
 		return nil, nil
 	}
 
-	et, ok := c.Value.Value.(*ExtendedTime)
+	t, ok := c.Value.Value.(time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid ExtendedTime value")
+		return nil, fmt.Errorf("invalid Time value")
 	}
 
-	if et == nil {
-		return nil, nil
+	ret := t.UnixMicro()
+	// Snowflake has issues with avro timestamp types
+	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+	if c.TargetDWH == QDWHTypeSnowflake {
+		ret = ret / 1000000
 	}
-
-	switch et.NestedKind.Type {
-	case DateTimeKindType, DateKindType, TimeKindType:
-		ret := et.Time.UnixMicro()
-		// Snowflake has issues with avro timestamp types
-		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-		if c.TargetDWH == QDWHTypeSnowflake {
-			ret = ret / 1000000
-		}
-		return ret, nil
-	default:
-		return nil, fmt.Errorf("unsupported ExtendedTimeKindType: %s", et.NestedKind.Type)
-	}
+	return ret, nil
 }
 
 func (c *QValueAvroConverter) processNullableUnion(

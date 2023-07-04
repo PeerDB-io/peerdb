@@ -1,9 +1,11 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
 type PullRecordsRequest struct {
@@ -29,7 +31,31 @@ type Record interface {
 	// get table name
 	GetTableName() string
 	// get columns and values for the record
-	GetItems() map[string]interface{}
+	GetItems() RecordItems
+}
+
+type RecordItems map[string]qvalue.QValue
+
+func (r RecordItems) ToJSON() (string, error) {
+	jsonStruct := make(map[string]interface{})
+	for k, v := range r {
+		var err error
+		switch v.Kind {
+		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
+			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
+			jsonStruct[k], err = v.GoTimeConvert()
+			if err != nil {
+				return "", err
+			}
+		default:
+			jsonStruct[k] = v.Value
+		}
+	}
+	jsonBytes, err := json.Marshal(jsonStruct)
+	if err != nil {
+		return "", err
+	}
+	return string(jsonBytes), nil
 }
 
 type InsertRecord struct {
@@ -42,7 +68,7 @@ type InsertRecord struct {
 	// CommitID is the ID of the commit corresponding to this record.
 	CommitID int64
 	// Items is a map of column name to value.
-	Items map[string]interface{}
+	Items RecordItems
 	// unchanged toast columns
 	UnchangedToastColumns map[string]bool
 }
@@ -56,7 +82,7 @@ func (r *InsertRecord) GetTableName() string {
 	return r.DestinationTableName
 }
 
-func (r *InsertRecord) GetItems() map[string]interface{} {
+func (r *InsertRecord) GetItems() RecordItems {
 	return r.Items
 }
 
@@ -68,9 +94,9 @@ type UpdateRecord struct {
 	// Name of the destination table
 	DestinationTableName string
 	// OldItems is a map of column name to value.
-	OldItems map[string]interface{}
+	OldItems RecordItems
 	// NewItems is a map of column name to value.
-	NewItems map[string]interface{}
+	NewItems RecordItems
 	// unchanged toast columns
 	UnchangedToastColumns map[string]bool
 }
@@ -85,7 +111,7 @@ func (r *UpdateRecord) GetTableName() string {
 	return r.DestinationTableName
 }
 
-func (r *UpdateRecord) GetItems() map[string]interface{} {
+func (r *UpdateRecord) GetItems() RecordItems {
 	return r.NewItems
 }
 
@@ -97,7 +123,7 @@ type DeleteRecord struct {
 	// CheckPointID is the ID of the record.
 	CheckPointID int64
 	// Items is a map of column name to value.
-	Items map[string]interface{}
+	Items RecordItems
 	// unchanged toast columns
 	UnchangedToastColumns map[string]bool
 }
@@ -111,7 +137,7 @@ func (r *DeleteRecord) GetTableName() string {
 	return r.SourceTableName
 }
 
-func (r *DeleteRecord) GetItems() map[string]interface{} {
+func (r *DeleteRecord) GetItems() RecordItems {
 	return r.Items
 }
 
