@@ -292,7 +292,6 @@ func (c *PostgresConnector) getIntPartitions(
 		if partitionEnd > end || partitionEnd < start {
 			partitionEnd = end
 		}
-		fmt.Println(start, end, partitionEnd)
 
 		rangePartition := protos.PartitionRange{
 			Range: &protos.PartitionRange_IntRange{
@@ -307,7 +306,6 @@ func (c *PostgresConnector) getIntPartitions(
 			PartitionId: uuid.New().String(),
 			Range:       &rangePartition,
 		})
-		fmt.Println(len(partitions))
 
 		if partitionEnd == end {
 			break
