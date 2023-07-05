@@ -1,23 +1,16 @@
+use peer_cursor::{QueryExecutor, QueryOutput, SchemaRef};
+use pgwire::error::PgWireResult;
 use pt::peers::KafkaConfig;
 use rdkafka::{
     consumer::{BaseConsumer, Consumer},
     ClientConfig,
 };
+use sqlparser::ast::Statement;
 use std::{
     fs::{remove_file, File},
     io::Write,
     time::Duration,
 };
-
-pub async fn kf_connection_valid(config: KafkaConfig) -> anyhow::Result<bool> {
-    let kafka_client = KafkaQueryExecutor::new(&config)?;
-    let _ = remove_file("kafka.pem");
-    let _ = kafka_client
-        ._consumer
-        .fetch_metadata(None, Duration::from_secs(20))?;
-
-    Ok(true)
-}
 
 pub struct KafkaQueryExecutor {
     _config: KafkaConfig,
@@ -46,5 +39,24 @@ impl KafkaQueryExecutor {
             _config: config.clone(),
             _consumer: consumer,
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl QueryExecutor for KafkaQueryExecutor {
+    async fn execute(&self, _stmt: &Statement) -> PgWireResult<QueryOutput> {
+        panic!("Not implemented for kafka")
+    }
+    async fn describe(&self, _stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+        panic!("Not implemented for kafka")
+    }
+    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
+        let kafka_client = KafkaQueryExecutor::new(&self._config)?;
+        let _ = remove_file("kafka.pem");
+        let _ = kafka_client
+            ._consumer
+            .fetch_metadata(None, Duration::from_secs(20))?;
+
+        Ok(true)
     }
 }

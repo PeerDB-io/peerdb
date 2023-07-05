@@ -1897,10 +1897,14 @@ name = "peer-kafka"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "libz-sys",
+ "peer-cursor",
+ "pgwire",
  "pt",
  "rdkafka",
  "sasl2-sys",
+ "sqlparser",
 ]
 
 [[package]]

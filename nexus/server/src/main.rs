@@ -6,15 +6,12 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
 use flow_rs::FlowHandler;
-use peer_bigquery::{bq_connection_valid, BigQueryQueryExecutor};
+use peer_bigquery::BigQueryQueryExecutor;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, SchemaRef,
 };
-use peer_kafka::kf_connection_valid;
-use peer_postgres::pg_connection_valid;
-use peer_snowflake::sf_connection_valid;
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgerror::PgError;
 use pgwire::{
@@ -168,6 +165,7 @@ impl NexusBackend {
                     })?;
                     peer_executor.is_connection_valid().await.map_err(|e| {
                         self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
+                        let _ = remove_file("kafka.pem");
                         PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
                             "internal_error".to_owned(),
@@ -381,6 +379,10 @@ impl NexusBackend {
             }
             Some(Config::SnowflakeConfig(ref c)) => {
                 let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
+                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+            }
+            Some(Config::KafkaConfig(ref c)) => {
+                let executor = peer_kafka::KafkaQueryExecutor::new(c)?;
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
             _ => {
