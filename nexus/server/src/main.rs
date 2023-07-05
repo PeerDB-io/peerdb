@@ -525,7 +525,34 @@ impl ExtendedQueryHandler for NexusBackend {
                                     })?;
                                 executor.describe(stmt).await?
                             }
-                            _ => {
+                            Some(Config::PostgresConfig(_)) => {
+                                let executor =
+                                    self.get_peer_executor(peer).await.map_err(|err| {
+                                        PgWireError::ApiError(Box::new(PgError::Internal {
+                                            err_msg: format!(
+                                                "unable to get peer executor: {:?}",
+                                                err
+                                            ),
+                                        }))
+                                    })?;
+                                executor.describe(stmt).await?
+                            }
+                            Some(Config::SnowflakeConfig(_)) => {
+                                let executor =
+                                    self.get_peer_executor(peer).await.map_err(|err| {
+                                        PgWireError::ApiError(Box::new(PgError::Internal {
+                                            err_msg: format!(
+                                                "unable to get peer executor: {:?}",
+                                                err
+                                            ),
+                                        }))
+                                    })?;
+                                executor.describe(stmt).await?
+                            }
+                            Some(Config::MongoConfig(_)) => {
+                                panic!("peer type not supported: {:?}", peer)
+                            }
+                            None => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
                         }
