@@ -136,7 +136,7 @@ impl SnowflakeQueryExecutor {
                 config.clone().private_key,
                 DEFAULT_REFRESH_THRESHOLD,
                 DEFAULT_EXPIRY_THRESHOLD,
-            ),
+            )?,
             query_timeout: config.query_timeout,
             reqwest_client,
             cursor_manager,
@@ -169,7 +169,7 @@ impl SnowflakeQueryExecutor {
         );
 
         let mut auth = self.auth.clone();
-        let jwt = auth.get_jwt();
+        let jwt = auth.get_jwt()?;
         let secret = jwt.expose_secret().clone();
         // TODO: for things other than SELECTs, the robust way to handle retrys is by
         // generating a UUID from our end to mark the query as unique and then sending it with the request.
@@ -222,7 +222,7 @@ impl SnowflakeQueryExecutor {
         query_status: &QueryStatus,
     ) -> anyhow::Result<QueryAttemptResult> {
         let mut auth = self.auth.clone();
-        let jwt = auth.get_jwt();
+        let jwt = auth.get_jwt()?;
         let secret = jwt.expose_secret().clone();
         let response = self
             .reqwest_client
@@ -440,7 +440,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
 
     async fn is_connection_valid(&self) -> anyhow::Result<bool> {
         let sql = "SELECT 1;";
-        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql)?;
         let _ = self.execute(&test_stmt[0]).await?;
         Ok(true)
     }
