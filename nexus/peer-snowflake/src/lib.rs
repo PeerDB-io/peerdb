@@ -433,7 +433,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
-                "only SELECT statements are supported in bigquery".to_owned(),
+                "only SELECT statements are supported in snowflake".to_owned(),
             )))),
         }
     }
