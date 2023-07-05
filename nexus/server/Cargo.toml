@@ -44,6 +44,7 @@ peer-connections = { path = "../peer-connections" }
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 peer-snowflake = { path = "../peer-snowflake" }
+peer-kafka = { path = "../peer-kafka" }
 peerdb-parser = { path = "../parser" }
 pgwire = "0.15"
 prost = "0.11"

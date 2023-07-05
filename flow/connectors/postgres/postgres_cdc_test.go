@@ -285,9 +285,9 @@ func (suite *PostgresCDCTestSuite) TestParseSchemaTable() {
 func (suite *PostgresCDCTestSuite) TestNonImplementedFunctions() {
 	suite.Panicsf(func() {
 		//nolint:errcheck
-		suite.connector.SetupMetadataTables()
+		suite.connector.SetupMetadataTables("unused_job_name")
 	}, "not implemented")
-	suite.False(suite.connector.NeedsSetupMetadataTables())
+	suite.False(suite.connector.NeedsSetupMetadataTables("unused_job_name"))
 	suite.Panicsf(func() {
 		//nolint:errcheck
 		suite.connector.GetLastOffset("offset_panic")

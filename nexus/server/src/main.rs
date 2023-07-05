@@ -1,5 +1,3 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
-
 use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
@@ -33,6 +31,8 @@ use pgwire::{
 };
 use pt::peers::{peer::Config, Peer};
 use rand::Rng;
+use std::fs::remove_file;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -165,6 +165,7 @@ impl NexusBackend {
                     })?;
                     peer_executor.is_connection_valid().await.map_err(|e| {
                         self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
+                        let _ = remove_file("kafka.pem");
                         PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
                             "internal_error".to_owned(),
@@ -378,6 +379,10 @@ impl NexusBackend {
             }
             Some(Config::SnowflakeConfig(ref c)) => {
                 let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
+                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+            }
+            Some(Config::KafkaConfig(ref c)) => {
+                let executor = peer_kafka::KafkaQueryExecutor::new(c)?;
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
             _ => {

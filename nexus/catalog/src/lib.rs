@@ -144,6 +144,11 @@ impl Catalog {
                     buf.reserve(config_len);
                     postgres_config.encode(&mut buf)?;
                 }
+                Config::KafkaConfig(kafka_config) => {
+                    let config_len = kafka_config.encoded_len();
+                    buf.reserve(config_len);
+                    kafka_config.encode(&mut buf)?;
+                }
             };
 
             buf
@@ -238,6 +243,12 @@ impl Catalog {
                     let postgres_config =
                         pt::peers::PostgresConfig::decode(options.as_slice()).context(err)?;
                     Some(Config::PostgresConfig(postgres_config))
+                }
+                Some(DbType::Kafka) => {
+                    let err = format!("unable to decode {} options for peer {}", "kafka", name);
+                    let kafka_config =
+                        pt::peers::KafkaConfig::decode(options.as_slice()).context(err)?;
+                    Some(Config::KafkaConfig(kafka_config))
                 }
                 None => None,
             };

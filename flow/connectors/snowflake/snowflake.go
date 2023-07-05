@@ -174,7 +174,7 @@ func (c *SnowflakeConnector) ConnectionActive() bool {
 	return c.database.PingContext(c.ctx) == nil
 }
 
-func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
+func (c *SnowflakeConnector) NeedsSetupMetadataTables(jobName string) bool {
 	result, err := c.checkIfTableExists(peerDBInternalSchema, mirrorJobsTableIdentifier)
 	if err != nil {
 		return true
@@ -182,7 +182,7 @@ func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
 	return !result
 }
 
-func (c *SnowflakeConnector) SetupMetadataTables() error {
+func (c *SnowflakeConnector) SetupMetadataTables(jobName string) error {
 	createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
@@ -329,7 +329,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
 		normalizedTableNameComponents.tableIdentifier)
 	if err != nil {
-		return nil, fmt.Errorf("error occured while checking if normalized table exists: %w", err)
+		return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
 	if tableAlreadyExists {
 		return &protos.SetupNormalizedTableOutput{

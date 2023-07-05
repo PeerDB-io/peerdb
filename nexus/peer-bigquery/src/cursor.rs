@@ -9,7 +9,6 @@ use sqlparser::ast::Statement;
 use crate::BigQueryQueryExecutor;
 
 pub struct BigQueryCursor {
-    stmt: Statement,
     position: usize,
     stream: Mutex<SendableStream>,
     schema: SchemaRef,
@@ -42,7 +41,6 @@ impl BigQueryCursorManager {
 
                 // Create a new cursor
                 let cursor = BigQueryCursor {
-                    stmt: stmt.clone(),
                     position: 0,
                     stream: Mutex::new(stream),
                     schema,

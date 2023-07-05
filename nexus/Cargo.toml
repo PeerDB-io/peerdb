@@ -9,6 +9,7 @@ members = [
   "peer-cursor",
   "peer-postgres",
   "peer-snowflake",
+  "peer-kafka",
   "pgerror",
   "pt",
   "server",

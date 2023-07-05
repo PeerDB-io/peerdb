@@ -7,7 +7,6 @@ use sqlparser::ast::Statement;
 use tokio::sync::Mutex;
 
 pub struct SnowflakeCursor {
-    stmt: Statement,
     position: usize,
     stream: Mutex<SendableStream>,
     schema: SchemaRef,
@@ -39,7 +38,6 @@ impl SnowflakeCursorManager {
 
                 // Create a new cursor
                 let cursor = SnowflakeCursor {
-                    stmt: stmt.clone(),
                     position: 0,
                     stream: Mutex::new(stream),
                     schema,

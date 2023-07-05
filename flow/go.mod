@@ -5,7 +5,7 @@ go 1.19
 require (
 	cloud.google.com/go/bigquery v1.51.2
 	cloud.google.com/go/storage v1.30.1
-	github.com/aws/aws-sdk-go v1.44.293
+	github.com/aws/aws-sdk-go v1.44.294
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
@@ -54,6 +54,7 @@ require (
 	github.com/aws/smithy-go v1.13.5 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
+	github.com/confluentinc/confluent-kafka-go/v2 v2.1.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/danieljoos/wincred v1.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

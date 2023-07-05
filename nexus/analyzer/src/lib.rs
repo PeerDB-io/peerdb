@@ -9,7 +9,8 @@ use std::{
 use anyhow::Context;
 use flow_rs::{FlowJob, FlowJobTableMapping, QRepFlowJob};
 use pt::peers::{
-    peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+    peer::Config, BigqueryConfig, DbType, KafkaConfig, MongoConfig, Peer, PostgresConfig,
+    SnowflakeConfig,
 };
 use qrep::process_options;
 use serde_json::Number;
@@ -393,6 +394,34 @@ fn parse_db_options(
                     .to_string(),
             };
             let config = Config::PostgresConfig(postgres_config);
+            Some(config)
+        }
+        DbType::Kafka => {
+            let security_protocol = opts
+                .get("security_protocol")
+                .context("no security protocol specified")?
+                .to_string();
+
+            let kafka_config = KafkaConfig {
+                servers: opts
+                    .get("servers")
+                    .context("no kafka server hosts specified")?
+                    .to_string(),
+                security_protocol,
+                ssl_certificate: match opts.get("ssl_certificate") {
+                    Some(certificate) => certificate.to_string(),
+                    None => String::new(),
+                },
+                username: match opts.get("username") {
+                    Some(certificate) => certificate.to_string(),
+                    None => String::new(),
+                },
+                password: match opts.get("password") {
+                    Some(certificate) => certificate.to_string(),
+                    None => String::new(),
+                },
+            };
+            let config = Config::KafkaConfig(kafka_config);
             Some(config)
         }
     };

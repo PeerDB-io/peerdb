@@ -21,7 +21,7 @@ jobs:
       - name: install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config build-essential
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config build-essential libsasl2-dev
 
       - name: cargo check
         run: cargo check
