@@ -15,8 +15,8 @@ import (
 )
 
 type KafkaRecord struct {
-	Before map[string]interface{} `json:"before"`
-	After  map[string]interface{} `json:"after"`
+	Before model.RecordItems `json:"before"`
+	After  model.RecordItems `json:"after"`
 }
 
 type KafkaConnector struct {
@@ -245,27 +245,11 @@ func (c *KafkaConnector) PullRecords(req *model.PullRecordsRequest) (*model.Reco
 }
 
 func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	var destinationTopicName string
-	noRecordResponse := &model.SyncResponse{
-		FirstSyncedCheckPointID: 0,
-		LastSyncedCheckPointID:  0,
-		NumRecordsSynced:        0,
-	}
-	if len(req.Records.Records) > 0 {
-		destinationTopicName = "peerdb_" + req.Records.Records[0].GetTableName()
-	} else {
-		return noRecordResponse, nil
-	}
 	var destinationMessage kafka.Message
-
 	first := true
 	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
 	records := make([]kafka.Message, 0)
-	destinationTopic := kafka.TopicPartition{
-		Topic:     &destinationTopicName,
-		Partition: kafka.PartitionAny,
-	}
 
 	for _, record := range req.Records.Records {
 		switch typedRecord := record.(type) {
@@ -281,9 +265,7 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 			}
 
 			destinationMessage = kafka.Message{
-				TopicPartition: destinationTopic,
-				Key:            []byte("CDC"),
-				Value:          insertJSON,
+				Value: insertJSON,
 			}
 
 		case *model.UpdateRecord:
@@ -297,9 +279,7 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 			}
 
 			destinationMessage = kafka.Message{
-				TopicPartition: destinationTopic,
-				Key:            []byte("CDC"),
-				Value:          updateJSON,
+				Value: updateJSON,
 			}
 
 		case *model.DeleteRecord:
@@ -314,13 +294,18 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 			}
 
 			destinationMessage = kafka.Message{
-				TopicPartition: destinationTopic,
-				Key:            []byte("CDC"),
-				Value:          deleteJSON,
+				Value: deleteJSON,
 			}
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Kafka flow connector", typedRecord)
 		}
+		destinationTopicName := "peerdb_" + record.GetTableName()
+		destinationTopic := kafka.TopicPartition{
+			Topic:     &destinationTopicName,
+			Partition: kafka.PartitionAny,
+		}
+		destinationMessage.TopicPartition = destinationTopic
+		destinationMessage.Key = []byte("CDC")
 		records = append(records, destinationMessage)
 
 		if first {
@@ -329,7 +314,11 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 		}
 	}
 	if len(records) == 0 {
-		return noRecordResponse, nil
+		return &model.SyncResponse{
+			FirstSyncedCheckPointID: 0,
+			LastSyncedCheckPointID:  0,
+			NumRecordsSynced:        0,
+		}, nil
 	}
 	metadataTopicName := "peerdb_" + req.FlowJobName
 	metadataTopic := kafka.TopicPartition{
