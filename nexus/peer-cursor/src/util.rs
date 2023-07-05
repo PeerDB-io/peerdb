@@ -6,9 +6,9 @@ use pgwire::{
     api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response},
     error::{PgWireError, PgWireResult},
 };
-use value::{array::ArrayValue, Value};
+use value::{Value};
 
-use crate::{Record, Records, SchemaRef, SendableStream};
+use crate::{Records, SchemaRef, SendableStream};
 
 fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()> {
     match value {
