@@ -105,8 +105,8 @@ func compareFloat64(value1, value2 interface{}) bool {
 }
 
 func compareGoTime(value1, value2 interface{}) bool {
-	et1, ok1 := value1.(*time.Time)
-	et2, ok2 := value2.(*time.Time)
+	et1, ok1 := value1.(time.Time)
+	et2, ok2 := value2.(time.Time)
 
 	if !ok1 || !ok2 {
 		return false
@@ -114,8 +114,8 @@ func compareGoTime(value1, value2 interface{}) bool {
 
 	// TODO: this is a hack, we should be comparing the actual time values
 	// currently this is only used for testing so that is OK.
-	t1 := et1.UnixMilli() / 1000
-	t2 := et2.UnixMilli() / 1000
+	t1 := et1.UnixMicro()
+	t2 := et2.UnixMicro()
 
 	return t1 == t2
 }

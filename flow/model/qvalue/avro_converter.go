@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/linkedin/goavro"
+	"github.com/linkedin/goavro/v2"
 )
 
 // QValueKindAvroSchema defines a structure for representing Avro schemas.
@@ -70,8 +70,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]string{
-				"type":        "long",
-				"logicalType": "timestamp-micros",
+				"type": "string",
 			},
 		}, nil
 	case QValueKindJSON, QValueKindArray, QValueKindStruct, QValueKindBit:
@@ -104,10 +103,17 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		if err != nil || t == nil {
 			return t, err
 		}
+		if c.TargetDWH == QDWHTypeSnowflake {
+			if c.Nullable {
+				return c.processNullableUnion("string", t.(string))
+			} else {
+				return t.(string), nil
+			}
+		}
 		if c.Nullable {
-			return goavro.Union("long.timestamp-micros", t), nil
+			return goavro.Union("long.timestamp-micros", t.(int64)), nil
 		} else {
-			return t, nil
+			return t.(int64), nil
 		}
 	case QValueKindString:
 		return c.processNullableUnion("string", c.Value.Value)
@@ -156,10 +162,10 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 	}
 
 	ret := t.UnixMicro()
-	// Snowflake has issues with avro timestamp types
+	// Snowflake has issues with avro timestamp types, returning as string form of the int64
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {
-		ret = ret / 1000000
+		return fmt.Sprint(ret), nil
 	}
 	return ret, nil
 }

@@ -13,7 +13,6 @@ require (
 	github.com/jackc/pgx/v5 v5.3.1
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/joho/godotenv v1.5.1
-	github.com/linkedin/goavro v2.1.0+incompatible
 	github.com/linkedin/goavro/v2 v2.12.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/snowflakedb/gosnowflake v1.6.21
