@@ -218,7 +218,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		if t, ok := val.(*time.Time); ok && t != nil {
 			return qvalue.QValue{
 				Kind:  kind,
-				Value: t,
+				Value: *t,
 			}, nil
 		}
 	case qvalue.QValueKindBytes:

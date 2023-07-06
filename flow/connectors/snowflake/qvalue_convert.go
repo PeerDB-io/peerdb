@@ -19,7 +19,7 @@ func qValueKindToSnowflakeType(colType string) string {
 	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
 		return "FLOAT"
 	case qvalue.QValueKindNumeric:
-		return "NUMBER"
+		return "NUMBER(38, 9)"
 	// string related STRING , TEXT , NVARCHAR ,
 	// NVARCHAR2 , CHAR VARYING , NCHAR VARYING
 	//Synonymous with VARCHAR.
