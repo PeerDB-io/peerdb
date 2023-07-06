@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -209,15 +210,10 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 		return qvalue.QValue{Kind: qvalue.QValueKindString, Value: v}, nil
 	case bool:
 		return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v}, nil
+	case civil.Date:
+		return qvalue.QValue{Kind: qvalue.QValueKindDate, Value: bqValue.(civil.Date).In(time.UTC)}, nil
 	case time.Time:
-		val, err := qvalue.NewExtendedTime(v, qvalue.DateTimeKindType, "")
-		if err != nil {
-			return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
-		}
-		return qvalue.QValue{
-			Kind:  qvalue.QValueKindETime,
-			Value: val,
-		}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindTimestamp, Value: v}, nil
 	case *big.Rat:
 		return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v}, nil
 	case []uint8:
@@ -228,38 +224,8 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	}
 }
 
-// bqFieldTypeToQValueKind converts a bigquery FieldType to a QValueKind.
-func bqFieldTypeToQValueKind(fieldType bigquery.FieldType) (qvalue.QValueKind, error) {
-	switch fieldType {
-	case bigquery.StringFieldType:
-		return qvalue.QValueKindString, nil
-	case bigquery.BytesFieldType:
-		return qvalue.QValueKindBytes, nil
-	case bigquery.IntegerFieldType:
-		return qvalue.QValueKindInt64, nil
-	case bigquery.FloatFieldType:
-		return qvalue.QValueKindFloat64, nil
-	case bigquery.BooleanFieldType:
-		return qvalue.QValueKindBoolean, nil
-	case bigquery.TimestampFieldType:
-		return qvalue.QValueKindETime, nil
-	case bigquery.RecordFieldType:
-		return qvalue.QValueKindStruct, nil
-	case bigquery.DateFieldType:
-		return qvalue.QValueKindETime, nil
-	case bigquery.TimeFieldType:
-		return qvalue.QValueKindETime, nil
-	case bigquery.NumericFieldType:
-		return qvalue.QValueKindNumeric, nil
-	case bigquery.GeographyFieldType:
-		return qvalue.QValueKindString, nil
-	default:
-		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
-	}
-}
-
 func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (*model.QField, error) {
-	qValueKind, err := bqFieldTypeToQValueKind(fieldSchema.Type)
+	qValueKind, err := peer_bq.BigQueryTypeToQValueKind(fieldSchema.Type)
 	if err != nil {
 		return nil, err
 	}
@@ -395,7 +361,7 @@ func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 		return "STRING", nil
 	case qvalue.QValueKindBoolean:
 		return "BOOL", nil
-	case qvalue.QValueKindETime:
+	case qvalue.QValueKindTimestamp:
 		return "TIMESTAMP", nil
 	case qvalue.QValueKindBytes:
 		return "BYTES", nil

@@ -11,12 +11,11 @@ use flow_rs::{FlowJob, FlowJobTableMapping, QRepFlowJob};
 use pt::peers::{
     peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
 };
-use serde_json::Number;
+use qrep::process_options;
+use sqlparser::ast::CreateMirror::{Select, CDC};
 use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
-use sqlparser::ast::{
-    CreateMirror::{Select, CDC},
-    Value,
-};
+
+mod qrep;
 
 pub trait StatementAnalyzer {
     type Output;
@@ -107,76 +106,6 @@ pub enum PeerDDL {
     },
 }
 
-impl PeerDDLAnalyzer {
-    fn parse_string_for_options(
-        raw_options: &HashMap<&str, &Value>,
-        processed_options: &mut HashMap<String, serde_json::Value>,
-        key: &str,
-        is_required: bool,
-        accepted_values: Option<&[&str]>,
-    ) -> anyhow::Result<()> {
-        if raw_options.get(key).is_none() {
-            if is_required {
-                anyhow::bail!("{} is required", key);
-            } else {
-                Ok(())
-            }
-        } else {
-            let raw_value = *raw_options.get(key).unwrap();
-            match raw_value {
-                sqlparser::ast::Value::SingleQuotedString(str) => {
-                    if accepted_values.is_some() {
-                        let accepted_values = accepted_values.unwrap();
-                        if !accepted_values.contains(&str.as_str()) {
-                            anyhow::bail!("{} must be one of {:?}", key, accepted_values);
-                        }
-                    }
-                    processed_options
-                        .insert(key.to_string(), serde_json::Value::String(str.clone()));
-                    Ok(())
-                }
-                _ => {
-                    anyhow::bail!("invalid value for {}", key);
-                }
-            }
-        }
-    }
-
-    fn parse_number_for_options(
-        raw_options: &HashMap<&str, &Value>,
-        processed_options: &mut HashMap<String, serde_json::Value>,
-        key: &str,
-        min_value: u32,
-        default_value: u32,
-    ) -> anyhow::Result<()> {
-        if raw_options.get(key).is_none() {
-            processed_options.insert(
-                key.to_string(),
-                serde_json::Value::Number(Number::from(default_value)),
-            );
-            Ok(())
-        } else {
-            let raw_value = *raw_options.get(key).unwrap();
-            match raw_value {
-                sqlparser::ast::Value::Number(str, _) => {
-                    let value = str.parse::<u32>()?;
-                    if value < min_value {
-                        anyhow::bail!("{} must be greater than {}", key, min_value - 1);
-                    }
-                    processed_options.insert(
-                        key.to_string(),
-                        serde_json::Value::Number(Number::from(value)),
-                    );
-                    Ok(())
-                }
-                _ => {
-                    anyhow::bail!("invalid value for {}", key);
-                }
-            }
-        }
-    }
-}
-
 impl StatementAnalyzer for PeerDDLAnalyzer {
     type Output = Option<PeerDDL>;
 
@@ -234,119 +163,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
 
-                        let mut processed_options = HashMap::new();
-
-                        // processing options that are REQUIRED and take a string value.
-                        for key in [
-                            "destination_table_name",
-                            "watermark_column",
-                            "watermark_table_name",
-                        ] {
-                            PeerDDLAnalyzer::parse_string_for_options(
-                                &raw_options,
-                                &mut processed_options,
-                                key,
-                                true,
-                                None,
-                            )?;
-                        }
-                        PeerDDLAnalyzer::parse_string_for_options(
-                            &raw_options,
-                            &mut processed_options,
-                            "mode",
-                            true,
-                            Some(&["append", "upsert"]),
-                        )?;
-                        // processing options that are OPTIONAL and take a string value.
-                        PeerDDLAnalyzer::parse_string_for_options(
-                            &raw_options,
-                            &mut processed_options,
-                            "unique_key_columns",
-                            false,
-                            None,
-                        )?;
-                        PeerDDLAnalyzer::parse_string_for_options(
-                            &raw_options,
-                            &mut processed_options,
-                            "sync_data_format",
-                            false,
-                            Some(&["default", "avro"]),
-                        )?;
-                        PeerDDLAnalyzer::parse_string_for_options(
-                            &raw_options,
-                            &mut processed_options,
-                            "staging_path",
-                            false,
-                            None,
-                        )?;
-                        // processing options that are OPTIONAL and take a number value which a minimum and default value.
-                        PeerDDLAnalyzer::parse_number_for_options(
-                            &raw_options,
-                            &mut processed_options,
-                            "parallelism",
-                            1,
-                            2,
-                        )?;
-                        PeerDDLAnalyzer::parse_number_for_options(
-                            &raw_options,
-                            &mut processed_options,
-                            "refresh_interval",
-                            10,
-                            10,
-                        )?;
-                        PeerDDLAnalyzer::parse_number_for_options(
-                            &raw_options,
-                            &mut processed_options,
-                            "batch_size_int",
-                            1,
-                            10000,
-                        )?;
-                        PeerDDLAnalyzer::parse_number_for_options(
-                            &raw_options,
-                            &mut processed_options,
-                            "batch_duration_timestamp",
-                            1,
-                            60,
-                        )?;
-
-                        if !processed_options.contains_key("sync_data_format") {
-                            processed_options.insert(
-                                "sync_data_format".to_string(),
-                                serde_json::Value::String("default".to_string()),
-                            );
-                        }
-
-                        // unique_key_columns should only be specified if mode is upsert
-                        if processed_options.contains_key("unique_key_columns")
-                            ^ (processed_options.get("mode").unwrap() == "upsert")
-                        {
-                            if processed_options.get("mode").unwrap() == "upsert" {
-                                anyhow::bail!(
-                                    "unique_key_columns should be specified if mode is upsert"
-                                );
-                            } else {
-                                anyhow::bail!(
-                                    "mode should be upsert if unique_key_columns is specified"
-                                );
-                            }
-                        }
-
-                        if processed_options.contains_key("unique_key_columns") {
-                            processed_options.insert(
-                                "unique_key_columns".to_string(),
-                                serde_json::Value::Array(
-                                    processed_options
-                                        .get("unique_key_columns")
-                                        .unwrap()
-                                        .as_str()
-                                        .unwrap()
-                                        .split(',')
-                                        .map(|s| serde_json::Value::String(s.to_string()))
-                                        .collect(),
-                                ),
-                            );
-                        }
-
+                        let processed_options = process_options(raw_options)?;
                         let qrep_flow_job = QRepFlowJob {
                             name: select.mirror_name.to_string().to_lowercase(),
                             source_peer: select.source_peer.to_string().to_lowercase(),

@@ -19,7 +19,7 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 	switch kind {
 	case qvalue.QValueKindInt16, qvalue.QValueKindInt32, qvalue.QValueKindInt64:
 		value = int64(placeHolder)
-	case qvalue.QValueKindFloat16, qvalue.QValueKindFloat32:
+	case qvalue.QValueKindFloat32:
 		value = float32(placeHolder)
 	case qvalue.QValueKindFloat64:
 		value = float64(placeHolder)
@@ -27,10 +27,9 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 		value = placeHolder%2 == 0
 	case qvalue.QValueKindString:
 		value = fmt.Sprintf("string%d", placeHolder)
-	case qvalue.QValueKindETime:
-		et, err := qvalue.NewExtendedTime(time.Now(), qvalue.TimeKindType, "")
-		require.NoError(t, err)
-		value = et
+	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindTime,
+		qvalue.QValueKindTimeTZ, qvalue.QValueKindDate:
+		value = time.Now()
 	case qvalue.QValueKindNumeric:
 		// create a new big.Rat for numeric data
 		value = big.NewRat(int64(placeHolder), 1)
@@ -58,7 +57,6 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 
 func generateRecords(t *testing.T, nullable bool, numRows uint32) *model.QRecordBatch {
 	allQValueKinds := []qvalue.QValueKind{
-		qvalue.QValueKindFloat16,
 		qvalue.QValueKindFloat32,
 		qvalue.QValueKindFloat64,
 		qvalue.QValueKindInt16,
@@ -68,7 +66,11 @@ func generateRecords(t *testing.T, nullable bool, numRows uint32) *model.QRecord
 		// qvalue.QValueKindArray,
 		// qvalue.QValueKindStruct,
 		qvalue.QValueKindString,
-		qvalue.QValueKindETime,
+		qvalue.QValueKindTimestamp,
+		qvalue.QValueKindTimestampTZ,
+		qvalue.QValueKindTime,
+		qvalue.QValueKindTimeTZ,
+		qvalue.QValueKindDate,
 		qvalue.QValueKindNumeric,
 		qvalue.QValueKindBytes,
 		qvalue.QValueKindUUID,

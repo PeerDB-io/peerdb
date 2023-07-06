@@ -94,7 +94,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	// col names for the destination table joined by comma
 	colNames := []string{}
 	for _, col := range dstTableMetadata.Schema {
-		colNames = append(colNames, col.Name)
+		if strings.ToLower(col.Name) == "from" {
+			colNames = append(colNames, "`from`")
+		} else {
+			colNames = append(colNames, col.Name)
+		}
 	}
 	colNamesStr := strings.Join(colNames, ", ")
 

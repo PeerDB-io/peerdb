@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -92,7 +93,6 @@ type snowflakeRawRecord struct {
 	recordType            int
 	matchData             string
 	batchID               int64
-	items                 map[string]interface{}
 	unchangedToastColumns string
 }
 
@@ -380,7 +380,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
 			// json.Marshal converts bytes in Hex automatically to BASE64 string.
-			itemsJSON, err := json.Marshal(typedRecord.Items)
+			itemsJSON, err := typedRecord.Items.ToJSON()
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
 			}
@@ -390,19 +390,18 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				uid:                   uuid.New().String(),
 				timestamp:             time.Now().UnixNano(),
 				destinationTableName:  typedRecord.DestinationTableName,
-				data:                  string(itemsJSON),
+				data:                  itemsJSON,
 				recordType:            0,
 				matchData:             "",
 				batchID:               syncBatchID,
-				items:                 typedRecord.Items,
 				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 		case *model.UpdateRecord:
-			newItemsJSON, err := json.Marshal(typedRecord.NewItems)
+			newItemsJSON, err := typedRecord.NewItems.ToJSON()
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 			}
-			oldItemsJSON, err := json.Marshal(typedRecord.OldItems)
+			oldItemsJSON, err := typedRecord.OldItems.ToJSON()
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
 			}
@@ -412,15 +411,14 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				uid:                   uuid.New().String(),
 				timestamp:             time.Now().UnixNano(),
 				destinationTableName:  typedRecord.DestinationTableName,
-				data:                  string(newItemsJSON),
+				data:                  newItemsJSON,
 				recordType:            1,
-				matchData:             string(oldItemsJSON),
+				matchData:             oldItemsJSON,
 				batchID:               syncBatchID,
-				items:                 typedRecord.NewItems,
 				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 		case *model.DeleteRecord:
-			itemsJSON, err := json.Marshal(typedRecord.Items)
+			itemsJSON, err := typedRecord.Items.ToJSON()
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 			}
@@ -430,11 +428,10 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				uid:                   uuid.New().String(),
 				timestamp:             time.Now().UnixNano(),
 				destinationTableName:  typedRecord.DestinationTableName,
-				data:                  string(itemsJSON),
+				data:                  itemsJSON,
 				recordType:            2,
-				matchData:             string(itemsJSON),
+				matchData:             itemsJSON,
 				batchID:               syncBatchID,
-				items:                 typedRecord.Items,
 				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
 		default:
@@ -669,57 +666,15 @@ func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableId
 	return result, nil
 }
 
-func getSnowflakeTypeForGenericColumnType(colType string) string {
-	switch colType {
-	case model.ColumnTypeBoolean:
-		return "BOOLEAN"
-	// integer types
-	case model.ColumnTypeInt16, model.ColumnTypeInt32, model.ColumnTypeInt64:
-		return "INTEGER"
-	// decimal types
-	// The names FLOAT, FLOAT4, and FLOAT8 are for compatibility with other systems
-	// Snowflake treats all three as 64-bit floating-point numbers.
-	case model.ColumnTypeFloat16, model.ColumnTypeFloat32, model.ColumnTypeFloat64:
-		return "FLOAT"
-	case model.ColumnTypeNumeric:
-		return "NUMBER"
-	// string related STRING , TEXT , NVARCHAR ,
-	// NVARCHAR2 , CHAR VARYING , NCHAR VARYING
-	//Synonymous with VARCHAR.
-	case model.ColumnTypeString:
-		return "STRING"
-	// json also is stored as string for now
-	case model.ColumnTypeJSON:
-		return "STRING"
-	// time related
-	case model.ColumnTypeTimestamp:
-		return "TIMESTAMP_NTZ"
-	case model.ColumnTypeTimeStampWithTimeZone:
-		return "TIMESTAMP_TZ"
-	case model.ColumnTypeTime:
-		return "TIME"
-	case model.ColumnTypeDate:
-		return "TIMESTAMP_NTZ"
-	case model.ColumnTypeTimeWithTimeZone, model.ColumnTypeInterval:
-		return "STRING"
-	// bytes
-	case model.ColumnHexBytes, model.ColumnHexBit:
-		return "BINARY"
-	// rest will be strings
-	default:
-		return "STRING"
-	}
-}
-
 func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sourceTableSchema *protos.TableSchema) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
 			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s PRIMARY KEY,",
-				columnName, getSnowflakeTypeForGenericColumnType(genericColumnType)))
+				columnName, qValueKindToSnowflakeType(genericColumnType)))
 		} else {
 			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s,", columnName,
-				getSnowflakeTypeForGenericColumnType(genericColumnType)))
+				qValueKindToSnowflakeType(genericColumnType)))
 		}
 	}
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
@@ -768,19 +723,20 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		sfType := getSnowflakeTypeForGenericColumnType(genericColumnType)
-		switch genericColumnType {
-		case model.ColumnHexBytes:
+		sfType := qValueKindToSnowflakeType(genericColumnType)
+		switch qvalue.QValueKind(genericColumnType) {
+		case qvalue.QValueKindBytes:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
 				"AS %s,", toVariantColumnName, columnName, columnName))
-		case model.ColumnHexBit:
+		case qvalue.QValueKindBit:
 			// "c2": {"Bytes": "gA==", "Len": 1,"Valid": true}
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s:Bytes) "+
 				"AS %s,", toVariantColumnName, columnName, columnName))
-		case model.ColumnTypeTime:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
-				"Microseconds*1000) "+
-				"AS %s,", toVariantColumnName, columnName, columnName))
+		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
+		// case model.ColumnTypeTime:
+		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
+		// 		"Microseconds*1000) "+
+		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,",
 				toVariantColumnName,

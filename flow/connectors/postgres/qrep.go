@@ -28,6 +28,8 @@ func (c *PostgresConnector) GetQRepPartitions(
 	switch v := minValue.(type) {
 	case int32, int64:
 		maxValue := maxValue.(int64) + 1
+		fmt.Println("minValue", minValue)
+		fmt.Println("maxValue", maxValue)
 		partitions, err = c.getIntPartitions(v.(int64), maxValue, config.BatchSizeInt)
 	case time.Time:
 		maxValue := maxValue.(time.Time).Add(time.Microsecond)
@@ -286,7 +288,8 @@ func (c *PostgresConnector) getIntPartitions(
 
 	for start <= end {
 		partitionEnd := start + batchSize
-		if partitionEnd > end {
+		// safeguard against integer overflow
+		if partitionEnd > end || partitionEnd < start {
 			partitionEnd = end
 		}
 

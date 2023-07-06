@@ -11,7 +11,11 @@ use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peers::BigqueryConfig;
-use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
+use sqlparser::{
+    ast::{CloseCursor, Expr, FetchDirection, Statement, Value},
+    dialect::GenericDialect,
+    parser,
+};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;
@@ -41,7 +45,7 @@ pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Cli
     };
     let client = Client::from_service_account_key(sa_key, false)
         .await
-        .expect("unable to create GcpClient.");
+        .context("unable to create GcpClient.")?;
 
     Ok(client)
 }
@@ -254,5 +258,11 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 "only SELECT statements are supported in bigquery".to_owned(),
             )))),
         }
+    }
+    async fn is_connection_valid(&self) -> anyhow::Result<bool> {
+        let sql = "SELECT 1;";
+        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+        let _ = self.execute(&test_stmt[0]).await?;
+        Ok(true)
     }
 }

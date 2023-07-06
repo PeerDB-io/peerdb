@@ -213,15 +213,12 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 				Value: ratVal,
 			}, nil
 		}
-	case qvalue.QValueKindETime:
-		if v, ok := val.(*time.Time); ok && v != nil {
-			etimeVal, err := qvalue.NewExtendedTime(*v, qvalue.DateTimeKindType, "")
-			if err != nil {
-				return qvalue.QValue{}, fmt.Errorf("failed to create ExtendedTime: %w", err)
-			}
+	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
+		qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
+		if t, ok := val.(*time.Time); ok && t != nil {
 			return qvalue.QValue{
-				Kind:  qvalue.QValueKindETime,
-				Value: etimeVal,
+				Kind:  kind,
+				Value: *t,
 			}, nil
 		}
 	case qvalue.QValueKindBytes:
@@ -234,35 +231,8 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	return qvalue.QValue{}, fmt.Errorf("[snowflakeclient] unsupported type %T for kind %s", val, kind)
 }
 
-// databaseTypeNameToQValueKind converts a database type name to a QValueKind.
-func databaseTypeNameToQValueKind(name string) (qvalue.QValueKind, error) {
-	switch name {
-	case "INT":
-		return qvalue.QValueKindInt32, nil
-	case "BIGINT":
-		return qvalue.QValueKindInt64, nil
-	case "FLOAT":
-		return qvalue.QValueKindFloat32, nil
-	case "DOUBLE", "REAL":
-		return qvalue.QValueKindFloat64, nil
-	case "VARCHAR", "CHAR", "TEXT":
-		return qvalue.QValueKindString, nil
-	case "BOOLEAN":
-		return qvalue.QValueKindBoolean, nil
-	case "DATETIME", "TIMESTAMP", "TIMESTAMP_LTZ", "TIMESTAMP_NTZ", "TIMESTAMP_TZ":
-		return qvalue.QValueKindETime, nil
-	case "BLOB", "BYTEA", "BINARY":
-		return qvalue.QValueKindBytes, nil
-	case "FIXED", "NUMBER":
-		return qvalue.QValueKindNumeric, nil
-	default:
-		// If type is unsupported, return an error
-		return "", fmt.Errorf("unsupported database type name: %s", name)
-	}
-}
-
 func columnTypeToQField(ct *sql.ColumnType) (*model.QField, error) {
-	qvKind, err := databaseTypeNameToQValueKind(ct.DatabaseTypeName())
+	qvKind, err := snowflakeTypeToQValueKind(ct.DatabaseTypeName())
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +281,8 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 		values := make([]interface{}, len(columns))
 		for i := range values {
 			switch qfields[i].Type {
-			case qvalue.QValueKindETime:
+			case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindTime,
+				qvalue.QValueKindTimeTZ, qvalue.QValueKindDate:
 				values[i] = new(time.Time)
 			case qvalue.QValueKindInt16:
 				values[i] = new(int16)
@@ -375,10 +346,7 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 func (s *SnowflakeClient) CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error {
 	var fields []string
 	for _, field := range schema.Fields {
-		snowflakeType, err := qValueKindToSnowflakeColTypeString(field.Type)
-		if err != nil {
-			return err
-		}
+		snowflakeType := qValueKindToSnowflakeType(string(field.Type))
 		fields = append(fields, fmt.Sprintf(`"%s" %s`, field.Name, snowflakeType))
 	}
 
@@ -391,25 +359,4 @@ func (s *SnowflakeClient) CreateTable(schema *model.QRecordSchema, schemaName st
 	}
 
 	return nil
-}
-
-func qValueKindToSnowflakeColTypeString(val qvalue.QValueKind) (string, error) {
-	switch val {
-	case qvalue.QValueKindInt32, qvalue.QValueKindInt64:
-		return "INT", nil
-	case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
-		return "FLOAT", nil
-	case qvalue.QValueKindString:
-		return "STRING", nil
-	case qvalue.QValueKindBoolean:
-		return "BOOLEAN", nil
-	case qvalue.QValueKindETime:
-		return "TIMESTAMP_LTZ", nil
-	case qvalue.QValueKindBytes:
-		return "BINARY", nil
-	case qvalue.QValueKindNumeric:
-		return "NUMERIC(38,32)", nil
-	default:
-		return "", fmt.Errorf("unsupported QValueKind: %v", val)
-	}
 }

@@ -1,11 +1,12 @@
 
 <div align="center">
-<img class="img-fluid" src="images/logo-light-transparent_copy_2.png" alt="img-verification" width="120" height="120">
-<h3>PeerDB</h3>
-<h4>Modern ETL in minutes, with SQL<h4>
-<a href="https://github.com/Peerdb-io/peerdb/actions/workflows/ci.yml"><img src="https://github.com/PEerDB-io/peerdb/actions/workflows/ci.yml/badge.svg"/></a>
-<a href="https://github.com/PeerDB-io/peerdb/blob/main/LICENSE.md"><img src="https://badgen.net/badge/License/Elv2/green?icon=github"/></a>
-<a href="https://join.slack.com/t/peerdb-public/shared_invite/zt-1wo9jydev-EXInbMtCtpAKFFWdi7QvLQ"><img src="https://img.shields.io/badge/slack-peerdb-brightgreen.svg?logo=slack" /></a>
+
+<img class="img-fluid" src="images/banner.jpg" alt="PeerDB Banner" width="512" />
+
+#### Modern ETL in minutes, with SQL
+
+[![Workflow Status](https://github.com/PEerDB-io/peerdb/actions/workflows/ci.yml/badge.svg)](https://github.com/Peerdb-io/peerdb/actions/workflows/ci.yml) [![ElV2 License](https://badgen.net/badge/License/Elv2/green?icon=github)](https://github.com/PeerDB-io/peerdb/blob/main/LICENSE.md) [![Slack Community](https://img.shields.io/badge/slack-peerdb-brightgreen.svg?logo=slack)](https://join.slack.com/t/peerdb-public/shared_invite/zt-1wo9jydev-EXInbMtCtpAKFFWdi7QvLQ)
+
 </div>
 
 ## PeerDB
