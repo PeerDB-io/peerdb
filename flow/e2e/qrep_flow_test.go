@@ -210,7 +210,7 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
-	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY 'id'`, selector, qualifiedTableName)
+	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
 	require.NoError(s.T(), err)

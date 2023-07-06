@@ -135,7 +135,6 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindStruct:
 		return nil, fmt.Errorf("QValueKindStruct not supported")
 	case QValueKindNumeric:
-		fmt.Println(c.processNumeric())
 		return c.processNumeric()
 	case QValueKindBytes:
 		return c.processBytes()
