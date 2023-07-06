@@ -3,6 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::Context;
 use base64::encode as base64_encode;
 use jsonwebtoken::{encode as jwt_encode, Algorithm, EncodingKey, Header};
 use pkcs1::EncodeRsaPrivateKey;
@@ -44,13 +45,14 @@ impl SnowflakeAuth {
         private_key: String,
         refresh_threshold: u64,
         expiry_threshold: u64,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
+        let pkey = DecodePrivateKey::from_pkcs8_pem(&private_key).context("Invalid private key")?;
         let mut snowflake_auth: SnowflakeAuth = SnowflakeAuth {
             // moved normalized_account_id above account_id to satisfy the borrow checker.
             normalized_account_id: SnowflakeAuth::normalize_account_identifier(&account_id),
             account_id,
             username,
-            private_key: DecodePrivateKey::from_pkcs8_pem(&private_key).unwrap(),
+            private_key: pkey,
             public_key_fp: None,
             refresh_threshold,
             expiry_threshold,
@@ -59,9 +61,10 @@ impl SnowflakeAuth {
         };
         snowflake_auth.public_key_fp = Some(SnowflakeAuth::gen_public_key_fp(
             &snowflake_auth.private_key,
-        ));
+        )?);
         snowflake_auth.refresh_jwt();
-        snowflake_auth
+
+        Ok(snowflake_auth)
     }
 
     // Normalize the account identifer to a form that is embedded into the JWT.
@@ -85,26 +88,21 @@ impl SnowflakeAuth {
     }
 
     #[tracing::instrument(name = "peer_sflake::gen_public_key_fp", skip_all)]
-    fn gen_public_key_fp(private_key: &RsaPrivateKey) -> String {
-        let public_key =
-            EncodePublicKey::to_public_key_der(&RsaPublicKey::from(private_key)).unwrap();
-        format!(
+    fn gen_public_key_fp(private_key: &RsaPrivateKey) -> anyhow::Result<String> {
+        let public_key = EncodePublicKey::to_public_key_der(&RsaPublicKey::from(private_key))?;
+        let res = format!(
             "SHA256:{}",
             base64_encode(Sha256::new_with_prefix(public_key.as_der()).finalize())
-        )
+        );
+        Ok(res)
     }
 
     #[tracing::instrument(name = "peer_sflake::auth_refresh_jwt", skip_all)]
-    fn refresh_jwt(&mut self) {
+    fn refresh_jwt(&mut self) -> anyhow::Result<()> {
         let private_key_jwt: EncodingKey = EncodingKey::from_rsa_der(
-            EncodeRsaPrivateKey::to_pkcs1_der(&self.private_key)
-                .unwrap()
-                .as_der(),
+            EncodeRsaPrivateKey::to_pkcs1_der(&self.private_key)?.as_der(),
         );
-        self.last_refreshed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        self.last_refreshed = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         info!(
             "Refreshing SnowFlake JWT for account: {} and user: {} at time {}",
             self.account_id, self.username, self.last_refreshed
@@ -114,7 +112,9 @@ impl SnowflakeAuth {
                 "{}.{}.{}",
                 self.normalized_account_id,
                 self.username.to_uppercase(),
-                self.public_key_fp.as_deref().unwrap()
+                self.public_key_fp
+                    .as_deref()
+                    .context("No public key fingerprint")?
             ),
             sub: format!(
                 "{}.{}",
@@ -125,21 +125,24 @@ impl SnowflakeAuth {
             exp: self.last_refreshed + self.expiry_threshold,
         };
         let header: Header = Header::new(Algorithm::RS256);
-        self.current_jwt = Some(
-            SecretString::from_str(&jwt_encode(&header, &jwt_claims, &private_key_jwt).unwrap())
-                .unwrap(),
-        );
+
+        let encoded_jwt = jwt_encode(&header, &jwt_claims, &private_key_jwt)?;
+        let secret = SecretString::from_str(&encoded_jwt)?;
+
+        self.current_jwt = Some(secret);
+
+        Ok(())
     }
 
-    pub fn get_jwt(&mut self) -> &Secret<String> {
-        if SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
+    pub fn get_jwt(&mut self) -> anyhow::Result<&Secret<String>> {
+        if SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
             >= (self.last_refreshed + self.refresh_threshold)
         {
-            self.refresh_jwt();
+            self.refresh_jwt()?;
         }
-        self.current_jwt.as_ref().unwrap()
+
+        self.current_jwt
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("JWT not initialized. Please call refresh_jwt() first."))
     }
 }

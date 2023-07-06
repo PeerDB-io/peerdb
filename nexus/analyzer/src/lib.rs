@@ -12,12 +12,8 @@ use pt::peers::{
     peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
 };
 use qrep::process_options;
-use serde_json::Number;
+use sqlparser::ast::CreateMirror::{Select, CDC};
 use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
-use sqlparser::ast::{
-    CreateMirror::{Select, CDC},
-    Value,
-};
 
 mod qrep;
 

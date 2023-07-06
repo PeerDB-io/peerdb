@@ -136,7 +136,7 @@ impl SnowflakeQueryExecutor {
                 config.clone().private_key,
                 DEFAULT_REFRESH_THRESHOLD,
                 DEFAULT_EXPIRY_THRESHOLD,
-            ),
+            )?,
             query_timeout: config.query_timeout,
             reqwest_client,
             cursor_manager,
@@ -169,12 +169,12 @@ impl SnowflakeQueryExecutor {
         );
 
         let mut auth = self.auth.clone();
-        let jwt = auth.get_jwt();
+        let jwt = auth.get_jwt()?;
         let secret = jwt.expose_secret().clone();
         // TODO: for things other than SELECTs, the robust way to handle retrys is by
         // generating a UUID from our end to mark the query as unique and then sending it with the request.
         // If we need to retry, send same UUID with retry=true parameter set and Snowflake should prevent duplicate execution.
-        let query_status = self
+        let query_status_res = self
             .reqwest_client
             .post(self.endpoint_url.to_owned())
             .bearer_auth(secret)
@@ -189,9 +189,14 @@ impl SnowflakeQueryExecutor {
             })
             .send()
             .await
-            .map_err(|_| anyhow::anyhow!("failed in making request for QueryStatus"))?
-            .json::<QueryStatus>()
-            .await?;
+            .map_err(|e| {
+                anyhow::anyhow!("failed in making request for QueryStatus. error: {:?}", e)
+            })?;
+
+        let query_json = query_status_res.json::<serde_json::Value>().await?;
+        let query_status = serde_json::from_value(query_json.clone()).map_err(|e| {
+            anyhow::anyhow!("failed in parsing json {:?}, error: {:?}", query_json, e)
+        })?;
 
         // TODO: remove this blind retry logic for anything other than a SELECT.
         let res = self.query_poll(query_status).await?;
@@ -200,6 +205,7 @@ impl SnowflakeQueryExecutor {
             None => self.process_query(query_str).await?,
         })
     }
+
     pub async fn query(&self, query: &Box<Query>) -> PgWireResult<ResultSet> {
         let mut query = query.clone();
 
@@ -222,7 +228,7 @@ impl SnowflakeQueryExecutor {
         query_status: &QueryStatus,
     ) -> anyhow::Result<QueryAttemptResult> {
         let mut auth = self.auth.clone();
-        let jwt = auth.get_jwt();
+        let jwt = auth.get_jwt()?;
         let secret = jwt.expose_secret().clone();
         let response = self
             .reqwest_client
@@ -433,14 +439,14 @@ impl QueryExecutor for SnowflakeQueryExecutor {
             _ => PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
-                "only SELECT statements are supported in bigquery".to_owned(),
+                "only SELECT statements are supported in snowflake".to_owned(),
             )))),
         }
     }
 
     async fn is_connection_valid(&self) -> anyhow::Result<bool> {
         let sql = "SELECT 1;";
-        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
+        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql)?;
         let _ = self.execute(&test_stmt[0]).await?;
         Ok(true)
     }
