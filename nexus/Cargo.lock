@@ -1895,6 +1895,7 @@ dependencies = [
  "pgerror",
  "pgwire",
  "pt",
+ "rust_decimal",
  "serde",
  "serde_bytes",
  "serde_json",

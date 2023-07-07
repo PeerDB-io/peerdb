@@ -3,8 +3,8 @@ use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::str::FromStr;
 use uuid::Uuid;
-
 pub mod array;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -165,7 +165,9 @@ impl Value {
                 } else if let Some(f) = n.as_f64() {
                     Value::Double(f)
                 } else {
-                    Value::Numeric(n.to_string().as_str().parse::<Decimal>().unwrap())
+                    let number_str = n.to_string();
+                    let decimal = Decimal::from_str(&number_str).expect("unsupported number type");
+                    Value::Numeric(decimal)
                 }
             }
             serde_json::Value::String(s) => Value::Text(s.clone()),
