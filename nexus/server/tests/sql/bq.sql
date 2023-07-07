@@ -117,3 +117,9 @@ SELECT NULL FROM bq_test.transactions;
 
 SELECT COALESCE(chain,'sai'::text) FROM bq_test.transactions;
 SELECT date_trunc('month',tx_timestamp),count(*) FROM bq_test.transactions GROUP BY 1;
+
+-- NUMERIC, BIGNUMERIC columns
+SELECT c19,c18 FROM bq_test.test_types LIMIT 1;
+SELECT c19 - 1233434.5 FROM bq_test.test_types LIMIT 1;
+SELECT c18 + 20100000000 FROM bq_test.test_types LIMIT 1;
+SELECT sum(c19), max(c18) FROM bq_test.test_types LIMIT 1;

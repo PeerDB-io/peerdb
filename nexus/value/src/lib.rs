@@ -18,8 +18,7 @@ pub enum Value {
     BigInt(i64),
     Float(f32),
     Double(f64),
-    Numeric(String),
-    PostgresNumeric(Decimal),
+    Numeric(Decimal),
     Char(char),
     VarChar(String),
     Text(String),
@@ -75,12 +74,8 @@ impl Value {
         Value::Double(value)
     }
 
-    pub fn numeric(value: String) -> Self {
+    pub fn numeric(value: Decimal) -> Self {
         Value::Numeric(value)
-    }
-
-    pub fn postgres_numeric(value: Decimal) -> Self {
-        Value::PostgresNumeric(value)
     }
 
     pub fn char(value: char) -> Self {
@@ -170,7 +165,7 @@ impl Value {
                 } else if let Some(f) = n.as_f64() {
                     Value::Double(f)
                 } else {
-                    Value::Numeric(n.to_string())
+                    Value::Numeric(n.to_string().as_str().parse::<Decimal>().unwrap())
                 }
             }
             serde_json::Value::String(s) => Value::Text(s.clone()),
@@ -230,8 +225,7 @@ impl Value {
             Value::Double(n) => {
                 serde_json::Value::Number(serde_json::Number::from_f64(*n).unwrap())
             }
-            Value::Numeric(n) => serde_json::Value::String(n.clone()),
-            Value::PostgresNumeric(n) => serde_json::Value::String(n.to_string()),
+            Value::Numeric(n) => serde_json::Value::String(n.to_string()),
             Value::Char(c) => serde_json::Value::String(c.to_string()),
             Value::VarChar(s) => serde_json::Value::String(s.clone()),
             Value::Text(s) => serde_json::Value::String(s.clone()),

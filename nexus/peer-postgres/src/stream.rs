@@ -152,7 +152,7 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 }
                 &Type::NUMERIC => {
                     let numeric: Option<Decimal> = row.get(i);
-                    numeric.map(Value::PostgresNumeric).unwrap_or(Value::Null)
+                    numeric.map(Value::Numeric).unwrap_or(Value::Null)
                 }
                 &Type::NUMERIC_ARRAY => {
                     let numeric: Option<Vec<String>> = row.get(i);

@@ -127,9 +127,11 @@ impl BqRecordStream {
                     FieldType::Float | FieldType::Float64 => {
                         result_set.get_f64_by_name(field_name)?.map(Value::Double)
                     }
-                    FieldType::Bignumeric | FieldType::Numeric => result_set
-                        .get_string_by_name(field_name)?
-                        .map(Value::Numeric),
+                    FieldType::Bignumeric | FieldType::Numeric => {
+                        let result_string = result_set.get_string_by_name(field_name)?;
+                        result_string.map(|s| Value::Numeric(s.parse().expect("Invalid numeric")))
+                    }
+
                     FieldType::Boolean | FieldType::Bool => {
                         result_set.get_bool_by_name(field_name)?.map(Value::Bool)
                     }
