@@ -6,7 +6,7 @@ use pgwire::{
     api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response},
     error::{PgWireError, PgWireResult},
 };
-use value::{Value};
+use value::Value;
 
 use crate::{Records, SchemaRef, SendableStream};
 
@@ -22,6 +22,7 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
         Value::Float(v) => builder.encode_field(v),
         Value::Double(v) => builder.encode_field(v),
         Value::Numeric(v) => builder.encode_field(v),
+        Value::PostgresNumeric(v) => builder.encode_field(&v.to_string()),
         Value::Char(v) => builder.encode_field(&v.to_string()),
         Value::VarChar(v) => builder.encode_field(v),
         Value::Text(v) => builder.encode_field(v),

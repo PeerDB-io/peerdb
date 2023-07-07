@@ -164,13 +164,13 @@ impl NexusBackend {
                         }))
                     })?;
                     peer_executor.is_connection_valid().await.map_err(|e| {
-                        self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
                         PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
                             "internal_error".to_owned(),
                             format!("[peer]: invalid configuration: {}", e.to_string()),
                         )))
                     })?;
+                    self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
                     let catalog = self.catalog.lock().await;
                     catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(

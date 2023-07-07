@@ -1,6 +1,7 @@
 use array::ArrayValue;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -18,6 +19,7 @@ pub enum Value {
     Float(f32),
     Double(f64),
     Numeric(String),
+    PostgresNumeric(Decimal),
     Char(char),
     VarChar(String),
     Text(String),
@@ -75,6 +77,10 @@ impl Value {
 
     pub fn numeric(value: String) -> Self {
         Value::Numeric(value)
+    }
+
+    pub fn postgres_numeric(value: Decimal) -> Self {
+        Value::PostgresNumeric(value)
     }
 
     pub fn char(value: char) -> Self {
@@ -225,6 +231,7 @@ impl Value {
                 serde_json::Value::Number(serde_json::Number::from_f64(*n).unwrap())
             }
             Value::Numeric(n) => serde_json::Value::String(n.clone()),
+            Value::PostgresNumeric(n) => serde_json::Value::String(n.to_string()),
             Value::Char(c) => serde_json::Value::String(c.to_string()),
             Value::VarChar(s) => serde_json::Value::String(s.clone()),
             Value::Text(s) => serde_json::Value::String(s.clone()),
