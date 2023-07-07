@@ -1,14 +1,14 @@
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-};
-
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures::Stream;
 use peer_cursor::{Record, RecordStream, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{PgWireError, PgWireResult};
+use rust_decimal::Decimal;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio_postgres::{types::Type, Row, RowStream};
 use uuid::Uuid;
 use value::{array::ArrayValue, Value};
@@ -151,7 +151,7 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                         .unwrap_or(Value::Null)
                 }
                 &Type::NUMERIC => {
-                    let numeric: Option<String> = row.get(i);
+                    let numeric: Option<Decimal> = row.get(i);
                     numeric.map(Value::Numeric).unwrap_or(Value::Null)
                 }
                 &Type::NUMERIC_ARRAY => {
