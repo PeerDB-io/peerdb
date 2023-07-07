@@ -725,12 +725,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		sfType := qValueKindToSnowflakeType(genericColumnType)
 		switch qvalue.QValueKind(genericColumnType) {
-		case qvalue.QValueKindBytes:
+		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
-				"AS %s,", toVariantColumnName, columnName, columnName))
-		case qvalue.QValueKindBit:
-			// "c2": {"Bytes": "gA==", "Len": 1,"Valid": true}
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s:Bytes) "+
 				"AS %s,", toVariantColumnName, columnName, columnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:

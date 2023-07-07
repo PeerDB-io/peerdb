@@ -11,11 +11,12 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/lib/pq/oid"
 	log "github.com/sirupsen/logrus"
 )
 
-func getQValueKindForPostgresOID(oid uint32) qvalue.QValueKind {
-	switch oid {
+func getQValueKindForPostgresOID(recvOID uint32) qvalue.QValueKind {
+	switch recvOID {
 	case pgtype.BoolOID:
 		return qvalue.QValueKindBoolean
 	case pgtype.Int2OID:
@@ -46,18 +47,30 @@ func getQValueKindForPostgresOID(oid uint32) qvalue.QValueKind {
 		return qvalue.QValueKindTimestampTZ
 	case pgtype.NumericOID:
 		return qvalue.QValueKindNumeric
+	case pgtype.BitOID, pgtype.VarbitOID:
+		return qvalue.QValueKindBit
 	default:
-		typeName, ok := pgtype.NewMap().TypeForOID(oid)
+		typeName, ok := pgtype.NewMap().TypeForOID(recvOID)
 		if !ok {
-			// workaround for TIMETZ not being defined by this pgtype
-			if oid == 1266 {
+			// workaround for some types not being defined by pgtype
+			if recvOID == uint32(oid.T_timetz) {
 				return qvalue.QValueKindTimeTZ
+			} else if recvOID == uint32(oid.T_xml) { // XML
+				return qvalue.QValueKindString
+			} else if recvOID == uint32(oid.T_money) { // MONEY
+				return qvalue.QValueKindString
+			} else if recvOID == uint32(oid.T_txid_snapshot) { // TXID_SNAPSHOT
+				return qvalue.QValueKindString
+			} else if recvOID == uint32(oid.T_tsvector) { // TSVECTOR
+				return qvalue.QValueKindString
+			} else if recvOID == uint32(oid.T_tsquery) { // TSQUERY
+				return qvalue.QValueKindString
 			}
-			log.Warnf("failed to get type name for oid: %v", oid)
+			log.Warnf("failed to get type name for oid: %v", recvOID)
 			return qvalue.QValueKindInvalid
 		} else {
-			log.Warnf("unsupported field type: %v - type name - %s", oid, typeName.Name)
-			return qvalue.QValueKindInvalid
+			log.Warnf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name)
+			return qvalue.QValueKindString
 		}
 	}
 }
@@ -96,12 +109,14 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		timeVal := value.(string)
 		// edge case, Postgres supports this extreme value for time
 		timeVal = strings.Replace(timeVal, "24:00:00.000000", "23:59:59.999999", 1)
+		// edge case, Postgres prints +0000 as +00
+		timeVal = strings.Replace(timeVal, "+00", "+0000", 1)
 		t, err := time.Parse("15:04:05.999999-0700", timeVal)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse time: %w", err)
 		}
 		t = t.AddDate(1970, 0, 0)
-		val = &qvalue.QValue{Kind: qvalue.QValueKindTime, Value: t}
+		val = &qvalue.QValue{Kind: qvalue.QValueKindTimeTZ, Value: t}
 
 	case qvalue.QValueKindBoolean:
 		boolVal := value.(bool)
@@ -130,8 +145,9 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		floatVal := value.(float64)
 		val = &qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: floatVal}
 	case qvalue.QValueKindString:
-		textVal := value.(string)
-		val = &qvalue.QValue{Kind: qvalue.QValueKindString, Value: textVal}
+		// handling all unsupported types with strings as well for now.
+		textVal := value
+		val = &qvalue.QValue{Kind: qvalue.QValueKindString, Value: fmt.Sprint(textVal)}
 	case qvalue.QValueKindUUID:
 		switch value.(type) {
 		case string:
@@ -144,7 +160,11 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	case qvalue.QValueKindBytes:
 		rawBytes := value.([]byte)
 		val = &qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: rawBytes}
-	// TODO: check for handling of QValueKindBit
+	case qvalue.QValueKindBit:
+		bitsVal := value.(pgtype.Bits)
+		if bitsVal.Valid {
+			val = &qvalue.QValue{Kind: qvalue.QValueKindBit, Value: bitsVal.Bytes}
+		}
 	case qvalue.QValueKindNumeric:
 		numVal := value.(pgtype.Numeric)
 		if numVal.Valid {

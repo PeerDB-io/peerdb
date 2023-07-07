@@ -185,6 +185,8 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 		if err != nil {
 			s.Fail("failed to drop snowflake schema", err)
 		}
+	} else {
+		s.Fail("snowflake helper is nil, unable to drop snowflake schema")
 	}
 }
 
@@ -1053,7 +1055,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_1", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_1", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1119,7 +1121,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_2", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_2", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1196,7 +1198,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_3", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_3", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1267,7 +1269,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_4", "id,t1,k")
+	s.compareTableContentsSF("test_toast_sf_4", `id,t1,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1338,7 +1340,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_5", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_5", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
 }
 
