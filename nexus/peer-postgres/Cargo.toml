@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
+rust_decimal = { version = "1.30.0", features = [ "tokio-pg" ] }
 bytes = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"

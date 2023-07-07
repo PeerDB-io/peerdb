@@ -1,5 +1,6 @@
 use std::{
     pin::Pin,
+    str::FromStr,
     task::{Context, Poll},
 };
 
@@ -17,6 +18,7 @@ use pgwire::{
     },
     error::{PgWireError, PgWireResult},
 };
+use rust_decimal::Decimal;
 use value::Value;
 
 #[derive(Debug)]
@@ -127,9 +129,15 @@ impl BqRecordStream {
                     FieldType::Float | FieldType::Float64 => {
                         result_set.get_f64_by_name(field_name)?.map(Value::Double)
                     }
-                    FieldType::Bignumeric | FieldType::Numeric => result_set
-                        .get_string_by_name(field_name)?
-                        .map(Value::Numeric),
+                    FieldType::Bignumeric | FieldType::Numeric => {
+                        let result_string = result_set.get_string_by_name(field_name)?;
+                        if let Some(result) = result_string {
+                            let decimal = Decimal::from_str(&result)?;
+                            Some(Value::Numeric(decimal))
+                        } else {
+                            None
+                        }
+                    }
                     FieldType::Boolean | FieldType::Bool => {
                         result_set.get_bool_by_name(field_name)?.map(Value::Bool)
                     }
@@ -137,13 +145,15 @@ impl BqRecordStream {
                         result_set.get_string_by_name(field_name)?.map(Value::Text)
                     }
                     FieldType::Timestamp => {
-                        result_set.get_i64_by_name(field_name)?.map(|timestamp| {
-                            Value::Timestamp(DateTime::<Utc>::from_utc(
-                                NaiveDateTime::from_timestamp_opt(timestamp, 0)
-                                    .expect("Invalid timestamp"),
-                                Utc,
-                            ))
-                        })
+                        let timestamp = result_set
+                            .get_i64_by_name(field_name)?
+                            .ok_or(anyhow::Error::msg("Invalid timestamp"))?;
+                        let naive_datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
+                            .ok_or(anyhow::Error::msg("Invalid timestamp"))?;
+                        Some(Value::Timestamp(DateTime::<Utc>::from_utc(
+                            naive_datetime,
+                            Utc,
+                        )))
                     }
                     FieldType::Record => todo!(),
                     FieldType::Struct => todo!(),

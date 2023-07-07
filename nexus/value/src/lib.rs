@@ -1,9 +1,10 @@
 use array::ArrayValue;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::str::FromStr;
 use uuid::Uuid;
-
 pub mod array;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -17,7 +18,7 @@ pub enum Value {
     BigInt(i64),
     Float(f32),
     Double(f64),
-    Numeric(String),
+    Numeric(Decimal),
     Char(char),
     VarChar(String),
     Text(String),
@@ -73,7 +74,7 @@ impl Value {
         Value::Double(value)
     }
 
-    pub fn numeric(value: String) -> Self {
+    pub fn numeric(value: Decimal) -> Self {
         Value::Numeric(value)
     }
 
@@ -164,7 +165,9 @@ impl Value {
                 } else if let Some(f) = n.as_f64() {
                     Value::Double(f)
                 } else {
-                    Value::Numeric(n.to_string())
+                    let number_str = n.to_string();
+                    let decimal = Decimal::from_str(&number_str).expect("unsupported number type");
+                    Value::Numeric(decimal)
                 }
             }
             serde_json::Value::String(s) => Value::Text(s.clone()),
@@ -224,7 +227,7 @@ impl Value {
             Value::Double(n) => {
                 serde_json::Value::Number(serde_json::Number::from_f64(*n).unwrap())
             }
-            Value::Numeric(n) => serde_json::Value::String(n.clone()),
+            Value::Numeric(n) => serde_json::Value::String(n.to_string()),
             Value::Char(c) => serde_json::Value::String(c.to_string()),
             Value::VarChar(s) => serde_json::Value::String(s.clone()),
             Value::Text(s) => serde_json::Value::String(s.clone()),

@@ -73,7 +73,7 @@ services:
       - 8112:8112
     environment:
       TEMPORAL_HOST_PORT: temporalite:7233
-      PEERDB_CATALOG_DB: postgres
+      PEERDB_CATALOG_DATABASE: postgres
       PEERDB_CATALOG_HOST: catalog
       PEERDB_CATALOG_PASSWORD: postgres
       PEERDB_CATALOG_PORT: 5432
@@ -121,7 +121,7 @@ services:
       PEERDB_CATALOG_PORT: 5432
       PEERDB_CATALOG_USER: postgres
       PEERDB_CATALOG_PASSWORD: postgres
-      PEERDB_CATALOG_DB: postgres
+      PEERDB_CATALOG_DATABASE: postgres
       PEERDB_PASSWORD: peerdb
       PEERDB_FLOW_SERVER_ADDRESS: http://flow_api:8112
     ports:
