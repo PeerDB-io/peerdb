@@ -116,6 +116,7 @@ func (s *SnowflakeClient) RecreateSchema(schema string) error {
 
 // DropSchema drops the schema.
 func (s *SnowflakeClient) DropSchema(schema string) error {
+	fmt.Println("dropping schema: ", schema)
 	exists, err := s.schemaExists(schema)
 	if err != nil {
 		return fmt.Errorf("failed to check if schema %s exists: %w", schema, err)
@@ -225,6 +226,10 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		if v, ok := val.(*[]byte); ok && v != nil {
 			return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: *v}, nil
 		}
+	case qvalue.QValueKindBit:
+		if v, ok := val.(*[]byte); ok && v != nil {
+			return qvalue.QValue{Kind: qvalue.QValueKindBit, Value: *v}, nil
+		}
 	}
 
 	// If type is unsupported or doesn't match the specified kind, return error
@@ -298,7 +303,7 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 				values[i] = new(bool)
 			case qvalue.QValueKindString:
 				values[i] = new(string)
-			case qvalue.QValueKindBytes:
+			case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 				values[i] = new([]byte)
 			case qvalue.QValueKindNumeric:
 				values[i] = new(string)

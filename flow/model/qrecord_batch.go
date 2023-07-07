@@ -151,7 +151,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			// TODO: account for precision and scale issues.
 			values[i] = v.FloatString(38)
 
-		case qvalue.QValueKindBytes:
+		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			v, ok := qValue.Value.([]byte)
 			if !ok {
 				src.err = fmt.Errorf("invalid Bytes value")

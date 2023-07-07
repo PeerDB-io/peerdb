@@ -200,7 +200,7 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string, colsStri
 	s.True(pgRows.Equals(bqRows), "rows from source and destination tables are not equal")
 }
 
-func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector string) {
+func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
@@ -210,7 +210,12 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
-	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
+	var sfSelQuery string
+	if caseSensitive {
+		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
+	} else {
+		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
+	}
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
 	require.NoError(s.T(), err)
@@ -359,7 +364,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, true)
 
 	env.AssertExpectations(s.T())
 }
@@ -401,7 +406,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, true)
 
 	env.AssertExpectations(s.T())
 }
@@ -485,7 +490,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, true)
 
 	env.AssertExpectations(s.T())
 }
@@ -527,7 +532,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() 
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, true)
 
 	env.AssertExpectations(s.T())
 }

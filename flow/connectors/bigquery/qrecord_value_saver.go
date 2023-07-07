@@ -113,7 +113,7 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 
 			bqValues[k] = RatToBigQueryNumeric(val)
 
-		case qvalue.QValueKindBytes:
+		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			val, ok := v.Value.([]byte)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to []byte", v.Value)

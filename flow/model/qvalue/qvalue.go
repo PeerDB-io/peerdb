@@ -59,10 +59,11 @@ func (q *QValue) Equals(other *QValue) bool {
 }
 
 func (q *QValue) GoTimeConvert() (string, error) {
-	if q.Kind == QValueKindTime {
+	if q.Kind == QValueKindTime || q.Kind == QValueKindTimeTZ {
 		return q.Value.(time.Time).Format("15:04:05.999999"), nil
-	} else if q.Kind == QValueKindTimeTZ {
-		return q.Value.(time.Time).Format("15:04:05.999999-0700"), nil
+		// no connector supports time with timezone yet
+		// } else if q.Kind == QValueKindTimeTZ {
+		// 	return q.Value.(time.Time).Format("15:04:05.999999-0700"), nil
 	} else if q.Kind == QValueKindDate {
 		return q.Value.(time.Time).Format("2006-01-02"), nil
 	} else if q.Kind == QValueKindTimestamp {
