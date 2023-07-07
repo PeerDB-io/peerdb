@@ -20,6 +20,10 @@ message FlowConnectionConfigs {
   map<string, string> table_name_mapping = 5;
   map<uint32, string> src_table_id_name_mapping = 6;
   map<string, TableSchema> table_name_schema_mapping = 7;
+
+  // This is an optional peer that will be used to hold metadata in cases where
+  // the destination isn't ideal for holding metadata.
+  peerdb.peers.Peer metadata_peer = 8;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
@@ -77,6 +81,7 @@ message SetupReplicationInput {
 message CreateRawTableInput {
   peerdb.peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
+  map<string, string> table_name_mapping = 3;
 }
 
 message CreateRawTableOutput { string table_identifier = 1; }

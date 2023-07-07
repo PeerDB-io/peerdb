@@ -181,7 +181,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 			WorkflowID:        setupFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 10,
+				MaximumAttempts: 2,
 			},
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
@@ -230,7 +230,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 			WorkflowID:        syncFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 10,
+				MaximumAttempts: 2,
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
@@ -276,7 +276,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 			WorkflowID:        normalizeFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 10,
+				MaximumAttempts: 2,
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)

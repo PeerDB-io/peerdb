@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,9 +25,12 @@ type E2EPeerFlowTestSuite struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
-	pool     *pgxpool.Pool
+	pgConnStr string
+	pool      *pgxpool.Pool
+
 	bqHelper *BigQueryTestHelper
 	sfHelper *SnowflakeTestHelper
+	ehHelper *EventHubTestHelper
 }
 
 func TestE2EPeerFlowTestSuite(t *testing.T) {
@@ -33,13 +38,27 @@ func TestE2EPeerFlowTestSuite(t *testing.T) {
 }
 
 const (
-	postgresPort    = 7132
-	postgresJdbcURL = "postgres://postgres:postgres@localhost:7132/postgres"
+	postgresHost     = "localhost"
+	postgresUser     = "postgres"
+	postgresPassword = "postgres"
+	postgresDatabase = "postgres"
+	postgresPort     = 7132
 )
+
+func GetTestPostgresConf() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
+		Host:     postgresHost,
+		Port:     uint32(postgresPort),
+		User:     postgresUser,
+		Password: postgresPassword,
+		Database: postgresDatabase,
+	}
+}
 
 // setupPostgres sets up the postgres connection pool.
 func (s *E2EPeerFlowTestSuite) setupPostgres() error {
-	pool, err := pgxpool.New(context.Background(), postgresJdbcURL)
+	s.pgConnStr = utils.GetPGConnectionString(GetTestPostgresConf())
+	pool, err := pgxpool.New(context.Background(), s.pgConnStr)
 	if err != nil {
 		return fmt.Errorf("failed to create postgres connection pool: %w", err)
 	}
@@ -161,6 +180,11 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	if err != nil {
 		s.Fail("failed to setup snowflake", err)
 	}
+
+	err = s.setupEventHub()
+	if err != nil {
+		s.Fail("failed to setup eventhub", err)
+	}
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -187,6 +211,13 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 		}
 	} else {
 		s.Fail("snowflake helper is nil, unable to drop snowflake schema")
+	}
+
+	if s.ehHelper != nil {
+		err = s.ehHelper.CleanUp()
+		if err != nil {
+			s.Fail("failed to clean up eventhub", err)
+		}
 	}
 }
 
@@ -224,7 +255,7 @@ func (s *E2EPeerFlowTestSuite) Test_Invalid_Connection_Config() {
 	// TODO (kaushikiska): ensure flow name can only be alpha numeric and underscores.
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   "invalid_connection_config",
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
@@ -269,7 +300,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
@@ -313,7 +344,7 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
@@ -360,7 +391,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -428,7 +459,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -499,7 +530,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -564,7 +595,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -666,7 +697,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -737,7 +768,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -812,7 +843,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -883,7 +914,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -947,7 +978,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -1020,7 +1051,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1092,7 +1123,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1158,7 +1189,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -1234,7 +1265,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1306,7 +1337,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1382,7 +1413,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1455,7 +1486,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 
 	peerFlowInput := peerflow.PeerFlowWorkflowInput{
 		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
