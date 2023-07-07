@@ -35,15 +35,13 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 		value = big.NewRat(int64(placeHolder), 1)
 	case qvalue.QValueKindUUID:
 		value = uuid.New() // assuming you have the github.com/google/uuid package
-	// case qvalue.QValueKindBit:
-	// 	value = placeHolder % 2
 	// case qvalue.QValueKindArray:
 	// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
 	// case qvalue.QValueKindStruct:
 	// 	value = map[string]interface{}{"key": "value"} // placeholder struct, replace with actual logic
 	// case qvalue.QValueKindJSON:
 	// 	value = `{"key": "value"}` // placeholder JSON, replace with actual logic
-	case qvalue.QValueKindBytes:
+	case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 		value = []byte("sample bytes") // placeholder bytes, replace with actual logic
 	default:
 		require.Failf(t, "unsupported QValueKind", "unsupported QValueKind: %s", kind)
@@ -75,7 +73,7 @@ func generateRecords(t *testing.T, nullable bool, numRows uint32) *model.QRecord
 		qvalue.QValueKindBytes,
 		qvalue.QValueKindUUID,
 		// qvalue.QValueKindJSON,
-		// qvalue.QValueKindBit,
+		qvalue.QValueKindBit,
 	}
 
 	numKinds := len(allQValueKinds)

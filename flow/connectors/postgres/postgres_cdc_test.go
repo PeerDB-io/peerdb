@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -38,10 +39,13 @@ func (suite *PostgresCDCTestSuite) insertSimpleRecords(srcTableName string) {
 func (suite *PostgresCDCTestSuite) validateInsertedSimpleRecords(records []model.Record, srcTableName string,
 	dstTableName string) {
 	suite.Equal(3, len(records))
-	matchData := []map[string]interface{}{
-		{"id": int32(2), "name": "quick"},
-		{"id": int32(4), "name": "brown"},
-		{"id": int32(8), "name": "fox"},
+	matchData := []model.RecordItems{
+		{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(2)},
+			"name": qvalue.QValue{Kind: qvalue.QValueKindString, Value: "quick"}},
+		{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(4)},
+			"name": qvalue.QValue{Kind: qvalue.QValueKindString, Value: "brown"}},
+		{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(8)},
+			"name": qvalue.QValue{Kind: qvalue.QValueKindString, Value: "fox"}},
 	}
 	for idx, record := range records {
 		suite.IsType(&model.InsertRecord{}, record)
@@ -57,7 +61,9 @@ func (suite *PostgresCDCTestSuite) mutateSimpleRecords(srcTableName string) {
 	suite.failTestError(err)
 	defer func() {
 		err := mutateRecordsTx.Rollback(context.Background())
-		suite.failTestError(err)
+		if err != pgx.ErrTxClosed {
+			suite.failTestError(err)
+		}
 	}()
 
 	_, err = mutateRecordsTx.Exec(context.Background(),
@@ -77,14 +83,16 @@ func (suite *PostgresCDCTestSuite) validateSimpleMutatedRecords(records []model.
 	updateRecord := records[0].(*model.UpdateRecord)
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
-	suite.Equal(map[string]interface{}{}, updateRecord.OldItems)
-	suite.Equal(map[string]interface{}{"id": int32(2), "name": "slow"}, updateRecord.NewItems)
+	suite.Equal(model.RecordItems{}, updateRecord.OldItems)
+	suite.Equal(model.RecordItems{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(2)},
+		"name": qvalue.QValue{Kind: qvalue.QValueKindString, Value: "slow"}}, updateRecord.NewItems)
 
 	suite.IsType(&model.DeleteRecord{}, records[1])
 	deleteRecord := records[1].(*model.DeleteRecord)
 	suite.Equal(srcTableName, deleteRecord.SourceTableName)
 	suite.Equal(dstTableName, deleteRecord.DestinationTableName)
-	suite.Equal(map[string]interface{}{"id": int32(8), "name": nil}, deleteRecord.Items)
+	suite.Equal(model.RecordItems{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(8)},
+		"name": qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}}, deleteRecord.Items)
 }
 
 func (suite *PostgresCDCTestSuite) randBytea(n int) []byte {
@@ -110,7 +118,9 @@ func (suite *PostgresCDCTestSuite) insertToastRecords(srcTableName string) {
 	suite.failTestError(err)
 	defer func() {
 		err := insertRecordsTx.Rollback(context.Background())
-		suite.failTestError(err)
+		if err != pgx.ErrTxClosed {
+			suite.failTestError(err)
+		}
 	}()
 
 	for i := 0; i < 4; i++ {
@@ -147,7 +157,9 @@ func (suite *PostgresCDCTestSuite) mutateToastRecords(srcTableName string) {
 	suite.failTestError(err)
 	defer func() {
 		err := mutateRecordsTx.Rollback(context.Background())
-		suite.failTestError(err)
+		if err != pgx.ErrTxClosed {
+			suite.failTestError(err)
+		}
 	}()
 
 	_, err = mutateRecordsTx.Exec(context.Background(),
@@ -177,6 +189,7 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
 	suite.Equal(2, len(updateRecord.NewItems))
 	suite.Equal(int32(1), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(qvalue.QValueKindString, updateRecord.NewItems["n_t"].Kind)
 	suite.Equal(65536, len(updateRecord.NewItems["n_t"].Value.(string)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
@@ -188,7 +201,9 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
 	suite.Equal(2, len(updateRecord.NewItems))
+	suite.Equal(qvalue.QValueKindInt32, updateRecord.NewItems["id"].Kind)
 	suite.Equal(int32(2), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["lz4_b"].Kind)
 	suite.Equal(65536, len(updateRecord.NewItems["lz4_b"].Value.([]byte)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
@@ -201,6 +216,7 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
 	suite.Equal(2, len(updateRecord.NewItems))
 	suite.Equal(int32(3), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["n_b"].Kind)
 	suite.Equal(65536, len(updateRecord.NewItems["n_b"].Value.([]byte)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
@@ -213,10 +229,14 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(dstTableName, deleteRecord.DestinationTableName)
 	suite.Equal(5, len(deleteRecord.Items))
 	suite.Equal(int32(3), deleteRecord.Items["id"].Value.(int32))
-	suite.Nil(deleteRecord.Items["n_t"])
-	suite.Nil(deleteRecord.Items["lz4_t"])
-	suite.Nil(deleteRecord.Items["n_b"])
-	suite.Nil(deleteRecord.Items["lz4_b"])
+	suite.Equal(qvalue.QValueKindInvalid, deleteRecord.Items["n_t"].Kind)
+	suite.Nil(deleteRecord.Items["n_t"].Value)
+	suite.Equal(qvalue.QValueKindInvalid, deleteRecord.Items["lz4_t"].Kind)
+	suite.Nil(deleteRecord.Items["lz4_t"].Value)
+	suite.Equal(qvalue.QValueKindInvalid, deleteRecord.Items["n_b"].Kind)
+	suite.Nil(deleteRecord.Items["n_b"].Value)
+	suite.Equal(qvalue.QValueKindInvalid, deleteRecord.Items["lz4_b"].Kind)
+	suite.Nil(deleteRecord.Items["lz4_b"].Value)
 }
 
 func (suite *PostgresCDCTestSuite) SetupSuite() {
@@ -236,7 +256,9 @@ func (suite *PostgresCDCTestSuite) SetupSuite() {
 	suite.failTestError(err)
 	defer func() {
 		err := setupTx.Rollback(context.Background())
-		suite.failTestError(err)
+		if err != pgx.ErrTxClosed {
+			suite.failTestError(err)
+		}
 	}()
 	_, err = setupTx.Exec(context.Background(), "DROP SCHEMA IF EXISTS pgpeer_test CASCADE")
 	suite.failTestError(err)
@@ -251,7 +273,9 @@ func (suite *PostgresCDCTestSuite) TearDownSuite() {
 	suite.failTestError(err)
 	defer func() {
 		err := teardownTx.Rollback(context.Background())
-		suite.failTestError(err)
+		if err != pgx.ErrTxClosed {
+			suite.failTestError(err)
+		}
 	}()
 	_, err = teardownTx.Exec(context.Background(), "DROP SCHEMA IF EXISTS pgpeer_test CASCADE")
 	suite.failTestError(err)
@@ -606,8 +630,8 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 		Columns: map[string]string{
 			"id":  string(qvalue.QValueKindInt64),
 			"c1":  string(qvalue.QValueKindInt64),
-			"c2":  model.ColumnHexBit,
-			"c3":  model.ColumnHexBit,
+			"c2":  string(qvalue.QValueKindBit),
+			"c3":  string(qvalue.QValueKindBit),
 			"c4":  string(qvalue.QValueKindBoolean),
 			"c6":  string(qvalue.QValueKindBytes),
 			"c7":  string(qvalue.QValueKindString),
@@ -616,29 +640,29 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 			"c11": string(qvalue.QValueKindDate),
 			"c12": string(qvalue.QValueKindFloat64),
 			"c13": string(qvalue.QValueKindFloat64),
-			"c14": model.ColumnTypeString,
+			"c14": string(qvalue.QValueKindString),
 			"c15": string(qvalue.QValueKindInt32),
-			"c16": model.ColumnTypeInterval,
+			"c16": string(qvalue.QValueKindString),
 			"c17": string(qvalue.QValueKindJSON),
 			"c18": string(qvalue.QValueKindJSON),
-			"c21": model.ColumnTypeString,
-			"c22": model.ColumnTypeString,
+			"c21": string(qvalue.QValueKindString),
+			"c22": string(qvalue.QValueKindString),
 			"c23": string(qvalue.QValueKindNumeric),
-			"c24": string(qvalue.QValueKindInt64),
+			"c24": string(qvalue.QValueKindString),
 			"c28": string(qvalue.QValueKindFloat32),
 			"c29": string(qvalue.QValueKindInt16),
 			"c30": string(qvalue.QValueKindInt16),
 			"c31": string(qvalue.QValueKindInt32),
-			"c32": model.ColumnTypeString,
+			"c32": string(qvalue.QValueKindString),
 			"c33": string(qvalue.QValueKindTimestamp),
 			"c34": string(qvalue.QValueKindTimestampTZ),
 			"c35": string(qvalue.QValueKindTime),
 			"c36": string(qvalue.QValueKindTimeTZ),
-			"c37": model.ColumnTypeString,
-			"c38": model.ColumnTypeString,
-			"c39": model.ColumnTypeString,
-			"c40": model.ColumnTypeString,
-			"c41": model.ColumnTypeString,
+			"c37": string(qvalue.QValueKindString),
+			"c38": string(qvalue.QValueKindString),
+			"c39": string(qvalue.QValueKindString),
+			"c40": string(qvalue.QValueKindUUID),
+			"c41": string(qvalue.QValueKindString),
 		},
 		PrimaryKeyColumn: "id",
 	}, tableNameSchema)

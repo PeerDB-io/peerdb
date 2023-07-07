@@ -54,7 +54,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "boolean",
 		}, nil
-	case QValueKindBytes:
+	case QValueKindBytes, QValueKindBit:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "bytes",
 		}, nil
@@ -73,7 +73,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 				"type": "string",
 			},
 		}, nil
-	case QValueKindJSON, QValueKindArray, QValueKindStruct, QValueKindBit:
+	case QValueKindJSON, QValueKindArray, QValueKindStruct:
 		return nil, fmt.Errorf("complex or unsupported types: %s", kind)
 	default:
 		return nil, errors.New("unsupported QValueKind type")
@@ -136,7 +136,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		return nil, fmt.Errorf("QValueKindStruct not supported")
 	case QValueKindNumeric:
 		return c.processNumeric()
-	case QValueKindBytes:
+	case QValueKindBytes, QValueKindBit:
 		return c.processBytes()
 	case QValueKindJSON:
 		jsonString, ok := c.Value.Value.(string)

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"math/big"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -47,6 +48,9 @@ func (r RecordItems) ToJSON() (string, error) {
 			if err != nil {
 				return "", err
 			}
+		case qvalue.QValueKindNumeric:
+			bigRat := v.Value.(*big.Rat)
+			jsonStruct[k] = bigRat.FloatString(9)
 		default:
 			jsonStruct[k] = v.Value
 		}

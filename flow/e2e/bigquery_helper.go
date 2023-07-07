@@ -363,7 +363,7 @@ func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 		return "BOOL", nil
 	case qvalue.QValueKindTimestamp:
 		return "TIMESTAMP", nil
-	case qvalue.QValueKindBytes:
+	case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 		return "BYTES", nil
 	case qvalue.QValueKindNumeric:
 		return "NUMERIC", nil

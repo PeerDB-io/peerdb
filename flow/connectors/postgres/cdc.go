@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/lib/pq/oid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -439,6 +440,12 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 			return nil, err
 		}
 		retVal, err := parseFieldFromPostgresOID(dataType, parsedData)
+		if err != nil {
+			return nil, err
+		}
+		return retVal, nil
+	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
+		retVal, err := parseFieldFromPostgresOID(dataType, string(data))
 		if err != nil {
 			return nil, err
 		}
