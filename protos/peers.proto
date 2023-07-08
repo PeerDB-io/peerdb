@@ -45,11 +45,19 @@ message PostgresConfig {
   string database = 5;
 }
 
+message EventHubConfig {
+  string namespace = 1;
+  string resource_group = 2;
+  string location = 3;
+  PostgresConfig metadata_db = 4;
+}
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
   MONGO = 2;
   POSTGRES = 3;
+  EVENTHUB = 4;
 }
 
 message Peer {
@@ -60,5 +68,6 @@ message Peer {
     BigqueryConfig bigquery_config = 4;
     MongoConfig mongo_config = 5;
     PostgresConfig postgres_config = 6;
+    EventHubConfig eventhub_config = 7;
   }
 }

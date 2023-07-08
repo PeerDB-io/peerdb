@@ -553,6 +553,9 @@ impl ExtendedQueryHandler for NexusBackend {
                             Some(Config::MongoConfig(_)) => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
+                            Some(Config::EventhubConfig(_)) => {
+                                panic!("peer type not supported: {:?}", peer)
+                            }
                             None => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
