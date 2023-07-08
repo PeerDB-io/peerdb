@@ -3,6 +3,7 @@ package conneventhub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Azure/azure-amqp-common-go/v4/aad"
@@ -14,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 )
 
 type EventHubConnector struct {
@@ -105,7 +107,7 @@ func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	batch := req.Records
-	for _, record := range batch.Records {
+	for i, record := range batch.Records {
 		// get the event hub for this table.
 
 		// TODO (kaushik): this is a hack to get the table name.
@@ -132,6 +134,10 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		if err != nil {
 			log.Errorf("failed to send event to event hub: %v", err)
 			return nil, err
+		}
+
+		if i%1000 == 0 {
+			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("sent %d records to hub: %s", i, tblName))
 		}
 	}
 

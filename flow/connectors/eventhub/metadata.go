@@ -128,6 +128,8 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 		return nil, err
 	}
 
+	log.Infof("got last offset for job `%s`: %d", jobName, offset)
+
 	return &protos.LastSyncState{
 		Checkpoint: offset,
 	}, nil
