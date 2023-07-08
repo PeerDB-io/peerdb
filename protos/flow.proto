@@ -24,6 +24,7 @@ message FlowConnectionConfigs {
   // This is an optional peer that will be used to hold metadata in cases where
   // the destination isn't ideal for holding metadata.
   peerdb.peers.Peer metadata_peer = 8;
+  uint32 max_batch_size = 9;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
