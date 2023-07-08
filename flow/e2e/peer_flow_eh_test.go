@@ -8,7 +8,6 @@ import (
 
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,11 +59,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_EH() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	peerFlowInput := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -85,7 +80,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_EH() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &peerFlowInput)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

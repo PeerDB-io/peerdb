@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
@@ -237,6 +236,7 @@ func registerWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.SetTestTimeout(300 * time.Second)
 
 	env.RegisterWorkflow(peerflow.PeerFlowWorkflow)
+	env.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	env.RegisterWorkflow(peerflow.SetupFlowWorkflow)
 	env.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
@@ -250,17 +250,13 @@ func (s *E2EPeerFlowTestSuite) Test_Invalid_Connection_Config() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(nil, nil)
-
 	// TODO (kaushikiska): ensure flow name can only be alpha numeric and underscores.
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   "invalid_connection_config",
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, nil, &limits)
 
 	// Verify workflow completes
 	s.True(env.IsWorkflowCompleted())
@@ -296,16 +292,12 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -340,16 +332,12 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -387,11 +375,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -412,7 +396,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -455,11 +439,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -486,7 +466,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -526,11 +506,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -550,7 +526,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -591,11 +567,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -627,7 +599,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -693,11 +665,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -724,7 +692,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -764,11 +732,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
+	limits := peerflow.PeerFlowLimits{
 
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -794,7 +759,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -839,11 +804,8 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
+	limits := peerflow.PeerFlowLimits{
 
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -868,7 +830,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -910,11 +872,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -932,7 +890,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -974,11 +932,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -999,7 +953,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1047,11 +1001,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1078,7 +1028,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1119,11 +1069,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1143,7 +1089,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1185,11 +1131,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -1221,7 +1163,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1261,11 +1203,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1292,7 +1230,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1333,11 +1271,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1363,7 +1297,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1409,11 +1343,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1438,7 +1368,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1482,11 +1412,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: s.pgConnStr,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1504,7 +1430,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
