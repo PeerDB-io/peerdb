@@ -391,6 +391,7 @@ fn parse_db_options(
             let config = Config::PostgresConfig(postgres_config);
             Some(config)
         }
+        DbType::Eventhub => None,
     };
 
     Ok(config)

@@ -318,14 +318,6 @@ func (suite *PostgresCDCTestSuite) TestNonImplementedFunctions() {
 	}, "not implemented")
 	suite.Panicsf(func() {
 		//nolint:errcheck
-		suite.connector.GetLastSyncBatchID("sync_batch_id_panic")
-	}, "not implemented")
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		suite.connector.GetLastNormalizeBatchID("normalize_batch_id_panic")
-	}, "not implemented")
-	suite.Panicsf(func() {
-		//nolint:errcheck
 		suite.connector.GetDistinctTableNamesInBatch("distinct_table_names_in_batch_panic", 0, 0)
 	}, "not implemented")
 	suite.Panicsf(func() {
