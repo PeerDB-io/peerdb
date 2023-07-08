@@ -20,7 +20,21 @@ const (
 	PeerFlowStatusQuery = "q-peer-flow-status"
 )
 
+type PeerFlowLimits struct {
+	// Number of sync flows to execute in total.
+	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
+	// This is typically non-zero for testing purposes.
+	TotalSyncFlows int
+	// Number of normalize flows to execute in total.
+	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
+	// This is typically non-zero for testing purposes.
+	TotalNormalizeFlows int
+	// Maximum number of rows in a sync flow batch.
+	MaxBatchSize int
+}
+
 type PeerFlowWorkflowInput struct {
+	PeerFlowLimits
 	// The JDBC URL for the catalog database.
 	CatalogJdbcURL string
 	// The name of the peer flow to execute.
@@ -38,8 +52,6 @@ type PeerFlowWorkflowInput struct {
 }
 
 type PeerFlowState struct {
-	// Input for the PeerFlowWorkflow.
-	PeerFlowWorkflowInput
 	// Progress events for the peer flow.
 	Progress []string
 	// Accumulates status for sync flows spawned.
@@ -74,18 +86,20 @@ func NewPeerFlowWorkflowExecution(ctx workflow.Context, state *PeerFlowState) *P
 }
 
 // fetchConnectionConfigs fetches the connection configs for source and destination peers.
-func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
+func fetchConnectionConfigs(
 	ctx workflow.Context,
+	logger log.Logger,
+	input *PeerFlowWorkflowInput,
 ) (*protos.FlowConnectionConfigs, error) {
-	w.logger.Info("fetching connection configs for peer flow - ", w.PeerFlowName)
+	logger.Info("fetching connection configs for peer flow - ", input.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
 
 	fetchConfigActivityInput := &activities.FetchConfigActivityInput{
-		CatalogJdbcURL: w.CatalogJdbcURL,
-		PeerFlowName:   w.PeerFlowName,
+		CatalogJdbcURL: input.CatalogJdbcURL,
+		PeerFlowName:   input.PeerFlowName,
 	}
 
 	configsFuture := workflow.ExecuteActivity(ctx, fetchConfig.FetchConfig, fetchConfigActivityInput)
@@ -101,12 +115,11 @@ func (w *PeerFlowWorkflowExecution) fetchConnectionConfigs(
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 
-	w.logger.Info("fetched connection configs for peer flow - ", w.PeerFlowName)
+	logger.Info("fetched connection configs for peer flow - ", input.PeerFlowName)
 	return flowConnectionConfigs, nil
 }
 
-// getChildWorkflowID returns the child workflow ID for a new sync flow.
-func (w *PeerFlowWorkflowExecution) getChildWorkflowID(
+func GetChildWorkflowID(
 	ctx workflow.Context,
 	prefix string,
 	peerFlowName string,
@@ -129,8 +142,50 @@ type PeerFlowWorkflowResult = PeerFlowState
 // PeerFlowWorkflow is the workflow that executes the specified peer flow.
 // This is the main entry point for the application.
 func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*PeerFlowWorkflowResult, error) {
+	fconn, err := fetchConnectionConfigs(ctx, workflow.GetLogger(ctx), input)
+	if err != nil {
+		return nil, err
+	}
+
+	fconn.FlowJobName = input.PeerFlowName
+
+	peerflowWithConfigID, err := GetChildWorkflowID(ctx, "peer-flow-with-config", input.PeerFlowName)
+	if err != nil {
+		return nil, err
+	}
+
+	peerflowWithConfigOpts := workflow.ChildWorkflowOptions{
+		WorkflowID:        peerflowWithConfigID,
+		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 2,
+		},
+	}
+
+	limits := &PeerFlowLimits{
+		TotalSyncFlows:      input.TotalSyncFlows,
+		TotalNormalizeFlows: input.TotalNormalizeFlows,
+		MaxBatchSize:        input.MaxBatchSize,
+	}
+
+	peerflowWithConfigCtx := workflow.WithChildOptions(ctx, peerflowWithConfigOpts)
+	peerFlowWithConfigFuture := workflow.ExecuteChildWorkflow(
+		peerflowWithConfigCtx, PeerFlowWorkflowWithConfig, fconn, &limits)
+
+	var res PeerFlowWorkflowResult
+	if err := peerFlowWithConfigFuture.Get(peerflowWithConfigCtx, &res); err != nil {
+		return nil, fmt.Errorf("failed to execute child workflow: %w", err)
+	}
+
+	return &res, nil
+}
+
+func PeerFlowWorkflowWithConfig(
+	ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigs,
+	limits *PeerFlowLimits,
+) (*PeerFlowWorkflowResult, error) {
 	w := NewPeerFlowWorkflowExecution(ctx, &PeerFlowState{
-		PeerFlowWorkflowInput: *input,
 		Progress:              []string{"started"},
 		SyncFlowStatuses:      []*model.SyncResponse{},
 		NormalizeFlowStatuses: []*model.NormalizeResponse{},
@@ -140,7 +195,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 	})
 
 	// Support a Query for the current state of the peer flow.
-	err := workflow.SetQueryHandler(ctx, PeerFlowStatusQuery, func() (PeerFlowState, error) {
+	err := workflow.SetQueryHandler(ctx, PeerFlowStatusQuery, func(jobName string) (PeerFlowState, error) {
 		return w.PeerFlowState, nil
 	})
 	if err != nil {
@@ -161,19 +216,12 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		c.Receive(ctx, &signalVal)
 		signalHandler(ctx, signalVal)
 	})
-
-	// Fetch the connection configs for the source and destination peers.
-	flowConnectionConfigs, err := w.fetchConnectionConfigs(ctx)
-	if err != nil {
-		return &w.PeerFlowState, err
-	}
-	flowConnectionConfigs.FlowJobName = w.PeerFlowName
 	w.Progress = append(w.Progress, "fetched connection configs")
 
 	{
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
-		setupFlowID, err := w.getChildWorkflowID(ctx, "setup-flow", w.PeerFlowName)
+		setupFlowID, err := GetChildWorkflowID(ctx, "setup-flow", cfg.FlowJobName)
 		if err != nil {
 			return &w.PeerFlowState, err
 		}
@@ -185,8 +233,8 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 			},
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
-		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, flowConnectionConfigs)
-		if err := setupFlowFuture.Get(setupFlowCtx, &flowConnectionConfigs); err != nil {
+		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
+		if err := setupFlowFuture.Get(setupFlowCtx, &cfg); err != nil {
 			return &w.PeerFlowState, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
 
@@ -195,7 +243,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{
-		BatchSize: int32(input.MaxBatchSize),
+		BatchSize: int32(limits.MaxBatchSize),
 	}
 
 	currentFlowNumber := 0
@@ -213,14 +261,14 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 			SyncFlow will always be running, even when Initial Load is going on.
 		*/
 		// check if total sync flows have been completed
-		if input.TotalSyncFlows != 0 && currentFlowNumber == input.TotalSyncFlows {
+		if limits.TotalSyncFlows != 0 && currentFlowNumber == limits.TotalSyncFlows {
 			w.logger.Info("All the syncflows have completed successfully, there was a"+
-				" limit on the number of syncflows to be executed: ", input.TotalSyncFlows)
+				" limit on the number of syncflows to be executed: ", limits.TotalSyncFlows)
 			break
 		}
 		currentFlowNumber++
 
-		syncFlowID, err := w.getChildWorkflowID(ctx, "sync-flow", w.PeerFlowName)
+		syncFlowID, err := GetChildWorkflowID(ctx, "sync-flow", cfg.FlowJobName)
 		if err != nil {
 			return &w.PeerFlowState, err
 		}
@@ -237,7 +285,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			SyncFlowWorkflow,
-			flowConnectionConfigs,
+			cfg,
 			syncFlowOptions,
 		)
 
@@ -259,14 +307,14 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 			1. Currently NormalizeFlow runs right after SyncFlow. We need to make it asynchronous
 			NormalizeFlow will start only after Initial Load
 		*/
-		if input.TotalNormalizeFlows != 0 && currentNormalizeNumber == input.TotalNormalizeFlows {
+		if limits.TotalNormalizeFlows != 0 && currentNormalizeNumber == limits.TotalNormalizeFlows {
 			w.logger.Info("All the normalizer flows have completed successfully, there was a"+
-				" limit on the number of normalizer to be executed: ", input.TotalNormalizeFlows)
+				" limit on the number of normalizer to be executed: ", limits.TotalNormalizeFlows)
 			break
 		}
 		currentNormalizeNumber++
 
-		normalizeFlowID, err := w.getChildWorkflowID(ctx, "normalize-flow", w.PeerFlowName)
+		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
 		if err != nil {
 			return &w.PeerFlowState, err
 		}
@@ -283,7 +331,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			NormalizeFlowWorkflow,
-			flowConnectionConfigs,
+			cfg,
 		)
 
 		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
