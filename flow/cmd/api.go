@@ -100,10 +100,15 @@ func (a *APIServer) StartPeerFlowWithConfig(
 		TaskQueue: shared.PeerFlowTaskQueue,
 	}
 
+	maxBatchSize := int(input.MaxBatchSize)
+	if maxBatchSize == 0 {
+		maxBatchSize = 100000
+	}
+
 	limits := &peerflow.PeerFlowLimits{
 		TotalSyncFlows:      0,
 		TotalNormalizeFlows: 0,
-		MaxBatchSize:        1024 * 1024,
+		MaxBatchSize:        maxBatchSize,
 	}
 
 	_, err := a.temporalClient.ExecuteWorkflow(

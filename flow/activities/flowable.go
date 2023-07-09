@@ -237,7 +237,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	}
 
 	// log the number of records
-	log.Printf("pulled %d records", len(records.Records))
+	numRecords := len(records.Records)
+	log.Printf("pulled %d records", numRecords)
+
+	if numRecords == 0 {
+		log.Info("no records to push")
+		return nil, nil
+	}
 
 	res, err := dest.SyncRecords(&model.SyncRecordsRequest{
 		Records:     records,

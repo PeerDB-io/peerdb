@@ -128,6 +128,8 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 		return nil, err
 	}
 
+	log.Infof("got last offset for job `%s`: %d", jobName, offset)
+
 	return &protos.LastSyncState{
 		Checkpoint: offset,
 	}, nil
@@ -145,6 +147,7 @@ func (c *EventHubConnector) UpdateLastOffset(jobName string, offset int64) error
 	}
 
 	// update the last offset
+	log.Infof("updating last offset for job `%s` to `%d`", jobName, offset)
 	_, err = tx.Exec(c.ctx, `
 		INSERT INTO `+metadataSchema+`.`+lastSyncStateTableName+` (job_name, last_offset)
 		VALUES ($1, $2)
