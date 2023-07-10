@@ -417,13 +417,26 @@ func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) (strin
 
 	// Get the primary key column name
 	var pkCol string
-	err = c.pool.QueryRow(c.ctx,
+	rows, err := c.pool.Query(c.ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 		 WHERE i.indrelid = $1 AND i.indisprimary`,
-		relID).Scan(&pkCol)
+		relID)
 	if err != nil {
 		return "", fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+	}
+	defer rows.Close()
+	// 0 rows returned, table has no primary keys
+	if !rows.Next() {
+		return "", fmt.Errorf("table %s has no primary keys", schemaTable)
+	}
+	err = rows.Scan(&pkCol)
+	if err != nil {
+		return "", fmt.Errorf("error scanning primary key column for table %s: %w", schemaTable, err)
+	}
+	// more than 1 row returned, table has more than 1 primary key
+	if rows.Next() {
+		return "", fmt.Errorf("table %s has more than one primary key", schemaTable)
 	}
 
 	return pkCol, nil
