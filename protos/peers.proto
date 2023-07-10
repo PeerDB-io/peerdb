@@ -52,6 +52,10 @@ message EventHubConfig {
   PostgresConfig metadata_db = 4;
 }
 
+message S3Config {
+  string url = 1;
+}
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
