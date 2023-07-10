@@ -45,7 +45,7 @@ lazy_static::lazy_static! {
         QRepOptionType::String {
             name: "mode",
             default_val: Some("append"),
-            required: false,
+            required: true,
             accepted_values: Some(vec!["upsert", "append"]),
         },
         QRepOptionType::StringArray {

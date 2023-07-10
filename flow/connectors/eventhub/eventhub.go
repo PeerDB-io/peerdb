@@ -107,37 +107,46 @@ func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	batch := req.Records
+
+	eventsPerHeartBeat := 1000
+	eventsPerBatch := 100000
+
+	batchPerTopic := make(map[string][]*eventhub.Event)
 	for i, record := range batch.Records {
-		// get the event hub for this table.
-
-		// TODO (kaushik): this is a hack to get the table name.
-		tblName := record.GetTableName()
-
-		hub, err := c.getOrCreateHubConnection(tblName)
-		if err != nil {
-			log.Errorf("failed to get event hub connection: %v", err)
-			return nil, err
-		}
-
 		json, err := record.GetItems().ToJSON()
 		if err != nil {
 			log.Errorf("failed to convert record to json: %v", err)
 			return nil, err
 		}
 
-		// make a context with 10 second timeout as hub retries for as
-		// long as the context allows it to.
-		subCtx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
-		defer cancel()
+		// TODO (kaushik): this is a hack to get the table name.
+		topicName := record.GetTableName()
 
-		err = hub.Send(subCtx, eventhub.NewEventFromString(json))
-		if err != nil {
-			log.Errorf("failed to send event to event hub: %v", err)
-			return nil, err
+		if _, ok := batchPerTopic[topicName]; !ok {
+			batchPerTopic[topicName] = make([]*eventhub.Event, 0)
 		}
 
-		if i%1000 == 0 {
-			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("sent %d records to hub: %s", i, tblName))
+		batchPerTopic[topicName] = append(batchPerTopic[topicName], eventhub.NewEventFromString(json))
+
+		if i%eventsPerHeartBeat == 0 {
+			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("sent %d records to hub: %s", i, topicName))
+		}
+
+		if i%eventsPerBatch == 0 {
+			err := c.sendEventBatch(batchPerTopic)
+			if err != nil {
+				return nil, err
+			}
+
+			batchPerTopic = make(map[string][]*eventhub.Event)
+		}
+	}
+
+	// send the remaining events.
+	if len(batchPerTopic) > 0 {
+		err := c.sendEventBatch(batchPerTopic)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -149,7 +158,45 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	return nil, nil
+	return &model.SyncResponse{
+		FirstSyncedCheckPointID: batch.FirstCheckPointID,
+		LastSyncedCheckPointID:  batch.LastCheckPointID,
+		NumRecordsSynced:        int64(len(batch.Records)),
+	}, nil
+}
+
+// send the batch to the event hub.
+func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event) error {
+	if len(events) == 0 {
+		log.Info("no events to send")
+		return nil
+	}
+
+	// make a context with 10 second timeout as hub retries for as
+	// long as the context allows it to.
+	subCtx, cancel := context.WithTimeout(c.ctx, 5*time.Minute)
+	defer cancel()
+
+	numEventsPushed := 0
+	for tblName, eventBatch := range events {
+		hub, err := c.getOrCreateHubConnection(tblName)
+		if err != nil {
+			log.Errorf("failed to get event hub connection: %v", err)
+			return err
+		}
+
+		err = hub.SendBatch(subCtx, eventhub.NewEventBatchIterator(eventBatch...))
+		if err != nil {
+			log.Errorf("failed to send event batch: %v", err)
+			return err
+		}
+
+		numEventsPushed += len(eventBatch)
+	}
+
+	log.Infof("successfully sent a batch of %d events to event hub", numEventsPushed)
+
+	return nil
 }
 
 func (c *EventHubConnector) getOrCreateHubConnection(name string) (*eventhub.Hub, error) {
