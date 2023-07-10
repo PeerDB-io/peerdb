@@ -142,8 +142,8 @@ func CopyStageToDestination(
 
 	appendMode := true
 	if config.WriteMode != nil {
-		wirteType := config.WriteMode.WriteType
-		if wirteType == protos.QRepWriteType_QREP_WRITE_MODE_UPSERT {
+		writeType := config.WriteMode.WriteType
+		if writeType == protos.QRepWriteType_QREP_WRITE_MODE_UPSERT {
 			appendMode = false
 		}
 	}

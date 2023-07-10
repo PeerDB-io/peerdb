@@ -26,14 +26,16 @@ func (c *PostgresConnector) GetQRepPartitions(
 
 	var partitions []*protos.QRepPartition
 	switch v := minValue.(type) {
-	case int32, int64:
+	case int64:
 		maxValue := maxValue.(int64) + 1
-		fmt.Println("minValue", minValue)
-		fmt.Println("maxValue", maxValue)
-		partitions, err = c.getIntPartitions(v.(int64), maxValue, config.BatchSizeInt)
+		partitions, err = c.getIntPartitions(v, maxValue, config.BatchSizeInt)
 	case time.Time:
 		maxValue := maxValue.(time.Time).Add(time.Microsecond)
 		partitions, err = c.getTimePartitions(v, maxValue, config.BatchDurationSeconds)
+	// only hit when there is no data in the source table
+	case nil:
+		log.Warnf("no records to replicate for flow job %s, returning", config.FlowJobName)
+		return make([]*protos.QRepPartition, 0), nil
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
@@ -51,12 +53,24 @@ func (c *PostgresConnector) getMinMaxValues(
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	// Get the maximum value from the database
+	maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
+	row := c.pool.QueryRow(c.ctx, maxQuery)
+	if err := row.Scan(&maxValue); err != nil {
+		return nil, nil, fmt.Errorf("failed to query for max value: %w", err)
+	}
 
 	if last != nil && last.Range != nil {
 		// If there's a last partition, start from its end
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			minValue = lastRange.IntRange.End
+			switch v := maxValue.(type) {
+			case int16:
+				maxValue = int64(v)
+			case int32:
+				maxValue = int64(v)
+			}
 		case *protos.PartitionRange_TimestampRange:
 			minValue = lastRange.TimestampRange.End.AsTime()
 		}
@@ -68,13 +82,15 @@ func (c *PostgresConnector) getMinMaxValues(
 			log.Errorf("failed to query [%s] for min value: %v", minQuery, err)
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)
 		}
-	}
 
-	// Get the maximum value from the database
-	maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
-	row := c.pool.QueryRow(c.ctx, maxQuery)
-	if err := row.Scan(&maxValue); err != nil {
-		return nil, nil, fmt.Errorf("failed to query for max value: %w", err)
+		switch v := minValue.(type) {
+		case int16:
+			minValue = int64(v)
+			maxValue = int64(maxValue.(int16))
+		case int32:
+			minValue = int64(v)
+			maxValue = int64(maxValue.(int32))
+		}
 	}
 
 	return minValue, maxValue, nil

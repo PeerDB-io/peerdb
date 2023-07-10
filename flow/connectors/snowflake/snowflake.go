@@ -210,11 +210,11 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 		return nil, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
 	}
 
-	var result int64
 	if !rows.Next() {
 		log.Warnf("No row found for job %s, returning nil", jobName)
 		return nil, nil
 	}
+	var result int64
 	err = rows.Scan(&result)
 	if err != nil {
 		return nil, fmt.Errorf("error while reading result row: %w", err)
@@ -841,8 +841,8 @@ func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string, normali
 	return nil
 }
 
-func (c *SnowflakeConnector) createPeerDBInternalSchema(createsSchemaTx *sql.Tx) error {
-	_, err := createsSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createPeerDBInternalSchemaSQL, peerDBInternalSchema))
+func (c *SnowflakeConnector) createPeerDBInternalSchema(createSchemaTx *sql.Tx) error {
+	_, err := createSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createPeerDBInternalSchemaSQL, peerDBInternalSchema))
 	if err != nil {
 		return fmt.Errorf("error while creating internal schema for PeerDB: %w", err)
 	}
