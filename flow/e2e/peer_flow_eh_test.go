@@ -80,7 +80,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_EH() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &peerFlowInput, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

@@ -17,7 +17,9 @@ import (
 )
 
 const (
-	PeerFlowStatusQuery = "q-peer-flow-status"
+	PeerFlowStatusQuery          = "q-peer-flow-status"
+	maxSyncFlowsPerPeerFlow      = 32
+	maxNormalizeFlowsPerPeerFlow = 32
 )
 
 type PeerFlowLimits struct {
@@ -68,18 +70,28 @@ type PeerFlowState struct {
 	NormalizeFlowErrors error
 }
 
+// returns a new empty PeerFlowState
+func NewStartedPeerFlowState() *PeerFlowState {
+	return &PeerFlowState{
+		Progress:              []string{"started"},
+		SyncFlowStatuses:      nil,
+		NormalizeFlowStatuses: nil,
+		ActiveSignal:          shared.NoopSignal,
+		SetupComplete:         false,
+		SyncFlowErrors:        nil,
+		NormalizeFlowErrors:   nil,
+	}
+}
+
 // PeerFlowWorkflowExecution represents the state for execution of a peer flow.
 type PeerFlowWorkflowExecution struct {
-	// The state of the peer flow.
-	PeerFlowState
 	flowExecutionID string
 	logger          log.Logger
 }
 
 // NewPeerFlowWorkflowExecution creates a new instance of PeerFlowWorkflowExecution.
-func NewPeerFlowWorkflowExecution(ctx workflow.Context, state *PeerFlowState) *PeerFlowWorkflowExecution {
+func NewPeerFlowWorkflowExecution(ctx workflow.Context) *PeerFlowWorkflowExecution {
 	return &PeerFlowWorkflowExecution{
-		PeerFlowState:   *state,
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
 		logger:          workflow.GetLogger(ctx),
 	}
@@ -168,9 +180,10 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		MaxBatchSize:        input.MaxBatchSize,
 	}
 
+	state := NewStartedPeerFlowState()
 	peerflowWithConfigCtx := workflow.WithChildOptions(ctx, peerflowWithConfigOpts)
 	peerFlowWithConfigFuture := workflow.ExecuteChildWorkflow(
-		peerflowWithConfigCtx, PeerFlowWorkflowWithConfig, fconn, &limits)
+		peerflowWithConfigCtx, PeerFlowWorkflowWithConfig, fconn, &limits, state)
 
 	var res PeerFlowWorkflowResult
 	if err := peerFlowWithConfigFuture.Get(peerflowWithConfigCtx, &res); err != nil {
@@ -184,46 +197,54 @@ func PeerFlowWorkflowWithConfig(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
 	limits *PeerFlowLimits,
+	state *PeerFlowState,
 ) (*PeerFlowWorkflowResult, error) {
-	w := NewPeerFlowWorkflowExecution(ctx, &PeerFlowState{
-		Progress:              []string{"started"},
-		SyncFlowStatuses:      []*model.SyncResponse{},
-		NormalizeFlowStatuses: []*model.NormalizeResponse{},
-		SetupComplete:         false,
-		ActiveSignal:          shared.NoopSignal,
-		SyncFlowErrors:        nil,
-	})
+	if state == nil {
+		state = NewStartedPeerFlowState()
+	}
+
+	if cfg == nil {
+		return nil, fmt.Errorf("invalid connection configs")
+	}
+
+	w := NewPeerFlowWorkflowExecution(ctx)
+
+	if limits.TotalNormalizeFlows == 0 {
+		limits.TotalNormalizeFlows = maxNormalizeFlowsPerPeerFlow
+	}
+
+	if limits.TotalSyncFlows == 0 {
+		limits.TotalSyncFlows = maxSyncFlowsPerPeerFlow
+	}
 
 	// Support a Query for the current state of the peer flow.
 	err := workflow.SetQueryHandler(ctx, PeerFlowStatusQuery, func(jobName string) (PeerFlowState, error) {
-		return w.PeerFlowState, nil
+		return *state, nil
 	})
 	if err != nil {
-		return &w.PeerFlowState, fmt.Errorf("failed to set `%s` query handler: %w", PeerFlowStatusQuery, err)
+		return state, fmt.Errorf("failed to set `%s` query handler: %w", PeerFlowStatusQuery, err)
 	}
-
-	selector := workflow.NewSelector(ctx)
 
 	signalChan := workflow.GetSignalChannel(ctx, shared.PeerFlowSignalName)
 	signalHandler := func(_ workflow.Context, v shared.PeerFlowSignal) {
 		w.logger.Info("received signal - ", v)
-		w.PeerFlowState.ActiveSignal = v
+		state.ActiveSignal = v
 	}
 
 	// Support a signal to pause the peer flow.
+	selector := workflow.NewSelector(ctx)
 	selector.AddReceive(signalChan, func(c workflow.ReceiveChannel, more bool) {
 		var signalVal shared.PeerFlowSignal
 		c.Receive(ctx, &signalVal)
 		signalHandler(ctx, signalVal)
 	})
-	w.Progress = append(w.Progress, "fetched connection configs")
 
-	{
+	if !state.SetupComplete {
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
 		setupFlowID, err := GetChildWorkflowID(ctx, "setup-flow", cfg.FlowJobName)
 		if err != nil {
-			return &w.PeerFlowState, err
+			return state, err
 		}
 		childSetupFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        setupFlowID,
@@ -235,42 +256,38 @@ func PeerFlowWorkflowWithConfig(
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
 		if err := setupFlowFuture.Get(setupFlowCtx, &cfg); err != nil {
-			return &w.PeerFlowState, fmt.Errorf("failed to execute child workflow: %w", err)
+			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
 
-		w.SetupComplete = true
-		w.Progress = append(w.Progress, "executed setup flow")
+		state.SetupComplete = true
+		state.Progress = append(state.Progress, "executed setup flow")
 	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{
 		BatchSize: int32(limits.MaxBatchSize),
 	}
 
-	currentFlowNumber := 0
-	currentNormalizeNumber := 0
+	currentSyncFlowNum := 0
+	currentNormalizeFlowNum := 0
 
 	for {
 		// check if the peer flow has been shutdown
-		if w.PeerFlowState.ActiveSignal == shared.ShutdownSignal {
+		if state.ActiveSignal == shared.ShutdownSignal {
 			w.logger.Info("peer flow has been shutdown")
 			break
 		}
 
-		/*
-			SyncFlow - sync raw cdc changes from source to target.
-			SyncFlow will always be running, even when Initial Load is going on.
-		*/
 		// check if total sync flows have been completed
-		if limits.TotalSyncFlows != 0 && currentFlowNumber == limits.TotalSyncFlows {
+		if limits.TotalSyncFlows != 0 && currentSyncFlowNum == limits.TotalSyncFlows {
 			w.logger.Info("All the syncflows have completed successfully, there was a"+
 				" limit on the number of syncflows to be executed: ", limits.TotalSyncFlows)
-			break
+			return state, nil
 		}
-		currentFlowNumber++
+		currentSyncFlowNum++
 
 		syncFlowID, err := GetChildWorkflowID(ctx, "sync-flow", cfg.FlowJobName)
 		if err != nil {
-			return &w.PeerFlowState, err
+			return state, err
 		}
 
 		// execute the sync flow as a child workflow
@@ -293,9 +310,9 @@ func PeerFlowWorkflowWithConfig(
 			var childSyncFlowRes *model.SyncResponse
 			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
 				w.logger.Error("failed to execute sync flow: ", err)
-				w.SyncFlowErrors = multierror.Append(w.SyncFlowErrors, err)
+				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
 			} else {
-				w.SyncFlowStatuses = append(w.SyncFlowStatuses, childSyncFlowRes)
+				state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			}
 		})
 		selector.Select(ctx)
@@ -307,16 +324,16 @@ func PeerFlowWorkflowWithConfig(
 			1. Currently NormalizeFlow runs right after SyncFlow. We need to make it asynchronous
 			NormalizeFlow will start only after Initial Load
 		*/
-		if limits.TotalNormalizeFlows != 0 && currentNormalizeNumber == limits.TotalNormalizeFlows {
+		if limits.TotalNormalizeFlows != 0 && currentNormalizeFlowNum == limits.TotalNormalizeFlows {
 			w.logger.Info("All the normalizer flows have completed successfully, there was a"+
 				" limit on the number of normalizer to be executed: ", limits.TotalNormalizeFlows)
-			break
+			return state, nil
 		}
-		currentNormalizeNumber++
+		currentNormalizeFlowNum++
 
 		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
 		if err != nil {
-			return &w.PeerFlowState, err
+			return state, err
 		}
 
 		// execute the normalize flow as a child workflow
@@ -338,13 +355,13 @@ func PeerFlowWorkflowWithConfig(
 			var childNormalizeFlowRes *model.NormalizeResponse
 			if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
 				w.logger.Error("failed to execute normalize flow: ", err)
-				w.SyncFlowErrors = multierror.Append(w.SyncFlowErrors, err)
+				state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
 			} else {
-				w.NormalizeFlowStatuses = append(w.NormalizeFlowStatuses, childNormalizeFlowRes)
+				state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
 			}
 		})
 		selector.Select(ctx)
 	}
 
-	return &w.PeerFlowState, w.SyncFlowErrors
+	return nil, workflow.NewContinueAsNewError(ctx, PeerFlowWorkflowWithConfig, cfg, limits, state)
 }
