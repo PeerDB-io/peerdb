@@ -52,7 +52,7 @@ func (c *S3Connector) GetLastOffset(jobName string) (*protos.LastSyncState, erro
 	return nil, nil
 }
 
-func (c *S3Connector) GetLastNormalizeBatchID(jobName string) (int64, error) {
+func (c *S3Connector) GetLastNormalizeBatchID() (int64, error) {
 	log.Infof("GetLastNormalizeBatchID not needed for S3")
 	return 0, nil
 }

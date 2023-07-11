@@ -26,7 +26,6 @@ func (s *S3Connector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	records *model.QRecordBatch,
 ) (int, error) {
-
 	dstTableName := config.DestinationTableIdentifier
 	avroSchema, err := getAvroSchema(dstTableName, records.Schema)
 	if err != nil {
