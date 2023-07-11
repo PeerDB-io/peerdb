@@ -59,7 +59,7 @@ func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 }
 
 func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount int) {
-	for i := 0; i < rowCount; i++ {
+	for i := 0; i < rowCount-1; i++ {
 		_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test.%s (
 				id, card_id, "from", price, created_at,
@@ -82,6 +82,18 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()))
 		s.NoError(err)
 	}
+
+	// add a row where all the nullable fields are null
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO e2e_test.%s (
+		id, "from", created_at, updated_at,
+		transfer_type, blockchain, card_bought_notified, asset_id
+	) VALUES (
+		'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+		0, 1, false, 12345
+	);
+`, tableName, uuid.New().String()))
+	require.NoError(s.T(), err)
 }
 
 func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) {
@@ -335,7 +347,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
 
-	numRows := 1
+	numRows := 10
 
 	tblName := "test_qrep_flow_avro_sf"
 	s.setupSourceTable(tblName, numRows)
