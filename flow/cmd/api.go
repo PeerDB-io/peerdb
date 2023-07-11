@@ -111,12 +111,14 @@ func (a *APIServer) StartPeerFlowWithConfig(
 		MaxBatchSize:        maxBatchSize,
 	}
 
+	state := peerflow.NewStartedPeerFlowState()
 	_, err := a.temporalClient.ExecuteWorkflow(
 		reqCtx,                              // context
 		workflowOptions,                     // workflow start options
 		peerflow.PeerFlowWorkflowWithConfig, // workflow function
 		input,                               // workflow input
 		limits,                              // workflow limits
+		state,                               // workflow state
 	)
 	if err != nil {
 		return "", fmt.Errorf("unable to start PeerFlow workflow: %w", err)
