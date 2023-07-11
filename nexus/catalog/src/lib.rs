@@ -149,6 +149,11 @@ impl Catalog {
                     buf.reserve(config_len);
                     eventhub_config.encode(&mut buf)?;
                 }
+                Config::S3Config(s3_config) => {
+                    let config_len = s3_config.encoded_len();
+                    buf.reserve(config_len);
+                    s3_config.encode(&mut buf)?;
+                }
             };
 
             buf
@@ -243,6 +248,11 @@ impl Catalog {
                     let eventhub_config =
                         pt::peers::EventHubConfig::decode(options.as_slice()).context(err)?;
                     Some(Config::EventhubConfig(eventhub_config))
+                }
+                Some(DbType::S3) => {
+                    let err = format!("unable to decode {} options for peer {}", "postgres", name);
+                    let s3_config = pt::peers::S3Config::decode(options.as_slice()).context(err)?;
+                    Some(Config::S3Config(s3_config))
                 }
                 Some(DbType::Postgres) => {
                     let err = format!("unable to decode {} options for peer {}", "postgres", name);

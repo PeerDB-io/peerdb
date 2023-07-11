@@ -393,6 +393,7 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Eventhub => None,
+        DbType::S3 => None,
     };
 
     Ok(config)

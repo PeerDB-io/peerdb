@@ -62,6 +62,7 @@ enum DBType {
   MONGO = 2;
   POSTGRES = 3;
   EVENTHUB = 4;
+  S3 = 5;
 }
 
 message Peer {
@@ -73,5 +74,6 @@ message Peer {
     MongoConfig mongo_config = 5;
     PostgresConfig postgres_config = 6;
     EventHubConfig eventhub_config = 7;
+    S3Config s3_config = 8;
   }
 }

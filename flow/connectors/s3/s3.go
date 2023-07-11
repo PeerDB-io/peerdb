@@ -2,52 +2,59 @@ package conns3
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
 )
 
 type S3Connector struct {
-	url string
+	url    string
+	client s3.S3
 }
 
 func NewS3Connector(ctx context.Context,
 	S3ProtoConfig *protos.S3Config) (*S3Connector, error) {
+	s3Client, err := utils.CreateS3Client()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create S3 client: %w", err)
+	}
 	return &S3Connector{
-		url: S3ProtoConfig.Url,
+		url:    S3ProtoConfig.Url,
+		client: *s3Client,
 	}, nil
 }
 
 func (c *S3Connector) Close() error {
-	panic("Not implemented")
+	log.Infof("Close not needed for S3")
+	return nil
 }
 
 func (c *S3Connector) ConnectionActive() bool {
-	panic("Not implemented")
+	_, err := c.client.ListBuckets(nil)
+	return err == nil
 }
 
 func (c *S3Connector) NeedsSetupMetadataTables() bool {
-	panic("Not implemented")
+	return false
 }
 
 func (c *S3Connector) SetupMetadataTables() error {
-	panic("Not implemented")
+	log.Infof("SetupMetadataTables not needed for S3")
+	return nil
+}
+
+func (c *S3Connector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+	log.Infof("GetLastOffset not needed for S3")
+	return nil, nil
 }
 
 func (c *S3Connector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) ([]string, error) {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) (map[string][]string, error) {
-	panic("Not implemented")
+	log.Infof("GetLastNormalizeBatchID not needed for S3")
+	return 0, nil
 }
 
 func (c *S3Connector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
@@ -57,11 +64,13 @@ func (c *S3Connector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.T
 
 func (c *S3Connector) SetupNormalizedTable(
 	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
-	panic("Not implemented")
+	log.Infof("SetupNormalizedTable not needed for S3")
+	return nil, nil
 }
 
 func (c *S3Connector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	panic("Not implemented")
+	log.Infof("InitializeTableSchema not needed for S3")
+	return nil
 }
 
 func (c *S3Connector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
@@ -70,16 +79,19 @@ func (c *S3Connector) PullRecords(req *model.PullRecordsRequest) (*model.RecordB
 }
 
 func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	panic("Not implemented")
+	log.Infof("SyncRecords not needed for S3")
+	return nil, nil
 }
 
 // NormalizeRecords normalizes raw table to destination table.
 func (c *S3Connector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	panic("Not implemented")
+	log.Infof("NormalizeRecords not needed for S3")
+	return nil, nil
 }
 
 func (c *S3Connector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	panic("Not implemented")
+	log.Infof("CreateRawTable not needed for S3")
+	return nil, nil
 }
 
 // EnsurePullability ensures that the table is pullable, implementing the Connector interface.
@@ -101,52 +113,6 @@ func (c *S3Connector) PullFlowCleanup(jobName string) error {
 }
 
 func (c *S3Connector) SyncFlowCleanup(jobName string) error {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) (bool, error) {
-	panic("Not implemented")
-}
-
-func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sourceTableSchema *protos.TableSchema) string {
-	panic("Not implemented")
-}
-
-func generateMultiValueInsertSQL(tableIdentifier string, chunkSize int) string {
-	panic("Not implemented")
-}
-
-func getRawTableIdentifier(jobName string) string {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) insertRecordsInRawTable() error {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) generateAndExecuteMergeStatement(destinationTableIdentifier string,
-	unchangedToastColumns []string,
-	rawTableIdentifier string, syncBatchID int64, normalizeBatchID int64,
-	normalizeRecordsTx *sql.Tx) error {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) jobMetadataExists(jobName string) (bool, error) {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64, syncRecordsTx *sql.Tx) error {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64, normalizeRecordsTx *sql.Tx) error {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) createPeerDBInternalSchema(createsSchemaTx *sql.Tx) error {
-	panic("Not implemented")
-}
-
-func (c *S3Connector) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
-	panic("Not implemented")
+	log.Infof("SyncFlowCleanup not needed for S3")
+	return nil
 }
