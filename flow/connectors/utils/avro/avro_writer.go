@@ -1,4 +1,4 @@
-package connsnowflake
+package utils
 
 import (
 	"fmt"
