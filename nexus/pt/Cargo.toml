@@ -9,6 +9,7 @@ edition = "2021"
 bytes = "1.1"
 prost = "0.11"
 prost-types = "0.11"
+serde = { version = "1.0", features = ["derive"] }
 sqlparser = { path = "../sqlparser-rs" }
 
 [build-dependencies]

@@ -36,6 +36,8 @@ fn get_connection_string(config: &PostgresConfig) -> String {
     }
     connection_string.push_str(" dbname=");
     connection_string.push_str(&config.database);
+    connection_string.push_str(" connect_timeout=");
+    connection_string.push_str("15");
     connection_string
 }
 

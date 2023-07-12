@@ -26,5 +26,6 @@ RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerd
 FROM ubuntu:20.04
 RUN apt-get update && apt-get install -y ca-certificates
 RUN mkdir -p /var/log/peerdb
+WORKDIR /root
 COPY --from=builder /root/nexus/target/release/peerdb-server .
 CMD ["./peerdb-server"]

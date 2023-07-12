@@ -164,6 +164,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                         }
 
                         let processed_options = process_options(raw_options)?;
+
                         let qrep_flow_job = QRepFlowJob {
                             name: select.mirror_name.to_string().to_lowercase(),
                             source_peer: select.source_peer.to_string().to_lowercase(),
