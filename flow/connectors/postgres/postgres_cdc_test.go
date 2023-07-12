@@ -163,14 +163,16 @@ func (suite *PostgresCDCTestSuite) mutateToastRecords(srcTableName string) {
 		}
 	}()
 
-	_, err = mutateRecordsTx.Exec(context.Background(), "UPDATE %s SET n_t = $1 WHERE id = 1",
+	_, err = mutateRecordsTx.Exec(context.Background(), fmt.Sprintf("UPDATE %s SET n_t = $1 WHERE id = 1",
+		srcTableName),
 		suite.randString(65536))
 	suite.failTestError(err)
-	_, err = mutateRecordsTx.Exec(context.Background(), "UPDATE %s SET lz4_t = $1, n_b = $2, lz4_b = $3 WHERE id = 3",
+	_, err = mutateRecordsTx.Exec(context.Background(),
+		fmt.Sprintf("UPDATE %s SET lz4_t = $1, n_b = $2, lz4_b = $3 WHERE id = 3", srcTableName),
 		suite.randString(65536), suite.randBytea(65536), suite.randBytea(65536))
 	suite.failTestError(err)
 	_, err = mutateRecordsTx.Exec(context.Background(),
-		"UPDATE %s SET n_t = $1, lz4_t = $2, n_b = $3, lz4_b = $4 WHERE id = 4",
+		fmt.Sprintf("UPDATE %s SET n_t = $1, lz4_t = $2, n_b = $3, lz4_b = $4 WHERE id = 4", srcTableName),
 		suite.randString(65536), suite.randString(65536), suite.randBytea(65536), suite.randBytea(65536))
 	suite.failTestError(err)
 	_, err = mutateRecordsTx.Exec(context.Background(),
