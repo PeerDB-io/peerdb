@@ -48,6 +48,11 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 
 	for i, v := range q.Record.Entries {
 		k := q.ColumnNames[i]
+		if v.Value == nil {
+			bqValues[k] = nil
+			continue
+		}
+
 		switch v.Kind {
 		case qvalue.QValueKindFloat32:
 			val, ok := v.Value.(float32)
