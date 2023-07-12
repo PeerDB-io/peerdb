@@ -218,6 +218,8 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 		return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v}, nil
 	case []uint8:
 		return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: v}, nil
+	case nil:
+		return qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}, nil
 	default:
 		// If type is unsupported, return error
 		return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)

@@ -78,6 +78,11 @@ func getQValueKindForPostgresOID(recvOID uint32) qvalue.QValueKind {
 func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (*qvalue.QValue, error) {
 	var val *qvalue.QValue = nil
 
+	if value == nil {
+		val = &qvalue.QValue{Kind: qvalueKind, Value: nil}
+		return val, nil
+	}
+
 	switch qvalueKind {
 	case qvalue.QValueKindTimestamp:
 		timestamp := value.(time.Time)

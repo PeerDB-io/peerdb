@@ -82,12 +82,20 @@ func compareInt16(value1, value2 interface{}) bool {
 }
 
 func compareInt32(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
 	int1, ok1 := getInt32(value1)
 	int2, ok2 := getInt32(value2)
 	return ok1 && ok2 && int1 == int2
 }
 
 func compareInt64(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
 	int1, ok1 := getInt64(value1)
 	int2, ok2 := getInt64(value2)
 	return ok1 && ok2 && int1 == int2
@@ -100,12 +108,20 @@ func compareFloat32(value1, value2 interface{}) bool {
 }
 
 func compareFloat64(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
 	float1, ok1 := getFloat64(value1)
 	float2, ok2 := getFloat64(value2)
 	return ok1 && ok2 && float1 == float2
 }
 
 func compareGoTime(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
 	et1, ok1 := value1.(time.Time)
 	et2, ok2 := value2.(time.Time)
 
@@ -122,6 +138,10 @@ func compareGoTime(value1, value2 interface{}) bool {
 }
 
 func compareUUID(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
 	uuid1, ok1 := getUUID(value1)
 	uuid2, ok2 := getUUID(value2)
 
@@ -143,6 +163,10 @@ func compareBytes(value1, value2 interface{}) bool {
 }
 
 func compareNumeric(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
 	rat1, ok1 := getRat(value1)
 	rat2, ok2 := getRat(value2)
 
@@ -156,6 +180,10 @@ func compareNumeric(value1, value2 interface{}) bool {
 }
 
 func compareString(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
 	str1, ok1 := value1.(string)
 	str2, ok2 := value2.(string)
 
@@ -312,6 +340,9 @@ func getBytes(v interface{}) ([]byte, bool) {
 		return value, true
 	case string:
 		return []byte(value), true
+	case nil:
+		// return empty byte array
+		return []byte{}, true
 	default:
 		return nil, false
 	}
@@ -347,6 +378,42 @@ func getRat(v interface{}) (*big.Rat, bool) {
 		if ok {
 			return parsed, true
 		}
+	case float64:
+		rat := new(big.Rat)
+		return rat.SetFloat64(value), true
+	case int64:
+		rat := new(big.Rat)
+		return rat.SetInt64(value), true
+	case uint64:
+		rat := new(big.Rat)
+		return rat.SetUint64(value), true
+	case float32:
+		rat := new(big.Rat)
+		return rat.SetFloat64(float64(value)), true
+	case int32:
+		rat := new(big.Rat)
+		return rat.SetInt64(int64(value)), true
+	case uint32:
+		rat := new(big.Rat)
+		return rat.SetUint64(uint64(value)), true
+	case int:
+		rat := new(big.Rat)
+		return rat.SetInt64(int64(value)), true
+	case uint:
+		rat := new(big.Rat)
+		return rat.SetUint64(uint64(value)), true
+	case int8:
+		rat := new(big.Rat)
+		return rat.SetInt64(int64(value)), true
+	case uint8:
+		rat := new(big.Rat)
+		return rat.SetUint64(uint64(value)), true
+	case int16:
+		rat := new(big.Rat)
+		return rat.SetInt64(int64(value)), true
+	case uint16:
+		rat := new(big.Rat)
+		return rat.SetUint64(uint64(value)), true
 	}
 	return nil, false
 }
