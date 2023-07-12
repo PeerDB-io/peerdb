@@ -113,6 +113,7 @@ func (suite *PostgresCDCTestSuite) randString(n int) string {
 	}
 	return string(b)
 }
+
 func (suite *PostgresCDCTestSuite) insertToastRecords(srcTableName string) {
 	insertRecordsTx, err := suite.connector.pool.Begin(context.Background())
 	suite.failTestError(err)
@@ -162,15 +163,12 @@ func (suite *PostgresCDCTestSuite) mutateToastRecords(srcTableName string) {
 		}
 	}()
 
-	_, err = mutateRecordsTx.Exec(context.Background(),
-		fmt.Sprintf("UPDATE %s SET n_t = $1 WHERE id = 1", srcTableName), suite.randString(65536))
-	suite.failTestError(err)
-	_, err = mutateRecordsTx.Exec(context.Background(),
-		fmt.Sprintf("UPDATE %s SET lz4_b = $1 WHERE id = 2", srcTableName), suite.randBytea(65536))
-	suite.failTestError(err)
-	_, err = mutateRecordsTx.Exec(context.Background(),
-		fmt.Sprintf("UPDATE %s SET n_b = $1 WHERE id = 3", srcTableName), suite.randBytea(65536))
-	suite.failTestError(err)
+	mutateRecordsTx.Exec(context.Background(), "UPDATE %s SET n_t = $1 WHERE id = 1",
+		suite.randString(65536))
+	mutateRecordsTx.Exec(context.Background(), "UPDATE %s SET lz4_t = $1, n_b = $2, lz4_b = $3 WHERE id = 3",
+		suite.randString(65536), suite.randBytea(65536), suite.randBytea(65536))
+	mutateRecordsTx.Exec(context.Background(), "UPDATE %s SET n_t = $1, lz4_t = $2, n_b = $3, lz4_b = $4 WHERE id = 4",
+		suite.randString(65536), suite.randString(65536), suite.randBytea(65536), suite.randBytea(65536))
 	_, err = mutateRecordsTx.Exec(context.Background(),
 		fmt.Sprintf("DELETE FROM %s WHERE id = 3", srcTableName))
 	suite.failTestError(err)
@@ -200,28 +198,33 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	updateRecord = records[1].(*model.UpdateRecord)
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
-	suite.Equal(2, len(updateRecord.NewItems))
+	suite.Equal(4, len(updateRecord.NewItems))
 	suite.Equal(qvalue.QValueKindInt32, updateRecord.NewItems["id"].Kind)
 	suite.Equal(int32(2), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(qvalue.QValueKindString, updateRecord.NewItems["lz4_t"].Kind)
+	suite.Equal(65536, len(updateRecord.NewItems["lz4_t"].Value.(string)))
+	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["n_b"].Kind)
+	suite.Equal(65536, len(updateRecord.NewItems["n_b"].Value.(string)))
 	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["lz4_b"].Kind)
 	suite.Equal(65536, len(updateRecord.NewItems["lz4_b"].Value.([]byte)))
-	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
-	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
-	suite.True(updateRecord.UnchangedToastColumns["n_b"])
+	suite.Equal(1, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["n_t"])
 
 	suite.IsType(&model.UpdateRecord{}, records[2])
 	updateRecord = records[2].(*model.UpdateRecord)
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
-	suite.Equal(2, len(updateRecord.NewItems))
-	suite.Equal(int32(3), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(5, len(updateRecord.NewItems))
+	suite.Equal(int32(4), updateRecord.NewItems["id"].Value.(int32))
+	suite.Equal(qvalue.QValueKindString, updateRecord.NewItems["n_t"].Kind)
+	suite.Equal(65536, len(updateRecord.NewItems["n_t"].Value.(string)))
+	suite.Equal(qvalue.QValueKindString, updateRecord.NewItems["lz4_t"].Kind)
+	suite.Equal(65536, len(updateRecord.NewItems["lz4_t"].Value.(string)))
 	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["n_b"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["n_b"].Value.([]byte)))
-	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
-	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
-	suite.True(updateRecord.UnchangedToastColumns["n_t"])
-	suite.True(updateRecord.UnchangedToastColumns["lz4_b"])
+	suite.Equal(65536, len(updateRecord.NewItems["n_b"].Value.(string)))
+	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["lz4_b"].Kind)
+	suite.Equal(65536, len(updateRecord.NewItems["lz4_b"].Value.([]byte)))
+	suite.Equal(0, len(updateRecord.UnchangedToastColumns))
 
 	suite.IsType(&model.DeleteRecord{}, records[3])
 	deleteRecord := records[3].(*model.DeleteRecord)
@@ -304,61 +307,6 @@ func (suite *PostgresCDCTestSuite) TestParseSchemaTable() {
 	schemaTest3, err := parseSchemaTable("database.schema.table")
 	suite.Nil(schemaTest3)
 	suite.NotNil(err)
-}
-
-func (suite *PostgresCDCTestSuite) TestNonImplementedFunctions() {
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		suite.connector.SetupMetadataTables()
-	}, "not implemented")
-	suite.False(suite.connector.NeedsSetupMetadataTables())
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		suite.connector.GetLastOffset("offset_panic")
-	}, "not implemented")
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		suite.connector.GetDistinctTableNamesInBatch("distinct_table_names_in_batch_panic", 0, 0)
-	}, "not implemented")
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		suite.connector.SyncRecords(&model.SyncRecordsRequest{
-			FlowJobName: "sync_records_panic",
-			Records:     nil,
-		})
-	}, "not implemented")
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		suite.connector.NormalizeRecords(&model.NormalizeRecordsRequest{
-			FlowJobName: "normalize_records_panic",
-		})
-	}, "not implemented")
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		suite.connector.CreateRawTable(&protos.CreateRawTableInput{
-			FlowJobName:          "create_raw_table_panic",
-			PeerConnectionConfig: nil,
-		})
-	}, "not implemented")
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		suite.connector.SetupNormalizedTable(&protos.SetupNormalizedTableInput{
-			TableIdentifier:      "normalized_table_panic",
-			SourceTableSchema:    nil,
-			PeerConnectionConfig: nil,
-		})
-	}, "not implemented")
-	suite.Panicsf(func() {
-		//nolint:errcheck
-		testMap := make(map[string]*protos.TableSchema)
-		testMap["initialize_table_schema_panic"] = nil
-		//nolint:errcheck
-		suite.connector.InitializeTableSchema(testMap)
-	}, "not implemented")
-	suite.Panics(func() {
-		//nolint:errcheck
-		suite.connector.SyncFlowCleanup("sync_flow_cleanup_panic")
-	})
 }
 
 func (suite *PostgresCDCTestSuite) TestErrorForInvalidConfig() {

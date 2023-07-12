@@ -12,11 +12,11 @@ func GeneratePostgresPeer(postgresPort int) *protos.Peer {
 
 	ret.Config = &protos.Peer_PostgresConfig{
 		PostgresConfig: &protos.PostgresConfig{
-			Host:     "localhost",
+			Host:     "192.168.29.185",
 			Port:     uint32(postgresPort),
 			User:     "postgres",
-			Password: "postgres",
-			Database: "postgres",
+			Password: "banana",
+			Database: "peerdb",
 		},
 	}
 

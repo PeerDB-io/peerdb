@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   catalog:
-    image: debezium/postgres:14-alpine
+    image: debezium/postgres:15-alpine
     ports:
       # mapping is from host to container
       - 7132:5432

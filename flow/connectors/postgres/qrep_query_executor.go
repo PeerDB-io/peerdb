@@ -36,7 +36,7 @@ func fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSche
 	qfields := make([]*model.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
-		ctype := getQValueKindForPostgresOID(fd.DataTypeOID)
+		ctype := postgresOIDToQValueKind(fd.DataTypeOID)
 		// there isn't a way to know if a column is nullable or not
 		// TODO fix this.
 		cnullable := true
