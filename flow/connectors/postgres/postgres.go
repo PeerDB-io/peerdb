@@ -136,7 +136,6 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 		return nil, nil
 	}
 
-	log.Warnf("Found last offset %d for job %s", result, jobName)
 	return &protos.LastSyncState{
 		Checkpoint: result,
 	}, nil
@@ -334,6 +333,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, err
 	}
 	if !good {
+		//nolint:stylecheck
 		return nil, fmt.Errorf("Postgres version is not 15 or higher, required for MERGE")
 	}
 
@@ -493,7 +493,7 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	}
 	tableAlreadyExists, err := c.tableExists(normalizedTableNameComponents)
 	if err != nil {
-		return nil, fmt.Errorf("error occured while checking if normalized table exists: %w", err)
+		return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
 	if tableAlreadyExists {
 		return &protos.SetupNormalizedTableOutput{
