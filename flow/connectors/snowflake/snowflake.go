@@ -183,6 +183,7 @@ func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
 }
 
 func (c *SnowflakeConnector) SetupMetadataTables() error {
+	// NOTE that Snowflake does not support transactional DDL
 	createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
@@ -748,8 +749,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	}
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
-	udateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
-	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
+	updateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
+	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
 	// TARGET.<pkey> = SOURCE.<pkey>
 	pkeyColStr := fmt.Sprintf("TARGET.%s = SOURCE.%s",
@@ -875,7 +876,7 @@ func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchanged
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {
-		unchangedColsArray := strings.Split(cols, ", ")
+		unchangedColsArray := strings.Split(cols, ",")
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
