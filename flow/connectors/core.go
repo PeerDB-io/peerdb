@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
+	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -17,8 +18,6 @@ type Connector interface {
 	NeedsSetupMetadataTables() bool
 	SetupMetadataTables() error
 	GetLastOffset(jobName string) (*protos.LastSyncState, error)
-	GetLastSyncBatchID(jobName string) (int64, error)
-	GetLastNormalizeBatchID(jobName string) (int64, error)
 
 	// GetTableSchema returns the schema of a table.
 	GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error)
@@ -86,6 +85,8 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
+	case *protos.Peer_EventhubConfig:
+		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
 	default:
 		return nil, fmt.Errorf("requested connector is not yet implemented")
 	}

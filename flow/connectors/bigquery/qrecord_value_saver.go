@@ -48,6 +48,11 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 
 	for i, v := range q.Record.Entries {
 		k := q.ColumnNames[i]
+		if v.Value == nil {
+			bqValues[k] = nil
+			continue
+		}
+
 		switch v.Kind {
 		case qvalue.QValueKindFloat32:
 			val, ok := v.Value.(float32)
@@ -113,7 +118,7 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 
 			bqValues[k] = RatToBigQueryNumeric(val)
 
-		case qvalue.QValueKindBytes:
+		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			val, ok := v.Value.([]byte)
 			if !ok {
 				return nil, "", fmt.Errorf("failed to convert %v to []byte", v.Value)

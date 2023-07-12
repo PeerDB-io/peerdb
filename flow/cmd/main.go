@@ -95,7 +95,7 @@ func main() {
 					&cli.StringFlag{
 						Name:    "catalog-db",
 						Value:   "postgres",
-						EnvVars: []string{"PEERDB_CATALOG_DB"},
+						EnvVars: []string{"PEERDB_CATALOG_DATABASE"},
 					},
 					temporalHostPortFlag,
 				},

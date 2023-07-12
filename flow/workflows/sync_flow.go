@@ -79,11 +79,11 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		s.logger.Info("no last synced ID from destination peer")
 	}
 
-	syncFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 6 * time.Hour,
 		// TODO: activity needs to call heartbeat.
 		// see https://github.com/PeerDB-io/nexus/issues/216
-		HeartbeatTimeout: 1 * time.Minute,
+		HeartbeatTimeout: 5 * time.Minute,
 	})
 
 	// execute StartFlow on the peers to start the flow
@@ -92,10 +92,10 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		LastSyncState:         dstSyncState,
 		SyncFlowOptions:       opts,
 	}
-	fStartFlow := workflow.ExecuteActivity(syncFlowCtx, flowable.StartFlow, startFlowInput)
+	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 
 	var syncRes *model.SyncResponse
-	if err := fStartFlow.Get(syncFlowCtx, &syncRes); err != nil {
+	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
 	}
 

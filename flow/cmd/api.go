@@ -90,6 +90,43 @@ func (a *APIServer) StartPeerFlow(reqCtx context.Context, input *peerflow.PeerFl
 	return workflowID, nil
 }
 
+// StartPeerFlowWithConfig starts a peer flow workflow with the given config
+func (a *APIServer) StartPeerFlowWithConfig(
+	reqCtx context.Context,
+	input *protos.FlowConnectionConfigs) (string, error) {
+	workflowID := fmt.Sprintf("%s-peerflow-%s", input.FlowJobName, uuid.New())
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: shared.PeerFlowTaskQueue,
+	}
+
+	maxBatchSize := int(input.MaxBatchSize)
+	if maxBatchSize == 0 {
+		maxBatchSize = 100000
+	}
+
+	limits := &peerflow.PeerFlowLimits{
+		TotalSyncFlows:      0,
+		TotalNormalizeFlows: 0,
+		MaxBatchSize:        maxBatchSize,
+	}
+
+	state := peerflow.NewStartedPeerFlowState()
+	_, err := a.temporalClient.ExecuteWorkflow(
+		reqCtx,                              // context
+		workflowOptions,                     // workflow start options
+		peerflow.PeerFlowWorkflowWithConfig, // workflow function
+		input,                               // workflow input
+		limits,                              // workflow limits
+		state,                               // workflow state
+	)
+	if err != nil {
+		return "", fmt.Errorf("unable to start PeerFlow workflow: %w", err)
+	}
+
+	return workflowID, nil
+}
+
 func genConfigForQRepFlow(config *protos.QRepConfig, flowOptions map[string]interface{},
 	queryString string, destinationTableIdentifier string) error {
 	config.InitialCopyOnly = false
@@ -331,6 +368,30 @@ func APIMain(args *APIServerParams) error {
 		} else {
 			c.JSON(http.StatusOK, gin.H{
 				"status": "ok",
+			})
+		}
+	})
+
+	r.POST("/flows/start_with_config", func(c *gin.Context) {
+		var reqJSON protos.FlowConnectionConfigs
+		data, _ := c.GetRawData()
+
+		if err := protojson.Unmarshal(data, &reqJSON); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		ctx := c.Request.Context()
+		if id, err := apiServer.StartPeerFlowWithConfig(ctx, &reqJSON); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"status":      "ok",
+				"workflow_id": id,
 			})
 		}
 	})

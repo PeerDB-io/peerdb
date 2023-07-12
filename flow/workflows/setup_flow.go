@@ -171,6 +171,7 @@ func (s *SetupFlowExecution) createRawTable(
 	createRawTblInput := &protos.CreateRawTableInput{
 		PeerConnectionConfig: config.Destination,
 		FlowJobName:          s.PeerFlowName,
+		TableNameMapping:     config.TableNameMapping,
 	}
 
 	rawTblFuture := workflow.ExecuteActivity(ctx, flowable.CreateRawTable, createRawTblInput)

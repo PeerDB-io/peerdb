@@ -239,7 +239,7 @@ func TestAllDataTypes(t *testing.T) {
 		t.Fatalf("expected %v, got %v", expectedBytea, record.Entries[6].Value)
 	}
 
-	expectedJSON := `{"key": "value"}`
+	expectedJSON := `{"key":"value"}`
 	if record.Entries[7].Value.(string) != expectedJSON {
 		t.Fatalf("expected %v, got %v", expectedJSON, record.Entries[7].Value)
 	}

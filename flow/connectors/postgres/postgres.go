@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -33,8 +34,7 @@ func (t *SchemaTable) String() string {
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
 func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
-	connectionString := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
-		pgConfig.Host, pgConfig.Port, pgConfig.User, pgConfig.Password, pgConfig.Database)
+	connectionString := utils.GetPGConnectionString(pgConfig)
 
 	// create a separate connection pool for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
@@ -83,13 +83,6 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	panic("not implemented")
 }
 
-func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	panic("not implemented")
-}
-
-func (c *PostgresConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	panic("not implemented")
-}
 func (c *PostgresConnector) GetDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
 	normalizeBatchID int64) ([]string, error) {
 	panic("not implemented")
@@ -424,13 +417,26 @@ func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) (strin
 
 	// Get the primary key column name
 	var pkCol string
-	err = c.pool.QueryRow(c.ctx,
+	rows, err := c.pool.Query(c.ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
 		 WHERE i.indrelid = $1 AND i.indisprimary`,
-		relID).Scan(&pkCol)
+		relID)
 	if err != nil {
 		return "", fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+	}
+	defer rows.Close()
+	// 0 rows returned, table has no primary keys
+	if !rows.Next() {
+		return "", fmt.Errorf("table %s has no primary keys", schemaTable)
+	}
+	err = rows.Scan(&pkCol)
+	if err != nil {
+		return "", fmt.Errorf("error scanning primary key column for table %s: %w", schemaTable, err)
+	}
+	// more than 1 row returned, table has more than 1 primary key
+	if rows.Next() {
+		return "", fmt.Errorf("table %s has more than one primary key", schemaTable)
 	}
 
 	return pkCol, nil

@@ -59,7 +59,7 @@ func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 }
 
 func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount int) {
-	for i := 0; i < rowCount; i++ {
+	for i := 0; i < rowCount-1; i++ {
 		_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test.%s (
 				id, card_id, "from", price, created_at,
@@ -82,6 +82,18 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()))
 		s.NoError(err)
 	}
+
+	// add a row where all the nullable fields are null
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO e2e_test.%s (
+		id, "from", created_at, updated_at,
+		transfer_type, blockchain, card_bought_notified, asset_id
+	) VALUES (
+		'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+		0, 1, false, 12345
+	);
+`, tableName, uuid.New().String()))
+	require.NoError(s.T(), err)
 }
 
 func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) {
@@ -200,7 +212,7 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string, colsStri
 	s.True(pgRows.Equals(bqRows), "rows from source and destination tables are not equal")
 }
 
-func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector string) {
+func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
@@ -210,7 +222,12 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
-	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
+	var sfSelQuery string
+	if caseSensitive {
+		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
+	} else {
+		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
+	}
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
 	require.NoError(s.T(), err)
@@ -330,7 +347,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
 
-	numRows := 1
+	numRows := 10
 
 	tblName := "test_qrep_flow_avro_sf"
 	s.setupSourceTable(tblName, numRows)
@@ -359,7 +376,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, true)
 
 	env.AssertExpectations(s.T())
 }
@@ -401,7 +418,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, true)
 
 	env.AssertExpectations(s.T())
 }
@@ -485,7 +502,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, true)
 
 	env.AssertExpectations(s.T())
 }
@@ -527,7 +544,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() 
 	s.NoError(err)
 
 	sel := getOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel)
+	s.compareTableContentsSF(tblName, sel, true)
 
 	env.AssertExpectations(s.T())
 }

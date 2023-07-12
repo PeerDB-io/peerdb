@@ -51,6 +51,7 @@ func WorkerMain(opts *WorkerOptions) error {
 
 	w := worker.New(c, shared.PeerFlowTaskQueue, worker.Options{})
 	w.RegisterWorkflow(peerflow.PeerFlowWorkflow)
+	w.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
 	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	w.RegisterWorkflow(peerflow.SetupFlowWorkflow)
 	w.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)

@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
@@ -23,9 +24,12 @@ type E2EPeerFlowTestSuite struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
-	pool     *pgxpool.Pool
+	pgConnStr string
+	pool      *pgxpool.Pool
+
 	bqHelper *BigQueryTestHelper
 	sfHelper *SnowflakeTestHelper
+	ehHelper *EventHubTestHelper
 }
 
 func TestE2EPeerFlowTestSuite(t *testing.T) {
@@ -33,13 +37,27 @@ func TestE2EPeerFlowTestSuite(t *testing.T) {
 }
 
 const (
-	postgresPort    = 7132
-	postgresJdbcURL = "postgres://postgres:postgres@localhost:7132/postgres"
+	postgresHost     = "localhost"
+	postgresUser     = "postgres"
+	postgresPassword = "postgres"
+	postgresDatabase = "postgres"
+	postgresPort     = 7132
 )
+
+func GetTestPostgresConf() *protos.PostgresConfig {
+	return &protos.PostgresConfig{
+		Host:     postgresHost,
+		Port:     uint32(postgresPort),
+		User:     postgresUser,
+		Password: postgresPassword,
+		Database: postgresDatabase,
+	}
+}
 
 // setupPostgres sets up the postgres connection pool.
 func (s *E2EPeerFlowTestSuite) setupPostgres() error {
-	pool, err := pgxpool.New(context.Background(), postgresJdbcURL)
+	s.pgConnStr = utils.GetPGConnectionString(GetTestPostgresConf())
+	pool, err := pgxpool.New(context.Background(), s.pgConnStr)
 	if err != nil {
 		return fmt.Errorf("failed to create postgres connection pool: %w", err)
 	}
@@ -161,6 +179,11 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	if err != nil {
 		s.Fail("failed to setup snowflake", err)
 	}
+
+	err = s.setupEventHub()
+	if err != nil {
+		s.Fail("failed to setup eventhub", err)
+	}
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -185,6 +208,15 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 		if err != nil {
 			s.Fail("failed to drop snowflake schema", err)
 		}
+	} else {
+		s.Fail("snowflake helper is nil, unable to drop snowflake schema")
+	}
+
+	if s.ehHelper != nil {
+		err = s.ehHelper.CleanUp()
+		if err != nil {
+			s.Fail("failed to clean up eventhub", err)
+		}
 	}
 }
 
@@ -204,6 +236,7 @@ func registerWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.SetTestTimeout(300 * time.Second)
 
 	env.RegisterWorkflow(peerflow.PeerFlowWorkflow)
+	env.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	env.RegisterWorkflow(peerflow.SetupFlowWorkflow)
 	env.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
@@ -217,17 +250,13 @@ func (s *E2EPeerFlowTestSuite) Test_Invalid_Connection_Config() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(nil, nil)
-
 	// TODO (kaushikiska): ensure flow name can only be alpha numeric and underscores.
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   "invalid_connection_config",
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, nil, &limits, nil)
 
 	// Verify workflow completes
 	s.True(env.IsWorkflowCompleted())
@@ -263,16 +292,12 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -307,16 +332,12 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -354,11 +375,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -379,7 +396,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -422,11 +439,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -453,7 +466,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -493,11 +506,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -517,7 +526,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -558,11 +567,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -594,7 +599,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -660,11 +665,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -691,7 +692,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -731,11 +732,8 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
+	limits := peerflow.PeerFlowLimits{
 
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -761,7 +759,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -806,11 +804,8 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
+	limits := peerflow.PeerFlowLimits{
 
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -835,7 +830,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -877,11 +872,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -899,7 +890,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -941,11 +932,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -966,7 +953,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1014,11 +1001,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1045,7 +1028,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1053,7 +1036,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_1", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_1", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1086,11 +1069,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1110,7 +1089,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1119,7 +1098,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 	// assert that error contains "invalid connection configs"
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_2", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_2", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1152,11 +1131,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -1188,7 +1163,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1196,7 +1171,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_3", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_3", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1228,11 +1203,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1259,7 +1230,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1267,7 +1238,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_4", "id,t1,k")
+	s.compareTableContentsSF("test_toast_sf_4", `id,t1,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1300,11 +1271,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1330,7 +1297,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1338,7 +1305,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 
 	s.NoError(err)
 
-	s.compareTableContentsSF("test_toast_sf_5", "id,t1,t2,k")
+	s.compareTableContentsSF("test_toast_sf_5", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
 }
 
@@ -1376,11 +1343,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1405,7 +1368,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1449,11 +1412,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	env.OnActivity("FetchConfig", mock.Anything, mock.Anything).Return(flowConnConfig, nil)
-
-	peerFlowInput := peerflow.PeerFlowWorkflowInput{
-		PeerFlowName:   connectionGen.FlowJobName,
-		CatalogJdbcURL: postgresJdbcURL,
+	limits := peerflow.PeerFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -1471,7 +1430,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflow, &peerFlowInput)
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

@@ -79,8 +79,10 @@ func (a *FlowableActivity) CheckConnection(
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
+	needsSetup := conn.NeedsSetupMetadataTables()
+
 	return &CheckConnectionResult{
-		NeedsSetupMetadataTables: conn.NeedsSetupMetadataTables(),
+		NeedsSetupMetadataTables: needsSetup,
 	}, nil
 }
 
@@ -213,13 +215,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	log.Println("initializing table schema...")
+	log.Info("initializing table schema...")
 	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
 	}
 
-	log.Println("pulling records...")
+	log.Info("pulling records...")
 
 	records, err := src.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
@@ -235,14 +237,20 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	}
 
 	// log the number of records
-	log.Printf("pulled %d records", len(records.Records))
+	numRecords := len(records.Records)
+	log.Printf("pulled %d records", numRecords)
+
+	if numRecords == 0 {
+		log.Info("no records to push")
+		return nil, nil
+	}
 
 	res, err := dest.SyncRecords(&model.SyncRecordsRequest{
 		Records:     records,
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 	})
 
-	log.Println("pushed records")
+	log.Info("pushed records")
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to push records: %w", err)
@@ -266,7 +274,7 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.Sta
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	log.Println("initializing table schema...")
+	log.Info("initializing table schema...")
 	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
@@ -280,7 +288,9 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.Sta
 	}
 
 	// log the number of batches normalized
-	log.Printf("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID)
+	if res != nil {
+		log.Printf("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID)
+	}
 
 	return res, nil
 }

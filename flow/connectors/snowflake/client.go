@@ -116,6 +116,7 @@ func (s *SnowflakeClient) RecreateSchema(schema string) error {
 
 // DropSchema drops the schema.
 func (s *SnowflakeClient) DropSchema(schema string) error {
+	fmt.Println("dropping schema: ", schema)
 	exists, err := s.schemaExists(schema)
 	if err != nil {
 		return fmt.Errorf("failed to check if schema %s exists: %w", schema, err)
@@ -177,53 +178,84 @@ func (s *SnowflakeClient) CheckNull(schema string, tableName string, colNames []
 func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	switch kind {
 	case qvalue.QValueKindInt32:
-		if v, ok := val.(*int); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: *v}, nil
+		if v, ok := val.(*sql.NullInt32); ok {
+			if v.Valid {
+				return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: v.Int32}, nil
+			} else {
+				return qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: nil}, nil
+			}
 		}
 	case qvalue.QValueKindInt64:
-		if v, ok := val.(*int64); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: *v}, nil
+		if v, ok := val.(*sql.NullInt64); ok {
+			if v.Valid {
+				return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: v.Int64}, nil
+			} else {
+				return qvalue.QValue{Kind: qvalue.QValueKindInt64, Value: nil}, nil
+			}
 		}
 	case qvalue.QValueKindFloat32:
-		if v, ok := val.(*float32); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: *v}, nil
+		if v, ok := val.(*sql.NullFloat64); ok {
+			if v.Valid {
+				return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: float32(v.Float64)}, nil
+			} else {
+				return qvalue.QValue{Kind: qvalue.QValueKindFloat32, Value: nil}, nil
+			}
 		}
 	case qvalue.QValueKindFloat64:
-		if v, ok := val.(*float64); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: *v}, nil
+		if v, ok := val.(*sql.NullFloat64); ok {
+			if v.Valid {
+				return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: v.Float64}, nil
+			} else {
+				return qvalue.QValue{Kind: qvalue.QValueKindFloat64, Value: nil}, nil
+			}
 		}
 	case qvalue.QValueKindString:
-		if v, ok := val.(*string); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: *v}, nil
+		if v, ok := val.(*sql.NullString); ok {
+			if v.Valid {
+				return qvalue.QValue{Kind: qvalue.QValueKindString, Value: v.String}, nil
+			} else {
+				return qvalue.QValue{Kind: qvalue.QValueKindString, Value: nil}, nil
+			}
 		}
 	case qvalue.QValueKindBoolean:
-		if v, ok := val.(*bool); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: *v}, nil
-		}
-	case qvalue.QValueKindNumeric:
-		// convert string to big.Rat
-		if v, ok := val.(*string); ok && v != nil {
-			//nolint:gosec
-			ratVal, ok := new(big.Rat).SetString(*v)
-			if !ok {
-				return qvalue.QValue{}, fmt.Errorf("failed to convert string to big.Rat: %s", *v)
+		if v, ok := val.(*sql.NullBool); ok {
+			if v.Valid {
+				return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: v.Bool}, nil
+			} else {
+				return qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: nil}, nil
 			}
-			return qvalue.QValue{
-				Kind:  qvalue.QValueKindNumeric,
-				Value: ratVal,
-			}, nil
 		}
 	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
 		qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
-		if t, ok := val.(*time.Time); ok && t != nil {
-			return qvalue.QValue{
-				Kind:  kind,
-				Value: *t,
-			}, nil
+		if t, ok := val.(*sql.NullTime); ok {
+			if t.Valid {
+				return qvalue.QValue{
+					Kind:  kind,
+					Value: t.Time,
+				}, nil
+			} else {
+				return qvalue.QValue{
+					Kind:  kind,
+					Value: nil,
+				}, nil
+			}
 		}
-	case qvalue.QValueKindBytes:
+	case qvalue.QValueKindNumeric:
+		if v, ok := val.(*sql.NullString); ok {
+			if v.Valid {
+				numeric := new(big.Rat)
+				//nolint:gosec
+				if _, ok := numeric.SetString(v.String); !ok {
+					return qvalue.QValue{}, fmt.Errorf("failed to parse numeric: %v", v.String)
+				}
+				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: numeric}, nil
+			} else {
+				return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: nil}, nil
+			}
+		}
+	case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 		if v, ok := val.(*[]byte); ok && v != nil {
-			return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: *v}, nil
+			return qvalue.QValue{Kind: kind, Value: *v}, nil
 		}
 	}
 
@@ -283,25 +315,34 @@ func (s *SnowflakeClient) ExecuteAndProcessQuery(query string) (*model.QRecordBa
 			switch qfields[i].Type {
 			case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindTime,
 				qvalue.QValueKindTimeTZ, qvalue.QValueKindDate:
-				values[i] = new(time.Time)
+				var t sql.NullTime
+				values[i] = &t
 			case qvalue.QValueKindInt16:
-				values[i] = new(int16)
+				var n sql.NullInt16
+				values[i] = &n
 			case qvalue.QValueKindInt32:
-				values[i] = new(int32)
+				var n sql.NullInt32
+				values[i] = &n
 			case qvalue.QValueKindInt64:
-				values[i] = new(int64)
+				var n sql.NullInt64
+				values[i] = &n
 			case qvalue.QValueKindFloat32:
-				values[i] = new(float32)
+				var f sql.NullFloat64
+				values[i] = &f
 			case qvalue.QValueKindFloat64:
-				values[i] = new(float64)
+				var f sql.NullFloat64
+				values[i] = &f
 			case qvalue.QValueKindBoolean:
-				values[i] = new(bool)
+				var b sql.NullBool
+				values[i] = &b
 			case qvalue.QValueKindString:
-				values[i] = new(string)
-			case qvalue.QValueKindBytes:
+				var s sql.NullString
+				values[i] = &s
+			case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 				values[i] = new([]byte)
 			case qvalue.QValueKindNumeric:
-				values[i] = new(string)
+				var s sql.NullString
+				values[i] = &s
 			default:
 				values[i] = new(interface{})
 			}

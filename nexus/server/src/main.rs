@@ -171,6 +171,7 @@ impl NexusBackend {
                             format!("[peer]: invalid configuration: {}", e.to_string()),
                         )))
                     })?;
+                    self.executors.remove(&peer.name);
                     let catalog = self.catalog.lock().await;
                     catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -550,6 +551,9 @@ impl ExtendedQueryHandler for NexusBackend {
                                 executor.describe(stmt).await?
                             }
                             Some(Config::MongoConfig(_)) => {
+                                panic!("peer type not supported: {:?}", peer)
+                            }
+                            Some(Config::EventhubConfig(_)) => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
                             None => {

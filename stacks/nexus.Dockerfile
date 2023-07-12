@@ -21,11 +21,10 @@ WORKDIR /root
 COPY nexus nexus
 COPY protos protos
 WORKDIR /root/nexus
-RUN mkdir -p /var/log/peerdb
 RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerdb-server
 
-FROM gcr.io/distroless/cc-debian11
+FROM ubuntu:20.04
+RUN apt-get update && apt-get install -y ca-certificates
+RUN mkdir -p /var/log/peerdb
 COPY --from=builder /root/nexus/target/release/peerdb-server .
-# distroless doesn't allow mkdir, so we have to copy the log directory
-COPY --from=builder /var/log/peerdb /var/log/peerdb
 CMD ["./peerdb-server"]

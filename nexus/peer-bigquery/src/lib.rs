@@ -261,8 +261,11 @@ impl QueryExecutor for BigQueryQueryExecutor {
     }
     async fn is_connection_valid(&self) -> anyhow::Result<bool> {
         let sql = "SELECT 1;";
-        let test_stmt = parser::Parser::parse_sql(&GenericDialect {}, sql).unwrap();
-        let _ = self.execute(&test_stmt[0]).await?;
+        let _result_set = self
+            .client
+            .job()
+            .query(&self.config.project_id, QueryRequest::new(sql))
+            .await?;
         Ok(true)
     }
 }
