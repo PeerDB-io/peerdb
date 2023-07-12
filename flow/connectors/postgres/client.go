@@ -378,7 +378,6 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 
 func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier string, unchangedToastColumns []string,
 	rawTableIdentifier string) string {
-
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
