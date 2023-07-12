@@ -14,11 +14,12 @@ import (
 )
 
 type testCase struct {
-	name    string
-	config  *protos.QRepConfig
-	last    *protos.QRepPartition
-	want    []*protos.QRepPartition
-	wantErr bool
+	name                  string
+	config                *protos.QRepConfig
+	last                  *protos.QRepPartition
+	want                  []*protos.QRepPartition
+	expectedNumPartitions int
+	wantErr               bool
 }
 
 func newTestCase(schema string, name string, duration uint32, wantErr bool) *testCase {
@@ -37,6 +38,25 @@ func newTestCase(schema string, name string, duration uint32, wantErr bool) *tes
 		},
 		want:    []*protos.QRepPartition{},
 		wantErr: wantErr,
+	}
+}
+
+func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum int) *testCase {
+	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
+	query := fmt.Sprintf(
+		`SELECT * FROM %s WHERE "from" >= {{.start}} AND "from" < {{.end}}`,
+		schemaQualifiedTable)
+	return &testCase{
+		name: name,
+		config: &protos.QRepConfig{
+			FlowJobName:         "test_flow_job",
+			NumRowsPerPartition: rows,
+			Query:               query,
+			WatermarkTable:      schemaQualifiedTable,
+			WatermarkColumn:     "from",
+		},
+		want:                  []*protos.QRepPartition{},
+		expectedNumPartitions: expectedNum,
 	}
 }
 
@@ -107,7 +127,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
-	prepareTestData(t, pool, schemaName)
+	numRows := prepareTestData(t, pool, schemaName)
 
 	secondsInADay := uint32(24 * time.Hour / time.Second)
 	fmt.Printf("secondsInADay: %d\n", secondsInADay)
@@ -155,6 +175,31 @@ func TestGetQRepPartitions(t *testing.T) {
 			0,
 			true,
 		),
+		newTestCaseForNumRows(
+			schemaName,
+			"ensure all rows are in 1 partition if num_rows_per_partition is size of table",
+			uint32(numRows),
+			1,
+		),
+		newTestCaseForNumRows(
+			schemaName,
+			"ensure all rows are in 2 partitions if num_rows_per_partition is half the size of table",
+			uint32(numRows)/2,
+			2,
+		),
+		newTestCaseForNumRows(
+			schemaName,
+			"ensure all rows are in 3 partitions if num_rows_per_partition is 1/3 the size of table",
+			uint32(numRows)/3,
+			3,
+		),
+		// this is 5 partitions 30 rows and 7 rows per partition, would be 7, 7, 7, 7, 2
+		newTestCaseForNumRows(
+			schemaName,
+			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
+			uint32(numRows)/4,
+			5,
+		),
 	}
 
 	// Run the test cases
@@ -173,6 +218,16 @@ func TestGetQRepPartitions(t *testing.T) {
 			}
 
 			if tc.wantErr {
+				return
+			}
+
+			// If the expected number of partitions is set, just check that
+			// the number of partitions is equal to the expected number of
+			// partitions, we don't care about the actual partition ranges
+			// for now, but ideally we should check that the partition ranges
+			// are correct as well.
+			if tc.expectedNumPartitions != 0 {
+				assert.Equal(t, tc.expectedNumPartitions, len(got))
 				return
 			}
 
@@ -195,7 +250,8 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 }
 
-func prepareTestData(test *testing.T, pool *pgxpool.Pool, schema string) {
+// returns the number of rows inserted
+func prepareTestData(test *testing.T, pool *pgxpool.Pool, schema string) int {
 	// Define the start and end times
 	startTime := time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC)
 	endTime := time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC)
@@ -215,4 +271,6 @@ func prepareTestData(test *testing.T, pool *pgxpool.Pool, schema string) {
 			test.Fatalf("Failed to insert test data: %v", err)
 		}
 	}
+
+	return len(times)
 }

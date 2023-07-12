@@ -87,6 +87,12 @@ lazy_static::lazy_static! {
             default_value: 60,
             required: false,
         },
+        QRepOptionType::Int {
+            name: "num_rows_per_partition",
+            min_value: Some(0),
+            default_value: 0,
+            required: false,
+        },
         ]
     };
 }
