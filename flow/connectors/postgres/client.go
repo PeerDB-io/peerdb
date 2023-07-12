@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+//nolint:stylecheck
 const (
 	internalSchema            = "_peerdb_internal"
 	mirrorJobsTableIdentifier = "peerdb_mirror_jobs"
@@ -217,7 +218,8 @@ func getRawTableIdentifier(jobName string) string {
 	return fmt.Sprintf("%s_%s", rawTablePrefix, strings.ToLower(jobName))
 }
 
-func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sourceTableSchema *protos.TableSchema) string {
+func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
+	sourceTableSchema *protos.TableSchema) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
@@ -299,7 +301,8 @@ func (c *PostgresConnector) majorVersionCheck(majorVersion int) (bool, error) {
 	return version >= majorVersion, nil
 }
 
-func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64, syncRecordsTx pgx.Tx) error {
+func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64,
+	syncRecordsTx pgx.Tx) error {
 	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
@@ -324,7 +327,8 @@ func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64,
 	return nil
 }
 
-func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64, normalizeRecordsTx pgx.Tx) error {
+func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64,
+	normalizeRecordsTx pgx.Tx) error {
 	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
@@ -402,9 +406,6 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ","), ",")
 	updateStatements := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 
-	log.Warnf("merge statement: %s\n", fmt.Sprintf(mergeStatementSQL, primaryKeyColumnCast, internalSchema, rawTableIdentifier,
-		destinationTableIdentifier, flattenedCastsSQL, normalizedTableSchema.PrimaryKeyColumn,
-		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL, updateStatements))
 	return fmt.Sprintf(mergeStatementSQL, primaryKeyColumnCast, internalSchema, rawTableIdentifier,
 		destinationTableIdentifier, flattenedCastsSQL, normalizedTableSchema.PrimaryKeyColumn,
 		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL, updateStatements)
