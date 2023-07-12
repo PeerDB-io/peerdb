@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -19,6 +20,10 @@ func (c *PostgresConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
+	if config.NumRowsPerPartition > 0 {
+		return c.getNumRowsPartitions(config, last)
+	}
+
 	minValue, maxValue, err := c.getMinMaxValues(config, last)
 	if err != nil {
 		return nil, err
@@ -45,6 +50,130 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 
 	return partitions, nil
+}
+
+func (c *PostgresConnector) getNumRowsPartitions(
+	config *protos.QRepConfig,
+	last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
+	numRows := int64(config.NumRowsPerPartition)
+	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+
+	whereClause := ""
+	if last != nil && last.Range != nil {
+		whereClause = fmt.Sprintf(`WHERE %s > $1`, quotedWatermarkColumn)
+	}
+
+	// Query to get the total number of rows in the table
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
+	var row pgx.Row
+	var minVal interface{}
+	if last != nil && last.Range != nil {
+		switch lastRange := last.Range.Range.(type) {
+		case *protos.PartitionRange_IntRange:
+			minVal = lastRange.IntRange.End
+		case *protos.PartitionRange_TimestampRange:
+			minVal = lastRange.TimestampRange.End.AsTime()
+		}
+		row = c.pool.QueryRow(c.ctx, countQuery, minVal)
+	} else {
+		row = c.pool.QueryRow(c.ctx, countQuery)
+	}
+
+	var totalRows int64
+	if err := row.Scan(&totalRows); err != nil {
+		return nil, fmt.Errorf("failed to query for total rows: %w", err)
+	}
+
+	// Calculate the number of partitions
+	numPartitions := totalRows / numRows
+	if totalRows%numRows != 0 {
+		numPartitions++
+	}
+
+	// Query to get partitions using window functions
+	var rows pgx.Rows
+	var err error
+	if minVal != nil {
+		partitionsQuery := fmt.Sprintf(
+			`SELECT bucket, MIN(%[2]s), MAX(%[2]s)
+			FROM (
+					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
+					FROM %[3]s WHERE %[2]s > $1
+			) subquery
+			GROUP BY bucket`,
+			numPartitions,
+			quotedWatermarkColumn,
+			config.WatermarkTable,
+		)
+		rows, err = c.pool.Query(c.ctx, partitionsQuery, minVal)
+	} else {
+		partitionsQuery := fmt.Sprintf(
+			`SELECT bucket, MIN(%[2]s), MAX(%[2]s)
+			FROM (
+					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
+			) subquery
+			GROUP BY bucket`,
+			numPartitions,
+			quotedWatermarkColumn,
+			config.WatermarkTable,
+		)
+		rows, err = c.pool.Query(c.ctx, partitionsQuery)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query for partitions: %w", err)
+	}
+
+	var partitions []*protos.QRepPartition
+	for rows.Next() {
+		var bucket int64
+		var start, end interface{}
+		if err := rows.Scan(&bucket, &start, &end); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		switch v := start.(type) {
+		case int64:
+			partitions = append(partitions, createIntPartition(v, end.(int64)))
+		case int32:
+			endVal := int64(end.(int32))
+			partitions = append(partitions, createIntPartition(int64(v), endVal))
+		case time.Time:
+			partitions = append(partitions, createTimePartition(v, end.(time.Time)))
+		default:
+			return nil, fmt.Errorf("unsupported type: %T", v)
+		}
+	}
+
+	return partitions, nil
+}
+
+func createIntPartition(start int64, end int64) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.New().String(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_IntRange{
+				IntRange: &protos.IntPartitionRange{
+					Start: start,
+					End:   end,
+				},
+			},
+		},
+	}
+}
+
+func createTimePartition(start time.Time, end time.Time) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.New().String(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_TimestampRange{
+				TimestampRange: &protos.TimestampPartitionRange{
+					Start: timestamppb.New(start),
+					End:   timestamppb.New(end),
+				},
+			},
+		},
+	}
 }
 
 func (c *PostgresConnector) getMinMaxValues(

@@ -22,6 +22,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM ubuntu:20.04
 RUN apt-get update && apt-get install -y ca-certificates
+WORKDIR /root
 COPY --from=builder /root/peer-flow .
 EXPOSE 8112
 ENTRYPOINT ["./peer-flow", "worker"]

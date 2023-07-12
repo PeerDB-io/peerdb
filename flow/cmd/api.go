@@ -127,52 +127,6 @@ func (a *APIServer) StartPeerFlowWithConfig(
 	return workflowID, nil
 }
 
-func genConfigForQRepFlow(config *protos.QRepConfig, flowOptions map[string]interface{},
-	queryString string, destinationTableIdentifier string) error {
-	config.InitialCopyOnly = false
-	config.MaxParallelWorkers = uint32(flowOptions["parallelism"].(float64))
-	config.DestinationTableIdentifier = destinationTableIdentifier
-	config.Query = queryString
-	config.WatermarkColumn = flowOptions["watermark_column"].(string)
-	config.WatermarkTable = flowOptions["watermark_table_name"].(string)
-	config.BatchSizeInt = uint32(flowOptions["batch_size_int"].(float64))
-	config.BatchDurationSeconds = uint32(flowOptions["batch_duration_timestamp"].(float64))
-	config.WaitBetweenBatchesSeconds = uint32(flowOptions["refresh_interval"].(float64))
-	if flowOptions["sync_data_format"].(string) == "avro" {
-		config.SyncMode = protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO
-		if _, ok := flowOptions["staging_path"]; ok {
-			config.StagingPath = flowOptions["staging_path"].(string)
-		} else {
-			// if staging_path is not present, set it to empty string
-			config.StagingPath = ""
-		}
-	} else if flowOptions["sync_data_format"].(string) == "default" {
-		config.SyncMode = protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT
-	} else {
-		return fmt.Errorf("unsupported sync data format: %s", flowOptions["sync_data_format"].(string))
-	}
-	if flowOptions["mode"].(string) == "append" {
-		tempWriteMode := &protos.QRepWriteMode{
-			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
-		}
-		config.WriteMode = tempWriteMode
-	} else if flowOptions["mode"].(string) == "upsert" {
-		upsertKeyColumns := make([]string, 0)
-		for _, column := range flowOptions["unique_key_columns"].([]interface{}) {
-			upsertKeyColumns = append(upsertKeyColumns, column.(string))
-		}
-
-		tempWriteMode := &protos.QRepWriteMode{
-			WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
-			UpsertKeyColumns: upsertKeyColumns,
-		}
-		config.WriteMode = tempWriteMode
-	} else {
-		return fmt.Errorf("unsupported write mode: %s", flowOptions["mode"].(string))
-	}
-	return nil
-}
-
 func (a *APIServer) StartQRepFlow(reqCtx context.Context, config *protos.QRepConfig) (string, error) {
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", config.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{

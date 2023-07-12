@@ -27,8 +27,13 @@ fn main() -> Result<()> {
         println!("cargo:warning={}", proto.display());
     }
 
-    // compile all protos in <root>/protos by iterating over the directory
-    prost_build::compile_protos(&proto_files, &[root.join("protos")])?;
+    // see: https://github.com/tokio-rs/prost/issues/75 for future.
+    let mut config = prost_build::Config::new();
+    config.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+    config.type_attribute(".", "#[serde(rename_all = \"camelCase\")]");
+
+    // generate rust code for all protos in <root>/protos
+    config.compile_protos(&proto_files, &[root.join("protos")])?;
 
     Ok(())
 }
