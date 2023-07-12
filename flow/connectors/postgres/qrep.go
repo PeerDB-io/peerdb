@@ -85,6 +85,11 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		return nil, fmt.Errorf("failed to query for total rows: %w", err)
 	}
 
+	if totalRows == 0 {
+		log.Warnf("no records to replicate for flow job %s, returning", config.FlowJobName)
+		return make([]*protos.QRepPartition, 0), nil
+	}
+
 	// Calculate the number of partitions
 	numPartitions := totalRows / numRows
 	if totalRows%numRows != 0 {
@@ -106,6 +111,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			quotedWatermarkColumn,
 			config.WatermarkTable,
 		)
+		log.Infof("partitions query: %s", partitionsQuery)
 		rows, err = c.pool.Query(c.ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
@@ -118,6 +124,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			quotedWatermarkColumn,
 			config.WatermarkTable,
 		)
+		log.Infof("partitions query: %s", partitionsQuery)
 		rows, err = c.pool.Query(c.ctx, partitionsQuery)
 	}
 	if err != nil {
