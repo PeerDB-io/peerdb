@@ -12,8 +12,10 @@ FROM chef as builder
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive \
   apt-get install --assume-yes --no-install-recommends \
-  protobuf-compiler build-essential libssl-dev pkg-config
+  build-essential libssl-dev pkg-config wget unzip
 WORKDIR /root/nexus
+COPY scripts /root/scripts
+RUN /bin/bash -c /root/scripts/install-protobuf.sh
 COPY --from=planner /root/nexus/recipe.json recipe.json
 # Build dependencies - this is the caching Docker layer!
 RUN cargo chef cook --release --recipe-path recipe.json

@@ -10,12 +10,8 @@ use peer_connections::PeerConnectionTracker;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
-use pt::peers::BigqueryConfig;
-use sqlparser::{
-    ast::{CloseCursor, Expr, FetchDirection, Statement, Value},
-    dialect::GenericDialect,
-    parser,
-};
+use pt::peerdb_peers::BigqueryConfig;
+use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
 use stream::{BqRecordStream, BqSchema};
 
 mod ast;

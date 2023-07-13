@@ -7,7 +7,7 @@ use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::DashMap;
-use flow_rs::FlowHandler;
+use flow_rs::grpc::FlowGrpcClient;
 use peer_bigquery::BigQueryQueryExecutor;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
@@ -31,7 +31,7 @@ use pgwire::{
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
 };
-use pt::peers::{peer::Config, Peer};
+use pt::peerdb_peers::{peer::Config, Peer};
 use rand::Rng;
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
@@ -74,7 +74,7 @@ pub struct NexusBackend {
     query_parser: Arc<NexusQueryParser>,
     peer_cursors: Arc<Mutex<PeerCursors>>,
     executors: Arc<DashMap<String, Arc<Box<dyn QueryExecutor>>>>,
-    flow_handler: Arc<FlowHandler>,
+    flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
     peerdb_fdw_mode: bool,
 }
 
@@ -82,11 +82,10 @@ impl NexusBackend {
     pub fn new(
         catalog: Arc<Mutex<Catalog>>,
         peer_connections: Arc<PeerConnectionTracker>,
-        flow_api_server_addr: Option<String>,
+        flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
         peerdb_fdw_mode: bool,
     ) -> Self {
         let query_parser = NexusQueryParser::new(catalog.clone());
-        let flow_handler = Arc::new(FlowHandler::new(flow_api_server_addr));
         Self {
             catalog,
             peer_connections,
@@ -185,6 +184,12 @@ impl NexusBackend {
                     ))])
                 }
                 PeerDDL::CreateMirrorForCDC { flow_job } => {
+                    if self.flow_handler.is_none() {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: "flow service is not configured".to_owned(),
+                        })));
+                    }
+
                     let catalog = self.catalog.lock().await;
                     catalog
                         .create_flow_job_entry(&flow_job)
@@ -195,16 +200,37 @@ impl NexusBackend {
                             }))
                         })?;
 
-                    // make a request to the flow service to start the job.
-                    let workflow_id =
-                        self.flow_handler
-                            .start_flow_job(&flow_job)
+                    // get source and destination peers
+                    let src_peer =
+                        catalog
+                            .get_peer(&flow_job.source_peer)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
-                                    err_msg: format!("unable to submit job: {:?}", err),
+                                    err_msg: format!("unable to get source peer: {:?}", err),
                                 }))
                             })?;
+
+                    let dst_peer =
+                        catalog
+                            .get_peer(&flow_job.target_peer)
+                            .await
+                            .map_err(|err| {
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!("unable to get destination peer: {:?}", err),
+                                }))
+                            })?;
+
+                    // make a request to the flow service to start the job.
+                    let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                    let workflow_id = flow_handler
+                        .start_peer_flow_job(&flow_job, src_peer, dst_peer)
+                        .await
+                        .map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to submit job: {:?}", err),
+                            }))
+                        })?;
 
                     catalog
                         .update_workflow_id_for_flow_job(&flow_job.name, &workflow_id)
@@ -222,6 +248,12 @@ impl NexusBackend {
                     ))])
                 }
                 PeerDDL::CreateMirrorForSelect { qrep_flow_job } => {
+                    if self.flow_handler.is_none() {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: "flow service is not configured".to_owned(),
+                        })));
+                    }
+
                     let catalog = self.catalog.lock().await;
 
                     catalog
@@ -232,10 +264,32 @@ impl NexusBackend {
                                 err_msg: format!("unable to create mirror job entry: {:?}", err),
                             }))
                         })?;
+
+                    // get source and destination peers
+                    let src_peer =
+                        catalog
+                            .get_peer(&qrep_flow_job.source_peer)
+                            .await
+                            .map_err(|err| {
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!("unable to get source peer: {:?}", err),
+                                }))
+                            })?;
+
+                    let dst_peer =
+                        catalog
+                            .get_peer(&qrep_flow_job.target_peer)
+                            .await
+                            .map_err(|err| {
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!("unable to get destination peer: {:?}", err),
+                                }))
+                            })?;
+
                     // make a request to the flow service to start the job.
-                    let _workflow_id = self
-                        .flow_handler
-                        .start_qrep_flow_job(&qrep_flow_job)
+                    let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                    let _workflow_id = flow_handler
+                        .start_qrep_flow_job(&qrep_flow_job, src_peer, dst_peer)
                         .await
                         .map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
@@ -252,10 +306,16 @@ impl NexusBackend {
                     if_exists,
                     flow_job_name,
                 } => {
+                    if self.flow_handler.is_none() {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: "flow service is not configured".to_owned(),
+                        })));
+                    }
+
                     let catalog = self.catalog.lock().await;
                     tracing::info!("mirror_name: {}, if_exists: {}", flow_job_name, if_exists);
-                    let workflow_id = catalog
-                        .get_workflow_id_for_flow_job(&flow_job_name)
+                    let workflow_details = catalog
+                        .get_workflow_details_for_flow_job(&flow_job_name)
                         .await
                         .map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
@@ -265,10 +325,15 @@ impl NexusBackend {
                                 ),
                             }))
                         })?;
-                    tracing::info!("got workflow id: {:?}", workflow_id);
-                    if workflow_id.is_some() {
-                        self.flow_handler
-                            .shutdown_flow_job(&flow_job_name, &workflow_id.unwrap())
+                    tracing::info!(
+                        "got workflow id: {:?}",
+                        workflow_details.as_ref().map(|w| &w.workflow_id)
+                    );
+                    if workflow_details.is_some() {
+                        let workflow_details = workflow_details.unwrap();
+                        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                        flow_handler
+                            .shutdown_flow_job(&flow_job_name, workflow_details)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
@@ -288,20 +353,18 @@ impl NexusBackend {
                             &drop_mirror_success,
                             None,
                         ))])
+                    } else if if_exists {
+                        let no_mirror_success = "NO SUCH MIRROR";
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            &no_mirror_success,
+                            None,
+                        ))])
                     } else {
-                        if if_exists {
-                            let no_mirror_success = "NO SUCH MIRROR";
-                            Ok(vec![Response::Execution(Tag::new_for_execution(
-                                &no_mirror_success,
-                                None,
-                            ))])
-                        } else {
-                            Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                                "ERROR".to_owned(),
-                                "error".to_owned(),
-                                format!("no such mirror: {:?}", flow_job_name),
-                            ))))
-                        }
+                        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "error".to_owned(),
+                            format!("no such mirror: {:?}", flow_job_name),
+                        ))))
                     }
                 }
             },
@@ -590,7 +653,7 @@ impl ExtendedQueryHandler for NexusBackend {
 struct MakeNexusBackend {
     catalog: Arc<Mutex<Catalog>>,
     peer_connections: Arc<PeerConnectionTracker>,
-    flow_server_addr: Option<String>,
+    flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
     peerdb_fdw_mode: bool,
 }
 
@@ -598,13 +661,13 @@ impl MakeNexusBackend {
     fn new(
         catalog: Catalog,
         peer_connections: Arc<PeerConnectionTracker>,
-        flow_server_addr: Option<String>,
+        flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
         peerdb_fdw_mode: bool,
     ) -> Self {
         Self {
             catalog: Arc::new(Mutex::new(catalog)),
             peer_connections,
-            flow_server_addr,
+            flow_handler,
             peerdb_fdw_mode,
         }
     }
@@ -617,7 +680,7 @@ impl MakeHandler for MakeNexusBackend {
         Arc::new(NexusBackend::new(
             self.catalog.clone(),
             self.peer_connections.clone(),
-            self.flow_server_addr.clone(),
+            self.flow_handler.clone(),
             self.peerdb_fdw_mode,
         ))
     }
@@ -803,11 +866,15 @@ pub async fn main() -> anyhow::Result<()> {
     tracing::info!("Listening on {}", server_addr);
 
     let flow_server_addr = args.flow_api_url.clone();
+    let mut flow_handler: Option<Arc<Mutex<FlowGrpcClient>>> = None;
     // log that we accept mirror commands if we have a flow server
     if let Some(addr) = &flow_server_addr {
-        let flow_handler = FlowHandler::new(flow_server_addr.clone());
-        if flow_handler.has_flow_server().await? {
+        let mut handler = FlowGrpcClient::new(addr).await?;
+        if handler.is_healthy().await? {
+            flow_handler = Some(Arc::new(Mutex::new(handler)));
             tracing::info!("MIRROR commands enabled, flow server: {}", addr);
+        } else {
+            tracing::info!("MIRROR commands disabled, flow server: {}", addr);
         }
     } else {
         tracing::info!("MIRROR commands disabled");
@@ -845,7 +912,7 @@ pub async fn main() -> anyhow::Result<()> {
         let processor = Arc::new(MakeNexusBackend::new(
             catalog,
             Arc::new(tracker),
-            flow_server_addr.clone(),
+            flow_handler.clone(),
             peerdb_fdw_mode,
         ));
         let processor_ref = processor.make();
