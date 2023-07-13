@@ -20,11 +20,29 @@ func (c *PostgresConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	if config.NumRowsPerPartition > 0 {
-		return c.getNumRowsPartitions(config, last)
+	// begin a transaction
+	tx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		deferErr := tx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.Errorf("unexpected error rolling back transaction for get partitions: %v", err)
+		}
+	}()
+
+	// lock the table while we get the partitions.
+	lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
+	if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
+		return nil, fmt.Errorf("failed to lock table: %w", err)
 	}
 
-	minValue, maxValue, err := c.getMinMaxValues(config, last)
+	if config.NumRowsPerPartition > 0 {
+		return c.getNumRowsPartitions(tx, config, last)
+	}
+
+	minValue, maxValue, err := c.getMinMaxValues(tx, config, last)
 	if err != nil {
 		return nil, err
 	}
@@ -53,9 +71,11 @@ func (c *PostgresConnector) GetQRepPartitions(
 }
 
 func (c *PostgresConnector) getNumRowsPartitions(
+	tx pgx.Tx,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
+	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
 
@@ -75,13 +95,13 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
-		row = c.pool.QueryRow(c.ctx, countQuery, minVal)
+		row = tx.QueryRow(c.ctx, countQuery, minVal)
 	} else {
-		row = c.pool.QueryRow(c.ctx, countQuery)
+		row = tx.QueryRow(c.ctx, countQuery)
 	}
 
 	var totalRows int64
-	if err := row.Scan(&totalRows); err != nil {
+	if err = row.Scan(&totalRows); err != nil {
 		return nil, fmt.Errorf("failed to query for total rows: %w", err)
 	}
 
@@ -100,7 +120,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 	// Query to get partitions using window functions
 	var rows pgx.Rows
-	var err error
 	if minVal != nil {
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
@@ -116,7 +135,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			config.WatermarkTable,
 		)
 		log.Infof("partitions query: %s", partitionsQuery)
-		rows, err = c.pool.Query(c.ctx, partitionsQuery, minVal)
+		rows, err = tx.Query(c.ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
@@ -131,7 +150,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			config.WatermarkTable,
 		)
 		log.Infof("partitions query: %s", partitionsQuery)
-		rows, err = c.pool.Query(c.ctx, partitionsQuery)
+		rows, err = tx.Query(c.ctx, partitionsQuery)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
@@ -180,6 +199,11 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		default:
 			return nil, fmt.Errorf("unsupported type: %T", v)
 		}
+	}
+
+	err = tx.Commit(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return partitions, nil
@@ -261,6 +285,7 @@ func createTimePartition(start time.Time, end time.Time) *protos.QRepPartition {
 }
 
 func (c *PostgresConnector) getMinMaxValues(
+	tx pgx.Tx,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) (interface{}, interface{}, error) {
@@ -268,7 +293,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
 	// Get the maximum value from the database
 	maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
-	row := c.pool.QueryRow(c.ctx, maxQuery)
+	row := tx.QueryRow(c.ctx, maxQuery)
 	if err := row.Scan(&maxValue); err != nil {
 		return nil, nil, fmt.Errorf("failed to query for max value: %w", err)
 	}
@@ -290,7 +315,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	} else {
 		// Otherwise get the minimum value from the database
 		minQuery := fmt.Sprintf("SELECT MIN(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
-		row := c.pool.QueryRow(c.ctx, minQuery)
+		row := tx.QueryRow(c.ctx, minQuery)
 		if err := row.Scan(&minValue); err != nil {
 			log.Errorf("failed to query [%s] for min value: %v", minQuery, err)
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)
@@ -304,6 +329,11 @@ func (c *PostgresConnector) getMinMaxValues(
 			minValue = int64(v)
 			maxValue = int64(maxValue.(int32))
 		}
+	}
+
+	err := tx.Commit(c.ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return minValue, maxValue, nil
