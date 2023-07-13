@@ -103,12 +103,14 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	var err error
 	if minVal != nil {
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s), MAX(%[2]s)
+			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
 					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
 					FROM %[3]s WHERE %[2]s > $1
 			) subquery
-			GROUP BY bucket`,
+			GROUP BY bucket
+			ORDER BY start
+			`,
 			numPartitions,
 			quotedWatermarkColumn,
 			config.WatermarkTable,
@@ -117,11 +119,13 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		rows, err = c.pool.Query(c.ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s), MAX(%[2]s)
+			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
 					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
 			) subquery
-			GROUP BY bucket`,
+			GROUP BY bucket
+			ORDER BY start
+			`,
 			numPartitions,
 			quotedWatermarkColumn,
 			config.WatermarkTable,
@@ -133,6 +137,8 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
+	var prevStart interface{}
+	var prevEnd interface{}
 	var partitions []*protos.QRepPartition
 	for rows.Next() {
 		var bucket int64
@@ -141,20 +147,89 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
+		// Skip partition if it's fully contained within the previous one
+		// If it's not fully contained but overlaps, adjust the start
+		if prevEnd != nil {
+			comparison := compareValues(prevEnd, start)
+			if comparison >= 0 {
+				// If end is also less than or equal to prevEnd, skip this partition
+				if compareValues(prevEnd, end) >= 0 {
+					// log the skipped partition
+					log.Debugf("skipping partition %d, start: %v, end: %v", bucket, start, end)
+					log.Debugf("fully contained within previous partition: start: %v, end: %v", prevStart, prevEnd)
+					continue
+				}
+				// If end is greater than prevEnd, adjust the start
+				start = adjustStartValue(prevEnd, start)
+			}
+		}
+
 		switch v := start.(type) {
 		case int64:
 			partitions = append(partitions, createIntPartition(v, end.(int64)))
+			prevStart = v
+			prevEnd = end
 		case int32:
-			endVal := int64(end.(int32))
-			partitions = append(partitions, createIntPartition(int64(v), endVal))
+			partitions = append(partitions, createIntPartition(int64(v), int64(end.(int32))))
+			prevStart = int64(v)
+			prevEnd = int64(end.(int32))
 		case time.Time:
 			partitions = append(partitions, createTimePartition(v, end.(time.Time)))
+			prevStart = v
+			prevEnd = end
 		default:
 			return nil, fmt.Errorf("unsupported type: %T", v)
 		}
 	}
 
 	return partitions, nil
+}
+
+// Function to compare two values
+func compareValues(prevEnd interface{}, start interface{}) int {
+	switch v := start.(type) {
+	case int64:
+		if prevEnd.(int64) < v {
+			return -1
+		} else if prevEnd.(int64) > v {
+			return 1
+		} else {
+			return 0
+		}
+	case int32:
+		if prevEnd.(int64) < int64(v) {
+			return -1
+		} else if prevEnd.(int64) > int64(v) {
+			return 1
+		} else {
+			return 0
+		}
+	case time.Time:
+		if prevEnd.(time.Time).Before(v) {
+			return -1
+		} else if prevEnd.(time.Time).After(v) {
+			return 1
+		} else {
+			return 0
+		}
+	default:
+		return 0
+	}
+}
+
+// Function to adjust start value
+func adjustStartValue(prevEnd interface{}, start interface{}) interface{} {
+	switch start.(type) {
+	case int64:
+		return prevEnd.(int64) + 1
+	case int32:
+		return int32(prevEnd.(int64) + 1)
+	case time.Time:
+		// postgres timestamp has microsecond precision
+		return prevEnd.(time.Time).Add(1 * time.Microsecond)
+	default:
+		return start
+	}
 }
 
 func createIntPartition(start int64, end int64) *protos.QRepPartition {
