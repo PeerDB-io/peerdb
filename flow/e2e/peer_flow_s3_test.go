@@ -11,8 +11,7 @@ import (
 )
 
 func (s *E2EPeerFlowTestSuite) setupS3() error {
-	pgConf := GetTestPostgresConf()
-	helper, err := NewS3TestHelper(pgConf)
+	helper, err := NewS3TestHelper()
 	if err != nil {
 		return err
 	}

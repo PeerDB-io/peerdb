@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	peerName   string = "test_s3_peer"
 	bucketName string = "peerdb-test-bucket"
 	prefixName string = "test-s3"
 )
@@ -21,10 +22,9 @@ type S3TestHelper struct {
 	s3Config *protos.S3Config
 }
 
-func NewS3TestHelper(pgConf *protos.PostgresConfig) (*S3TestHelper, error) {
+func NewS3TestHelper() (*S3TestHelper, error) {
 	client, err := utils.CreateS3Client()
 	if err != nil {
-		log.Infof("failed to get aws client: %v", err)
 		return nil, err
 	}
 	log.Infof("S3 client obtained")
@@ -38,7 +38,7 @@ func NewS3TestHelper(pgConf *protos.PostgresConfig) (*S3TestHelper, error) {
 
 func (h *S3TestHelper) GetPeer() *protos.Peer {
 	return &protos.Peer{
-		Name: "test_s3_peer",
+		Name: peerName,
 		Type: protos.DBType_S3,
 		Config: &protos.Peer_S3Config{
 			S3Config: h.s3Config,
@@ -46,8 +46,8 @@ func (h *S3TestHelper) GetPeer() *protos.Peer {
 	}
 }
 
-// List all files from the S3 with the given name.
-// returns as a list of strings.
+// List all files from the S3 bucket.
+// returns as a list of S3Objects.
 func (h *S3TestHelper) ListAllFiles(
 	ctx context.Context,
 	jobName string,
@@ -66,6 +66,7 @@ func (h *S3TestHelper) ListAllFiles(
 	return files.Contents, nil
 }
 
+// Delete all generated objects during the test
 func (h *S3TestHelper) CleanUp() error {
 	Bucket := bucketName
 	Prefix := prefixName
