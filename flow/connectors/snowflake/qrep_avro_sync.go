@@ -236,7 +236,10 @@ func GenerateMergeCommand(
 		upsertKeyCols[i] = caseMatchedCols[strings.ToLower(col)]
 	}
 
-	watermarkCol = caseMatchedCols[strings.ToLower(watermarkCol)]
+	watermarkCol, ok := caseMatchedCols[strings.ToLower(watermarkCol)]
+	if !ok {
+		return "", fmt.Errorf("watermark column '%s' not found in destination table", watermarkCol)
+	}
 
 	upsertKeys := []string{}
 	partitionKeyCols := []string{}

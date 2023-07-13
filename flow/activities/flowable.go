@@ -253,6 +253,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	log.Info("pushed records")
 
 	if err != nil {
+		log.Warnf("failed to push records: %v", err)
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
 

@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func getQValueKindForPostgresOID(recvOID uint32) qvalue.QValueKind {
+func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
 		return qvalue.QValueKindBoolean
@@ -72,6 +72,45 @@ func getQValueKindForPostgresOID(recvOID uint32) qvalue.QValueKind {
 			log.Warnf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name)
 			return qvalue.QValueKindString
 		}
+	}
+}
+
+func qValueKindToPostgresType(qvalueKind string) string {
+	switch qvalue.QValueKind(qvalueKind) {
+	case qvalue.QValueKindBoolean:
+		return "BOOLEAN"
+	case qvalue.QValueKindInt16:
+		return "SMALLINT"
+	case qvalue.QValueKindInt32:
+		return "INTEGER"
+	case qvalue.QValueKindInt64:
+		return "BIGINT"
+	case qvalue.QValueKindFloat32:
+		return "REAL"
+	case qvalue.QValueKindFloat64:
+		return "DOUBLE PRECISION"
+	case qvalue.QValueKindString:
+		return "TEXT"
+	case qvalue.QValueKindBytes:
+		return "BYTEA"
+	case qvalue.QValueKindJSON:
+		return "JSONB"
+	case qvalue.QValueKindUUID:
+		return "UUID"
+	case qvalue.QValueKindTime:
+		return "TIME"
+	case qvalue.QValueKindDate:
+		return "DATE"
+	case qvalue.QValueKindTimestamp:
+		return "TIMESTAMP"
+	case qvalue.QValueKindTimestampTZ:
+		return "TIMESTAMPTZ"
+	case qvalue.QValueKindNumeric:
+		return "NUMERIC"
+	case qvalue.QValueKindBit:
+		return "BIT"
+	default:
+		return "TEXT"
 	}
 }
 
@@ -192,7 +231,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 }
 
 func parseFieldFromPostgresOID(oid uint32, value interface{}) (*qvalue.QValue, error) {
-	return parseFieldFromQValueKind(getQValueKindForPostgresOID(oid), value)
+	return parseFieldFromQValueKind(postgresOIDToQValueKind(oid), value)
 }
 
 func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
