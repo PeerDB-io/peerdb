@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -87,7 +88,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 		}
 
 		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
-		err = WriteRecordsToAvroFile(records, avroSchema, localFilePath)
+		err = avro.WriteRecordsToAvroFile(records, avroSchema, localFilePath)
 		if err != nil {
 			return "", fmt.Errorf("failed to write records to Avro file: %w", err)
 		}
@@ -100,7 +101,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 		}
 
 		s3Key := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
-		err = WriteRecordsToS3(records, avroSchema, s3o.Bucket, s3Key)
+		err = avro.WriteRecordsToS3(records, avroSchema, s3o.Bucket, s3Key)
 		if err != nil {
 			return "", fmt.Errorf("failed to write records to S3: %w", err)
 		}

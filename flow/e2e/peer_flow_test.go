@@ -30,6 +30,7 @@ type E2EPeerFlowTestSuite struct {
 	bqHelper *BigQueryTestHelper
 	sfHelper *SnowflakeTestHelper
 	ehHelper *EventHubTestHelper
+	s3Helper *S3TestHelper
 }
 
 func TestE2EPeerFlowTestSuite(t *testing.T) {
@@ -184,6 +185,11 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	if err != nil {
 		s.Fail("failed to setup eventhub", err)
 	}
+
+	err = s.setupS3()
+	if err != nil {
+		s.Fail("failed to setup s3", err)
+	}
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -216,6 +222,13 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 		err = s.ehHelper.CleanUp()
 		if err != nil {
 			s.Fail("failed to clean up eventhub", err)
+		}
+	}
+
+	if s.s3Helper != nil {
+		err = s.s3Helper.CleanUp()
+		if err != nil {
+			s.Fail("failed to clean up s3", err)
 		}
 	}
 }

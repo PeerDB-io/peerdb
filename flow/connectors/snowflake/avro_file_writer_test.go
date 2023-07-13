@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
@@ -130,7 +131,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
 
 	// Call function
-	err = WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -155,7 +156,7 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
 
 	// Call function
-	err = WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -187,7 +188,7 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	}
 
 	// Call function
-	err = WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
