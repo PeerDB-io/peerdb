@@ -70,31 +70,6 @@ func main() {
 						Aliases: []string{"p"},
 						Value:   8110,
 					},
-					&cli.StringFlag{
-						Name:    "catalog-host",
-						Value:   "localhost",
-						EnvVars: []string{"PEERDB_CATALOG_HOST"},
-					},
-					&cli.UintFlag{
-						Name:    "catalog-port",
-						Value:   5432,
-						EnvVars: []string{"PEERDB_CATALOG_PORT"},
-					},
-					&cli.StringFlag{
-						Name:    "catalog-user",
-						Value:   "postgres",
-						EnvVars: []string{"PEERDB_CATALOG_USER"},
-					},
-					&cli.StringFlag{
-						Name:    "catalog-password",
-						Value:   "postgres",
-						EnvVars: []string{"PEERDB_CATALOG_PASSWORD"},
-					},
-					&cli.StringFlag{
-						Name:    "catalog-db",
-						Value:   "postgres",
-						EnvVars: []string{"PEERDB_CATALOG_DATABASE"},
-					},
 					temporalHostPortFlag,
 				},
 				Action: func(ctx *cli.Context) error {

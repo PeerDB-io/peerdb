@@ -48,6 +48,8 @@ func APIMain(args *APIServerParams) error {
 
 	<-ctx.Done()
 
+	grpcServer.GracefulStop()
 	log.Println("Server has been shut down gracefully. Exiting...")
+
 	return nil
 }
