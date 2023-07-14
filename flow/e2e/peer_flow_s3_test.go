@@ -74,7 +74,9 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_S3() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	// Verify destination has 1 file
 	// make context with timeout
