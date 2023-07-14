@@ -389,10 +389,10 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	var primaryKeyColumnCast string
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		pgType := qValueKindToPostgresType(genericColumnType)
-		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->'%s')::%s AS %s",
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
 			columnName, pgType, columnName))
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {
-			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->'%s')::%s", columnName, pgType)
+			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")

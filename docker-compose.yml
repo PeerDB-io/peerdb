@@ -37,7 +37,7 @@ services:
 
   catalog:
     container_name: catalog
-    image: debezium/postgres:14-alpine
+    image: debezium/postgres:15-alpine
     ports:
       # mapping is from host to container
       - 5432:5432
