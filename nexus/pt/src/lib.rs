@@ -1,9 +1,10 @@
-use peers::DbType;
+use peerdb_peers::DbType;
 use sqlparser::ast::PeerType;
 
-pub mod peers {
-    include!(concat!(env!("OUT_DIR"), "/peerdb.peers.rs"));
-}
+pub mod flow_model;
+pub mod peerdb_flow;
+pub mod peerdb_peers;
+pub mod peerdb_route;
 
 impl From<PeerType> for DbType {
     fn from(peer_type: PeerType) -> Self {

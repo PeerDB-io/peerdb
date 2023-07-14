@@ -6,7 +6,7 @@ use pgwire::{
     api::results::{FieldFormat, FieldInfo},
     error::{PgWireError, PgWireResult},
 };
-use pt::peers::PostgresConfig;
+use pt::peerdb_peers::PostgresConfig;
 use sqlparser::ast::Statement;
 use tokio_postgres::Client;
 

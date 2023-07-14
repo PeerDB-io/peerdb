@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pt::peers::Peer;
+use pt::peerdb_peers::Peer;
 
 // PeerCursors is a map from name of cursor to the Peer that holds the cursor.
 // This is used to route cursor events to the correct peer.

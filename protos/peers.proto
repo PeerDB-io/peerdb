@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package peerdb.peers;
+package peerdb_peers;
 
 option go_package = "generated/protos";
 

@@ -11,7 +11,7 @@ use std::{collections::HashMap, time::Duration};
 use stream::SnowflakeDataType;
 
 use auth::SnowflakeAuth;
-use pt::peers::SnowflakeConfig;
+use pt::peerdb_peers::SnowflakeConfig;
 use reqwest::{header, StatusCode};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};

@@ -380,14 +380,14 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 	return dst.CleanupQRepFlow(config)
 }
 
-func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.FlowConnectionConfigs) error {
-	src, err := connectors.GetConnector(ctx, config.Source)
+func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.ShutdownRequest) error {
+	src, err := connectors.GetConnector(ctx, config.SourcePeer)
 	defer connectors.CloseConnector(src)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
 
-	dest, err := connectors.GetConnector(ctx, config.Destination)
+	dest, err := connectors.GetConnector(ctx, config.DestinationPeer)
 	defer connectors.CloseConnector(dest)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
