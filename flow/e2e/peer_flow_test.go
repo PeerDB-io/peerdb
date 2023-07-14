@@ -316,8 +316,9 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	env.AssertExpectations(s.T())
 }
@@ -356,8 +357,9 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	env.AssertExpectations(s.T())
 }
