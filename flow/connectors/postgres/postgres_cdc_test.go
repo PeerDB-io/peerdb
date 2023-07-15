@@ -699,7 +699,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            toastHappyFlowName,
 		LastSyncState:          nil,
-		IdleTimeout:            5 * time.Second,
+		IdleTimeout:            10 * time.Second,
 		MaxBatchSize:           100,
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
@@ -717,7 +717,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 			Checkpoint:   records.LastCheckPointID,
 			LastSyncedAt: nil,
 		},
-		IdleTimeout:            5 * time.Second,
+		IdleTimeout:            10 * time.Second,
 		MaxBatchSize:           100,
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
