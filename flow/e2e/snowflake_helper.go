@@ -78,12 +78,17 @@ func (s *SnowflakeTestHelper) DropSchema() error {
 
 // RunCommand runs the given command.
 func (s *SnowflakeTestHelper) RunCommand(command string) error {
-	return s.client.RunCommand(command)
+	return s.client.ExecuteQuery(command)
 }
 
 // CountRows(tableName) returns the number of rows in the given table.
 func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
-	return s.client.CountRows(s.testSchemaName, tableName)
+	res, err := s.client.CountRows(s.testSchemaName, tableName)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(res), nil
 }
 
 func (s *SnowflakeTestHelper) CheckNull(tableName string, colNames []string) (bool, error) {
