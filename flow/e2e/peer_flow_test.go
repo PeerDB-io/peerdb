@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -27,10 +28,11 @@ type E2EPeerFlowTestSuite struct {
 	pgConnStr string
 	pool      *pgxpool.Pool
 
-	bqHelper *BigQueryTestHelper
-	sfHelper *SnowflakeTestHelper
-	ehHelper *EventHubTestHelper
-	s3Helper *S3TestHelper
+	bqHelper   *BigQueryTestHelper
+	sfHelper   *SnowflakeTestHelper
+	ehHelper   *EventHubTestHelper
+	s3Helper   *S3TestHelper
+	sqlsHelper *SQLServerHelper
 }
 
 func TestE2EPeerFlowTestSuite(t *testing.T) {
@@ -152,6 +154,19 @@ func (s *E2EPeerFlowTestSuite) setupSnowflake() error {
 	return nil
 }
 
+// setup sql server connection
+func (s *E2EPeerFlowTestSuite) setupSQLServer() {
+	env := os.Getenv("ENABLE_SQLSERVER_TESTS")
+	if env != "true" {
+		s.sqlsHelper = nil
+		return
+	}
+
+	sqlsHelper, err := NewSQLServerHelper("test_sqlserver_peer")
+	require.NoError(s.T(), err)
+	s.sqlsHelper = sqlsHelper
+}
+
 // Implement SetupAllSuite interface to setup the test suite
 func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	err := godotenv.Load()
@@ -190,6 +205,8 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	if err != nil {
 		s.Fail("failed to setup s3", err)
 	}
+
+	s.setupSQLServer()
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -229,6 +246,13 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 		err = s.s3Helper.CleanUp()
 		if err != nil {
 			s.Fail("failed to clean up s3", err)
+		}
+	}
+
+	if s.sqlsHelper != nil {
+		err = s.sqlsHelper.CleanUp()
+		if err != nil {
+			s.Fail("failed to clean up sqlserver", err)
 		}
 	}
 }

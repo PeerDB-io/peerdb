@@ -6,6 +6,7 @@ import (
 	"text/template"
 	"time"
 
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
@@ -156,9 +157,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
-	var prevStart interface{}
-	var prevEnd interface{}
-	var partitions []*protos.QRepPartition
+	partitionHelper := utils.NewPartitionHelper()
 	for rows.Next() {
 		var bucket int64
 		var start, end interface{}
@@ -166,38 +165,9 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		// Skip partition if it's fully contained within the previous one
-		// If it's not fully contained but overlaps, adjust the start
-		if prevEnd != nil {
-			comparison := compareValues(prevEnd, start)
-			if comparison >= 0 {
-				// If end is also less than or equal to prevEnd, skip this partition
-				if compareValues(prevEnd, end) >= 0 {
-					// log the skipped partition
-					log.Debugf("skipping partition %d, start: %v, end: %v", bucket, start, end)
-					log.Debugf("fully contained within previous partition: start: %v, end: %v", prevStart, prevEnd)
-					continue
-				}
-				// If end is greater than prevEnd, adjust the start
-				start = adjustStartValue(prevEnd, start)
-			}
-		}
-
-		switch v := start.(type) {
-		case int64:
-			partitions = append(partitions, createIntPartition(v, end.(int64)))
-			prevStart = v
-			prevEnd = end
-		case int32:
-			partitions = append(partitions, createIntPartition(int64(v), int64(end.(int32))))
-			prevStart = int64(v)
-			prevEnd = int64(end.(int32))
-		case time.Time:
-			partitions = append(partitions, createTimePartition(v, end.(time.Time)))
-			prevStart = v
-			prevEnd = end
-		default:
-			return nil, fmt.Errorf("unsupported type: %T", v)
+		err = partitionHelper.AddPartition(start, end)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
 
@@ -206,82 +176,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return partitions, nil
-}
-
-// Function to compare two values
-func compareValues(prevEnd interface{}, start interface{}) int {
-	switch v := start.(type) {
-	case int64:
-		if prevEnd.(int64) < v {
-			return -1
-		} else if prevEnd.(int64) > v {
-			return 1
-		} else {
-			return 0
-		}
-	case int32:
-		if prevEnd.(int64) < int64(v) {
-			return -1
-		} else if prevEnd.(int64) > int64(v) {
-			return 1
-		} else {
-			return 0
-		}
-	case time.Time:
-		if prevEnd.(time.Time).Before(v) {
-			return -1
-		} else if prevEnd.(time.Time).After(v) {
-			return 1
-		} else {
-			return 0
-		}
-	default:
-		return 0
-	}
-}
-
-// Function to adjust start value
-func adjustStartValue(prevEnd interface{}, start interface{}) interface{} {
-	switch start.(type) {
-	case int64:
-		return prevEnd.(int64) + 1
-	case int32:
-		return int32(prevEnd.(int64) + 1)
-	case time.Time:
-		// postgres timestamp has microsecond precision
-		return prevEnd.(time.Time).Add(1 * time.Microsecond)
-	default:
-		return start
-	}
-}
-
-func createIntPartition(start int64, end int64) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_IntRange{
-				IntRange: &protos.IntPartitionRange{
-					Start: start,
-					End:   end,
-				},
-			},
-		},
-	}
-}
-
-func createTimePartition(start time.Time, end time.Time) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_TimestampRange{
-				TimestampRange: &protos.TimestampPartitionRange{
-					Start: timestamppb.New(start),
-					End:   timestamppb.New(end),
-				},
-			},
-		},
-	}
+	return partitionHelper.GetPartitions(), nil
 }
 
 func (c *PostgresConnector) getMinMaxValues(
@@ -365,22 +260,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	}
 
 	executor := NewQRepQueryExecutor(c.pool, c.ctx)
-
-	// Execute the query with the range values
-	rows, err := executor.ExecuteQuery(query, rangeStart, rangeEnd)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	// get column names from field descriptions
-	fieldDescriptions := rows.FieldDescriptions()
-
-	// log the number of field descriptions and column names
-	log.Debugf("field descriptions: %v\n", fieldDescriptions)
-
-	// Process the rows and retrieve the records
-	return executor.ProcessRows(rows, fieldDescriptions)
+	return executor.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
 }
 
 func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,

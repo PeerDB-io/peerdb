@@ -622,6 +622,9 @@ impl ExtendedQueryHandler for NexusBackend {
                             Some(Config::S3Config(_)) => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
+                            Some(Config::SqlserverConfig(_)) => {
+                                panic!("peer type not supported: {:?}", peer)
+                            }
                             None => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
