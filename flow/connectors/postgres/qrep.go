@@ -260,22 +260,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	}
 
 	executor := NewQRepQueryExecutor(c.pool, c.ctx)
-
-	// Execute the query with the range values
-	rows, err := executor.ExecuteQuery(query, rangeStart, rangeEnd)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	// get column names from field descriptions
-	fieldDescriptions := rows.FieldDescriptions()
-
-	// log the number of field descriptions and column names
-	log.Debugf("field descriptions: %v\n", fieldDescriptions)
-
-	// Process the rows and retrieve the records
-	return executor.ProcessRows(rows, fieldDescriptions)
+	return executor.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
 }
 
 func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,

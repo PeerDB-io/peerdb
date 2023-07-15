@@ -1,8 +1,10 @@
 package connsqlserver
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"text/template"
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -124,7 +126,52 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 func (c *SQLServerConnector) PullQRepRecords(
 	config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error) {
-	panic("pull qrep records not implemented for sql server")
+	var rangeStart interface{}
+	var rangeEnd interface{}
+
+	// Depending on the type of the range, convert the range into the correct type
+	switch x := partition.Range.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		rangeStart = x.IntRange.Start
+		rangeEnd = x.IntRange.End
+	case *protos.PartitionRange_TimestampRange:
+		rangeStart = x.TimestampRange.Start.AsTime()
+		rangeEnd = x.TimestampRange.End.AsTime()
+	default:
+		return nil, fmt.Errorf("unknown range type: %v", x)
+	}
+
+	// Build the query to pull records within the range from the source table
+	// Be sure to order the results by the watermark column to ensure consistency across pulls
+	query, err := BuildQuery(config.Query)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
+}
+
+func BuildQuery(query string) (string, error) {
+	tmpl, err := template.New("query").Parse(query)
+	if err != nil {
+		return "", err
+	}
+
+	data := map[string]interface{}{
+		"start": "$1",
+		"end":   "$2",
+	}
+
+	buf := new(bytes.Buffer)
+
+	err = tmpl.Execute(buf, data)
+	if err != nil {
+		return "", err
+	}
+	res := buf.String()
+
+	log.Infof("templated query: %s", res)
+	return res, nil
 }
 
 func (c *SQLServerConnector) SyncQRepRecords(

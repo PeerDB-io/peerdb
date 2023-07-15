@@ -2,20 +2,23 @@ package connsqlserver
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
+	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/microsoft/go-mssqldb"
 	log "github.com/sirupsen/logrus"
 )
 
 type SQLServerConnector struct {
+	peersql.GenericSQLQueryExecutor
+
 	ctx          context.Context
 	config       *protos.SqlServerConfig
 	tableSchemas map[string]*protos.TableSchema
-	db           *sql.DB
+	db           *sqlx.DB
 }
 
 // NewSQLServerConnector creates a new SQL Server connection
@@ -23,7 +26,7 @@ func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) 
 	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%d;database=%s;",
 		config.Server, config.User, config.Password, config.Port, config.Database)
 
-	db, err := sql.Open("sqlserver", connString)
+	db, err := sqlx.Open("sqlserver", connString)
 	if err != nil {
 		return nil, err
 	}
@@ -33,10 +36,14 @@ func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) 
 		return nil, err
 	}
 
+	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
+		ctx, db, sqlServerTypeToQValueKindMap, qValueKindToSQLServerTypeMap)
+
 	return &SQLServerConnector{
-		ctx:    ctx,
-		config: config,
-		db:     db,
+		GenericSQLQueryExecutor: genericExecutor,
+		ctx:                     ctx,
+		config:                  config,
+		db:                      db,
 	}, nil
 }
 
