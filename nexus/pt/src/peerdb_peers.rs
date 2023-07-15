@@ -92,12 +92,26 @@ pub struct S3Config {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SqlServerConfig {
+    #[prost(string, tag = "1")]
+    pub server: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub port: u32,
+    #[prost(string, tag = "3")]
+    pub user: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub password: ::prost::alloc::string::String,
+    #[prost(string, tag = "5")]
+    pub database: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Peer {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(enumeration = "DbType", tag = "2")]
     pub r#type: i32,
-    #[prost(oneof = "peer::Config", tags = "3, 4, 5, 6, 7, 8")]
+    #[prost(oneof = "peer::Config", tags = "3, 4, 5, 6, 7, 8, 9")]
     pub config: ::core::option::Option<peer::Config>,
 }
 /// Nested message and enum types in `Peer`.
@@ -117,6 +131,8 @@ pub mod peer {
         EventhubConfig(super::EventHubConfig),
         #[prost(message, tag = "8")]
         S3Config(super::S3Config),
+        #[prost(message, tag = "9")]
+        SqlserverConfig(super::SqlServerConfig),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -128,6 +144,7 @@ pub enum DbType {
     Postgres = 3,
     Eventhub = 4,
     S3 = 5,
+    Sqlserver = 6,
 }
 impl DbType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -142,6 +159,7 @@ impl DbType {
             DbType::Postgres => "POSTGRES",
             DbType::Eventhub => "EVENTHUB",
             DbType::S3 => "S3",
+            DbType::Sqlserver => "SQLSERVER",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -153,6 +171,7 @@ impl DbType {
             "POSTGRES" => Some(Self::Postgres),
             "EVENTHUB" => Some(Self::Eventhub),
             "S3" => Some(Self::S3),
+            "SQLSERVER" => Some(Self::Sqlserver),
             _ => None,
         }
     }
