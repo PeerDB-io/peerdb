@@ -164,6 +164,11 @@ impl Catalog {
                     buf.reserve(config_len);
                     s3_config.encode(&mut buf)?;
                 }
+                Config::SqlserverConfig(sqlserver_config) => {
+                    let config_len = sqlserver_config.encoded_len();
+                    buf.reserve(config_len);
+                    sqlserver_config.encode(&mut buf)?;
+                }
             };
 
             buf
@@ -318,6 +323,12 @@ impl Catalog {
                 let s3_config =
                     pt::peerdb_peers::S3Config::decode(options.as_slice()).context(err)?;
                 Ok(Some(Config::S3Config(s3_config)))
+            }
+            Some(DbType::Sqlserver) => {
+                let err = format!("unable to decode {} options for peer {}", "sqlserver", name);
+                let sqlserver_config =
+                    pt::peerdb_peers::SqlServerConfig::decode(options.as_slice()).context(err)?;
+                Ok(Some(Config::SqlserverConfig(sqlserver_config)))
             }
             None => Ok(None),
         }

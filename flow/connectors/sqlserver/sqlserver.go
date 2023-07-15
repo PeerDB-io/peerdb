@@ -15,10 +15,9 @@ import (
 type SQLServerConnector struct {
 	peersql.GenericSQLQueryExecutor
 
-	ctx          context.Context
-	config       *protos.SqlServerConfig
-	tableSchemas map[string]*protos.TableSchema
-	db           *sqlx.DB
+	ctx    context.Context
+	config *protos.SqlServerConfig
+	db     *sqlx.DB
 }
 
 // NewSQLServerConnector creates a new SQL Server connection
