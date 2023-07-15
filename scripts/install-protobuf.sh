@@ -5,7 +5,11 @@ set -Eeuo pipefail
 PROTOBUF_MAJOR_VERSION=3
 PROTOBUF_MINOR_VERSION=23.4
 PROTOBUF_VERSION=${PROTOBUF_MAJOR_VERSION}.${PROTOBUF_MINOR_VERSION}
-ARCH=$(uname -m)
+if $(uname -m | grep -e 'arm64' -e 'aarch64'); then
+  ARCH=aarch_64
+else
+  ARCH=$(uname -m)
+fi
 
 # setup the variables for the archive and download url
 PROTOBUF_ARCHIVE=protoc-${PROTOBUF_MINOR_VERSION}-linux-${ARCH}.zip
