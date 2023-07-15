@@ -26,7 +26,9 @@ type SQLQueryExecutor interface {
 	CountRows(schemaName string, tableName string) (int64, error)
 
 	ExecuteAndProcessQuery(query string, args ...interface{}) (*model.QRecordBatch, error)
-	ExecuteQuery(query string, args ...interface{}) (interface{}, error)
+	NamedExecuteAndProcessQuery(query string, arg interface{}) (*model.QRecordBatch, error)
+	ExecuteQuery(query string, args ...interface{}) error
+	NamedExec(query string, arg interface{}) (sql.Result, error)
 }
 
 type GenericSQLQueryExecutor struct {
@@ -60,7 +62,7 @@ func (g *GenericSQLQueryExecutor) Close() error {
 }
 
 func (g *GenericSQLQueryExecutor) CreateSchema(schemaName string) error {
-	_, err := g.db.ExecContext(g.ctx, "CREATE SCHEMA IF NOT EXISTS "+schemaName)
+	_, err := g.db.ExecContext(g.ctx, "CREATE SCHEMA "+schemaName)
 	return err
 }
 
@@ -133,14 +135,7 @@ func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (*model
 	}, nil
 }
 
-func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
-	query string, args ...interface{}) (*model.QRecordBatch, error) {
-	rows, err := g.db.QueryxContext(g.ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
+func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBatch, error) {
 	dbColTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, err
@@ -239,9 +234,35 @@ func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
 	}, nil
 }
 
+func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
+	query string, args ...interface{}) (*model.QRecordBatch, error) {
+	rows, err := g.db.QueryxContext(g.ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return g.processRows(rows)
+}
+
+func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
+	query string, arg interface{}) (*model.QRecordBatch, error) {
+	rows, err := g.db.NamedQueryContext(g.ctx, query, arg)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return g.processRows(rows)
+}
+
 func (g *GenericSQLQueryExecutor) ExecuteQuery(query string, args ...interface{}) error {
 	_, err := g.db.ExecContext(g.ctx, query, args...)
 	return err
+}
+
+func (g *GenericSQLQueryExecutor) NamedExec(query string, arg interface{}) (sql.Result, error) {
+	return g.db.NamedExecContext(g.ctx, query, arg)
 }
 
 // returns true if any of the columns are null in value

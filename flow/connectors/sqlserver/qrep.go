@@ -29,14 +29,14 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
-		whereClause = fmt.Sprintf(`WHERE %s > $1`, quotedWatermarkColumn)
+		whereClause = fmt.Sprintf(`WHERE %s > ?`, quotedWatermarkColumn)
 	}
 
 	// Query to get the total number of rows in the table
 	//nolint:gosec
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
-	var row *sql.Row
 	var minVal interface{} = nil
+	var totalRows int64
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -44,14 +44,16 @@ func (c *SQLServerConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
-		row = c.db.QueryRow(countQuery, minVal)
+		log.Infof("count query: %s - minVal: %v", countQuery, minVal)
+		row := c.db.QueryRow(countQuery, minVal)
+		if err = row.Scan(&totalRows); err != nil {
+			return nil, fmt.Errorf("failed to query for total rows: %w", err)
+		}
 	} else {
-		row = c.db.QueryRow(countQuery)
-	}
-
-	var totalRows int64
-	if err = row.Scan(&totalRows); err != nil {
-		return nil, fmt.Errorf("failed to query for total rows: %w", err)
+		row := c.db.QueryRow(countQuery)
+		if err = row.Scan(&totalRows); err != nil {
+			return nil, fmt.Errorf("failed to query for total rows: %w", err)
+		}
 	}
 
 	if totalRows == 0 {
@@ -66,18 +68,19 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	}
 	log.Infof("total rows: %d, num partitions: %d, num rows per partition: %d",
 		totalRows, numPartitions, numRowsPerPartition)
-
 	var rows *sql.Rows
 	if minVal != nil {
 		// Query to get partitions using window functions
 		//nolint:gosec
 		partitionsQuery := fmt.Sprintf(
-			`SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket, MIN(%s) AS start, MAX(%s) AS end
-								FROM %s WHERE %s > $1
-								GROUP BY bucket
-								ORDER BY start`,
+			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
+					FROM (
+						SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket_v, %s as v_from
+						FROM %s WHERE %s > ?
+					) AS subquery
+					GROUP BY bucket_v
+					ORDER BY start_v`,
 			numPartitions,
-			quotedWatermarkColumn,
 			quotedWatermarkColumn,
 			quotedWatermarkColumn,
 			config.WatermarkTable,
@@ -88,12 +91,14 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	} else {
 		//nolint:gosec
 		partitionsQuery := fmt.Sprintf(
-			`SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket, MIN(%s) AS start, MAX(%s) AS end
-								FROM %s
-								GROUP BY bucket
-								ORDER BY start`,
+			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
+					FROM (
+						SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket_v, %s as v_from
+						FROM %s
+					) AS subquery
+					GROUP BY bucket_v
+					ORDER BY start_v`,
 			numPartitions,
-			quotedWatermarkColumn,
 			quotedWatermarkColumn,
 			quotedWatermarkColumn,
 			config.WatermarkTable,
@@ -148,7 +153,12 @@ func (c *SQLServerConnector) PullQRepRecords(
 		return nil, err
 	}
 
-	return c.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
+	rangeParams := map[string]interface{}{
+		"startRange": rangeStart,
+		"endRange":   rangeEnd,
+	}
+
+	return c.NamedExecuteAndProcessQuery(query, rangeParams)
 }
 
 func BuildQuery(query string) (string, error) {
@@ -158,8 +168,8 @@ func BuildQuery(query string) (string, error) {
 	}
 
 	data := map[string]interface{}{
-		"start": "$1",
-		"end":   "$2",
+		"start": ":startRange",
+		"end":   ":endRange",
 	}
 
 	buf := new(bytes.Buffer)
