@@ -42,4 +42,10 @@ var sqlServerTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"BINARY":           qvalue.QValueKindBit,
 	"DECIMAL":          qvalue.QValueKindNumeric,
 	"UNIQUEIDENTIFIER": qvalue.QValueKindUUID,
+	"SMALLINT":         qvalue.QValueKindInt32,
+	"TINYINT":          qvalue.QValueKindInt32,
+	"CHAR":             qvalue.QValueKindString,
+	"VARCHAR":          qvalue.QValueKindString,
+	"NCHAR":            qvalue.QValueKindString,
+	"NVARCHAR":         qvalue.QValueKindString,
 }
