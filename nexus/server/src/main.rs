@@ -367,6 +367,22 @@ impl NexusBackend {
                         ))))
                     }
                 }
+                PeerDDL::DropPeer {
+                    peer,
+                    if_not_exists: _,
+                } => {
+                    let catalog = self.catalog.lock().await;
+                    catalog.drop_peer(peer.as_ref()).await.map_err(|e| {
+                        PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "internal_error".to_owned(),
+                            e.to_string(),
+                        )))
+                    })?;
+                    Ok(vec![Response::Execution(Tag::new_for_execution(
+                        "OK", None,
+                    ))])
+                }
             },
             NexusStatement::PeerQuery { stmt, assoc } => {
                 // get the query executor

@@ -208,6 +208,65 @@ impl Catalog {
             .context("Failed to get peer id")
     }
 
+    pub async fn drop_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
+        // Check if fn argument makes sense - mostly yes
+        // Add corresponding golang
+        // compile
+        // setup test environment
+
+        // Get names of flows containing peer name
+        let mut stmt = self
+            .pg
+            .prepare_typed(
+                "SELECT name FROM flows WHERE source_peer = $1 OR destination_peer = $1",
+                &[types::Type::TEXT],
+            )
+            .await?;
+
+        let rows = self.pg.query(&stmt, &[&peer.name]).await?;
+
+        let mut flows: Vec<String> = Vec::new();
+
+        for row in rows {
+            let first_entry: String = row.get(0);
+            flows.push(first_entry);
+        }
+
+        // Run DROP MIRROR on all the listed flows
+        for flow in flows {
+            stmt = self
+                .pg
+                .prepare_typed("DROP MIRROR $1", &[types::Type::TEXT])
+                .await?;
+
+            self.pg.execute(&stmt, &[&flow]).await?;
+        }
+
+        // Run corresponding SQL for peer dropping
+        // Must be part of same transaction ideally
+        // delete from peer_connections where peer_name='<peer_name>';
+        // delete from peers where name='<peer_name>';
+
+        stmt = self
+            .pg
+            .prepare_typed(
+                "DELETE FROM peer_connections WHERE peer_name = $1",
+                &[types::Type::TEXT],
+            )
+            .await?;
+
+        self.pg.execute(&stmt, &[&peer.name]).await?;
+
+        stmt = self
+            .pg
+            .prepare_typed("DELETE FROM peers WHERE name = $1", &[types::Type::TEXT])
+            .await?;
+
+        self.pg.execute(&stmt, &[&peer.name]).await?;
+
+        self.get_peer_id(&peer.name).await
+    }
+
     // get the database type for a given peer id
     pub async fn get_peer_type_for_id(&self, peer_id: i32) -> anyhow::Result<DbType> {
         let stmt = self

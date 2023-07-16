@@ -106,6 +106,10 @@ pub enum PeerDDL {
         if_exists: bool,
         flow_job_name: String,
     },
+    DropPeer {
+        peer: Box<pt::peerdb_peers::Peer>,
+        if_not_exists: bool,
+    },
 }
 
 impl StatementAnalyzer for PeerDDLAnalyzer {
