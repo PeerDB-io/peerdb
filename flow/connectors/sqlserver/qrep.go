@@ -2,7 +2,6 @@ package connsqlserver
 
 import (
 	"bytes"
-	"database/sql"
 	"fmt"
 	"text/template"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -40,7 +40,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
-		whereClause = fmt.Sprintf(`WHERE %s > ?`, quotedWatermarkColumn)
+		whereClause = fmt.Sprintf(`WHERE %s > :minVal`, quotedWatermarkColumn)
 	}
 
 	// Query to get the total number of rows in the table
@@ -56,9 +56,21 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
 		log.Infof("count query: %s - minVal: %v", countQuery, minVal)
-		row := c.db.QueryRow(countQuery, minVal)
-		if err = row.Scan(&totalRows); err != nil {
+		params := map[string]interface{}{
+			"minVal": minVal,
+		}
+
+		rows, err := c.db.NamedQuery(countQuery, params)
+		if err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
+		}
+
+		defer rows.Close()
+
+		if rows.Next() {
+			if err = rows.Scan(&totalRows); err != nil {
+				return nil, fmt.Errorf("failed to query for total rows: %w", err)
+			}
 		}
 	} else {
 		row := c.db.QueryRow(countQuery)
@@ -79,7 +91,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	}
 	log.Infof("total rows: %d, num partitions: %d, num rows per partition: %d",
 		totalRows, numPartitions, numRowsPerPartition)
-	var rows *sql.Rows
+	var rows *sqlx.Rows
 	if minVal != nil {
 		// Query to get partitions using window functions
 		//nolint:gosec
@@ -87,7 +99,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
 					FROM (
 						SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket_v, %s as v_from
-						FROM %s WHERE %s > ?
+						FROM %s WHERE %s > :minVal
 					) AS subquery
 					GROUP BY bucket_v
 					ORDER BY start_v`,
@@ -98,7 +110,10 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			quotedWatermarkColumn,
 		)
 		log.Infof("partitions query: %s - minVal: %v", partitionsQuery, minVal)
-		rows, err = c.db.Query(partitionsQuery, minVal)
+		params := map[string]interface{}{
+			"minVal": minVal,
+		}
+		rows, err = c.db.NamedQuery(partitionsQuery, params)
 	} else {
 		//nolint:gosec
 		partitionsQuery := fmt.Sprintf(
@@ -115,7 +130,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			config.WatermarkTable,
 		)
 		log.Infof("partitions query: %s", partitionsQuery)
-		rows, err = c.db.Query(partitionsQuery)
+		rows, err = c.db.Queryx(partitionsQuery)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
