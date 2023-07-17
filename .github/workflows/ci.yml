@@ -10,6 +10,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      catalog_peer:
+        image: debezium/postgres:14-alpine
+        ports:
+          - 7132:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v3
         with:
@@ -48,11 +62,11 @@ jobs:
         working-directory: ./nexus
         env:
           RUST_BACKTRACE: 1
-          PEERDB_CATALOG_HOST: ${{ secrets.NEXUS_CATALOG_HOST }}
-          PEERDB_CATALOG_PORT: ${{ secrets.NEXUS_CATALOG_PORT }}
-          PEERDB_CATALOG_DATABASE: ${{ secrets.NEXUS_CATALOG_DATABASE }}
-          PEERDB_CATALOG_USER: ${{ secrets.NEXUS_CATALOG_USER }}
-          PEERDB_CATALOG_PASSWORD: ${{ secrets.NEXUS_CATALOG_PASSWORD }}
+          PEERDB_CATALOG_HOST: localhost
+          PEERDB_CATALOG_PORT: 7132
+          PEERDB_CATALOG_DATABASE: postgres
+          PEERDB_CATALOG_USER: postgres
+          PEERDB_CATALOG_PASSWORD: postgres
           TEST_BQ_CREDS: ${{ github.workspace }}/server/tests/assets/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/server/tests/assets/snowflake_creds.json
           PEERDB_LOG_DIR: /tmp
