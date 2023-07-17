@@ -9,6 +9,7 @@ import (
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -19,6 +20,16 @@ func (c *SQLServerConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 
 func (c *SQLServerConnector) GetQRepPartitions(
 	config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
+	if config.WatermarkTable == "" {
+		log.Infof("watermark table is empty, doing full table refresh")
+		return []*protos.QRepPartition{
+			{
+				PartitionId:        uuid.New().String(),
+				FullTablePartition: true,
+			},
+		}, nil
+	}
+
 	if config.NumRowsPerPartition <= 0 {
 		return nil, fmt.Errorf("num rows per partition must be greater than 0 for sql server")
 	}
@@ -131,6 +142,18 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 func (c *SQLServerConnector) PullQRepRecords(
 	config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+	// Build the query to pull records within the range from the source table
+	// Be sure to order the results by the watermark column to ensure consistency across pulls
+	query, err := BuildQuery(config.Query)
+	if err != nil {
+		return nil, err
+	}
+
+	if partition.FullTablePartition {
+		// this is a full table partition, so just run the query
+		return c.ExecuteAndProcessQuery(query)
+	}
+
 	var rangeStart interface{}
 	var rangeEnd interface{}
 
@@ -144,13 +167,6 @@ func (c *SQLServerConnector) PullQRepRecords(
 		rangeEnd = x.TimestampRange.End.AsTime()
 	default:
 		return nil, fmt.Errorf("unknown range type: %v", x)
-	}
-
-	// Build the query to pull records within the range from the source table
-	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(config.Query)
-	if err != nil {
-		return nil, err
 	}
 
 	rangeParams := map[string]interface{}{

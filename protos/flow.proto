@@ -189,6 +189,7 @@ message QRepConfig {
 message QRepPartition {
   string partition_id = 2;
   PartitionRange range = 3;
+  bool full_table_partition = 4;
 }
 
 message QRepParitionResult {
