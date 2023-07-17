@@ -1,11 +1,14 @@
-use pt::peers::SnowflakeConfig;
+use pt::peerdb_peers::SnowflakeConfig;
 
 use postgres::Client;
+use std::env;
 use std::fs::File;
 use std::io::Read;
 
 pub fn create(nexus: &mut Client) {
-    let mut file = File::open("tests/assets/sf.json").expect("failed to open sf.json");
+    dotenvy::dotenv().ok();
+    let config_file_path = env::var("TEST_SF_CREDS").expect("TEST_SF_CREDS not set");
+    let mut file = File::open(config_file_path).expect("failed to open sf.json");
     let mut contents = String::new();
     file.read_to_string(&mut contents)
         .expect("failed to read sf.json");

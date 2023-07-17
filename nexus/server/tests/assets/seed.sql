@@ -1,10 +1,3 @@
---
--- PostgreSQL database dump
---
-
--- Dumped from database version 15.1
--- Dumped by pg_dump version 15.3
-
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
@@ -20,13 +13,11 @@ SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
---
--- Name: test_table; Type: TABLE; Schema: public; Owner: postgres
---
+CREATE SCHEMA test;
 
-DROP TABLE IF EXISTS public.test_table;
+DROP TABLE IF EXISTS test.test_table;
 
-CREATE TABLE public.test_table (
+CREATE TABLE test.test_table (
     bool boolean NOT NULL,
     date date NOT NULL,
     "time" time without time zone DEFAULT now() NOT NULL,
@@ -44,14 +35,9 @@ CREATE TABLE public.test_table (
     "numeric" numeric
 );
 
+ALTER TABLE test.test_table OWNER TO postgres;
 
-ALTER TABLE public.test_table OWNER TO postgres;
-
---
--- Data for Name: test_table; Type: TABLE DATA; Schema: public; Owner: postgres
---
-
-INSERT INTO public.test_table (
+INSERT INTO test.test_table (
     bool, 
     date, 
     "time", 
@@ -84,22 +70,7 @@ INSERT INTO public.test_table (
     123.45
 );
 
-
---
--- Name: test_table test_table_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.test_table
+ALTER TABLE ONLY test.test_table
     ADD CONSTRAINT test_table_pkey PRIMARY KEY (int8);
 
-
---
--- Name: TABLE test_table; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.test_table TO postgres;
-
---
--- PostgreSQL database dump complete
---
-
+GRANT ALL ON TABLE test.test_table TO postgres;

@@ -1,6 +1,6 @@
 use postgres::{Client, NoTls, SimpleQueryMessage};
 use std::{
-    fs::{read_dir, read_to_string, File},
+    fs::{read_dir, File},
     io::{prelude::*, BufReader, Write},
     path::Path,
     process::Command,
@@ -26,7 +26,6 @@ fn setup_peers(client: &mut Client) {
     create_peers::create_bq::create(client);
     create_peers::create_pg::create(client);
     create_peers::create_sf::create(client);
-    tracing::info!("Setup all peers successfully");
 }
 
 fn read_queries(filename: impl AsRef<Path>) -> Vec<String> {

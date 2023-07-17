@@ -1,9 +1,9 @@
 use postgres::NoTls;
-use pt::peers::PostgresConfig;
 
 use postgres::Client;
-use std::fs::{read_to_string, File};
-use std::io::Read;
+use std::env;
+use std::fs::read_to_string;
+
 fn hydrate(pg_peer: &mut Client) {
     let table_dump_path = "tests/assets/seed.sql";
     let dump_contents =
@@ -14,13 +14,23 @@ fn hydrate(pg_peer: &mut Client) {
 }
 
 pub fn create(nexus: &mut Client) {
-    let mut file = File::open("tests/assets/pg.json").expect("failed to open pg.json");
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .expect("failed to read pg.json");
+    dotenvy::dotenv().ok();
+    let peer_host = env::var("PEERDB_CATALOG_HOST").expect("PEERDB_CATALOG_HOST not set");
+    let peer_port = env::var("PEERDB_CATALOG_PORT").expect("PEERDB_CATALOG_PORT not set");
+    let peer_database =
+        env::var("PEERDB_CATALOG_DATABASE").expect("PEERDB_CATALOG_DATABASE not set");
+    let peer_user = env::var("PEERDB_CATALOG_USER").expect("PEERDB_CATALOG_USER not set");
+    let peer_password =
+        env::var("PEERDB_CATALOG_PASSWORD").expect("PEERDB_CATALOG_PASSWORD not set");
 
-    let pg_config: PostgresConfig =
-        serde_json::from_str(&contents).expect("failed to parse pg.json");
+    // Hydrate peer first
+    let peer_conn_str = format!(
+        "postgresql://{}:{}@{}:{}",
+        peer_user, peer_password, peer_host, peer_port
+    );
+    let mut pg_client =
+        Client::connect(&peer_conn_str, NoTls).expect("failed to connect to pg peer");
+    hydrate(&mut pg_client);
 
     let create_stmt = format!(
         "
@@ -32,7 +42,7 @@ pub fn create(nexus: &mut Client) {
         password = '{}',
         database = '{}'
     );",
-        &pg_config.host, &pg_config.port, &pg_config.user, &pg_config.password, &pg_config.database
+        &peer_host, &peer_port, &peer_user, &peer_password, &peer_database
     );
 
     let creation_status = nexus.simple_query(&create_stmt);
@@ -48,12 +58,4 @@ pub fn create(nexus: &mut Client) {
             }
         }
     }
-
-    let peer_conn_str = format!(
-        "postgresql://{}:{}@{}:{}/{}",
-        pg_config.user, pg_config.password, pg_config.host, pg_config.port, pg_config.database,
-    );
-    let mut pg_client =
-        Client::connect(&peer_conn_str, NoTls).expect("failed to connect to pg peer");
-    hydrate(&mut pg_client);
 }

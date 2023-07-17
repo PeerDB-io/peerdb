@@ -2,9 +2,7 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreatePeerFlowRequest {
     #[prost(message, optional, tag = "1")]
-    pub connection_configs: ::core::option::Option<
-        super::peerdb_flow::FlowConnectionConfigs,
-    >,
+    pub connection_configs: ::core::option::Option<super::peerdb_flow::FlowConnectionConfigs>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -59,8 +57,8 @@ pub struct ShutdownResponse {
 /// Generated client implementations.
 pub mod flow_service_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
     #[derive(Debug, Clone)]
     pub struct FlowServiceClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -104,9 +102,8 @@ pub mod flow_service_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + Send + Sync,
         {
             FlowServiceClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -144,73 +141,59 @@ pub mod flow_service_client {
         pub async fn create_peer_flow(
             &mut self,
             request: impl tonic::IntoRequest<super::CreatePeerFlowRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CreatePeerFlowResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::CreatePeerFlowResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/peerdb_route.FlowService/CreatePeerFlow",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/peerdb_route.FlowService/CreatePeerFlow");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("peerdb_route.FlowService", "CreatePeerFlow"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "peerdb_route.FlowService",
+                "CreatePeerFlow",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn create_q_rep_flow(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateQRepFlowRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CreateQRepFlowResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::CreateQRepFlowResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/peerdb_route.FlowService/CreateQRepFlow",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/peerdb_route.FlowService/CreateQRepFlow");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("peerdb_route.FlowService", "CreateQRepFlow"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "peerdb_route.FlowService",
+                "CreateQRepFlow",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn health_check(
             &mut self,
             request: impl tonic::IntoRequest<super::HealthCheckRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::HealthCheckResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::HealthCheckResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/peerdb_route.FlowService/HealthCheck",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/peerdb_route.FlowService/HealthCheck");
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("peerdb_route.FlowService", "HealthCheck"));
@@ -219,23 +202,16 @@ pub mod flow_service_client {
         pub async fn shutdown_flow(
             &mut self,
             request: impl tonic::IntoRequest<super::ShutdownRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ShutdownResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::ShutdownResponse>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/peerdb_route.FlowService/ShutdownFlow",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/peerdb_route.FlowService/ShutdownFlow");
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("peerdb_route.FlowService", "ShutdownFlow"));
@@ -253,31 +229,19 @@ pub mod flow_service_server {
         async fn create_peer_flow(
             &self,
             request: tonic::Request<super::CreatePeerFlowRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CreatePeerFlowResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::CreatePeerFlowResponse>, tonic::Status>;
         async fn create_q_rep_flow(
             &self,
             request: tonic::Request<super::CreateQRepFlowRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CreateQRepFlowResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::CreateQRepFlowResponse>, tonic::Status>;
         async fn health_check(
             &self,
             request: tonic::Request<super::HealthCheckRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::HealthCheckResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::HealthCheckResponse>, tonic::Status>;
         async fn shutdown_flow(
             &self,
             request: tonic::Request<super::ShutdownRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ShutdownResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::ShutdownResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct FlowServiceServer<T: FlowService> {
@@ -302,10 +266,7 @@ pub mod flow_service_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -361,23 +322,17 @@ pub mod flow_service_server {
                 "/peerdb_route.FlowService/CreatePeerFlow" => {
                     #[allow(non_camel_case_types)]
                     struct CreatePeerFlowSvc<T: FlowService>(pub Arc<T>);
-                    impl<
-                        T: FlowService,
-                    > tonic::server::UnaryService<super::CreatePeerFlowRequest>
-                    for CreatePeerFlowSvc<T> {
+                    impl<T: FlowService> tonic::server::UnaryService<super::CreatePeerFlowRequest>
+                        for CreatePeerFlowSvc<T>
+                    {
                         type Response = super::CreatePeerFlowResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CreatePeerFlowRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).create_peer_flow(request).await
-                            };
+                            let fut = async move { (*inner).create_peer_flow(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -407,23 +362,17 @@ pub mod flow_service_server {
                 "/peerdb_route.FlowService/CreateQRepFlow" => {
                     #[allow(non_camel_case_types)]
                     struct CreateQRepFlowSvc<T: FlowService>(pub Arc<T>);
-                    impl<
-                        T: FlowService,
-                    > tonic::server::UnaryService<super::CreateQRepFlowRequest>
-                    for CreateQRepFlowSvc<T> {
+                    impl<T: FlowService> tonic::server::UnaryService<super::CreateQRepFlowRequest>
+                        for CreateQRepFlowSvc<T>
+                    {
                         type Response = super::CreateQRepFlowResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CreateQRepFlowRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).create_q_rep_flow(request).await
-                            };
+                            let fut = async move { (*inner).create_q_rep_flow(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -453,23 +402,15 @@ pub mod flow_service_server {
                 "/peerdb_route.FlowService/HealthCheck" => {
                     #[allow(non_camel_case_types)]
                     struct HealthCheckSvc<T: FlowService>(pub Arc<T>);
-                    impl<
-                        T: FlowService,
-                    > tonic::server::UnaryService<super::HealthCheckRequest>
-                    for HealthCheckSvc<T> {
+                    impl<T: FlowService> tonic::server::UnaryService<super::HealthCheckRequest> for HealthCheckSvc<T> {
                         type Response = super::HealthCheckResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::HealthCheckRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).health_check(request).await
-                            };
+                            let fut = async move { (*inner).health_check(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -499,23 +440,15 @@ pub mod flow_service_server {
                 "/peerdb_route.FlowService/ShutdownFlow" => {
                     #[allow(non_camel_case_types)]
                     struct ShutdownFlowSvc<T: FlowService>(pub Arc<T>);
-                    impl<
-                        T: FlowService,
-                    > tonic::server::UnaryService<super::ShutdownRequest>
-                    for ShutdownFlowSvc<T> {
+                    impl<T: FlowService> tonic::server::UnaryService<super::ShutdownRequest> for ShutdownFlowSvc<T> {
                         type Response = super::ShutdownResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ShutdownRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).shutdown_flow(request).await
-                            };
+                            let fut = async move { (*inner).shutdown_flow(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -542,18 +475,14 @@ pub mod flow_service_server {
                     };
                     Box::pin(fut)
                 }
-                _ => {
-                    Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", "12")
-                                .header("content-type", "application/grpc")
-                                .body(empty_body())
-                                .unwrap(),
-                        )
-                    })
-                }
+                _ => Box::pin(async move {
+                    Ok(http::Response::builder()
+                        .status(200)
+                        .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
+                        .body(empty_body())
+                        .unwrap())
+                }),
             }
         }
     }

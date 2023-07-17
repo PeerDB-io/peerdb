@@ -1,3 +1,4 @@
+#[derive(serde::Serialize, serde::Deserialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SnowflakeConfig {
@@ -18,6 +19,7 @@ pub struct SnowflakeConfig {
     #[prost(string, tag = "9")]
     pub s3_integration: ::prost::alloc::string::String,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BigqueryConfig {
@@ -58,6 +60,7 @@ pub struct MongoConfig {
     #[prost(string, tag = "5")]
     pub database: ::prost::alloc::string::String,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PostgresConfig {

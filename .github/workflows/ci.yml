@@ -22,6 +22,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler libssl-dev pkg-config build-essential
+      
+      - name: setup gcp service account
+        id: gcp-service-account
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "bq_service_account.json"
+          json: ${{ secrets.GCP_GH_CI_PKEY }}
+          dir: 'nexus/server/tests/assets/'
+
+      - name: setup snowflake credentials
+        id: sf-credentials
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "snowflake_creds.json"
+          json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
+          dir: 'nexus/server/tests/assets/'
 
       - name: cargo check
         run: cargo check
@@ -37,6 +53,8 @@ jobs:
           PEERDB_CATALOG_DATABASE: ${{ secrets.NEXUS_CATALOG_DATABASE }}
           PEERDB_CATALOG_USER: ${{ secrets.NEXUS_CATALOG_USER }}
           PEERDB_CATALOG_PASSWORD: ${{ secrets.NEXUS_CATALOG_PASSWORD }}
+          TEST_BQ_CREDS: ${{ github.workspace }}/server/tests/assets/bq_service_account.json
+          TEST_SF_CREDS: ${{ github.workspace }}/server/tests/assets/snowflake_creds.json
           PEERDB_LOG_DIR: /tmp
 
       - name: dump server.log

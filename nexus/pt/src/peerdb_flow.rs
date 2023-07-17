@@ -18,20 +18,13 @@ pub struct FlowConnectionConfigs {
     #[prost(message, optional, tag = "4")]
     pub table_schema: ::core::option::Option<TableSchema>,
     #[prost(map = "string, string", tag = "5")]
-    pub table_name_mapping: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    pub table_name_mapping:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(map = "uint32, string", tag = "6")]
-    pub src_table_id_name_mapping: ::std::collections::HashMap<
-        u32,
-        ::prost::alloc::string::String,
-    >,
+    pub src_table_id_name_mapping: ::std::collections::HashMap<u32, ::prost::alloc::string::String>,
     #[prost(map = "string, message", tag = "7")]
-    pub table_name_schema_mapping: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        TableSchema,
-    >,
+    pub table_name_schema_mapping:
+        ::std::collections::HashMap<::prost::alloc::string::String, TableSchema>,
     /// This is an optional peer that will be used to hold metadata in cases where
     /// the destination isn't ideal for holding metadata.
     #[prost(message, optional, tag = "8")]
@@ -128,10 +121,8 @@ pub struct SetupReplicationInput {
     #[prost(string, tag = "2")]
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "3")]
-    pub table_name_mapping: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    pub table_name_mapping:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -141,10 +132,8 @@ pub struct CreateRawTableInput {
     #[prost(string, tag = "2")]
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "3")]
-    pub table_name_mapping: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    pub table_name_mapping:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -168,10 +157,8 @@ pub struct TableSchema {
     /// list of column names and types, types can be one of the following:
     /// "string", "int", "float", "bool", "timestamp".
     #[prost(map = "string, string", tag = "2")]
-    pub columns: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    pub columns:
+        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(string, tag = "3")]
     pub primary_key_column: ::prost::alloc::string::String,
 }

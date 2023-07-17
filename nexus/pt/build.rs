@@ -24,6 +24,18 @@ fn main() -> Result<()> {
     tonic_build::configure()
         .protoc_arg("--experimental_allow_proto3_optional") // for older systems
         .build_client(true)
+        .type_attribute(
+            "BigqueryConfig",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "SnowflakeConfig",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "PostgresConfig",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .file_descriptor_set_path(out_dir.join("store_descriptor.bin"))
         .out_dir("./src")
         .compile(&proto_files, &[root.join("protos")])?;
