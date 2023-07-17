@@ -73,6 +73,11 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 
 	values := make([]interface{}, numEntries)
 	for i, qValue := range record.Entries {
+		if qValue.Value == nil {
+			values[i] = nil
+			continue
+		}
+
 		switch qValue.Kind {
 		case qvalue.QValueKindFloat32:
 			v, ok := qValue.Value.(float32)
@@ -107,10 +112,20 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = v
 
 		case qvalue.QValueKindBoolean:
-			values[i] = qValue.Value.(bool)
+			v, ok := qValue.Value.(bool)
+			if !ok {
+				src.err = fmt.Errorf("invalid boolean value")
+				return nil, src.err
+			}
+			values[i] = v
 
 		case qvalue.QValueKindString:
-			values[i] = qValue.Value.(string)
+			v, ok := qValue.Value.(string)
+			if !ok {
+				src.err = fmt.Errorf("invalid string value")
+				return nil, src.err
+			}
+			values[i] = v
 
 		case qvalue.QValueKindTimestamp:
 			t, ok := qValue.Value.(time.Time)
