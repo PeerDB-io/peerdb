@@ -6,10 +6,10 @@ use std::io::Read;
 pub fn create(nexus: &mut Client) {
     dotenvy::dotenv().ok();
     let service_file_path = env::var("TEST_BQ_CREDS").expect("TEST_BQ_CREDS not set");
-    let mut file = File::open(service_file_path).expect("failed to open bq.json");
+    let mut file = File::open(service_file_path).expect("failed to open bigquery json");
     let mut contents = String::new();
     file.read_to_string(&mut contents)
-        .expect("failed to read bq.json");
+        .expect("failed to read bigquery json");
 
     let bq_config: BigqueryConfig =
         serde_json::from_str(&contents).expect("failed to parse bq.json");

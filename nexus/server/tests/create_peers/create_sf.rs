@@ -8,13 +8,13 @@ use std::io::Read;
 pub fn create(nexus: &mut Client) {
     dotenvy::dotenv().ok();
     let config_file_path = env::var("TEST_SF_CREDS").expect("TEST_SF_CREDS not set");
-    let mut file = File::open(config_file_path).expect("failed to open sf.json");
+    let mut file = File::open(config_file_path).expect("failed to open snowflake json");
     let mut contents = String::new();
     file.read_to_string(&mut contents)
-        .expect("failed to read sf.json");
+        .expect("failed to read snowflake json");
 
     let sf_config: SnowflakeConfig =
-        serde_json::from_str(&contents).expect("failed to parse sf.json");
+        serde_json::from_str(&contents).expect("failed to parse snowflake json");
 
     let create_stmt = format!(
         "

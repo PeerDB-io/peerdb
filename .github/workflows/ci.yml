@@ -67,8 +67,8 @@ jobs:
           PEERDB_CATALOG_DATABASE: postgres
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
-          TEST_BQ_CREDS: ${{ github.workspace }}/server/tests/assets/bq_service_account.json
-          TEST_SF_CREDS: ${{ github.workspace }}/server/tests/assets/snowflake_creds.json
+          TEST_BQ_CREDS: tests/assets/bq_service_account.json
+          TEST_SF_CREDS: tests/assets/snowflake_creds.json
           PEERDB_LOG_DIR: /tmp
 
       - name: dump server.log
