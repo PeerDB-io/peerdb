@@ -174,6 +174,15 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			values[i] = v
 
+		case qvalue.QValueKindDate:
+			t, ok := qValue.Value.(time.Time)
+			if !ok {
+				src.err = fmt.Errorf("invalid Date value")
+				return nil, src.err
+			}
+			date := pgtype.Date{Time: t, Valid: true}
+			values[i] = date
+
 		// And so on for the other types...
 		default:
 			src.err = fmt.Errorf("unsupported value type %s", qValue.Kind)
