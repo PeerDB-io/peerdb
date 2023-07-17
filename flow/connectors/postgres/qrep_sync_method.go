@@ -88,12 +88,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	}()
 
 	colNames := records.Schema.GetColumnNames()
-	colNamesStr := strings.Join(colNames, ", ")
-
 	// wrap the column names in double quotes to handle reserved keywords
 	for i, colName := range colNames {
 		colNames[i] = fmt.Sprintf("\"%s\"", colName)
 	}
+	colNamesStr := strings.Join(colNames, ", ")
 
 	insertFromStagingStmt := fmt.Sprintf(
 		"INSERT INTO %s SELECT %s FROM %s",
