@@ -53,7 +53,7 @@ impl PeerDBServer {
             .spawn()
             .expect("Failed to start peerdb-server");
 
-        thread::sleep(Duration::from_millis(2000));
+        thread::sleep(Duration::from_millis(5000));
         tracing::info!("peerdb-server Server started");
         Self { server: child }
     }

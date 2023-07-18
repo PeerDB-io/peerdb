@@ -41,7 +41,7 @@ pub fn create(nexus: &mut Client) {
         &bq_config.token_uri,
         &bq_config.auth_provider_x509_cert_url,
         &bq_config.client_x509_cert_url,
-        &bq_config.dataset_id
+        "test_dataset"
     );
 
     let creation_status = nexus.simple_query(&create_stmt);

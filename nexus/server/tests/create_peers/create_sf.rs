@@ -32,7 +32,7 @@ pub fn create(nexus: &mut Client) {
         &sf_config.account_id,
         &sf_config.username,
         &sf_config.private_key,
-        &sf_config.database,
+        "SNOWFLAKE_CI",
         &sf_config.warehouse,
         &sf_config.role,
         &sf_config.query_timeout,
