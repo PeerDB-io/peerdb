@@ -191,6 +191,8 @@ fn server_test() {
 fn extended_query_protocol_no_params_catalog() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
+    // create bigquery peer so that the following command returns a non-zero result
+    create_peers::create_bq::create(&mut client);
     // run `select * from peers` as a prepared statement.
     let stmt = client
         .prepare("SELECT * FROM peers;")
