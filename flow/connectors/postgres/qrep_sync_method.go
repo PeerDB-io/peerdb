@@ -88,13 +88,19 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	}()
 
 	colNames := records.Schema.GetColumnNames()
+	// wrap the column names in double quotes to handle reserved keywords
+	for i, colName := range colNames {
+		colNames[i] = fmt.Sprintf("\"%s\"", colName)
+	}
 	colNamesStr := strings.Join(colNames, ", ")
+
 	insertFromStagingStmt := fmt.Sprintf(
 		"INSERT INTO %s SELECT %s FROM %s",
 		dstTableName.String(),
 		colNamesStr,
 		stagingTable,
 	)
+	log.Infof("insertFromStagingStmt: %s", insertFromStagingStmt)
 	_, err = tx2.Exec(context.Background(), insertFromStagingStmt)
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)

@@ -33,7 +33,9 @@ type SchemaTable struct {
 }
 
 func (t *SchemaTable) String() string {
-	return fmt.Sprintf("%s.%s", t.Schema, t.Table)
+	quotedSchema := fmt.Sprintf(`"%s"`, t.Schema)
+	quotedTable := fmt.Sprintf(`"%s"`, t.Table)
+	return fmt.Sprintf("%s.%s", quotedSchema, quotedTable)
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.

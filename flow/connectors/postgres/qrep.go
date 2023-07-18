@@ -277,7 +277,7 @@ func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
 	}
 
 	if !exists {
-		return 0, fmt.Errorf("table %s does not exist", dstTable)
+		return 0, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Schema)
 	}
 
 	done, err := c.isPartitionSynced(partition.PartitionId)

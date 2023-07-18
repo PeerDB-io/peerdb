@@ -307,7 +307,7 @@ func (suite *PostgresCDCTestSuite) TestParseSchemaTable() {
 		Schema: "schema",
 		Table:  "table",
 	}, schemaTest2)
-	suite.Equal("schema.table", schemaTest2.String())
+	suite.Equal("\"schema\".\"table\"", schemaTest2.String())
 	suite.Nil(err)
 
 	schemaTest3, err := parseSchemaTable("database.schema.table")
