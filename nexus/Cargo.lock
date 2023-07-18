@@ -2041,6 +2041,7 @@ dependencies = [
  "prost",
  "pt",
  "rand",
+ "serde_json",
  "sha256",
  "sqlparser",
  "time 0.3.20",

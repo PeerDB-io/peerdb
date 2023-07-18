@@ -37,7 +37,10 @@ pub enum NexusStatement {
 }
 
 impl NexusStatement {
-    pub fn new(peers: HashMap<String, pt::peerdb_peers::Peer>, stmt: &Statement) -> PgWireResult<Self> {
+    pub fn new(
+        peers: HashMap<String, pt::peerdb_peers::Peer>,
+        stmt: &Statement,
+    ) -> PgWireResult<Self> {
         let ddl = {
             let pdl: PeerDDLAnalyzer = Default::default();
             pdl.analyze(stmt).map_err(|e| {

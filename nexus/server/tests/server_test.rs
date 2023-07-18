@@ -7,7 +7,7 @@ use std::{
     thread,
     time::Duration,
 };
-
+mod create_peers;
 fn input_files() -> Vec<String> {
     let sql_directory = read_dir("tests/sql").unwrap();
     sql_directory
@@ -20,6 +20,12 @@ fn input_files() -> Vec<String> {
             })
         })
         .collect::<Vec<String>>()
+}
+
+fn setup_peers(client: &mut Client) {
+    create_peers::create_bq::create(client);
+    create_peers::create_pg::create(client);
+    create_peers::create_sf::create(client);
 }
 
 fn read_queries(filename: impl AsRef<Path>) -> Vec<String> {
@@ -47,7 +53,7 @@ impl PeerDBServer {
             .spawn()
             .expect("Failed to start peerdb-server");
 
-        thread::sleep(Duration::from_millis(2000));
+        thread::sleep(Duration::from_millis(5000));
         tracing::info!("peerdb-server Server started");
         Self { server: child }
     }
@@ -97,7 +103,7 @@ impl Drop for PeerDBServer {
 fn server_test() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
-
+    setup_peers(&mut client);
     let test_files = input_files();
     test_files.iter().for_each(|file| {
         let queries = read_queries(["tests/sql/", file].concat());
@@ -185,7 +191,7 @@ fn server_test() {
 fn extended_query_protocol_no_params_catalog() {
     let server = PeerDBServer::new();
     let mut client = server.connect_dying();
-
+    create_peers::create_bq::create(&mut client);
     // run `select * from peers` as a prepared statement.
     let stmt = client
         .prepare("SELECT * FROM peers;")
