@@ -13,7 +13,7 @@ SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
-CREATE SCHEMA test;
+CREATE SCHEMA IF NOT EXISTS test;
 
 DROP TABLE IF EXISTS test.test_table;
 

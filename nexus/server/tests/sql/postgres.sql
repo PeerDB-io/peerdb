@@ -61,6 +61,8 @@ SELECT JSONB -> 'gender' FROM pg_test.test.test_table;
 
 SELECT INT8 FROM pg_test.test.test_table WHERE INT4=172;
 
+DROP TABLE pg_test.test.test_table;
+
 CREATE TABLE IF NOT EXISTS pg_test.test.temp_table(INT4 INT4, BOOL BOOL, INT8 INT8 PRIMARY KEY);
 INSERT INTO pg_test.test.temp_table VALUES(17, true, 26);
 SELECT * FROM pg_test.test.temp_table;
