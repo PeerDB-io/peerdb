@@ -10,6 +10,7 @@ use pt::{
     peerdb_peers::{peer::Config, DbType, Peer},
 };
 use tokio_postgres::{types, Client};
+use urlencoding::encode;
 
 mod embedded {
     use refinery::embed_migrations;
@@ -76,20 +77,20 @@ impl CatalogConfig {
 
     // Get the connection string for this catalog configuration
     pub fn get_connection_string(&self) -> String {
-        let mut connection_string = String::new();
-        connection_string.push_str("host=");
-        connection_string.push_str(&self.host);
-        connection_string.push_str(" port=");
-        connection_string.push_str(&self.port.to_string());
-        connection_string.push_str(" user=");
+        let mut connection_string = String::from("postgres://");
+
         connection_string.push_str(&self.user);
         if !self.password.is_empty() {
-            connection_string.push_str(" password=");
-            let encoded_password = urlencoding::encode(&self.password);
-            connection_string.push_str(&encoded_password);
+            connection_string.push(':');
+            connection_string.push_str(&encode(&self.password));
         }
-        connection_string.push_str(" dbname=");
+        connection_string.push('@');
+        connection_string.push_str(&self.host);
+        connection_string.push(':');
+        connection_string.push_str(&self.port.to_string());
+        connection_string.push('/');
         connection_string.push_str(&self.database);
+
         connection_string
     }
 }
