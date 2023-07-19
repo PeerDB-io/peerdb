@@ -479,6 +479,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
+ "urlencoding",
 ]
 
 [[package]]
