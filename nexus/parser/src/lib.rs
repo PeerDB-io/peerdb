@@ -37,7 +37,10 @@ pub enum NexusStatement {
 }
 
 impl NexusStatement {
-    pub fn new(peers: HashMap<String, pt::peers::Peer>, stmt: &Statement) -> PgWireResult<Self> {
+    pub fn new(
+        peers: HashMap<String, pt::peerdb_peers::Peer>,
+        stmt: &Statement,
+    ) -> PgWireResult<Self> {
         let ddl = {
             let pdl: PeerDDLAnalyzer = Default::default();
             pdl.analyze(stmt).map_err(|e| {
@@ -93,7 +96,7 @@ impl NexusQueryParser {
         Self { catalog }
     }
 
-    pub fn get_peers_bridge(&self) -> PgWireResult<HashMap<String, pt::peers::Peer>> {
+    pub fn get_peers_bridge(&self) -> PgWireResult<HashMap<String, pt::peerdb_peers::Peer>> {
         let peers = tokio::task::block_in_place(move || {
             tokio::runtime::Handle::current().block_on(async move {
                 let catalog = self.catalog.lock().await;

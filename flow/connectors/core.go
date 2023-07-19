@@ -7,7 +7,9 @@ import (
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 )
@@ -87,6 +89,10 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
 	case *protos.Peer_EventhubConfig:
 		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
+	case *protos.Peer_S3Config:
+		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case *protos.Peer_SqlserverConfig:
+		return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	default:
 		return nil, fmt.Errorf("requested connector is not yet implemented")
 	}

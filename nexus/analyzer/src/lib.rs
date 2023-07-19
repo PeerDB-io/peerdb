@@ -7,9 +7,11 @@ use std::{
 };
 
 use anyhow::Context;
-use flow_rs::{FlowJob, FlowJobTableMapping, QRepFlowJob};
-use pt::peers::{
-    peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+use pt::{
+    flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
+    peerdb_peers::{
+        peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+    },
 };
 use qrep::process_options;
 use sqlparser::ast::CreateMirror::{Select, CDC};
@@ -91,7 +93,7 @@ pub struct PeerDDLAnalyzer;
 #[derive(Debug, Clone)]
 pub enum PeerDDL {
     CreatePeer {
-        peer: Box<pt::peers::Peer>,
+        peer: Box<pt::peerdb_peers::Peer>,
         if_not_exists: bool,
     },
     CreateMirrorForCDC {
@@ -393,6 +395,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Eventhub => None,
+        DbType::S3 => None,
+        DbType::Sqlserver => None,
     };
 
     Ok(config)

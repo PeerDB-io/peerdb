@@ -86,7 +86,9 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_EH() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	// Verify that the destination table has 10 rows
 	// make context with timeout

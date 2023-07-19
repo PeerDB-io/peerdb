@@ -281,7 +281,7 @@ func PeerFlowWorkflowWithConfig(
 		if limits.TotalSyncFlows != 0 && currentSyncFlowNum == limits.TotalSyncFlows {
 			w.logger.Info("All the syncflows have completed successfully, there was a"+
 				" limit on the number of syncflows to be executed: ", limits.TotalSyncFlows)
-			return state, nil
+			break
 		}
 		currentSyncFlowNum++
 
@@ -327,7 +327,7 @@ func PeerFlowWorkflowWithConfig(
 		if limits.TotalNormalizeFlows != 0 && currentNormalizeFlowNum == limits.TotalNormalizeFlows {
 			w.logger.Info("All the normalizer flows have completed successfully, there was a"+
 				" limit on the number of normalizer to be executed: ", limits.TotalNormalizeFlows)
-			return state, nil
+			break
 		}
 		currentNormalizeFlowNum++
 

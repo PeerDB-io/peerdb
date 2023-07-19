@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-amqp-common-go/v4/aad"
@@ -132,7 +134,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("sent %d records to hub: %s", i, topicName))
 		}
 
-		if i%eventsPerBatch == 0 {
+		if (i+1)%eventsPerBatch == 0 {
 			err := c.sendEventBatch(batchPerTopic)
 			if err != nil {
 				return nil, err
@@ -150,7 +152,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 	}
 
-	log.Infof("successfully sent %d records to event hub", len(batch.Records))
+	log.Infof("[total] successfully sent %d records to event hub", len(batch.Records))
 
 	err := c.UpdateLastOffset(req.FlowJobName, batch.LastCheckPointID)
 	if err != nil {
@@ -165,37 +167,49 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}, nil
 }
 
-// send the batch to the event hub.
 func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event) error {
 	if len(events) == 0 {
 		log.Info("no events to send")
 		return nil
 	}
 
-	// make a context with 10 second timeout as hub retries for as
-	// long as the context allows it to.
 	subCtx, cancel := context.WithTimeout(c.ctx, 5*time.Minute)
 	defer cancel()
 
-	numEventsPushed := 0
+	var numEventsPushed int32
+	var wg sync.WaitGroup
+	var once sync.Once
+	var firstErr error
+
 	for tblName, eventBatch := range events {
-		hub, err := c.getOrCreateHubConnection(tblName)
-		if err != nil {
-			log.Errorf("failed to get event hub connection: %v", err)
-			return err
-		}
+		wg.Add(1)
+		go func(tblName string, eventBatch []*eventhub.Event) {
+			defer wg.Done()
 
-		err = hub.SendBatch(subCtx, eventhub.NewEventBatchIterator(eventBatch...))
-		if err != nil {
-			log.Errorf("failed to send event batch: %v", err)
-			return err
-		}
+			hub, err := c.getOrCreateHubConnection(tblName)
+			if err != nil {
+				once.Do(func() { firstErr = err })
+				return
+			}
 
-		numEventsPushed += len(eventBatch)
+			err = hub.SendBatch(subCtx, eventhub.NewEventBatchIterator(eventBatch...))
+			if err != nil {
+				once.Do(func() { firstErr = err })
+				return
+			}
+
+			atomic.AddInt32(&numEventsPushed, int32(len(eventBatch)))
+		}(tblName, eventBatch)
 	}
 
-	log.Infof("successfully sent a batch of %d events to event hub", numEventsPushed)
+	wg.Wait()
 
+	if firstErr != nil {
+		log.Error(firstErr)
+		return firstErr
+	}
+
+	log.Infof("successfully sent %d events to event hub", numEventsPushed)
 	return nil
 }
 

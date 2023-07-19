@@ -5,7 +5,7 @@ import "peers.proto";
 
 option go_package = "generated/protos";
 
-package peerdb.flow;
+package peerdb_flow;
 
 message TableNameMapping {
   string source_table_name = 1;
@@ -13,8 +13,8 @@ message TableNameMapping {
 }
 
 message FlowConnectionConfigs {
-  peerdb.peers.Peer source = 1;
-  peerdb.peers.Peer destination = 2;
+  peerdb_peers.Peer source = 1;
+  peerdb_peers.Peer destination = 2;
   string flow_job_name = 3;
   TableSchema table_schema = 4;
   map<string, string> table_name_mapping = 5;
@@ -23,7 +23,7 @@ message FlowConnectionConfigs {
 
   // This is an optional peer that will be used to hold metadata in cases where
   // the destination isn't ideal for holding metadata.
-  peerdb.peers.Peer metadata_peer = 8;
+  peerdb_peers.Peer metadata_peer = 8;
   uint32 max_batch_size = 9;
 }
 
@@ -49,12 +49,12 @@ message StartNormalizeInput {
 }
 
 message GetLastSyncedIDInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
 }
 
 message EnsurePullabilityInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   string source_table_identifier = 3;
 }
@@ -74,13 +74,13 @@ message EnsurePullabilityOutput {
 }
 
 message SetupReplicationInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
 }
 
 message CreateRawTableInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
 }
@@ -88,7 +88,7 @@ message CreateRawTableInput {
 message CreateRawTableOutput { string table_identifier = 1; }
 
 message GetTableSchemaInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string table_identifier = 2;
 }
 
@@ -101,7 +101,7 @@ message TableSchema {
 }
 
 message SetupNormalizedTableInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string table_identifier = 2;
   TableSchema source_table_schema = 3;
 }
@@ -149,8 +149,8 @@ message QRepWriteMode {
 message QRepConfig {
   string flow_job_name = 1;
 
-  peerdb.peers.Peer source_peer = 2;
-  peerdb.peers.Peer destination_peer = 3;
+  peerdb_peers.Peer source_peer = 2;
+  peerdb_peers.Peer destination_peer = 3;
 
   string destination_table_identifier = 4;
 
@@ -189,6 +189,7 @@ message QRepConfig {
 message QRepPartition {
   string partition_id = 2;
   PartitionRange range = 3;
+  bool full_table_partition = 4;
 }
 
 message QRepParitionResult {

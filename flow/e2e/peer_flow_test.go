@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -27,9 +28,11 @@ type E2EPeerFlowTestSuite struct {
 	pgConnStr string
 	pool      *pgxpool.Pool
 
-	bqHelper *BigQueryTestHelper
-	sfHelper *SnowflakeTestHelper
-	ehHelper *EventHubTestHelper
+	bqHelper   *BigQueryTestHelper
+	sfHelper   *SnowflakeTestHelper
+	ehHelper   *EventHubTestHelper
+	s3Helper   *S3TestHelper
+	sqlsHelper *SQLServerHelper
 }
 
 func TestE2EPeerFlowTestSuite(t *testing.T) {
@@ -151,6 +154,19 @@ func (s *E2EPeerFlowTestSuite) setupSnowflake() error {
 	return nil
 }
 
+// setup sql server connection
+func (s *E2EPeerFlowTestSuite) setupSQLServer() {
+	env := os.Getenv("ENABLE_SQLSERVER_TESTS")
+	if env != "true" {
+		s.sqlsHelper = nil
+		return
+	}
+
+	sqlsHelper, err := NewSQLServerHelper("test_sqlserver_peer")
+	require.NoError(s.T(), err)
+	s.sqlsHelper = sqlsHelper
+}
+
 // Implement SetupAllSuite interface to setup the test suite
 func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	err := godotenv.Load()
@@ -184,6 +200,13 @@ func (s *E2EPeerFlowTestSuite) SetupSuite() {
 	if err != nil {
 		s.Fail("failed to setup eventhub", err)
 	}
+
+	err = s.setupS3()
+	if err != nil {
+		s.Fail("failed to setup s3", err)
+	}
+
+	s.setupSQLServer()
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -216,6 +239,20 @@ func (s *E2EPeerFlowTestSuite) TearDownSuite() {
 		err = s.ehHelper.CleanUp()
 		if err != nil {
 			s.Fail("failed to clean up eventhub", err)
+		}
+	}
+
+	if s.s3Helper != nil {
+		err = s.s3Helper.CleanUp()
+		if err != nil {
+			s.Fail("failed to clean up s3", err)
+		}
+	}
+
+	if s.sqlsHelper != nil {
+		err = s.sqlsHelper.CleanUp()
+		if err != nil {
+			s.Fail("failed to clean up sqlserver", err)
 		}
 	}
 }
@@ -303,8 +340,9 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	env.AssertExpectations(s.T())
 }
@@ -343,8 +381,9 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	env.AssertExpectations(s.T())
 }
@@ -402,8 +441,9 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
@@ -472,7 +512,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsBQ("test_toast_bq_1", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
@@ -532,8 +574,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsBQ("test_toast_bq_2", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
@@ -605,7 +648,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsBQ("test_toast_bq_3", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
@@ -698,7 +743,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsBQ("test_toast_bq_4", "id,t1,k")
 	env.AssertExpectations(s.T())
@@ -733,7 +780,6 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 	s.NoError(err)
 
 	limits := peerflow.PeerFlowLimits{
-
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -765,7 +811,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsBQ("test_toast_bq_5", "id,t1,t2,k")
 	env.AssertExpectations(s.T())
@@ -836,8 +884,9 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	noNulls, err := s.bqHelper.CheckNull("test_types_bq", []string{"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
@@ -959,8 +1008,9 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	count, err := s.sfHelper.CountRows("test_simple_flow_sf")
 	s.NoError(err)
@@ -1034,7 +1084,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsSF("test_toast_sf_1", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
@@ -1095,8 +1147,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsSF("test_toast_sf_2", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
@@ -1169,7 +1222,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsSF("test_toast_sf_3", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
@@ -1236,7 +1291,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsSF("test_toast_sf_4", `id,t1,k`, false)
 	env.AssertExpectations(s.T())
@@ -1303,7 +1360,9 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	s.compareTableContentsSF("test_toast_sf_5", `id,t1,t2,k`, false)
 	env.AssertExpectations(s.T())
@@ -1374,8 +1433,9 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	// assert that error contains "invalid connection configs"
-	s.NoError(err)
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
 
 	noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",

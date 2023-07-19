@@ -37,7 +37,7 @@ services:
 
   catalog:
     container_name: catalog
-    image: debezium/postgres:14-alpine
+    image: debezium/postgres:15-alpine
     ports:
       # mapping is from host to container
       - 5432:5432
@@ -73,25 +73,9 @@ services:
       - 8112:8112
     environment:
       TEMPORAL_HOST_PORT: temporalite:7233
-      PEERDB_CATALOG_DATABASE: postgres
-      PEERDB_CATALOG_HOST: catalog
-      PEERDB_CATALOG_PASSWORD: postgres
-      PEERDB_CATALOG_PORT: 5432
-      PEERDB_CATALOG_USER: postgres
-      GIN_MODE: release
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
-      AWS_REGION: ${AWS_REGION:-""}
     depends_on:
-      catalog:
-        condition: service_healthy
       temporal-admin-tools:
         condition: service_healthy
-    healthcheck:
-      test: "curl --fail http://flow_api:8112/health || exit 1"
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   flow_worker:
     container_name: flow_worker
@@ -112,6 +96,7 @@ services:
         condition: service_healthy
 
   peerdb:
+    container_name: peerdb_server
     build:
       context: .
       dockerfile: stacks/nexus.Dockerfile
@@ -123,13 +108,13 @@ services:
       PEERDB_CATALOG_PASSWORD: postgres
       PEERDB_CATALOG_DATABASE: postgres
       PEERDB_PASSWORD: peerdb
-      PEERDB_FLOW_SERVER_ADDRESS: http://flow_api:8112
+      PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
+      RUST_LOG: info
+      RUST_BACKTRACE: 1
     ports:
       - 9900:9900
     depends_on:
       catalog:
-        condition: service_healthy
-      flow_api:
         condition: service_healthy
 
 volumes:
