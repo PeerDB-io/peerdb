@@ -85,7 +85,8 @@ impl CatalogConfig {
         connection_string.push_str(&self.user);
         if !self.password.is_empty() {
             connection_string.push_str(" password=");
-            connection_string.push_str(&self.password);
+            let encoded_password = urlencoding::encode(&config.password);
+            connection_string.push_str(&encoded_password);
         }
         connection_string.push_str(" dbname=");
         connection_string.push_str(&self.database);
