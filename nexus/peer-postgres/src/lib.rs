@@ -22,22 +22,23 @@ pub struct PostgresQueryExecutor {
 }
 
 fn get_connection_string(config: &PostgresConfig) -> String {
-    let mut connection_string = String::new();
-    connection_string.push_str("host=");
-    connection_string.push_str(&config.host);
-    connection_string.push_str(" port=");
-    connection_string.push_str(&config.port.to_string());
-    connection_string.push_str(" user=");
+    let mut connection_string = String::from("postgres://");
+
     connection_string.push_str(&config.user);
     if !config.password.is_empty() {
-        connection_string.push_str(" password=");
-        let encoded_password = urlencoding::encode(&config.password);
-        connection_string.push_str(&encoded_password);
+        connection_string.push(':');
+        connection_string.push_str(&urlencoding::encode(&config.password));
     }
-    connection_string.push_str(" dbname=");
+    connection_string.push('@');
+    connection_string.push_str(&config.host);
+    connection_string.push(':');
+    connection_string.push_str(&config.port.to_string());
+    connection_string.push('/');
     connection_string.push_str(&config.database);
-    connection_string.push_str(" connect_timeout=");
-    connection_string.push_str("15");
+
+    // Add the timeout as a query parameter
+    connection_string.push_str("?connect_timeout=15");
+
     connection_string
 }
 

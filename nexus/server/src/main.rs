@@ -832,7 +832,7 @@ async fn run_migrations(config: &CatalogConfig) -> anyhow::Result<()> {
             }
             Err(err) => {
                 tracing::warn!(
-                    "Failed to connect to catalog. Retrying in 30 seconds. {}",
+                    "Failed to connect to catalog. Retrying in 30 seconds. {:?}",
                     err
                 );
                 tokio::time::sleep(Duration::from_secs(30)).await;
