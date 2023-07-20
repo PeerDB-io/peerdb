@@ -214,6 +214,13 @@ impl FlowGrpcClient {
                     }
                     _ => return anyhow::Result::Err(anyhow::anyhow!("invalid num option {}", key)),
                 },
+                Value::Bool(v) => {
+                    if key == "initial_copy_only" {
+                        cfg.initial_copy_only = *v;
+                    } else {
+                        return anyhow::Result::Err(anyhow::anyhow!("invalid bool option {}", key));
+                    }
+                }
                 _ => {
                     tracing::info!("ignoring option {} with value {:?}", key, value);
                 }
