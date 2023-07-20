@@ -18,12 +18,30 @@ pub struct FlowConnectionConfigs {
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="4")]
     pub table_schema: ::core::option::Option<TableSchema>,
+<<<<<<< HEAD
     #[prost(map="string, string", tag="5")]
     pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(map="uint32, string", tag="6")]
     pub src_table_id_name_mapping: ::std::collections::HashMap<u32, ::prost::alloc::string::String>,
     #[prost(map="string, message", tag="7")]
     pub table_name_schema_mapping: ::std::collections::HashMap<::prost::alloc::string::String, TableSchema>,
+=======
+    #[prost(map = "string, string", tag = "5")]
+    pub table_name_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(map = "uint32, string", tag = "6")]
+    pub src_table_id_name_mapping: ::std::collections::HashMap<
+        u32,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(map = "string, message", tag = "7")]
+    pub table_name_schema_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        TableSchema,
+    >,
+>>>>>>> 56e7ae5 (make things not required)
     /// This is an optional peer that will be used to hold metadata in cases where
     /// the destination isn't ideal for holding metadata.
     #[prost(message, optional, tag="8")]
@@ -119,8 +137,16 @@ pub struct SetupReplicationInput {
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(string, tag="2")]
     pub flow_job_name: ::prost::alloc::string::String,
+<<<<<<< HEAD
     #[prost(map="string, string", tag="3")]
     pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+=======
+    #[prost(map = "string, string", tag = "3")]
+    pub table_name_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+>>>>>>> 56e7ae5 (make things not required)
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -129,8 +155,16 @@ pub struct CreateRawTableInput {
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(string, tag="2")]
     pub flow_job_name: ::prost::alloc::string::String,
+<<<<<<< HEAD
     #[prost(map="string, string", tag="3")]
     pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+=======
+    #[prost(map = "string, string", tag = "3")]
+    pub table_name_mapping: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+>>>>>>> 56e7ae5 (make things not required)
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -153,9 +187,18 @@ pub struct TableSchema {
     pub table_identifier: ::prost::alloc::string::String,
     /// list of column names and types, types can be one of the following:
     /// "string", "int", "float", "bool", "timestamp".
+<<<<<<< HEAD
     #[prost(map="string, string", tag="2")]
     pub columns: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(string, tag="3")]
+=======
+    #[prost(map = "string, string", tag = "2")]
+    pub columns: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    #[prost(string, tag = "3")]
+>>>>>>> 56e7ae5 (make things not required)
     pub primary_key_column: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -273,7 +316,11 @@ pub struct QRepPartition {
     pub partition_id: ::prost::alloc::string::String,
     #[prost(message, optional, tag="3")]
     pub range: ::core::option::Option<PartitionRange>,
+<<<<<<< HEAD
     #[prost(bool, tag="4")]
+=======
+    #[prost(bool, tag = "4")]
+>>>>>>> 56e7ae5 (make things not required)
     pub full_table_partition: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
