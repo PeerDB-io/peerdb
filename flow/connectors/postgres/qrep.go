@@ -21,6 +21,16 @@ func (c *PostgresConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
+	if config.WatermarkTable == "" {
+		// if no watermark table is specified, return a single partition
+		partition := &protos.QRepPartition{
+			PartitionId:        uuid.New().String(),
+			FullTablePartition: true,
+			Range:              nil,
+		}
+		return []*protos.QRepPartition{partition}, nil
+	}
+
 	// begin a transaction
 	tx, err := c.pool.Begin(c.ctx)
 	if err != nil {
@@ -36,7 +46,8 @@ func (c *PostgresConnector) GetQRepPartitions(
 	// lock the table while we get the partitions.
 	lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
 	if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
-		return nil, fmt.Errorf("failed to lock table - query: %s, error: %w", lockQuery, err)
+		// if we aren't able to lock, just log the error and continue
+		log.Warnf("failed to lock table %s: %v", config.WatermarkTable, err)
 	}
 
 	if config.NumRowsPerPartition > 0 {
@@ -237,6 +248,13 @@ func (c *PostgresConnector) getMinMaxValues(
 func (c *PostgresConnector) PullQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+	if partition.FullTablePartition {
+		log.Infof("pulling full table partition for flow job %s", config.FlowJobName)
+		executor := NewQRepQueryExecutor(c.pool, c.ctx)
+		query := config.Query
+		return executor.ExecuteAndProcessQuery(query)
+	}
+
 	var rangeStart interface{}
 	var rangeEnd interface{}
 
