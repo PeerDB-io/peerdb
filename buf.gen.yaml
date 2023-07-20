@@ -11,3 +11,12 @@ plugins:
     out: flow/generated/protos
     opt:
       - paths=source_relative
+  - plugin: buf.build/community/neoeinstein-prost:v0.2.3
+    out: nexus/pt/src
+    opt:
+      - compile_well_known_types
+      - extern_path=.google.protobuf=::pbjson_types
+  - plugin: buf.build/community/neoeinstein-tonic:v0.3.0
+    out: nexus/pt/src
+  - plugin: buf.build/community/neoeinstein-prost-serde:v0.2.3
+    out: nexus/pt/src
