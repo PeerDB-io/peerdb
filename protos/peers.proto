@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package peerdb_peers;
 
-option go_package = "generated/protos";
-
 message SnowflakeConfig {
   string account_id = 1;
   string username = 2;
