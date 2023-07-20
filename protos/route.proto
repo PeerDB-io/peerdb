@@ -4,8 +4,6 @@ import "google/protobuf/timestamp.proto";
 import "peers.proto";
 import "flow.proto";
 
-option go_package = "generated/protos";
-
 package peerdb_route;
 
 message CreatePeerFlowRequest {

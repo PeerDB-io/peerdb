@@ -3,8 +3,6 @@ syntax = "proto3";
 import "google/protobuf/timestamp.proto";
 import "peers.proto";
 
-option go_package = "generated/protos";
-
 package peerdb_flow;
 
 message TableNameMapping {

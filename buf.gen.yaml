@@ -1,0 +1,24 @@
+version: v1
+managed:
+  enabled: true
+  go_package_prefix:
+    default: generated/protos
+plugins:
+  - plugin: buf.build/protocolbuffers/go:v1.31.0
+    out: flow/generated/protos
+    opt: paths=source_relative
+  - plugin: buf.build/grpc/go:v1.3.0
+    out: flow/generated/protos
+    opt:
+      - paths=source_relative
+  - plugin: buf.build/community/neoeinstein-prost:v0.2.3
+    out: nexus/pt/src
+    opt:
+      - compile_well_known_types
+      - extern_path=.google.protobuf=::pbjson_types
+  - plugin: buf.build/community/neoeinstein-tonic:v0.3.0
+    out: nexus/pt/src
+  - plugin: buf.build/community/neoeinstein-prost-serde:v0.2.3
+    out: nexus/pt/src
+    opt:
+      - ignore_unknown_fields=true
