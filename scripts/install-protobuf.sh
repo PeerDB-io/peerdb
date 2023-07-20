@@ -5,12 +5,17 @@ set -Eeuo pipefail
 PROTOBUF_MAJOR_VERSION=3
 PROTOBUF_MINOR_VERSION=23.4
 PROTOBUF_VERSION=${PROTOBUF_MAJOR_VERSION}.${PROTOBUF_MINOR_VERSION}
-if $(uname -m | grep -e 'arm64' -e 'aarch64'); then
-  ARCH=aarch_64
-else
-  ARCH=$(uname -m)
-fi
+ARCH=$(uname -m)
 
+case "$ARCH" in
+  'arm64'|'aarch64')
+    ARCH='aarch_64'
+    ;;
+  *)
+    # Keep the output of uname -m for other architectures
+    ;;
+esac
+echo $ARCH
 # setup the variables for the archive and download url
 PROTOBUF_ARCHIVE=protoc-${PROTOBUF_MINOR_VERSION}-linux-${ARCH}.zip
 PROTOBUF_URL=https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOBUF_MINOR_VERSION}/${PROTOBUF_ARCHIVE}
