@@ -36,7 +36,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	// lock the table while we get the partitions.
 	lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
 	if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
-		return nil, fmt.Errorf("failed to lock table: %w", err)
+		return nil, fmt.Errorf("failed to lock table - query: %s, error: %w", lockQuery, err)
 	}
 
 	if config.NumRowsPerPartition > 0 {
