@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, ops::ControlFlow, sync::Arc, time::Duration};
 
 use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
@@ -157,20 +157,30 @@ impl NexusBackend {
                     peer,
                     if_not_exists: _,
                 } => {
-                    let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: format!("unable to get peer executor: {:?}", err),
-                        }))
-                    })?;
-                    peer_executor.is_connection_valid().await.map_err(|e| {
-                        self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
-                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "internal_error".to_owned(),
-                            format!("[peer]: invalid configuration: {}", e.to_string()),
-                        )))
-                    })?;
-                    self.executors.remove(&peer.name);
+                    let peer_type = peer.r#type;
+                    if
+                    // No peer validity checks for these peers:
+                    peer_type != 4 // EVENTHUB
+                    && peer_type != 5 // S3
+                    && peer_type != 6
+                    // SQLSERVER
+                    {
+                        let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to get peer executor: {:?}", err),
+                            }))
+                        })?;
+                        peer_executor.is_connection_valid().await.map_err(|e| {
+                            self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
+                            PgWireError::UserError(Box::new(ErrorInfo::new(
+                                "ERROR".to_owned(),
+                                "internal_error".to_owned(),
+                                format!("[peer]: invalid configuration: {}", e.to_string()),
+                            )))
+                        })?;
+                        self.executors.remove(&peer.name);
+                    }
+
                     let catalog = self.catalog.lock().await;
                     catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -444,6 +454,15 @@ impl NexusBackend {
                 let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
+            // Some(Config::S3Config(ref c)) => {
+            //     ControlFlow::Break("NO_CHECK");
+            // }
+            // Some(Config::SqlserverConfig(ref c)) => {
+
+            // }
+            // Some(Config::EventhubConfig(ref c)) => {
+
+            // }
             _ => {
                 panic!("peer type not supported: {:?}", peer)
             }
@@ -616,15 +635,9 @@ impl ExtendedQueryHandler for NexusBackend {
                             Some(Config::MongoConfig(_)) => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
-                            Some(Config::EventhubConfig(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            Some(Config::S3Config(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            Some(Config::SqlserverConfig(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
+                            Some(Config::EventhubConfig(_)) => None,
+                            Some(Config::S3Config(_)) => None,
+                            Some(Config::SqlserverConfig(_)) => None,
                             None => {
                                 panic!("peer type not supported: {:?}", peer)
                             }

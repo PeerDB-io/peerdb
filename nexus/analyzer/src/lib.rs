@@ -10,7 +10,8 @@ use anyhow::Context;
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+        peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
+        S3Config, SnowflakeConfig, SqlServerConfig,
     },
 };
 use qrep::process_options;
@@ -394,9 +395,77 @@ fn parse_db_options(
             let config = Config::PostgresConfig(postgres_config);
             Some(config)
         }
-        DbType::Eventhub => None,
-        DbType::S3 => None,
-        DbType::Sqlserver => None,
+        DbType::Eventhub => {
+            let mut metadata_db: Option<PostgresConfig> = None;
+            let metadata_db_str = opts.get("metadata_db");
+            if let Some(db) = metadata_db_str {
+                let pg_metadata_pairs: Vec<&str> = db.trim().split(',').collect();
+                let mut pg_metadata_values: Vec<&str> = vec![];
+                for pair in pg_metadata_pairs {
+                    let key_value: Vec<&str> = pair.trim().split(":").collect();
+                    let value = key_value[1];
+                    pg_metadata_values.push(value);
+                }
+                metadata_db = Some(PostgresConfig {
+                    host: pg_metadata_values[0].to_string(),
+                    port: pg_metadata_values[1]
+                        .parse()
+                        .context("port of metadata db is invalid")?,
+                    user: pg_metadata_values[2].to_string(),
+                    password: pg_metadata_values[3].to_string(),
+                    database: pg_metadata_values[4].to_string(),
+                })
+            }
+            let eventhub_config = EventHubConfig {
+                namespace: opts
+                    .get("namespace")
+                    .context("no namespace specified")?
+                    .to_string(),
+                resource_group: opts
+                    .get("resource_group")
+                    .context("no resource group specified")?
+                    .to_string(),
+                location: opts
+                    .get("location")
+                    .context("location not specified")?
+                    .to_string(),
+                metadata_db,
+            };
+            let config = Config::EventhubConfig(eventhub_config);
+            Some(config)
+        }
+        DbType::S3 => {
+            let s3_config = S3Config {
+                url: opts
+                    .get("url")
+                    .context("S3 bucket url not specified")?
+                    .to_string(),
+            };
+            let config = Config::S3Config(s3_config);
+            Some(config)
+        }
+        DbType::Sqlserver => {
+            let port_str = opts.get("port").context("port not specified")?;
+            let port: u32 = port_str.parse().context("port is invalid")?;
+            let sqlserver_config = SqlServerConfig {
+                server: opts
+                    .get("server")
+                    .context("server not specified")?
+                    .to_string(),
+                port,
+                user: opts.get("user").context("user not specified")?.to_string(),
+                password: opts
+                    .get("password")
+                    .context("password not specified")?
+                    .to_string(),
+                database: opts
+                    .get("database")
+                    .context("database is not specified")?
+                    .to_string(),
+            };
+            let config = Config::SqlserverConfig(sqlserver_config);
+            Some(config)
+        }
     };
 
     Ok(config)
