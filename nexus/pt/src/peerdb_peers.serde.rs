@@ -121,6 +121,7 @@ impl<'de> serde::Deserialize<'de> for BigqueryConfig {
             AuthProviderX509CertUrl,
             ClientX509CertUrl,
             DatasetId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -153,7 +154,7 @@ impl<'de> serde::Deserialize<'de> for BigqueryConfig {
                             "authProviderX509CertUrl" | "auth_provider_x509_cert_url" => Ok(GeneratedField::AuthProviderX509CertUrl),
                             "clientX509CertUrl" | "client_x509_cert_url" => Ok(GeneratedField::ClientX509CertUrl),
                             "datasetId" | "dataset_id" => Ok(GeneratedField::DatasetId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -250,6 +251,9 @@ impl<'de> serde::Deserialize<'de> for BigqueryConfig {
                                 return Err(serde::de::Error::duplicate_field("datasetId"));
                             }
                             dataset_id__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -416,6 +420,7 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
             ResourceGroup,
             Location,
             MetadataDb,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -441,7 +446,7 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
                             "resourceGroup" | "resource_group" => Ok(GeneratedField::ResourceGroup),
                             "location" => Ok(GeneratedField::Location),
                             "metadataDb" | "metadata_db" => Ok(GeneratedField::MetadataDb),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -489,6 +494,9 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
                                 return Err(serde::de::Error::duplicate_field("metadataDb"));
                             }
                             metadata_db__ = map.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -566,6 +574,7 @@ impl<'de> serde::Deserialize<'de> for MongoConfig {
             Clusterurl,
             Clusterport,
             Database,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -592,7 +601,7 @@ impl<'de> serde::Deserialize<'de> for MongoConfig {
                             "clusterurl" => Ok(GeneratedField::Clusterurl),
                             "clusterport" => Ok(GeneratedField::Clusterport),
                             "database" => Ok(GeneratedField::Database),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -649,6 +658,9 @@ impl<'de> serde::Deserialize<'de> for MongoConfig {
                                 return Err(serde::de::Error::duplicate_field("database"));
                             }
                             database__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -754,6 +766,7 @@ impl<'de> serde::Deserialize<'de> for Peer {
             EventhubConfig,
             S3Config,
             SqlserverConfig,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -784,7 +797,7 @@ impl<'de> serde::Deserialize<'de> for Peer {
                             "eventhubConfig" | "eventhub_config" => Ok(GeneratedField::EventhubConfig),
                             "s3Config" | "s3_config" => Ok(GeneratedField::S3Config),
                             "sqlserverConfig" | "sqlserver_config" => Ok(GeneratedField::SqlserverConfig),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -869,6 +882,9 @@ impl<'de> serde::Deserialize<'de> for Peer {
                             config__ = map.next_value::<::std::option::Option<_>>()?.map(peer::Config::SqlserverConfig)
 ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(Peer {
@@ -944,6 +960,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
             User,
             Password,
             Database,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -970,7 +987,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                             "user" => Ok(GeneratedField::User),
                             "password" => Ok(GeneratedField::Password),
                             "database" => Ok(GeneratedField::Database),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1028,6 +1045,9 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                             }
                             database__ = Some(map.next_value()?);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(PostgresConfig {
@@ -1073,6 +1093,7 @@ impl<'de> serde::Deserialize<'de> for S3Config {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Url,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1095,7 +1116,7 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                     {
                         match value {
                             "url" => Ok(GeneratedField::Url),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1122,6 +1143,9 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                                 return Err(serde::de::Error::duplicate_field("url"));
                             }
                             url__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1224,6 +1248,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
             Role,
             QueryTimeout,
             S3Integration,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1253,7 +1278,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                             "role" => Ok(GeneratedField::Role),
                             "queryTimeout" | "query_timeout" => Ok(GeneratedField::QueryTimeout),
                             "s3Integration" | "s3_integration" => Ok(GeneratedField::S3Integration),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1331,6 +1356,9 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                                 return Err(serde::de::Error::duplicate_field("s3Integration"));
                             }
                             s3_integration__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1412,6 +1440,7 @@ impl<'de> serde::Deserialize<'de> for SqlServerConfig {
             User,
             Password,
             Database,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1438,7 +1467,7 @@ impl<'de> serde::Deserialize<'de> for SqlServerConfig {
                             "user" => Ok(GeneratedField::User),
                             "password" => Ok(GeneratedField::Password),
                             "database" => Ok(GeneratedField::Database),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1495,6 +1524,9 @@ impl<'de> serde::Deserialize<'de> for SqlServerConfig {
                                 return Err(serde::de::Error::duplicate_field("database"));
                             }
                             database__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

@@ -20,3 +20,5 @@ plugins:
     out: nexus/pt/src
   - plugin: buf.build/community/neoeinstein-prost-serde:v0.2.3
     out: nexus/pt/src
+    opt:
+      - ignore_unknown_fields=true
