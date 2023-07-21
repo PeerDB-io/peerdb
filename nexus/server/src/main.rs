@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::ControlFlow, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
@@ -146,6 +146,15 @@ impl NexusBackend {
         }
     }
 
+    fn is_peer_validity_supported(peer_type: i32) -> bool {
+        let unsupported_peer_types = vec![
+            4, // EVENTHUB
+            5, // S3
+            6, // SQLSERVER
+        ];
+        !unsupported_peer_types.contains(&peer_type)
+    }
+
     async fn handle_query<'a>(
         &self,
         nexus_stmt: NexusStatement,
@@ -158,13 +167,7 @@ impl NexusBackend {
                     if_not_exists: _,
                 } => {
                     let peer_type = peer.r#type;
-                    if
-                    // No peer validity checks for these peers:
-                    peer_type != 4 // EVENTHUB
-                    && peer_type != 5 // S3
-                    && peer_type != 6
-                    // SQLSERVER
-                    {
+                    if Self::is_peer_validity_supported(peer_type) {
                         let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
                                 err_msg: format!("unable to get peer executor: {:?}", err),
@@ -175,7 +178,7 @@ impl NexusBackend {
                             PgWireError::UserError(Box::new(ErrorInfo::new(
                                 "ERROR".to_owned(),
                                 "internal_error".to_owned(),
-                                format!("[peer]: invalid configuration: {}", e.to_string()),
+                                format!("[peer]: invalid configuration: {}", e),
                             )))
                         })?;
                         self.executors.remove(&peer.name);
@@ -454,15 +457,6 @@ impl NexusBackend {
                 let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
                 Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
             }
-            // Some(Config::S3Config(ref c)) => {
-            //     ControlFlow::Break("NO_CHECK");
-            // }
-            // Some(Config::SqlserverConfig(ref c)) => {
-
-            // }
-            // Some(Config::EventhubConfig(ref c)) => {
-
-            // }
             _ => {
                 panic!("peer type not supported: {:?}", peer)
             }
@@ -632,12 +626,9 @@ impl ExtendedQueryHandler for NexusBackend {
                                     })?;
                                 executor.describe(stmt).await?
                             }
-                            Some(Config::MongoConfig(_)) => {
+                            Some(_peer) => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
-                            Some(Config::EventhubConfig(_)) => None,
-                            Some(Config::S3Config(_)) => None,
-                            Some(Config::SqlserverConfig(_)) => None,
                             None => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
