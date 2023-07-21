@@ -2,137 +2,137 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SnowflakeConfig {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub account_id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
+    #[prost(string, tag = "2")]
     pub username: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub private_key: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
+    #[prost(string, tag = "4")]
     pub database: ::prost::alloc::string::String,
-    #[prost(string, tag="6")]
+    #[prost(string, tag = "6")]
     pub warehouse: ::prost::alloc::string::String,
-    #[prost(string, tag="7")]
+    #[prost(string, tag = "7")]
     pub role: ::prost::alloc::string::String,
-    #[prost(uint64, tag="8")]
+    #[prost(uint64, tag = "8")]
     pub query_timeout: u64,
-    #[prost(string, tag="9")]
+    #[prost(string, tag = "9")]
     pub s3_integration: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BigqueryConfig {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub auth_type: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
+    #[prost(string, tag = "2")]
     pub project_id: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub private_key_id: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
+    #[prost(string, tag = "4")]
     pub private_key: ::prost::alloc::string::String,
-    #[prost(string, tag="5")]
+    #[prost(string, tag = "5")]
     pub client_email: ::prost::alloc::string::String,
-    #[prost(string, tag="6")]
+    #[prost(string, tag = "6")]
     pub client_id: ::prost::alloc::string::String,
-    #[prost(string, tag="7")]
+    #[prost(string, tag = "7")]
     pub auth_uri: ::prost::alloc::string::String,
-    #[prost(string, tag="8")]
+    #[prost(string, tag = "8")]
     pub token_uri: ::prost::alloc::string::String,
-    #[prost(string, tag="9")]
+    #[prost(string, tag = "9")]
     pub auth_provider_x509_cert_url: ::prost::alloc::string::String,
-    #[prost(string, tag="10")]
+    #[prost(string, tag = "10")]
     pub client_x509_cert_url: ::prost::alloc::string::String,
-    #[prost(string, tag="11")]
+    #[prost(string, tag = "11")]
     pub dataset_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MongoConfig {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub username: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
+    #[prost(string, tag = "2")]
     pub password: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub clusterurl: ::prost::alloc::string::String,
-    #[prost(int32, tag="4")]
+    #[prost(int32, tag = "4")]
     pub clusterport: i32,
-    #[prost(string, tag="5")]
+    #[prost(string, tag = "5")]
     pub database: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PostgresConfig {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub host: ::prost::alloc::string::String,
-    #[prost(uint32, tag="2")]
+    #[prost(uint32, tag = "2")]
     pub port: u32,
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub user: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
+    #[prost(string, tag = "4")]
     pub password: ::prost::alloc::string::String,
-    #[prost(string, tag="5")]
+    #[prost(string, tag = "5")]
     pub database: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EventHubConfig {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub namespace: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
+    #[prost(string, tag = "2")]
     pub resource_group: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub location: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="4")]
+    #[prost(message, optional, tag = "4")]
     pub metadata_db: ::core::option::Option<PostgresConfig>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct S3Config {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub url: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SqlServerConfig {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub server: ::prost::alloc::string::String,
-    #[prost(uint32, tag="2")]
+    #[prost(uint32, tag = "2")]
     pub port: u32,
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub user: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
+    #[prost(string, tag = "4")]
     pub password: ::prost::alloc::string::String,
-    #[prost(string, tag="5")]
+    #[prost(string, tag = "5")]
     pub database: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Peer {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
-    #[prost(enumeration="DbType", tag="2")]
+    #[prost(enumeration = "DbType", tag = "2")]
     pub r#type: i32,
-    #[prost(oneof="peer::Config", tags="3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof = "peer::Config", tags = "3, 4, 5, 6, 7, 8, 9")]
     pub config: ::core::option::Option<peer::Config>,
 }
 /// Nested message and enum types in `Peer`.
 pub mod peer {
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Config {
-        #[prost(message, tag="3")]
+        #[prost(message, tag = "3")]
         SnowflakeConfig(super::SnowflakeConfig),
-        #[prost(message, tag="4")]
+        #[prost(message, tag = "4")]
         BigqueryConfig(super::BigqueryConfig),
-        #[prost(message, tag="5")]
+        #[prost(message, tag = "5")]
         MongoConfig(super::MongoConfig),
-        #[prost(message, tag="6")]
+        #[prost(message, tag = "6")]
         PostgresConfig(super::PostgresConfig),
-        #[prost(message, tag="7")]
+        #[prost(message, tag = "7")]
         EventhubConfig(super::EventHubConfig),
-        #[prost(message, tag="8")]
+        #[prost(message, tag = "8")]
         S3Config(super::S3Config),
-        #[prost(message, tag="9")]
+        #[prost(message, tag = "9")]
         SqlserverConfig(super::SqlServerConfig),
     }
 }
