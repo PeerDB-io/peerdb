@@ -10,7 +10,8 @@ use anyhow::Context;
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+        peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
+        S3Config, SnowflakeConfig, SqlServerConfig,
     },
 };
 use qrep::process_options;
@@ -394,9 +395,39 @@ fn parse_db_options(
             let config = Config::PostgresConfig(postgres_config);
             Some(config)
         }
-        DbType::Eventhub => None,
-        DbType::S3 => None,
-        DbType::Sqlserver => None,
+        DbType::Eventhub => panic!("eventhub is not supported yet"),
+        DbType::S3 => {
+            let s3_config = S3Config {
+                url: opts
+                    .get("url")
+                    .context("S3 bucket url not specified")?
+                    .to_string(),
+            };
+            let config = Config::S3Config(s3_config);
+            Some(config)
+        }
+        DbType::Sqlserver => {
+            let port_str = opts.get("port").context("port not specified")?;
+            let port: u32 = port_str.parse().context("port is invalid")?;
+            let sqlserver_config = SqlServerConfig {
+                server: opts
+                    .get("server")
+                    .context("server not specified")?
+                    .to_string(),
+                port,
+                user: opts.get("user").context("user not specified")?.to_string(),
+                password: opts
+                    .get("password")
+                    .context("password not specified")?
+                    .to_string(),
+                database: opts
+                    .get("database")
+                    .context("database is not specified")?
+                    .to_string(),
+            };
+            let config = Config::SqlserverConfig(sqlserver_config);
+            Some(config)
+        }
     };
 
     Ok(config)

@@ -146,6 +146,15 @@ impl NexusBackend {
         }
     }
 
+    fn is_peer_validity_supported(peer_type: i32) -> bool {
+        let unsupported_peer_types = vec![
+            4, // EVENTHUB
+            5, // S3
+            6, // SQLSERVER
+        ];
+        !unsupported_peer_types.contains(&peer_type)
+    }
+
     async fn handle_query<'a>(
         &self,
         nexus_stmt: NexusStatement,
@@ -157,20 +166,24 @@ impl NexusBackend {
                     peer,
                     if_not_exists: _,
                 } => {
-                    let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: format!("unable to get peer executor: {:?}", err),
-                        }))
-                    })?;
-                    peer_executor.is_connection_valid().await.map_err(|e| {
-                        self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
-                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "internal_error".to_owned(),
-                            format!("[peer]: invalid configuration: {}", e.to_string()),
-                        )))
-                    })?;
-                    self.executors.remove(&peer.name);
+                    let peer_type = peer.r#type;
+                    if Self::is_peer_validity_supported(peer_type) {
+                        let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to get peer executor: {:?}", err),
+                            }))
+                        })?;
+                        peer_executor.is_connection_valid().await.map_err(|e| {
+                            self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
+                            PgWireError::UserError(Box::new(ErrorInfo::new(
+                                "ERROR".to_owned(),
+                                "internal_error".to_owned(),
+                                format!("[peer]: invalid configuration: {}", e),
+                            )))
+                        })?;
+                        self.executors.remove(&peer.name);
+                    }
+
                     let catalog = self.catalog.lock().await;
                     catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -613,16 +626,7 @@ impl ExtendedQueryHandler for NexusBackend {
                                     })?;
                                 executor.describe(stmt).await?
                             }
-                            Some(Config::MongoConfig(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            Some(Config::EventhubConfig(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            Some(Config::S3Config(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            Some(Config::SqlserverConfig(_)) => {
+                            Some(_peer) => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
                             None => {
