@@ -669,7 +669,10 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements %s in a transaction: %v", strings.Join(stmts, "\n"), err)
 	}
-	c.logNormalizeMetrics(req.FlowJobName, distinctTableNames)
+	err = c.logNormalizeMetrics(req.FlowJobName, distinctTableNames)
+	if err != nil {
+		return nil, fmt.Errorf("failed to log normalize metrics: %v", err)
+	}
 
 	return &model.NormalizeResponse{
 		Done:         true,

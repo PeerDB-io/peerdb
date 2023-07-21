@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -473,26 +472,4 @@ func (c *PostgresConnector) getTableCounts(tables []string) (int64, error) {
 		return 0, fmt.Errorf("error while closing statement batch: %w", err)
 	}
 	return totalCount, nil
-}
-
-func (c *PostgresConnector) getMaxWaterMarkColumn(tableName string, watermarkColumn string) (int64, error) {
-	var maxWatermark any
-	err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT MAX(%s) FROM %s", watermarkColumn, tableName)).
-		Scan(&maxWatermark)
-	if err != nil {
-		log.Errorf("error while getting max watermark column: %v", err)
-		return 0, fmt.Errorf("error while getting max watermark column: %w", err)
-	}
-	switch typedMaxWatermark := maxWatermark.(type) {
-	case int64:
-		return typedMaxWatermark, nil
-	case int32:
-		return int64(typedMaxWatermark), nil
-	case int16:
-		return int64(typedMaxWatermark), nil
-	case time.Time:
-		return typedMaxWatermark.UnixNano(), nil
-	default:
-		return 0, fmt.Errorf("unsupported type for watermark column: %T", maxWatermark)
-	}
 }

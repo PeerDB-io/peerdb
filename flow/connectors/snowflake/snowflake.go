@@ -567,7 +567,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		totalRowsAffected += rowsAffected
 	}
 	if totalRowsAffected > 0 {
-		err = c.logNormalizeMetrics(req.FlowJobName, int64(totalRowsAffected), time.Since(startTime),
+		err = c.logNormalizeMetrics(req.FlowJobName, totalRowsAffected, time.Since(startTime),
 			destinationTableNames)
 		if err != nil {
 			return nil, err

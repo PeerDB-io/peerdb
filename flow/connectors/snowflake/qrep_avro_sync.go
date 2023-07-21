@@ -55,8 +55,11 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, err
 	}
-	s.connector.logQRepSyncMetrics(config.FlowJobName, int64(len(records.Records)),
+	err = s.connector.logQRepSyncMetrics(config.FlowJobName, int64(len(records.Records)),
 		time.Since(putFileStartTime), config.DestinationTableIdentifier)
+	if err != nil {
+		return 0, err
+	}
 
 	err = s.insertMetadata(partition, config.FlowJobName, startTime)
 	if err != nil {
