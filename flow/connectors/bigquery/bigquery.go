@@ -579,10 +579,12 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// log.Printf("statements to execute in a transaction: %s", strings.Join(stmts, "\n"))
 
 	// execute the statements in a transaction
+	startTime := time.Now()
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
+	c.logSyncMetrics(req.FlowJobName, int64(numRecords), time.Since(startTime))
 
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
@@ -667,6 +669,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements %s in a transaction: %v", strings.Join(stmts, "\n"), err)
 	}
+	c.logNormalizeMetrics(req.FlowJobName, distinctTableNames)
 
 	return &model.NormalizeResponse{
 		Done:         true,
@@ -1081,4 +1084,25 @@ func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchanged
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return updateStmts
+}
+
+func (c *BigQueryConnector) getTableCounts(tables []string) (int64, error) {
+	var totalRows int64 = 0
+	var row []bigquery.Value
+	for _, table := range tables {
+		it, err := c.client.Query(fmt.Sprintf("SELECT COUNT(*) FROM %s.%s", c.datasetID, table)).Read(c.ctx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get count for table %s: %w", table, err)
+		}
+		err = it.Next(&row)
+		if err != nil {
+			return 0, fmt.Errorf("failed to read row: %w", err)
+		}
+		count, ok := row[0].(int64)
+		if !ok {
+			return 0, fmt.Errorf("failed to convert count to int64")
+		}
+		totalRows += count
+	}
+	return totalRows, nil
 }

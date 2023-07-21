@@ -77,20 +77,65 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_worker:
-    container_name: flow_worker
+  flow_worker1:
+    container_name: flow_worker1
     build:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       ENABLE_PROFILING: true
+      ENABLE_METRICS: false
       PROFILING_SERVER: 0.0.0.0:6060
+      METRICS_SERVER: 0.0.0.0:6061
       TEMPORAL_HOST_PORT: temporalite:7233
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
       AWS_REGION: ${AWS_REGION:-""}
     ports:
       - 6060:6060
+      - 6061:6061
+    depends_on:
+      temporal-admin-tools:
+        condition: service_healthy
+
+  flow_worker2:
+    container_name: flow_worker2
+    build:
+      context: .
+      dockerfile: stacks/flow-worker.Dockerfile
+    environment:
+      ENABLE_PROFILING: true
+      ENABLE_METRICS: false
+      PROFILING_SERVER: 0.0.0.0:6062
+      METRICS_SERVER: 0.0.0.0:6063
+      TEMPORAL_HOST_PORT: temporalite:7233
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
+      AWS_REGION: ${AWS_REGION:-""}
+    ports:
+      - 6062:6062
+      - 6063:6063
+    depends_on:
+      temporal-admin-tools:
+        condition: service_healthy
+
+  flow_worker3:
+    container_name: flow_worker3
+    build:
+      context: .
+      dockerfile: stacks/flow-worker.Dockerfile
+    environment:
+      ENABLE_PROFILING: true
+      ENABLE_METRICS: false
+      PROFILING_SERVER: 0.0.0.0:6064
+      METRICS_SERVER: 0.0.0.0:6065
+      TEMPORAL_HOST_PORT: temporalite:7233
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
+      AWS_REGION: ${AWS_REGION:-""}
+    ports:
+      - 6064:6064
+      - 6065:6065
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -117,6 +162,32 @@ services:
       catalog:
         condition: service_healthy
 
+  peerdb_prometheus:
+    container_name: peerdb_prometheus
+    build:
+      context: .
+      dockerfile: stacks/prometheus.Dockerfile
+    volumes:
+      - prometheusdata:/prometheus
+    ports:
+      - 9090:9090
+    profiles:
+      - metrics
+
+  peerdb_grafana:
+    container_name: peerdb_grafana
+    build:
+      context: .
+      dockerfile: stacks/grafana.Dockerfile
+    ports:
+      - 3000:3000
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: peerdb
+    profiles:
+      - metrics
+
 volumes:
   pgdata:
   temporalitedata:
+  prometheusdata:

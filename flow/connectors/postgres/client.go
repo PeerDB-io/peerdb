@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 )
 
 //nolint:stylecheck
@@ -399,11 +401,7 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier string, unchangedToastColumns []string,
 	rawTableIdentifier string) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
-	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
-	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
-	for columnName := range normalizedTableSchema.Columns {
-		columnNames = append(columnNames, columnName)
-	}
+	columnNames := maps.Keys(normalizedTableSchema.Columns)
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	var primaryKeyColumnCast string
@@ -447,4 +445,54 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return strings.Join(updateStmts, "\n")
+}
+func (c *PostgresConnector) getTableCounts(tables []string) (int64, error) {
+	countTablesBatch := &pgx.Batch{}
+	totalCount := int64(0)
+	for _, table := range tables {
+		_, err := parseSchemaTable(table)
+		if err != nil {
+			log.Errorf("error while parsing table %s: %v", table, err)
+			return 0, fmt.Errorf("error while parsing table %s: %w", table, err)
+		}
+		countTablesBatch.Queue(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).QueryRow(func(row pgx.Row) error {
+			var count int64
+			err := row.Scan(&count)
+			if err != nil {
+				log.Errorf("error while scanning row: %v", err)
+				return fmt.Errorf("error while scanning row: %w", err)
+			}
+			totalCount += count
+			return nil
+		})
+	}
+	countTablesResults := c.pool.SendBatch(c.ctx, countTablesBatch)
+	err := countTablesResults.Close()
+	if err != nil {
+		log.Errorf("error while closing statement batch: %v", err)
+		return 0, fmt.Errorf("error while closing statement batch: %w", err)
+	}
+	return totalCount, nil
+}
+
+func (c *PostgresConnector) getMaxWaterMarkColumn(tableName string, watermarkColumn string) (int64, error) {
+	var maxWatermark any
+	err := c.pool.QueryRow(c.ctx, fmt.Sprintf("SELECT MAX(%s) FROM %s", watermarkColumn, tableName)).
+		Scan(&maxWatermark)
+	if err != nil {
+		log.Errorf("error while getting max watermark column: %v", err)
+		return 0, fmt.Errorf("error while getting max watermark column: %w", err)
+	}
+	switch typedMaxWatermark := maxWatermark.(type) {
+	case int64:
+		return typedMaxWatermark, nil
+	case int32:
+		return int64(typedMaxWatermark), nil
+	case int16:
+		return int64(typedMaxWatermark), nil
+	case time.Time:
+		return typedMaxWatermark.UnixNano(), nil
+	default:
+		return 0, fmt.Errorf("unsupported type for watermark column: %T", maxWatermark)
+	}
 }

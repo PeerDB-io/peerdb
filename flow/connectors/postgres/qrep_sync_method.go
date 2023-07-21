@@ -64,7 +64,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	copySource := model.NewQRecordBatchCopyFromSource(records)
 
 	// Perform the COPY FROM operation
-	_, err = pool.CopyFrom(
+	syncRecordsStartTime := time.Now()
+	syncedRows, err := pool.CopyFrom(
 		context.Background(),
 		pgx.Identifier{stagingTable},
 		records.Schema.GetColumnNames(),
@@ -73,6 +74,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to copy records into staging temporary table: %v", err)
 	}
+	s.connector.logQRepSyncMetrics(flowJobName, syncedRows, time.Since(syncRecordsStartTime))
 
 	// Second transaction - to handle rest of the processing
 	tx2, err := pool.Begin(context.Background())
@@ -112,11 +114,12 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to marshal partition to json: %v", err)
 	}
 
+	normalizeRecordsStartTime := time.Now()
 	insertMetadataStmt := fmt.Sprintf(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
 		qRepMetadataTableName,
 	)
-	_, err = tx2.Exec(
+	rows, err := tx2.Exec(
 		context.Background(),
 		insertMetadataStmt,
 		flowJobName,
@@ -127,6 +130,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	)
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
+	}
+	err = s.connector.logQRepNormalizeMetrics(flowJobName, rows.RowsAffected(),
+		time.Since(normalizeRecordsStartTime), dstTableName.String())
+	if err != nil {
+		return -1, fmt.Errorf("failed to log qrep normalize metrics: %v", err)
 	}
 
 	err = tx2.Commit(context.Background())

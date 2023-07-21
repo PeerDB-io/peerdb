@@ -11,16 +11,22 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/uber-go/tally/v4"
+	"github.com/uber-go/tally/v4/prometheus"
 
+	prom "github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
+	sdktally "go.temporal.io/sdk/contrib/tally"
 	"go.temporal.io/sdk/worker"
 )
 
 type WorkerOptions struct {
 	TemporalHostPort string
 	EnableProfiling  bool
+	EnableMetrics    bool
 	ProfilingServer  string
+	MetricsServer    string
 }
 
 func WorkerMain(opts *WorkerOptions) error {
@@ -41,9 +47,24 @@ func WorkerMain(opts *WorkerOptions) error {
 		}()
 	}
 
-	c, err := client.Dial(client.Options{
-		HostPort: opts.TemporalHostPort,
-	})
+	var clientOptions client.Options
+	if opts.EnableMetrics {
+		clientOptions = client.Options{
+			HostPort: opts.TemporalHostPort,
+			MetricsHandler: sdktally.NewMetricsHandler(newPrometheusScope(
+				prometheus.Configuration{
+					ListenAddress: opts.MetricsServer,
+					TimerType:     "histogram",
+				},
+			)),
+		}
+	} else {
+		clientOptions = client.Options{
+			HostPort: opts.TemporalHostPort,
+		}
+	}
+
+	c, err := client.Dial(clientOptions)
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
@@ -68,4 +89,29 @@ func WorkerMain(opts *WorkerOptions) error {
 	}
 
 	return nil
+}
+
+func newPrometheusScope(c prometheus.Configuration) tally.Scope {
+	reporter, err := c.NewReporter(
+		prometheus.ConfigurationOptions{
+			Registry: prom.NewRegistry(),
+			OnError: func(err error) {
+				log.Println("error in prometheus reporter", err)
+			},
+		},
+	)
+	if err != nil {
+		log.Fatalln("error creating prometheus reporter", err)
+	}
+	scopeOpts := tally.ScopeOptions{
+		CachedReporter:  reporter,
+		Separator:       prometheus.DefaultSeparator,
+		SanitizeOptions: &sdktally.PrometheusSanitizeOptions,
+		Prefix:          "flow_worker",
+	}
+	scope, _ := tally.NewRootScope(scopeOpts, time.Second)
+	scope = sdktally.NewPrometheusNamingScope(scope)
+
+	log.Println("prometheus metrics scope created")
+	return scope
 }

@@ -134,10 +134,12 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 
 	// Execute the statements in a transaction
+	syncRecordsStartTime := time.Now()
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
+	s.connector.logSyncMetrics(flowJobName, int64(len(records.Records)), time.Since(syncRecordsStartTime))
 
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {

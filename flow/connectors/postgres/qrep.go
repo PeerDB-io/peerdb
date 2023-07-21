@@ -308,7 +308,15 @@ func (c *PostgresConnector) PullQRepRecords(
 	}
 
 	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
-	return executor.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
+	records, err := executor.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
+	if err != nil {
+		return nil, err
+	}
+	err = c.logQRepPullMetrics(config.FlowJobName, records, config.WatermarkTable)
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,

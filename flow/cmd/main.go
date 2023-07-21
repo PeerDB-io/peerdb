@@ -36,11 +36,25 @@ func main() {
 		EnvVars: []string{"ENABLE_PROFILING"},
 	}
 
+	metricsFlag := &cli.BoolFlag{
+		Name:    "enable-metrics",
+		Value:   false, // Default is off
+		Usage:   "Enable metrics collection for the application",
+		EnvVars: []string{"ENABLE_METRICS"},
+	}
+
 	profilingServerFlag := &cli.StringFlag{
 		Name:    "profiling-server",
 		Value:   "localhost:6060", // Default is localhost:6060
 		Usage:   "HTTP server address for profiling",
 		EnvVars: []string{"PROFILING_SERVER"},
+	}
+
+	metricsServerFlag := &cli.StringFlag{
+		Name:    "metrics-server",
+		Value:   "localhost:6061", // Default is localhost:6061
+		Usage:   "HTTP server address for metrics collection",
+		EnvVars: []string{"METRICS_SERVER"},
 	}
 
 	app := &cli.App{
@@ -53,13 +67,17 @@ func main() {
 					return WorkerMain(&WorkerOptions{
 						TemporalHostPort: temporalHostPort,
 						EnableProfiling:  ctx.Bool("enable-profiling"),
+						EnableMetrics:    ctx.Bool("enable-metrics"),
 						ProfilingServer:  ctx.String("profiling-server"),
+						MetricsServer:    ctx.String("metrics-server"),
 					})
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					profilingFlag,
+					metricsFlag,
 					profilingServerFlag,
+					metricsServerFlag,
 				},
 			},
 			{
