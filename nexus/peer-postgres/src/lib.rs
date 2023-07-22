@@ -21,46 +21,9 @@ pub struct PostgresQueryExecutor {
     client: Box<Client>,
 }
 
-fn get_connection_string(config: &PostgresConfig) -> String {
-    let mut connection_string = String::from("postgres://");
-
-    connection_string.push_str(&config.user);
-    if !config.password.is_empty() {
-        connection_string.push(':');
-        connection_string.push_str(&urlencoding::encode(&config.password));
-    }
-    connection_string.push('@');
-    connection_string.push_str(&config.host);
-    connection_string.push(':');
-    connection_string.push_str(&config.port.to_string());
-    connection_string.push('/');
-    connection_string.push_str(&config.database);
-
-    // Add the timeout as a query parameter
-    connection_string.push_str("?connect_timeout=15");
-
-    connection_string
-}
-
 impl PostgresQueryExecutor {
     pub async fn new(peername: Option<String>, config: &PostgresConfig) -> anyhow::Result<Self> {
-        let connection_string = get_connection_string(config);
-
-        let (client, connection) =
-            tokio_postgres::connect(&connection_string, tokio_postgres::NoTls)
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!("error encountered while connecting to postgres {:?}", e)
-                })?;
-
-        tokio::task::Builder::new()
-            .name("PostgresQueryExecutor connection")
-            .spawn(async move {
-                if let Err(e) = connection.await {
-                    tracing::info!("connection error: {}", e)
-                }
-            })?;
-
+        let client = postgres_connection::connect_postgres(config).await?;
         Ok(Self {
             config: config.clone(),
             peername,

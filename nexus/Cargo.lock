@@ -472,6 +472,7 @@ dependencies = [
  "chrono",
  "peer-cursor",
  "peer-postgres",
+ "postgres-connection",
  "prost",
  "pt",
  "refinery",
@@ -479,7 +480,6 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
- "urlencoding",
 ]
 
 [[package]]
@@ -1793,9 +1793,9 @@ checksum = "b7e5500299e16ebb147ae15a00a942af264cf3688f47923b8fc2cd5858f23ad3"
 
 [[package]]
 name = "openssl"
-version = "0.10.52"
+version = "0.10.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01b8574602df80f7b85fdfc5392fa884a4e3b3f4f35402c070ab34c3d3f78d56"
+checksum = "345df152bc43501c5eb9e4654ff05f794effb78d4efe3d53abc158baddc0703d"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -1834,9 +1834,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.87"
+version = "0.9.90"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e17f59264b2809d77ae94f0e1ebabc434773f370d6ca667bd223ea10e06cc7e"
+checksum = "374533b0e45f3a7ced10fcaeccca020e66656bc03dac384f852e4e5a7a8104a6"
 dependencies = [
  "cc",
  "libc",
@@ -1987,6 +1987,7 @@ dependencies = [
  "peer-cursor",
  "pgerror",
  "pgwire",
+ "postgres-connection",
  "pt",
  "rust_decimal",
  "serde",
@@ -1996,7 +1997,6 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
- "urlencoding",
  "uuid 0.8.2",
  "value",
 ]
@@ -2258,6 +2258,33 @@ dependencies = [
  "futures-util",
  "log",
  "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
+name = "postgres-connection"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "openssl",
+ "postgres-openssl",
+ "pt",
+ "tokio",
+ "tokio-postgres",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "postgres-openssl"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1de0ea6504e07ca78355a6fb88ad0f36cafe9e696cbc6717f16a207f3a60be72"
+dependencies = [
+ "futures",
+ "openssl",
+ "tokio",
+ "tokio-openssl",
  "tokio-postgres",
 ]
 
@@ -3418,6 +3445,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
 dependencies = [
  "native-tls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-openssl"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c08f9ffb7809f1b20c1b398d92acf4cc719874b3b2b2d9ea2f09b4a80350878a"
+dependencies = [
+ "futures-util",
+ "openssl",
+ "openssl-sys",
  "tokio",
 ]
 
