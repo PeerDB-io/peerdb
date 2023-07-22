@@ -26,4 +26,5 @@ pub struct QRepFlowJob {
     pub query_string: String,
     pub flow_options: HashMap<String, Value>,
     pub description: String,
+    pub disabled: bool,
 }
