@@ -29,12 +29,7 @@ simple_mirror_op = peerdb_execute_mirror.configured(
 events_in_usa_op = dbt_run_op.alias(name="events_in_usa_op")
 
 
-@job(
-    resource_defs={
-        "peerdb": peerdb_resource,
-        "dbt": dbt_resource,
-    },
-)
+@job
 def simple_mirror_transform_job():
     dbt_output = events_in_usa_op(start_after=[simple_mirror_op()])
     # return dbt_output
