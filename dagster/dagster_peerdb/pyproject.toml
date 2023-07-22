@@ -13,6 +13,7 @@ temporalio = "^1.2.0"
 asyncio = "^3.4.3"
 psycopg = "^3.1.9"
 dagster-webserver = "^1.4.2"
+dagster-dbt = "^0.20.2"
 
 
 [build-system]
@@ -20,4 +21,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.dagster]
-module_name = "example"
+module_name = "peerdb_demo_dagster"
