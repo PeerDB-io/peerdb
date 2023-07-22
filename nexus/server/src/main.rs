@@ -318,8 +318,8 @@ impl NexusBackend {
                                 }))
                             })?
                     } {
-                        let _workflow_id = self.run_qrep_mirror(&job).await?;
-                        let create_mirror_success = format!("CREATE MIRROR {}", job.name);
+                        let workflow_id = self.run_qrep_mirror(&job).await?;
+                        let create_mirror_success = format!("STARTED WORKFLOW {}", workflow_id);
                         Ok(vec![Response::Execution(Tag::new_for_execution(
                             &create_mirror_success,
                             None,

@@ -9,6 +9,9 @@ packages = [{include = "dagster_peerdb"}]
 [tool.poetry.dependencies]
 python = "^3.11"
 dagster = "^1.4.2"
+temporalio = "^1.2.0"
+asyncio = "^3.4.3"
+psycopg = "^3.1.9"
 
 
 [build-system]
