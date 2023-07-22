@@ -5,11 +5,16 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/sdk/activity"
 )
 
 func (c *PostgresConnector) logPullMetrics(flowJobName string, recordBatch *model.RecordBatch,
 	sourceTables []string) error {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return nil
+	}
+
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	insertRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.insert_records_pulled", flowJobName))
 	updateRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.update_records_pulled", flowJobName))
@@ -43,6 +48,10 @@ func (c *PostgresConnector) logPullMetrics(flowJobName string, recordBatch *mode
 }
 
 func (c *PostgresConnector) logSyncMetrics(flowJobName string, recordsCount int64, duration time.Duration) {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return
+	}
+
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	recordsSyncedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_synced_per_second", flowJobName))
@@ -51,6 +60,10 @@ func (c *PostgresConnector) logSyncMetrics(flowJobName string, recordsCount int6
 
 func (c *PostgresConnector) logNormalizeMetrics(flowJobName string, recordsCount int64, duration time.Duration,
 	targetTables []string) error {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return nil
+	}
+
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	recordsNormalizedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_normalized_per_second", flowJobName))
@@ -69,6 +82,10 @@ func (c *PostgresConnector) logNormalizeMetrics(flowJobName string, recordsCount
 
 func (c *PostgresConnector) logQRepPullMetrics(flowJobName string, recordBatch *model.QRecordBatch,
 	watermarkTable string) error {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return nil
+	}
+
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	totalRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.total_records_pulled", flowJobName))
 	totalRecordsAtSourceGauge := metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_at_source", flowJobName))
@@ -83,6 +100,10 @@ func (c *PostgresConnector) logQRepPullMetrics(flowJobName string, recordBatch *
 }
 
 func (c *PostgresConnector) logQRepSyncMetrics(flowJobName string, recordsCount int64, duration time.Duration) {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return
+	}
+
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	recordsSyncedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_synced_per_second", flowJobName))
@@ -91,6 +112,10 @@ func (c *PostgresConnector) logQRepSyncMetrics(flowJobName string, recordsCount 
 
 func (c *PostgresConnector) logQRepNormalizeMetrics(flowJobName string, recordsCount int64, duration time.Duration,
 	tableName string) error {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return nil
+	}
+
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	recordsSyncedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_normalized_per_second", flowJobName))

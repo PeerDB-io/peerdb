@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/sdk/activity"
 )
 
 func (c *BigQueryConnector) logSyncMetrics(flowJobName string, recordsCount int64, duration time.Duration) {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return
+	}
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	recordsSyncedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_synced_per_second", flowJobName))
@@ -15,6 +19,10 @@ func (c *BigQueryConnector) logSyncMetrics(flowJobName string, recordsCount int6
 }
 
 func (c *BigQueryConnector) logQRepSyncMetrics(flowJobName string, recordsCount int64, duration time.Duration) {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return
+	}
+
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	recordsSyncedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_synced_per_second", flowJobName))
@@ -23,6 +31,10 @@ func (c *BigQueryConnector) logQRepSyncMetrics(flowJobName string, recordsCount 
 
 // TODO: currently unable to find a way to retrieve records modified by a DML operation.
 func (c *BigQueryConnector) logNormalizeMetrics(flowJobName string, targetTables []string) error {
+	if c.ctx.Value(shared.EnableMetricsKey) != true {
+		return nil
+	}
+
 	metricsHandler := activity.GetMetricsHandler(c.ctx)
 	totalRecordsAtTargetGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_at_target", flowJobName))

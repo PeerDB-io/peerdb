@@ -9,6 +9,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -18,7 +19,9 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
-type FlowableActivity struct{}
+type FlowableActivity struct {
+	EnableMetrics bool
+}
 
 // CheckConnection implements CheckConnection.
 func (a *FlowableActivity) CheckConnection(
@@ -163,6 +166,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	conn := input.FlowConnectionConfigs
 
+	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	src, err := connectors.GetConnector(ctx, conn.Source)
 	defer connectors.CloseConnector(src)
 	if err != nil {
@@ -220,9 +224,11 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	return res, nil
 }
 
-func (a *FlowableActivity) StartNormalize(ctx context.Context, input *protos.StartNormalizeInput) (*model.NormalizeResponse, error) {
+func (a *FlowableActivity) StartNormalize(ctx context.Context,
+	input *protos.StartNormalizeInput) (*model.NormalizeResponse, error) {
 	conn := input.FlowConnectionConfigs
 
+	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	src, err := connectors.GetConnector(ctx, conn.Source)
 	defer connectors.CloseConnector(src)
 	if err != nil {
@@ -293,6 +299,7 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 ) error {
+	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	srcConn, err := connectors.GetConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
@@ -324,6 +331,7 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 }
 
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error {
+	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	dst, err := connectors.GetConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)

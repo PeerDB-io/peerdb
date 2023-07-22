@@ -81,7 +81,9 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterActivity(&activities.FetchConfigActivity{})
-	w.RegisterActivity(&activities.FlowableActivity{})
+	w.RegisterActivity(&activities.FlowableActivity{
+		EnableMetrics: opts.EnableMetrics,
+	})
 
 	err = w.Run(worker.InterruptCh())
 	if err != nil {
