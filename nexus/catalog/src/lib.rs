@@ -378,14 +378,17 @@ impl Catalog {
     ) -> anyhow::Result<Option<QRepFlowJob>> {
         let stmt = self
             .pg
-            .prepare_typed("SELECT * FROM flows WHERE name = $1", &[types::Type::TEXT])
+            .prepare_typed("SELECT f.*, sp.name as source_peer_name, dp.name as destination_peer_name FROM flows as f
+                            INNER JOIN peers as sp ON f.source_peer = sp.id
+                            INNER JOIN peers as dp ON f.destination_peer = dp.id
+                            WHERE f.name = $1", &[types::Type::TEXT])
             .await?;
 
         let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
             QRepFlowJob {
                 name: row.get("name"),
-                source_peer: row.get("source_peer"),
-                target_peer: row.get("destination_peer"),
+                source_peer: row.get("source_peer_name"),
+                target_peer: row.get("destination_peer_name"),
                 description: row.get("description"),
                 query_string: row.get("query_string"),
                 flow_options: serde_json::from_value(row.get("flow_metadata"))

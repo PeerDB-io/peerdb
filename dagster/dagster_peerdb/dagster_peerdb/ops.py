@@ -28,4 +28,4 @@ def peerdb_execute_mirror(context, config: PeerDBMirrorConfig, peerdb: PeerDBRes
     output = PeerDBMirrorOutput(
         workflow_id=workflow_id,
     )
-    yield Output(output)
+    return Output(output)

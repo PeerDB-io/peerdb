@@ -486,6 +486,15 @@ impl NexusBackend {
                 }))
             })?;
 
+        catalog
+            .update_workflow_id_for_flow_job(&qrep_flow_job.name, &workflow_id)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: format!("unable to update workflow for flow job: {:?}", err),
+                }))
+            })?;
+
         Ok(workflow_id)
     }
 
