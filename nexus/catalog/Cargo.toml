@@ -21,4 +21,4 @@ tokio-postgres = { version = "0.7.6", features = [
 ] }
 tracing = "0.1.29"
 serde_json = "1.0"
-urlencoding = "2"
+postgres-connection = { path = "../postgres-connection" }

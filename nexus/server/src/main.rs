@@ -863,7 +863,7 @@ pub async fn main() -> anyhow::Result<()> {
     run_migrations(&catalog_config).await?;
 
     let peer_conns = {
-        let conn_str = catalog_config.get_connection_string();
+        let conn_str = catalog_config.to_pg_connection_string();
         let pconns = PeerConnections::new(&conn_str)?;
         Arc::new(pconns)
     };
