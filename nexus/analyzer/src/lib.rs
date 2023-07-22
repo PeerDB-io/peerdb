@@ -103,6 +103,9 @@ pub enum PeerDDL {
     CreateMirrorForSelect {
         qrep_flow_job: QRepFlowJob,
     },
+    ExecuteMirrorForSelect {
+        flow_job_name: String,
+    },
     DropMirror {
         if_exists: bool,
         flow_job_name: String,
@@ -166,6 +169,15 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
 
+                        // we treat disabled as a special option, and do not pass it to the
+                        // flow server, this is primarily used for external orchestration.
+                        let mut disabled = false;
+                        if let Some(sqlparser::ast::Value::Boolean(b)) =
+                            raw_options.remove("disabled")
+                        {
+                            disabled = *b;
+                        }
+
                         let processed_options = process_options(raw_options)?;
 
                         let qrep_flow_job = QRepFlowJob {
@@ -175,12 +187,16 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             query_string: select.query_string.to_string(),
                             flow_options: processed_options,
                             description: "".to_string(), // TODO: add description
+                            disabled,
                         };
 
                         Ok(Some(PeerDDL::CreateMirrorForSelect { qrep_flow_job }))
                     }
                 }
             }
+            Statement::ExecuteMirror { mirror_name } => Ok(Some(PeerDDL::ExecuteMirrorForSelect {
+                flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
             Statement::DropMirror {
                 if_exists,
                 mirror_name,

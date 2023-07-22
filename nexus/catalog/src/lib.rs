@@ -372,6 +372,36 @@ impl Catalog {
         Ok(())
     }
 
+    pub async fn get_qrep_flow_job_by_name(
+        &self,
+        job_name: &str,
+    ) -> anyhow::Result<Option<QRepFlowJob>> {
+        let stmt = self
+            .pg
+            .prepare_typed("SELECT f.*, sp.name as source_peer_name, dp.name as destination_peer_name FROM flows as f
+                            INNER JOIN peers as sp ON f.source_peer = sp.id
+                            INNER JOIN peers as dp ON f.destination_peer = dp.id
+                            WHERE f.name = $1", &[types::Type::TEXT])
+            .await?;
+
+        let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
+            QRepFlowJob {
+                name: row.get("name"),
+                source_peer: row.get("source_peer_name"),
+                target_peer: row.get("destination_peer_name"),
+                description: row.get("description"),
+                query_string: row.get("query_string"),
+                flow_options: serde_json::from_value(row.get("flow_metadata"))
+                    .context("unable to deserialize flow options")
+                    .unwrap_or_default(),
+                // we set the disabled flag to false by default
+                disabled: false,
+            }
+        });
+
+        Ok(job)
+    }
+
     pub async fn create_qrep_flow_job_entry(&self, job: &QRepFlowJob) -> anyhow::Result<()> {
         let source_peer_id = self
             .get_peer_id_i32(&job.source_peer)

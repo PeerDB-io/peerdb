@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "dagster-peerdb"
+version = "0.1.0"
+description = ""
+authors = ["Kaushik Iska <iska.kaushik@gmail.com>"]
+readme = "README.md"
+packages = [{include = "dagster_peerdb"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+dagster = "^1.4.2"
+temporalio = "^1.2.0"
+asyncio = "^3.4.3"
+psycopg = "^3.1.9"
+dagster-webserver = "^1.4.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.dagster]
+module_name = "example"
