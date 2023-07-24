@@ -94,20 +94,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}, nil
 }
 
-func (h *FlowRequestHandler) HealthCheck(
-	ctx context.Context, req *protos.HealthCheckRequest) (*protos.HealthCheckResponse, error) {
-	_, err := h.temporalClient.CheckHealth(ctx, nil)
-	if err != nil {
-		return &protos.HealthCheckResponse{
-			Ok: false,
-		}, fmt.Errorf("temporal health check failed: %w", err)
-	}
-
-	return &protos.HealthCheckResponse{
-		Ok: true,
-	}, nil
-}
-
 func (h *FlowRequestHandler) ShutdownFlow(
 	ctx context.Context, req *protos.ShutdownRequest) (*protos.ShutdownResponse, error) {
 	err := h.temporalClient.SignalWorkflow(

@@ -11,6 +11,8 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"go.temporal.io/sdk/client"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type APIServerParams struct {
@@ -31,7 +33,9 @@ func APIMain(args *APIServerParams) error {
 
 	grpcServer := grpc.NewServer()
 	flowHandler := NewFlowRequestHandler(tc)
+
 	protos.RegisterFlowServiceServer(grpcServer, flowHandler)
+	grpc_health_v1.RegisterHealthServer(grpcServer, health.NewServer())
 	reflection.Register(grpcServer)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", args.Port))
