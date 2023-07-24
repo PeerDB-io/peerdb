@@ -8,9 +8,11 @@ use pt::{
     peerdb_route,
 };
 use serde_json::Value;
+use tonic_health::pb::health_client;
 
 pub struct FlowGrpcClient {
     client: peerdb_route::flow_service_client::FlowServiceClient<tonic::transport::Channel>,
+    health_client: health_client::HealthClient<tonic::transport::Channel>,
 }
 
 async fn connect_with_retries(grpc_endpoint: String) -> anyhow::Result<tonic::transport::Channel> {
@@ -57,9 +59,15 @@ impl FlowGrpcClient {
         let channel = connect_with_retries(grpc_endpoint).await?;
 
         // construct a grpc client to the flow server
-        let client = peerdb_route::flow_service_client::FlowServiceClient::new(channel);
+        let client = peerdb_route::flow_service_client::FlowServiceClient::new(channel.clone());
 
-        Ok(Self { client })
+        // construct a health client to the flow server, use the grpc endpoint
+        let health_client = health_client::HealthClient::new(channel);
+
+        Ok(Self {
+            client,
+            health_client,
+        })
     }
 
     async fn start_query_replication_flow(
@@ -231,18 +239,23 @@ impl FlowGrpcClient {
     }
 
     pub async fn is_healthy(&mut self) -> anyhow::Result<bool> {
-        let health_check_req = pt::peerdb_route::HealthCheckRequest {
-            // this is a dummy message, the flow server will respond with a health check response
-            message: "ping".to_string(),
+        let health_check_req = tonic_health::pb::HealthCheckRequest {
+            service: "".to_string(),
         };
 
-        let response = self
-            .client
-            .health_check(health_check_req)
+        self.health_client
+            .check(health_check_req)
             .await
-            .with_context(|| "failed to send health check request to flow server")?;
-        let health_check_response = response.into_inner();
-
-        Ok(health_check_response.ok)
+            .map_or_else(
+                |e| {
+                    tracing::error!("failed to check health of flow server: {}", e);
+                    Ok(false)
+                },
+                |response| {
+                    let status = response.into_inner().status;
+                    tracing::info!("flow server health status: {:?}", status);
+                    Ok(status == (tonic_health::ServingStatus::Serving as i32))
+                },
+            )
     }
 }

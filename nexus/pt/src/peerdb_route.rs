@@ -25,18 +25,6 @@ pub struct CreateQRepFlowResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct HealthCheckRequest {
-    #[prost(string, tag="1")]
-    pub message: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct HealthCheckResponse {
-    #[prost(bool, tag="1")]
-    pub ok: bool,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShutdownRequest {
     #[prost(string, tag="1")]
     pub workflow_id: ::prost::alloc::string::String,
