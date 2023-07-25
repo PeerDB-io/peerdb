@@ -232,39 +232,23 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 }
                 &Type::ANY => Value::Text(row.get(i)),
                 &Type::ANYARRAY => {
-                    todo!("Array type conversion not implemented yet")
+                    let s: Option<Vec<String>> = row.get(i);
+                    s.map(ArrayValue::VarChar)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
                 }
                 &Type::VOID => Value::Null,
-                &Type::TRIGGER => Value::Text(row.get(i)),
-                &Type::LANGUAGE_HANDLER => Value::Text(row.get(i)),
-                &Type::INTERNAL => Value::Null,
-                &Type::ANYELEMENT => Value::Text(row.get(i)),
-                &Type::ANYNONARRAY
-                | &Type::ANYCOMPATIBLE
-                | &Type::ANYCOMPATIBLEARRAY
-                | &Type::ANYCOMPATIBLENONARRAY
-                | &Type::ANYCOMPATIBLEMULTI_RANGE
-                | &Type::ANYMULTI_RANGE => Value::Text(row.get(i)),
-                &Type::TXID_SNAPSHOT | &Type::TXID_SNAPSHOT_ARRAY => Value::Text(row.get(i)),
-                &Type::FDW_HANDLER => Value::Text(row.get(i)),
-                &Type::PG_LSN | &Type::PG_LSN_ARRAY => Value::Text(row.get(i)),
-                &Type::PG_SNAPSHOT | &Type::PG_SNAPSHOT_ARRAY => Value::Text(row.get(i)),
-                &Type::XID8 | &Type::XID8_ARRAY => Value::Text(row.get(i)),
-                &Type::TS_VECTOR | &Type::TS_VECTOR_ARRAY => Value::Text(row.get(i)),
-                &Type::TSQUERY | &Type::TSQUERY_ARRAY => Value::Text(row.get(i)),
-                &Type::NUMMULTI_RANGE
-                | &Type::NUMMULTI_RANGE_ARRAY
-                | &Type::TSMULTI_RANGE
-                | &Type::TSMULTI_RANGE_ARRAY
-                | &Type::TSTZMULTI_RANGE
-                | &Type::TSTZMULTI_RANGE_ARRAY
-                | &Type::DATEMULTI_RANGE
-                | &Type::DATEMULTI_RANGE_ARRAY
-                | &Type::INT4MULTI_RANGE
-                | &Type::INT4MULTI_RANGE_ARRAY
-                | &Type::INT8MULTI_RANGE
-                | &Type::INT8MULTI_RANGE_ARRAY => Value::Text(row.get(i)),
-                _ => panic!("unsupported col type: {:?}", col_type),
+                _ => {
+                    tracing::warn!("unsupported type: {:?}, casting as string", col_type);
+                    let s: Result<Option<String>, tokio_postgres::Error> = row.try_get(i);
+                    match s {
+                        Ok(s) => s.map(Value::Text).unwrap_or(Value::Null),
+                        Err(e) => {
+                            tracing::warn!("failed to read column as string: {}", e);
+                            Value::Null
+                        }
+                    }
+                }
             }
         })
         .collect()
