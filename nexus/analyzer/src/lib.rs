@@ -411,7 +411,52 @@ fn parse_db_options(
             let config = Config::PostgresConfig(postgres_config);
             Some(config)
         }
-        DbType::Eventhub => panic!("eventhub is not supported yet"),
+        DbType::Eventhub => {
+            let mut metadata_db = PostgresConfig::default();
+            let conn_str = opts
+                .get("metadata_db")
+                .context("no metadata db specified")?;
+            let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
+            match param_pairs.len() {
+                5 => Ok(true),
+                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
+            }?;
+            for pair in param_pairs {
+                let key_value: Vec<&str> = pair.trim().split('=').collect();
+                match key_value.len() {
+                    2 => Ok(true),
+                    _ => Err(anyhow::Error::msg(
+                        "Invalid config setting for PG. Check the formatting",
+                    )),
+                }?;
+                let value = key_value[1].to_string();
+                match key_value[0] {
+                    "host" => metadata_db.host = value,
+                    "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
+                    "database" => metadata_db.database = value,
+                    "user" => metadata_db.user = value,
+                    "password" => metadata_db.password = value,
+                    _ => (),
+                };
+            }
+            let eventhub_config = EventHubConfig {
+                namespace: opts
+                    .get("namespace")
+                    .context("no namespace specified")?
+                    .to_string(),
+                resource_group: opts
+                    .get("resource_group")
+                    .context("no resource group specified")?
+                    .to_string(),
+                location: opts
+                    .get("location")
+                    .context("location not specified")?
+                    .to_string(),
+                metadata_db: Some(metadata_db),
+            };
+            let config = Config::EventhubConfig(eventhub_config);
+            Some(config)
+        }
         DbType::S3 => {
             let s3_config = S3Config {
                 url: opts
