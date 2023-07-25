@@ -46,7 +46,7 @@ const (
 	MERGE INTO %s dst
 	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE rank=1) src
 	ON dst.%s=src.%s
-	WHEN NOT MATCHED THEN
+	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
 	INSERT (%s) VALUES (%s)
 	%s
 	WHEN MATCHED AND src._peerdb_record_type=2 THEN
