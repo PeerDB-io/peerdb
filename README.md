@@ -3,7 +3,7 @@
 
 <img class="img-fluid" src="images/banner.jpg" alt="PeerDB Banner" width="512" />
 
-#### Modern ETL in minutes, with SQL
+#### Frustratingly simple ETL for Postgres
 
 [![Workflow Status](https://github.com/PEerDB-io/peerdb/actions/workflows/ci.yml/badge.svg)](https://github.com/Peerdb-io/peerdb/actions/workflows/ci.yml) [![ElV2 License](https://badgen.net/badge/License/Elv2/green?icon=github)](https://github.com/PeerDB-io/peerdb/blob/main/LICENSE.md) [![Slack Community](https://img.shields.io/badge/slack-peerdb-brightgreen.svg?logo=slack)](https://join.slack.com/t/peerdb-public/shared_invite/zt-1wo9jydev-EXInbMtCtpAKFFWdi7QvLQ)
 
@@ -11,14 +11,12 @@
 
 ## PeerDB
 
-PeerDB is a Postgres-compatible SQL interface to seamlessly integrate multiple data-stores. It enables you to **sync**, **transform** and **query** data across your stores using simple SQL commands. PeerDB takes a datastore native approach in engineering — enabling 10x faster and a highly reliable ETL experience for you.
-
-We are starting with Postgres, Snowflake and BigQuery as the supported data-stores and plan to expand to others based on user-feedback.
+PeerDB is a Postgres-first ETL/ELT platform that makes moving data in and out of Postgres fast and simple. It enables you to **sync**, **transform** and **query** data across your stores using simple SQL commands. We implement multiple Postgres native and infrastructural optimizations for 10x faster data-movement in and out of PostgreSQL.
 
 You can use PeerDB for any of the below use-cases:
 
-1. Real-time sync (CDC) across stores.
-2. Customized ETL across data-stores using SQL
+1. Real-time Change Data Capture from PostgreSQL.
+2. Real-time Streaming of Query results across data-stores
 3. Federated query workloads - Query multiple data-stores through a common SQL interface
 
 ## Get started
@@ -34,20 +32,22 @@ docker compose up
 # connect to peerdb and query away
 psql "port=9900 host=localhost password=peerdb"
 ```
-
-<img class="img-fluid" src="images/peerdb_getstarted.jpg" alt="img-verification" width="450" height="272">
-
-1. More details on adding PEERs available [here](https://docs.peerdb.io/sql/commands/create-peer)
-2. More details on creating MIRRORs available [here](https://docs.peerdb.io/sql/commands/create-mirror)
-3. Detailed documentation available [here](https://docs.peerdb.io).
+Follow this 5-minute [Quickstart Guide](https://docs.peerdb.io/quickstart#quickstart) to see PeerDB in action i.e. streaming data in real-time across stores.
 
 ## Why PeerDB
 
-Existing ETL tools primarily focus on supporting a wide range of data-stores. However, they fall short in providing a rich experience for any two specific data-stores. This becomes evident when your workloads need scale or have demanding feature requirements. It is common for such users to try out these tools and fail – tools not meeting their performance and reliability SLAs or lacking the required features. Such users resort to developing their own in-house solutions, investing a lot of time and resources.
+Existing ETL/ELT tools primarily focus on supporting a wide range of connectors rather than providing a high quality experience for Postgres. This affects customers who run Postgres at the heart of their data-stack, storing at least 10s of GB of data and frequently moving data in and out of Postgres. It is common for such users to try existing ETL/ELT tools and fail. They spend significant time and resources to build in-house pipelines. This is the gap we want to bridge by building an ETL/ELT tool for Postgres, that just works!
 
-### Data-store nativity at it’s core, enabling scalable ETL
+### Postgres-first ETL/ELT
 
-PeerDB takes a data-store first approach to ETL. It supports a set of highly adopted stores, implements multiple infrastructural and data-store native optimizations, providing a highly scalable and a feature-rich ETL experience. For example, in a sync from Postgres to BigQuery or Snowflake, PeerDB is 10 times faster than other tools. We are database experts and believe that an ETL tool should be datastore centric, than a hodge-podge of too many connectors.
+PeerDB is an ETL/ELT tool built for PostgreSQL. We implement multiple Postgres native and infrastructural optimizations to provide a fast, reliable and a feature-rich experience for moving data in/out of PostgreSQL. 
+
+**For performance** -  we can parallelize initial load for a large table, still ensuring consistency. Syncing 100s of GB reduces from days to minutes. Our architecture is designed for real-time syncs and implements multiple logical replication related optimizations (tuning Postgres configs, parallel reading of slot etc.). This enables 10x faster Change Data Capture with data-freshness of a few 10s of seconds even at large throughputs (10k+ tps).
+
+**For reliability**, we have mechanisms in place for fault tolerance - state management, automatic retries, handling idempotency and consistency and so on (https://blog.peerdb.io/using-temporal-to-scale-data-synchronization-at-peerdb) Configurable batching and parallelism prevent out of memory (OOMs) and crashes.
+
+**From a feature richness standpoint**, we support efficient syncing of tables with large (TOAST) columns. We support multiple streaming modes - Log based (CDC) based, Query based streaming etc. We provide rich data-type mapping and plan to support every possible (incl. Custom types) that Postgres supports to the best extent possible on the target data-store.
+
 
 #### **Postgres-compatible SQL interface to do ETL**
 
@@ -63,43 +63,7 @@ You can use Postgres’ eco-system to manage your ETL —
 
 ## Status
 
-Currently PeerDB is in development phase. We have not launched yet. Below tables captures different features and their state
-
-### PeerDB Query
-
-Query supported data-stores with a Postgres-compatible SQL interface
-
-| Data-store | Support | Status |
-| --- | --- | --- |
-| BigQuery | SELECT commands | STABLE |
-| Snowflake | SELECT commands | Beta |
-| PostgreSQL | DML + SELECT commands | Beta |
-
-### PeerDB MIRROR
-
-Sync and transform data-from one store to another using CREATE MIRROR SQL command.
-
-#### MIRROR for Streaming Changes (CDC)
-
-Real-time syncing of data from source to target based on change-feed or CDC (logical decoding in the Postgres world)
-
-| Feature | Source | Target | Status |
-| --- | --- | --- | --- |
-| CDC | PostgreSQL | BigQuery | Beta |
-| CDC | PostgreSQL | Snowflake | Beta |
-| CDC | PostgreSQL | Kafka | Beta |
-| Initial Load | PostgreSQL | BigQuery | Coming Soon! |
-| Initial Load | PostgreSQL | Snowflake | Coming Soon! |
-
-#### MIRROR for SELECTs
-
-Continuous syncing of data from source to target based on any SELECT query on the source. So this is basically a pre-transform - i.e. transform data on the source before syncing it to the target.
-
-| Source | Target | Status |
-| --- | --- | --- |
-| PostgreSQL | BigQuery | Beta |
-| PostgreSQL | Snowflake | Beta |
-| PostgreSQL | S3 | Under development |
+We support multiple target connectors to move data from Postgres and a couple of source connectors to move data into Postgres. Check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors)
 
 ## License
 
