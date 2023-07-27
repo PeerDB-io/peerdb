@@ -40,7 +40,7 @@ services:
     image: debezium/postgres:15-alpine
     ports:
       # mapping is from host to container
-      - 5432:5432
+      - 9901:5432
     environment:
       PGUSER: postgres
       POSTGRES_PASSWORD: postgres
