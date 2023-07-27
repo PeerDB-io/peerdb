@@ -19,8 +19,6 @@ You can use PeerDB for any of the below use-cases:
 2. Real-time Streaming of Query results across data-stores
 3. Federated query workloads - Query multiple data-stores through a common SQL interface
 
-We support multiple target connectors to move data from Postgres and a couple of source connectors to move data into Postgres. More details [here](https://docs.peerdb.io/sql/commands/supported-connectors)
-
 ## Get started
 
 ```bash
@@ -34,11 +32,11 @@ docker compose up
 # connect to peerdb and query away
 psql "port=9900 host=localhost password=peerdb"
 ```
-Follow this [Quickstart Guide](https://docs.peerdb.io/quickstart) to see PeerDB in action i.e. streaming data in real-time across stores. It would take you 5 mins to run through the guide!
+Follow this 5-minute [Quickstart Guide](https://docs.peerdb.io/quickstart#quickstart) to see PeerDB in action i.e. streaming data in real-time across stores.
 
 ## Why PeerDB
 
-Existing ETL/ELT tools primarily focus on supporting a wide range of connectors rather than providing a high quality experience for Postgres. This affects customers who run Postgres at the heart of their data-stack, storing at least 10s of GB of data and frequently moving data in and out of Postgres. It is common for such users to try existing ETL/ELT tools and fail. They spent significant time and resources to build in-house pipelines. This is the gap we want to bridge by building an ETL/ELT tool for Postgres, that just works!
+Existing ETL/ELT tools primarily focus on supporting a wide range of connectors rather than providing a high quality experience for Postgres. This affects customers who run Postgres at the heart of their data-stack, storing at least 10s of GB of data and frequently moving data in and out of Postgres. It is common for such users to try existing ETL/ELT tools and fail. They spend significant time and resources to build in-house pipelines. This is the gap we want to bridge by building an ETL/ELT tool for Postgres, that just works!
 
 ### Postgres-first ETL/ELT
 
@@ -65,7 +63,7 @@ You can use Postgres’ eco-system to manage your ETL —
 
 ## Status
 
-We support multiple target connectors to move data from Postgres and a couple of source connectors to move data into Postgres. Check the status of connectors here [here](https://docs.peerdb.io/sql/commands/supported-connectors)
+We support multiple target connectors to move data from Postgres and a couple of source connectors to move data into Postgres. Check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors)
 
 ## License
 
