@@ -35,6 +35,8 @@ docker compose up
 psql "port=9900 host=localhost password=peerdb"
 ```
 
+<img src="images/peerdb-demo.gif" width="512" />
+
 Follow this 5-minute [Quickstart Guide](https://docs.peerdb.io/quickstart#quickstart) to see PeerDB in action i.e. streaming data in real-time across stores.
 
 ## Why PeerDB
