@@ -120,11 +120,22 @@ message TimestampPartitionRange {
   google.protobuf.Timestamp end = 2;
 }
 
+message TID {
+  uint32 block_number = 1;
+  uint32 offset_number = 2;
+}
+
+message TIDPartitionRange {
+  TID start = 1;
+  TID end = 2;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
     IntPartitionRange int_range = 1;
     TimestampPartitionRange timestamp_range = 2;
+    TIDPartitionRange tid_range = 3;
   }
 }
 

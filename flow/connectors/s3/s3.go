@@ -29,7 +29,7 @@ func NewS3Connector(ctx context.Context,
 }
 
 func (c *S3Connector) Close() error {
-	log.Errorf("Close not supported for S3")
+	log.Debugf("Closing s3 connector is a noop")
 	return nil
 }
 
