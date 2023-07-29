@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -21,8 +22,8 @@ func (c *PostgresConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	if config.WatermarkTable == "" {
-		// if no watermark table is specified, return a single partition
+	if config.WatermarkColumn == "" {
+		// if no watermark column is specified, return a single partition
 		partition := &protos.QRepPartition{
 			PartitionId:        uuid.New().String(),
 			FullTablePartition: true,
@@ -146,7 +147,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			quotedWatermarkColumn,
 			config.WatermarkTable,
 		)
-		log.Infof("partitions query: %s", partitionsQuery)
+		log.Infof("[row_based_next] partitions query: %s", partitionsQuery)
 		rows, err = tx.Query(c.ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
@@ -161,10 +162,11 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			quotedWatermarkColumn,
 			config.WatermarkTable,
 		)
-		log.Infof("partitions query: %s", partitionsQuery)
+		log.Infof("[row_based] partitions query: %s", partitionsQuery)
 		rows, err = tx.Query(c.ctx, partitionsQuery)
 	}
 	if err != nil {
+		log.Errorf("failed to query for partitions: %v", err)
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
@@ -266,6 +268,17 @@ func (c *PostgresConnector) PullQRepRecords(
 	case *protos.PartitionRange_TimestampRange:
 		rangeStart = x.TimestampRange.Start.AsTime()
 		rangeEnd = x.TimestampRange.End.AsTime()
+	case *protos.PartitionRange_TidRange:
+		rangeStart = pgtype.TID{
+			BlockNumber:  x.TidRange.Start.BlockNumber,
+			OffsetNumber: uint16(x.TidRange.Start.OffsetNumber),
+			Valid:        true,
+		}
+		rangeEnd = pgtype.TID{
+			BlockNumber:  x.TidRange.End.BlockNumber,
+			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
+			Valid:        true,
+		}
 	default:
 		return nil, fmt.Errorf("unknown range type: %v", x)
 	}

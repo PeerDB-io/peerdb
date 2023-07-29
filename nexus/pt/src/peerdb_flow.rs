@@ -195,9 +195,25 @@ pub struct TimestampPartitionRange {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Tid {
+    #[prost(uint32, tag="1")]
+    pub block_number: u32,
+    #[prost(uint32, tag="2")]
+    pub offset_number: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TidPartitionRange {
+    #[prost(message, optional, tag="1")]
+    pub start: ::core::option::Option<Tid>,
+    #[prost(message, optional, tag="2")]
+    pub end: ::core::option::Option<Tid>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PartitionRange {
     /// can be a timestamp range or an integer range
-    #[prost(oneof="partition_range::Range", tags="1, 2")]
+    #[prost(oneof="partition_range::Range", tags="1, 2, 3")]
     pub range: ::core::option::Option<partition_range::Range>,
 }
 /// Nested message and enum types in `PartitionRange`.
@@ -210,6 +226,8 @@ pub mod partition_range {
         IntRange(super::IntPartitionRange),
         #[prost(message, tag="2")]
         TimestampRange(super::TimestampPartitionRange),
+        #[prost(message, tag="3")]
+        TidRange(super::TidPartitionRange),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

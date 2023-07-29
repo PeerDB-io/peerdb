@@ -60,6 +60,25 @@ func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum 
 	}
 }
 
+func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int) *testCase {
+	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
+	query := fmt.Sprintf(
+		`SELECT * FROM %s WHERE "from" >= {{.start}} AND "from" < {{.end}}`,
+		schemaQualifiedTable)
+	return &testCase{
+		name: name,
+		config: &protos.QRepConfig{
+			FlowJobName:         "test_flow_job",
+			NumRowsPerPartition: rows,
+			Query:               query,
+			WatermarkTable:      schemaQualifiedTable,
+			WatermarkColumn:     "ctid",
+		},
+		want:                  []*protos.QRepPartition{},
+		expectedNumPartitions: expectedNum,
+	}
+}
+
 func (tc *testCase) appendPartition(start time.Time, end time.Time) *testCase {
 	tsRange := &protos.PartitionRange_TimestampRange{
 		TimestampRange: &protos.TimestampPartitionRange{
@@ -88,6 +107,8 @@ func (tc *testCase) appendPartitions(start, end time.Time, numPartitions int) *t
 }
 
 func TestGetQRepPartitions(t *testing.T) {
+	// log.SetLevel(log.DebugLevel)
+
 	const connStr = "postgres://postgres:postgres@localhost:7132/postgres"
 
 	// Setup the DB
@@ -195,6 +216,31 @@ func TestGetQRepPartitions(t *testing.T) {
 		),
 		// this is 5 partitions 30 rows and 7 rows per partition, would be 7, 7, 7, 7, 2
 		newTestCaseForNumRows(
+			schemaName,
+			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
+			uint32(numRows)/4,
+			5,
+		),
+		newTestCaseForCTID(
+			schemaName,
+			"ensure all rows are in 1 partition if num_rows_per_partition is size of table",
+			uint32(numRows),
+			1,
+		),
+		newTestCaseForCTID(
+			schemaName,
+			"ensure all rows are in 2 partitions if num_rows_per_partition is half the size of table",
+			uint32(numRows)/2,
+			2,
+		),
+		newTestCaseForCTID(
+			schemaName,
+			"ensure all rows are in 3 partitions if num_rows_per_partition is 1/3 the size of table",
+			uint32(numRows)/3,
+			3,
+		),
+		// this is 5 partitions 30 rows and 7 rows per partition, would be 7, 7, 7, 7, 2
+		newTestCaseForCTID(
 			schemaName,
 			"ensure all rows are in 5 partitions if num_rows_per_partition is 1/4 the size of table",
 			uint32(numRows)/4,

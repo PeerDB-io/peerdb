@@ -1377,6 +1377,9 @@ impl serde::Serialize for PartitionRange {
                 partition_range::Range::TimestampRange(v) => {
                     struct_ser.serialize_field("timestampRange", v)?;
                 }
+                partition_range::Range::TidRange(v) => {
+                    struct_ser.serialize_field("tidRange", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -1393,12 +1396,15 @@ impl<'de> serde::Deserialize<'de> for PartitionRange {
             "intRange",
             "timestamp_range",
             "timestampRange",
+            "tid_range",
+            "tidRange",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             IntRange,
             TimestampRange,
+            TidRange,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1423,6 +1429,7 @@ impl<'de> serde::Deserialize<'de> for PartitionRange {
                         match value {
                             "intRange" | "int_range" => Ok(GeneratedField::IntRange),
                             "timestampRange" | "timestamp_range" => Ok(GeneratedField::TimestampRange),
+                            "tidRange" | "tid_range" => Ok(GeneratedField::TidRange),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1457,6 +1464,13 @@ impl<'de> serde::Deserialize<'de> for PartitionRange {
                                 return Err(serde::de::Error::duplicate_field("timestampRange"));
                             }
                             range__ = map.next_value::<::std::option::Option<_>>()?.map(partition_range::Range::TimestampRange)
+;
+                        }
+                        GeneratedField::TidRange => {
+                            if range__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tidRange"));
+                            }
+                            range__ = map.next_value::<::std::option::Option<_>>()?.map(partition_range::Range::TidRange)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -3139,6 +3153,236 @@ impl<'de> serde::Deserialize<'de> for SyncFlowOptions {
             }
         }
         deserializer.deserialize_struct("peerdb_flow.SyncFlowOptions", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Tid {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.block_number != 0 {
+            len += 1;
+        }
+        if self.offset_number != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.TID", len)?;
+        if self.block_number != 0 {
+            struct_ser.serialize_field("blockNumber", &self.block_number)?;
+        }
+        if self.offset_number != 0 {
+            struct_ser.serialize_field("offsetNumber", &self.offset_number)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Tid {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "block_number",
+            "blockNumber",
+            "offset_number",
+            "offsetNumber",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            BlockNumber,
+            OffsetNumber,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
+                            "offsetNumber" | "offset_number" => Ok(GeneratedField::OffsetNumber),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Tid;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.TID")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<Tid, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut block_number__ = None;
+                let mut offset_number__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::BlockNumber => {
+                            if block_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blockNumber"));
+                            }
+                            block_number__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::OffsetNumber => {
+                            if offset_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("offsetNumber"));
+                            }
+                            offset_number__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(Tid {
+                    block_number: block_number__.unwrap_or_default(),
+                    offset_number: offset_number__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.TID", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for TidPartitionRange {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.start.is_some() {
+            len += 1;
+        }
+        if self.end.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.TIDPartitionRange", len)?;
+        if let Some(v) = self.start.as_ref() {
+            struct_ser.serialize_field("start", v)?;
+        }
+        if let Some(v) = self.end.as_ref() {
+            struct_ser.serialize_field("end", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for TidPartitionRange {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "start",
+            "end",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Start,
+            End,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "start" => Ok(GeneratedField::Start),
+                            "end" => Ok(GeneratedField::End),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = TidPartitionRange;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.TIDPartitionRange")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<TidPartitionRange, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut start__ = None;
+                let mut end__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Start => {
+                            if start__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("start"));
+                            }
+                            start__ = map.next_value()?;
+                        }
+                        GeneratedField::End => {
+                            if end__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("end"));
+                            }
+                            end__ = map.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(TidPartitionRange {
+                    start: start__,
+                    end: end__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.TIDPartitionRange", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for TableIdentifier {
