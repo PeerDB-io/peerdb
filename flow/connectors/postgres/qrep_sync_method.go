@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -74,7 +75,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to copy records into staging temporary table: %v", err)
 	}
-	s.connector.logQRepSyncMetrics(flowJobName, syncedRows, time.Since(syncRecordsStartTime))
+	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName, syncedRows, time.Since(syncRecordsStartTime))
 
 	// Second transaction - to handle rest of the processing
 	tx2, err := pool.Begin(context.Background())
@@ -131,11 +132,12 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
-	err = s.connector.logQRepNormalizeMetrics(flowJobName, rows.RowsAffected(),
-		time.Since(normalizeRecordsStartTime), dstTableName.String())
+	totalRecordsAtTarget, err := s.connector.getTableCounts([]string{dstTableName.String()})
 	if err != nil {
-		return -1, fmt.Errorf("failed to log qrep normalize metrics: %v", err)
+		return -1, fmt.Errorf("failed to get total records at target: %v", err)
 	}
+	metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rows.RowsAffected(),
+		time.Since(normalizeRecordsStartTime), totalRecordsAtTarget)
 
 	err = tx2.Commit(context.Background())
 	if err != nil {

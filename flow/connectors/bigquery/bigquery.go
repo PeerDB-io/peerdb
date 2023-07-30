@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -584,7 +585,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
-	c.logSyncMetrics(req.FlowJobName, int64(numRecords), time.Since(startTime))
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
@@ -668,10 +669,6 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements %s in a transaction: %v", strings.Join(stmts, "\n"), err)
-	}
-	err = c.logNormalizeMetrics(req.FlowJobName, distinctTableNames)
-	if err != nil {
-		return nil, fmt.Errorf("failed to log normalize metrics: %v", err)
 	}
 
 	return &model.NormalizeResponse{

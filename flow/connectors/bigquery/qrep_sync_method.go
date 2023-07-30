@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
@@ -84,7 +85,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to insert records into staging table: %v", err)
 	}
-	s.connector.logQRepSyncMetrics(flowJobName, int64(len(valueSaverRecords)), time.Since(startTime))
+	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName, int64(len(valueSaverRecords)),
+		time.Since(startTime))
 
 	// Copy the records into the destination table in a transaction.
 	// append all the statements to one list

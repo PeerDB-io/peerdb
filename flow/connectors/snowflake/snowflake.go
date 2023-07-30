@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -481,7 +482,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 			return nil, err
 		}
 	}
-	c.logSyncMetrics(req.FlowJobName, int64(numRecords), time.Since(startTime))
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
 	// updating metadata with new offset and syncBatchID
 	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)
@@ -567,11 +568,12 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		totalRowsAffected += rowsAffected
 	}
 	if totalRowsAffected > 0 {
-		err = c.logNormalizeMetrics(req.FlowJobName, totalRowsAffected, time.Since(startTime),
-			destinationTableNames)
+		totalRowsAtSource, err := c.getTableCounts(destinationTableNames)
 		if err != nil {
 			return nil, err
 		}
+		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, totalRowsAffected, time.Since(startTime),
+			totalRowsAtSource)
 	}
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)

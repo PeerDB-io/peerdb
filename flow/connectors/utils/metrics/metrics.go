@@ -1,6 +1,7 @@
-package connpostgres
+package metrics
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -9,22 +10,18 @@ import (
 	"go.temporal.io/sdk/activity"
 )
 
-func (c *PostgresConnector) logPullMetrics(flowJobName string, recordBatch *model.RecordBatch,
-	sourceTables []string) error {
-	if c.ctx.Value(shared.EnableMetricsKey) != true {
-		return nil
+func LogPullMetrics(ctx context.Context, flowJobName string, recordBatch *model.RecordBatch,
+	totalRecordsAtSource int64) {
+	if ctx.Value(shared.EnableMetricsKey) != true {
+		return
 	}
 
-	metricsHandler := activity.GetMetricsHandler(c.ctx)
+	metricsHandler := activity.GetMetricsHandler(ctx)
 	insertRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.insert_records_pulled", flowJobName))
 	updateRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.update_records_pulled", flowJobName))
 	deleteRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.delete_records_pulled", flowJobName))
 	totalRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.total_records_pulled", flowJobName))
 	totalRecordsAtSourceGauge := metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_at_source", flowJobName))
-	totalRecordsAtSource, err := c.getTableCounts(sourceTables)
-	if err != nil {
-		return err
-	}
 
 	insertRecords, updateRecords, deleteRecords := 0, 0, 0
 	for _, record := range recordBatch.Records {
@@ -43,90 +40,72 @@ func (c *PostgresConnector) logPullMetrics(flowJobName string, recordBatch *mode
 	deleteRecordsPulledGauge.Update(float64(deleteRecords))
 	totalRecordsPulledGauge.Update(float64(len(recordBatch.Records)))
 	totalRecordsAtSourceGauge.Update(float64(totalRecordsAtSource))
-
-	return nil
 }
 
-func (c *PostgresConnector) logSyncMetrics(flowJobName string, recordsCount int64, duration time.Duration) {
-	if c.ctx.Value(shared.EnableMetricsKey) != true {
+func LogSyncMetrics(ctx context.Context, flowJobName string, recordsCount int64, duration time.Duration) {
+	if ctx.Value(shared.EnableMetricsKey) != true {
 		return
 	}
 
-	metricsHandler := activity.GetMetricsHandler(c.ctx)
+	metricsHandler := activity.GetMetricsHandler(ctx)
 	recordsSyncedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_synced_per_second", flowJobName))
 	recordsSyncedPerSecondGauge.Update(float64(recordsCount) / duration.Seconds())
 }
 
-func (c *PostgresConnector) logNormalizeMetrics(flowJobName string, recordsCount int64, duration time.Duration,
-	targetTables []string) error {
-	if c.ctx.Value(shared.EnableMetricsKey) != true {
-		return nil
+func LogNormalizeMetrics(ctx context.Context, flowJobName string, recordsCount int64,
+	duration time.Duration, totalRecordsAtTarget int64) {
+	if ctx.Value(shared.EnableMetricsKey) != true {
+		return
 	}
 
-	metricsHandler := activity.GetMetricsHandler(c.ctx)
+	metricsHandler := activity.GetMetricsHandler(ctx)
 	recordsNormalizedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_normalized_per_second", flowJobName))
 	totalRecordsAtTargetGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_at_target", flowJobName))
-	totalRecordsAtTarget, err := c.getTableCounts(targetTables)
-	if err != nil {
-		return err
-	}
 
 	recordsNormalizedPerSecondGauge.Update(float64(recordsCount) / duration.Seconds())
 	totalRecordsAtTargetGauge.Update(float64(totalRecordsAtTarget))
-
-	return nil
 }
 
-func (c *PostgresConnector) logQRepPullMetrics(flowJobName string, recordBatch *model.QRecordBatch,
-	watermarkTable string) error {
-	if c.ctx.Value(shared.EnableMetricsKey) != true {
-		return nil
-	}
-
-	metricsHandler := activity.GetMetricsHandler(c.ctx)
-	totalRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.total_records_pulled", flowJobName))
-	totalRecordsAtSourceGauge := metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_at_source", flowJobName))
-	totalRecordsAtSource, err := c.getTableCounts([]string{watermarkTable})
-	if err != nil {
-		return err
-	}
-
-	totalRecordsPulledGauge.Update(float64(len(recordBatch.Records)))
-	totalRecordsAtSourceGauge.Update(float64(totalRecordsAtSource))
-	return nil
-}
-
-func (c *PostgresConnector) logQRepSyncMetrics(flowJobName string, recordsCount int64, duration time.Duration) {
-	if c.ctx.Value(shared.EnableMetricsKey) != true {
+func LogQRepPullMetrics(ctx context.Context, flowJobName string,
+	recordBatch *model.QRecordBatch, totalRecordsAtSource int64) {
+	if ctx.Value(shared.EnableMetricsKey) != true {
 		return
 	}
 
-	metricsHandler := activity.GetMetricsHandler(c.ctx)
+	metricsHandler := activity.GetMetricsHandler(ctx)
+	totalRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.total_records_pulled", flowJobName))
+	totalRecordsAtSourceGauge := metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_at_source", flowJobName))
+
+	totalRecordsPulledGauge.Update(float64(len(recordBatch.Records)))
+	totalRecordsAtSourceGauge.Update(float64(totalRecordsAtSource))
+}
+
+func LogQRepSyncMetrics(ctx context.Context, flowJobName string, recordsCount int64, duration time.Duration) {
+	if ctx.Value(shared.EnableMetricsKey) != true {
+		return
+	}
+
+	metricsHandler := activity.GetMetricsHandler(ctx)
 	recordsSyncedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_synced_per_second", flowJobName))
 	recordsSyncedPerSecondGauge.Update(float64(recordsCount) / duration.Seconds())
 }
 
-func (c *PostgresConnector) logQRepNormalizeMetrics(flowJobName string, recordsCount int64, duration time.Duration,
-	tableName string) error {
-	if c.ctx.Value(shared.EnableMetricsKey) != true {
-		return nil
+func LogQRepNormalizeMetrics(ctx context.Context, flowJobName string,
+	normalizedRecordsCount int64, duration time.Duration, totalRecordsAtTarget int64) {
+	if ctx.Value(shared.EnableMetricsKey) != true {
+		return
 	}
 
-	metricsHandler := activity.GetMetricsHandler(c.ctx)
+	metricsHandler := activity.GetMetricsHandler(ctx)
 	recordsSyncedPerSecondGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_normalized_per_second", flowJobName))
 	totalRecordsAtTargetGauge :=
 		metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_at_target", flowJobName))
-	totalRecordsAtTarget, err := c.getTableCounts([]string{tableName})
-	if err != nil {
-		return err
-	}
 
-	recordsSyncedPerSecondGauge.Update(float64(recordsCount) / duration.Seconds())
+	recordsSyncedPerSecondGauge.Update(float64(normalizedRecordsCount) / duration.Seconds())
 	totalRecordsAtTargetGauge.Update(float64(totalRecordsAtTarget))
-	return nil
 }

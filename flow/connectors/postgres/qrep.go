@@ -6,6 +6,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -312,10 +313,12 @@ func (c *PostgresConnector) PullQRepRecords(
 	if err != nil {
 		return nil, err
 	}
-	err = c.logQRepPullMetrics(config.FlowJobName, records, config.WatermarkTable)
+
+	totalRecordsAtSource, err := c.getTableCounts([]string{config.WatermarkTable})
 	if err != nil {
 		return nil, err
 	}
+	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, records, totalRecordsAtSource)
 	return records, nil
 }
 

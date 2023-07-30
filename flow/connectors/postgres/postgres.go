@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -207,10 +208,11 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	if err != nil {
 		return nil, err
 	}
-	err = c.logPullMetrics(req.FlowJobName, recordBatch, maps.Keys(req.TableNameMapping))
+	totalRecordsAtSource, err := c.getTableCounts(maps.Keys(req.TableNameMapping))
 	if err != nil {
 		return nil, err
 	}
+	metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
 	return recordBatch, nil
 }
 
@@ -325,7 +327,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, fmt.Errorf("error syncing records: expected %d records to be synced, but %d were synced",
 			len(records), syncedRecordsCount)
 	}
-	c.logSyncMetrics(req.FlowJobName, syncedRecordsCount, time.Since(startTime))
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, syncedRecordsCount, time.Since(startTime))
 
 	log.Printf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier)
 
@@ -416,11 +418,12 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	log.Printf("normalized %d records", totalRowsAffected)
 	if totalRowsAffected > 0 {
-		err = c.logNormalizeMetrics(req.FlowJobName, int64(totalRowsAffected), time.Since(startTime),
-			maps.Keys(unchangedToastColsMap))
+		totalRowsAtTarget, err := c.getTableCounts(maps.Keys(unchangedToastColsMap))
 		if err != nil {
 			return nil, err
 		}
+		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, int64(totalRowsAffected),
+			time.Since(startTime), totalRowsAtTarget)
 	}
 
 	// updating metadata with new normalizeBatchID

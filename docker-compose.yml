@@ -84,7 +84,7 @@ services:
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       ENABLE_PROFILING: true
-      ENABLE_METRICS: false
+      ENABLE_METRICS: true
       PROFILING_SERVER: 0.0.0.0:6060
       METRICS_SERVER: 0.0.0.0:6061
       TEMPORAL_HOST_PORT: temporalite:7233
@@ -115,6 +115,9 @@ services:
     ports:
       - 6062:6062
       - 6063:6063
+    profiles:
+      - multi
+      - multi-metrics
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -136,6 +139,9 @@ services:
     ports:
       - 6064:6064
       - 6065:6065
+    profiles:
+      - multi
+      - multi-metrics
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -172,6 +178,7 @@ services:
     ports:
       - 9090:9090
     profiles:
+      - multi-metrics
       - metrics
 
   peerdb_grafana:
@@ -185,6 +192,7 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: peerdb
     profiles:
+      - multi-metrics
       - metrics
 
 volumes:

@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -55,11 +56,8 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, err
 	}
-	err = s.connector.logQRepSyncMetrics(config.FlowJobName, int64(len(records.Records)),
-		time.Since(putFileStartTime), config.DestinationTableIdentifier)
-	if err != nil {
-		return 0, err
-	}
+	metrics.LogQRepSyncMetrics(s.connector.ctx, config.FlowJobName, int64(len(records.Records)),
+		time.Since(putFileStartTime))
 
 	err = s.insertMetadata(partition, config.FlowJobName, startTime)
 	if err != nil {
@@ -335,10 +333,12 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	}
 	rowCount, err := rows.RowsAffected()
 	if err == nil {
-		s.connector.logQRepNormalizeMetrics(flowJobName, rowCount, time.Since(startTime))
+		totalRowsAtTarget, err := s.connector.getTableCounts([]string{s.dstTableName})
 		if err != nil {
-			return fmt.Errorf("failed to log QRepNormalize metrics: %w", err)
+			return err
 		}
+		metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rowCount, time.Since(startTime),
+			totalRowsAtTarget)
 	} else {
 		log.Errorf("failed to get rows affected: %v", err)
 	}
