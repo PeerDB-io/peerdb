@@ -1086,23 +1086,23 @@ func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchanged
 	return updateStmts
 }
 
-func (c *BigQueryConnector) getTableCounts(tables []string) (int64, error) {
-	var totalRows int64 = 0
-	var row []bigquery.Value
-	for _, table := range tables {
-		it, err := c.client.Query(fmt.Sprintf("SELECT COUNT(*) FROM %s.%s", c.datasetID, table)).Read(c.ctx)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get count for table %s: %w", table, err)
-		}
-		err = it.Next(&row)
-		if err != nil {
-			return 0, fmt.Errorf("failed to read row: %w", err)
-		}
-		count, ok := row[0].(int64)
-		if !ok {
-			return 0, fmt.Errorf("failed to convert count to int64")
-		}
-		totalRows += count
-	}
-	return totalRows, nil
-}
+// func (c *BigQueryConnector) getTableCounts(tables []string) (int64, error) {
+// 	var totalRows int64 = 0
+// 	var row []bigquery.Value
+// 	for _, table := range tables {
+// 		it, err := c.client.Query(fmt.Sprintf("SELECT COUNT(*) FROM %s.%s", c.datasetID, table)).Read(c.ctx)
+// 		if err != nil {
+// 			return 0, fmt.Errorf("failed to get count for table %s: %w", table, err)
+// 		}
+// 		err = it.Next(&row)
+// 		if err != nil {
+// 			return 0, fmt.Errorf("failed to read row: %w", err)
+// 		}
+// 		count, ok := row[0].(int64)
+// 		if !ok {
+// 			return 0, fmt.Errorf("failed to convert count to int64")
+// 		}
+// 		totalRows += count
+// 	}
+// 	return totalRows, nil
+// }

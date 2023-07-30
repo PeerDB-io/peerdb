@@ -208,11 +208,13 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	if err != nil {
 		return nil, err
 	}
-	totalRecordsAtSource, err := c.getTableCounts(maps.Keys(req.TableNameMapping))
-	if err != nil {
-		return nil, err
+	if len(recordBatch.Records) > 0 {
+		totalRecordsAtSource, err := c.getTableCounts(maps.Keys(req.TableNameMapping))
+		if err != nil {
+			return nil, err
+		}
+		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
 	}
-	metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
 	return recordBatch, nil
 }
 
