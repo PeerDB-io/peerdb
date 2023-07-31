@@ -276,6 +276,7 @@ func registerWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	env.RegisterWorkflow(peerflow.SetupFlowWorkflow)
+	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	env.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
