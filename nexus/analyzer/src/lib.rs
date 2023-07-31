@@ -407,6 +407,7 @@ fn parse_db_options(
                     .get("database")
                     .context("no default database specified")?
                     .to_string(),
+                transaction_snapshot: "".to_string(),
             };
             let config = Config::PostgresConfig(postgres_config);
             Some(config)
