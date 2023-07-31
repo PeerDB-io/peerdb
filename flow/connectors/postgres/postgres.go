@@ -9,13 +9,16 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 )
 
 // PostgresConnector is a Connector implementation for Postgres.
@@ -198,7 +201,18 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
 
-	return cdc.PullRecords(req)
+	recordBatch, err := cdc.PullRecords(req)
+	if err != nil {
+		return nil, err
+	}
+	if len(recordBatch.Records) > 0 {
+		totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
+		if err != nil {
+			return nil, err
+		}
+		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
+	}
+	return recordBatch, nil
 }
 
 // SyncRecords pushes records to the destination.
@@ -300,6 +314,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 	}()
 
+	startTime := time.Now()
 	syncedRecordsCount, err := syncRecordsTx.CopyFrom(c.ctx, pgx.Identifier{internalSchema, rawTableIdentifier},
 		[]string{"_peerdb_uid", "_peerdb_timestamp", "_peerdb_destination_table_name", "_peerdb_data",
 			"_peerdb_record_type", "_peerdb_match_data", "_peerdb_batch_id", "_peerdb_unchanged_toast_columns"},
@@ -311,6 +326,8 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, fmt.Errorf("error syncing records: expected %d records to be synced, but %d were synced",
 			len(records), syncedRecordsCount)
 	}
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, syncedRecordsCount, time.Since(startTime))
+
 	log.Printf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier)
 
 	// updating metadata with new offset and syncBatchID
@@ -381,14 +398,31 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}()
 
 	mergeStatementsBatch := &pgx.Batch{}
+	totalRowsAffected := 0
 	for destinationTableName, unchangedToastCols := range unchangedToastColsMap {
 		mergeStatementsBatch.Queue(c.generateMergeStatement(destinationTableName, unchangedToastCols,
-			rawTableIdentifier), normalizeBatchID, syncBatchID, destinationTableName)
+			rawTableIdentifier), normalizeBatchID, syncBatchID, destinationTableName).Exec(
+			func(ct pgconn.CommandTag) error {
+				totalRowsAffected += int(ct.RowsAffected())
+				return nil
+			})
 	}
-	mergeResults := normalizeRecordsTx.SendBatch(c.ctx, mergeStatementsBatch)
-	err = mergeResults.Close()
-	if err != nil {
-		return nil, fmt.Errorf("error executing merge statements: %w", err)
+	startTime := time.Now()
+	if mergeStatementsBatch.Len() > 0 {
+		mergeResults := normalizeRecordsTx.SendBatch(c.ctx, mergeStatementsBatch)
+		err = mergeResults.Close()
+		if err != nil {
+			return nil, fmt.Errorf("error executing merge statements: %w", err)
+		}
+	}
+	log.Printf("normalized %d records", totalRowsAffected)
+	if totalRowsAffected > 0 {
+		totalRowsAtTarget, err := c.getApproxTableCounts(maps.Keys(unchangedToastColsMap))
+		if err != nil {
+			return nil, err
+		}
+		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, int64(totalRowsAffected),
+			time.Since(startTime), totalRowsAtTarget)
 	}
 
 	// updating metadata with new normalizeBatchID

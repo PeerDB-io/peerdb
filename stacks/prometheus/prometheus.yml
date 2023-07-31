@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+- job_name: peerdb_flow_workers
+  static_configs:
+  - targets: ['host.docker.internal:6061', 'host.docker.internal:6063', 'host.docker.internal:6065']
+  metric_relabel_configs:
+  - regex: "instance"
+    action: labeldrop
+  - regex: "job"
+    action: labeldrop
+

@@ -6,6 +6,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -308,7 +309,17 @@ func (c *PostgresConnector) PullQRepRecords(
 	}
 
 	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
-	return executor.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
+	records, err := executor.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
+	if err != nil {
+		return nil, err
+	}
+
+	totalRecordsAtSource, err := c.getApproxTableCounts([]string{config.WatermarkTable})
+	if err != nil {
+		return nil, err
+	}
+	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, records, totalRecordsAtSource)
+	return records, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,

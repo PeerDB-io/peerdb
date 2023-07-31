@@ -63,3 +63,22 @@ func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*S
 		Config:                  config,
 	}, nil
 }
+
+func (c *SnowflakeConnector) getTableCounts(tables []string) (int64, error) {
+	var totalRecords int64
+	for _, table := range tables {
+		_, err := parseTableName(table)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse table name %s: %w", table, err)
+		}
+		//nolint:gosec
+		row := c.database.QueryRowContext(c.ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", table))
+		var count int64
+		err = row.Scan(&count)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get count for table %s: %w", table, err)
+		}
+		totalRecords += count
+	}
+	return totalRecords, nil
+}

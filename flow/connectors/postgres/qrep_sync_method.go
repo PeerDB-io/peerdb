@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -64,7 +65,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	copySource := model.NewQRecordBatchCopyFromSource(records)
 
 	// Perform the COPY FROM operation
-	_, err = pool.CopyFrom(
+	syncRecordsStartTime := time.Now()
+	syncedRows, err := pool.CopyFrom(
 		context.Background(),
 		pgx.Identifier{stagingTable},
 		records.Schema.GetColumnNames(),
@@ -73,6 +75,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to copy records into staging temporary table: %v", err)
 	}
+	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName, syncedRows, time.Since(syncRecordsStartTime))
 
 	// Second transaction - to handle rest of the processing
 	tx2, err := pool.Begin(context.Background())
@@ -112,11 +115,12 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to marshal partition to json: %v", err)
 	}
 
+	normalizeRecordsStartTime := time.Now()
 	insertMetadataStmt := fmt.Sprintf(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
 		qRepMetadataTableName,
 	)
-	_, err = tx2.Exec(
+	rows, err := tx2.Exec(
 		context.Background(),
 		insertMetadataStmt,
 		flowJobName,
@@ -128,6 +132,12 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
+	totalRecordsAtTarget, err := s.connector.getApproxTableCounts([]string{dstTableName.String()})
+	if err != nil {
+		return -1, fmt.Errorf("failed to get total records at target: %v", err)
+	}
+	metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rows.RowsAffected(),
+		time.Since(normalizeRecordsStartTime), totalRecordsAtTarget)
 
 	err = tx2.Commit(context.Background())
 	if err != nil {

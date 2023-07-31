@@ -6,8 +6,10 @@ const (
 )
 
 type PeerFlowSignal int64
+type ContextKey string
 
 const (
 	NoopSignal PeerFlowSignal = iota
 	ShutdownSignal
+	EnableMetricsKey ContextKey = "enableMetrics"
 )

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/snowflakedb/gosnowflake"
+	"golang.org/x/exp/maps"
 )
 
 //nolint:stylecheck
@@ -468,6 +470,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 	// inserting records into raw table.
 	numRecords := len(records)
+	startTime := time.Now()
 	for begin := 0; begin < numRecords; begin += syncRecordsChunkSize {
 		end := begin + syncRecordsChunkSize
 
@@ -479,6 +482,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 			return nil, err
 		}
 	}
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
 	// updating metadata with new offset and syncBatchID
 	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)
@@ -549,15 +553,27 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 			log.Errorf("unexpected error while rolling back transaction for NormalizeRecords: %v", deferErr)
 		}
 	}()
+
+	var totalRowsAffected int64 = 0
+	startTime := time.Now()
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
 	for _, destinationTableName := range destinationTableNames {
-		err = c.generateAndExecuteMergeStatement(destinationTableName,
+		rowsAffected, err := c.generateAndExecuteMergeStatement(destinationTableName,
 			tableNametoUnchangedToastCols[destinationTableName],
 			getRawTableIdentifier(req.FlowJobName),
 			syncBatchID, normalizeBatchID, normalizeRecordsTx)
 		if err != nil {
 			return nil, err
 		}
+		totalRowsAffected += rowsAffected
+	}
+	if totalRowsAffected > 0 {
+		totalRowsAtSource, err := c.getTableCounts(destinationTableNames)
+		if err != nil {
+			return nil, err
+		}
+		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, totalRowsAffected, time.Since(startTime),
+			totalRowsAtSource)
 	}
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)
@@ -708,13 +724,9 @@ func (c *SnowflakeConnector) insertRecordsInRawTable(rawTableIdentifier string,
 func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableIdentifier string,
 	unchangedToastColumns []string,
 	rawTableIdentifier string, syncBatchID int64, normalizeBatchID int64,
-	normalizeRecordsTx *sql.Tx) error {
+	normalizeRecordsTx *sql.Tx) (int64, error) {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
-	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
-	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
-	for columnName := range normalizedTableSchema.Columns {
-		columnNames = append(columnNames, columnName)
-	}
+	columnNames := maps.Keys(normalizedTableSchema.Columns)
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
@@ -755,12 +767,12 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 		normalizedTableSchema.PrimaryKeyColumn, pkeyColStr, insertColumnsSQL, insertValuesSQL,
 		updateStringToastCols)
 
-	_, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
+	result, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
-		return fmt.Errorf("failed to merge records into %s: %w", destinationTableIdentifier, err)
+		return 0, fmt.Errorf("failed to merge records into %s: %w", destinationTableIdentifier, err)
 	}
 
-	return nil
+	return result.RowsAffected()
 }
 
 // parseTableName parses a table name into schema and table name.

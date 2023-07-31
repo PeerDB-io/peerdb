@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -50,10 +51,13 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 
 	stage := s.connector.getStageNameForJob(config.FlowJobName)
 
+	putFileStartTime := time.Now()
 	err = s.putFileToStage(localFilePath, stage)
 	if err != nil {
 		return 0, err
 	}
+	metrics.LogQRepSyncMetrics(s.connector.ctx, config.FlowJobName, int64(len(records.Records)),
+		time.Since(putFileStartTime))
 
 	err = s.insertMetadata(partition, config.FlowJobName, startTime)
 	if err != nil {
@@ -128,7 +132,7 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage str
 }
 
 func CopyStageToDestination(
-	database *sql.DB,
+	connector *SnowflakeConnector,
 	config *protos.QRepConfig,
 	dstTableName string,
 	stage string,
@@ -139,7 +143,7 @@ func CopyStageToDestination(
 		"MATCH_BY_COLUMN_NAME='CASE_INSENSITIVE'",
 	}
 
-	writeHandler := NewSnowflakeAvroWriteHandler(database, dstTableName, stage, copyOpts)
+	writeHandler := NewSnowflakeAvroWriteHandler(connector, dstTableName, stage, copyOpts)
 
 	appendMode := true
 	if config.WriteMode != nil {
@@ -151,14 +155,15 @@ func CopyStageToDestination(
 
 	switch appendMode {
 	case true:
-		err := writeHandler.HandleAppendMode()
+		err := writeHandler.HandleAppendMode(config.FlowJobName)
 		if err != nil {
 			return fmt.Errorf("failed to handle append mode: %w", err)
 		}
 
 	case false:
 		upsertKeyCols := config.WriteMode.UpsertKeyColumns
-		err := writeHandler.HandleUpsertMode(allCols, upsertKeyCols, config.WatermarkColumn)
+		err := writeHandler.HandleUpsertMode(allCols, upsertKeyCols, config.WatermarkColumn,
+			config.FlowJobName)
 		if err != nil {
 			return fmt.Errorf("failed to handle upsert mode: %w", err)
 		}
@@ -186,7 +191,7 @@ func (s *SnowflakeAvroSyncMethod) insertMetadata(
 }
 
 type SnowflakeAvroWriteHandler struct {
-	db           *sql.DB
+	connector    *SnowflakeConnector
 	dstTableName string
 	stage        string
 	copyOpts     []string
@@ -194,26 +199,28 @@ type SnowflakeAvroWriteHandler struct {
 
 // NewSnowflakeAvroWriteHandler creates a new SnowflakeAvroWriteHandler
 func NewSnowflakeAvroWriteHandler(
-	db *sql.DB,
+	connector *SnowflakeConnector,
 	dstTableName string,
 	stage string,
 	copyOpts []string,
 ) *SnowflakeAvroWriteHandler {
 	return &SnowflakeAvroWriteHandler{
-		db:           db,
+		connector:    connector,
 		dstTableName: dstTableName,
 		stage:        stage,
 		copyOpts:     copyOpts,
 	}
 }
 
-func (s *SnowflakeAvroWriteHandler) HandleAppendMode() error {
+func (s *SnowflakeAvroWriteHandler) HandleAppendMode(flowJobName string) error {
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s FROM @%s %s", s.dstTableName, s.stage, strings.Join(s.copyOpts, ","))
 	log.Infof("running copy command: %s", copyCmd)
-	if _, err := s.db.Exec(copyCmd); err != nil {
+	_, err := s.connector.database.Exec(copyCmd)
+	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
+
 	log.Infof("copied file from stage %s to table %s", s.stage, s.dstTableName)
 	return nil
 }
@@ -288,6 +295,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	allCols []string,
 	upsertKeyCols []string,
 	watermarkCol string,
+	flowJobName string,
 ) error {
 	runID, err := util.RandomUInt64()
 	if err != nil {
@@ -299,7 +307,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	//nolint:gosec
 	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
 		tempTableName, s.dstTableName)
-	if _, err := s.db.Exec(createTempTableCmd); err != nil {
+	if _, err := s.connector.database.Exec(createTempTableCmd); err != nil {
 		return fmt.Errorf("failed to create temp table: %w", err)
 	}
 	log.Infof("created temp table %s", tempTableName)
@@ -307,7 +315,8 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s FROM @%s %s",
 		tempTableName, s.stage, strings.Join(s.copyOpts, ","))
-	if _, err := s.db.Exec(copyCmd); err != nil {
+	_, err = s.connector.database.Exec(copyCmd)
+	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
 	log.Infof("copied file from stage %s to temp table %s", s.stage, tempTableName)
@@ -317,8 +326,21 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 		return fmt.Errorf("failed to generate merge command: %w", err)
 	}
 
-	if _, err := s.db.Exec(mergeCmd); err != nil {
+	startTime := time.Now()
+	rows, err := s.connector.database.Exec(mergeCmd)
+	if err != nil {
 		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
+	}
+	rowCount, err := rows.RowsAffected()
+	if err == nil {
+		totalRowsAtTarget, err := s.connector.getTableCounts([]string{s.dstTableName})
+		if err != nil {
+			return err
+		}
+		metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rowCount, time.Since(startTime),
+			totalRowsAtTarget)
+	} else {
+		log.Errorf("failed to get rows affected: %v", err)
 	}
 
 	log.Infof("merged data from temp table %s into destination table %s",

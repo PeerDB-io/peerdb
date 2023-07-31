@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -579,10 +580,12 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// log.Printf("statements to execute in a transaction: %s", strings.Join(stmts, "\n"))
 
 	// execute the statements in a transaction
+	startTime := time.Now()
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 

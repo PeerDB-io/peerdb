@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
@@ -69,7 +70,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	inserter := stagingBQTable.Inserter()
 
 	// Step 2: Insert records into the staging table.
-	numRowsInserted := 0
+	valueSaverRecords := make([]bigquery.ValueSaver, 0, len(records.Records))
 	for _, qRecord := range records.Records {
 		toPut := QRecordValueSaver{
 			ColumnNames: records.Schema.GetColumnNames(),
@@ -78,14 +79,15 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			RunID:       runID,
 		}
 
-		var vs bigquery.ValueSaver = toPut
-		err := inserter.Put(s.connector.ctx, vs)
-		if err != nil {
-			return -1, fmt.Errorf("failed to insert record into staging table: %v", err)
-		}
-
-		numRowsInserted++
+		valueSaverRecords = append(valueSaverRecords, toPut)
 	}
+	err := inserter.Put(s.connector.ctx, valueSaverRecords)
+	if err != nil {
+		return -1, fmt.Errorf("failed to insert records into staging table: %v", err)
+	}
+	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName, int64(len(valueSaverRecords)),
+		time.Since(startTime))
+
 	// Copy the records into the destination table in a transaction.
 	// append all the statements to one list
 	stmts := []string{}
@@ -121,6 +123,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 
-	log.Printf("pushed %d records to %s.%s", numRowsInserted, s.connector.datasetID, dstTableName)
-	return numRowsInserted, nil
+	log.Printf("pushed %d records to %s.%s", len(valueSaverRecords), s.connector.datasetID, dstTableName)
+	return len(valueSaverRecords), nil
 }

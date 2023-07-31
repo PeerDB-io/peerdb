@@ -248,7 +248,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 			return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
 		}
 
-		err = CopyStageToDestination(c.database, config, destTable, stageName, allCols)
+		err = CopyStageToDestination(c, config, destTable, stageName, allCols)
 		if err != nil {
 			log.Errorf("failed to copy stage to destination: %v", err)
 			return fmt.Errorf("failed to copy stage to destination: %w", err)

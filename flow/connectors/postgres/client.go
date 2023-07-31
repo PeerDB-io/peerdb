@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 )
 
 //nolint:stylecheck
@@ -399,11 +400,7 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier string, unchangedToastColumns []string,
 	rawTableIdentifier string) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
-	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
-	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
-	for columnName := range normalizedTableSchema.Columns {
-		columnNames = append(columnNames, columnName)
-	}
+	columnNames := maps.Keys(normalizedTableSchema.Columns)
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	var primaryKeyColumnCast string
@@ -447,4 +444,34 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return strings.Join(updateStmts, "\n")
+}
+func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error) {
+	countTablesBatch := &pgx.Batch{}
+	totalCount := int64(0)
+	for _, table := range tables {
+		_, err := parseSchemaTable(table)
+		if err != nil {
+			log.Errorf("error while parsing table %s: %v", table, err)
+			return 0, fmt.Errorf("error while parsing table %s: %w", table, err)
+		}
+		countTablesBatch.Queue(
+			fmt.Sprintf("SELECT reltuples::bigint AS estimate FROM pg_class WHERE oid = '%s'::regclass;", table)).
+			QueryRow(func(row pgx.Row) error {
+				var count int64
+				err := row.Scan(&count)
+				if err != nil {
+					log.Errorf("error while scanning row: %v", err)
+					return fmt.Errorf("error while scanning row: %w", err)
+				}
+				totalCount += count
+				return nil
+			})
+	}
+	countTablesResults := c.pool.SendBatch(c.ctx, countTablesBatch)
+	err := countTablesResults.Close()
+	if err != nil {
+		log.Errorf("error while closing statement batch: %v", err)
+		return 0, fmt.Errorf("error while closing statement batch: %w", err)
+	}
+	return totalCount, nil
 }
