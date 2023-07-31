@@ -41,6 +41,9 @@ message PostgresConfig {
   string user = 3;
   string password = 4;
   string database = 5;
+
+  // this is used only in query replication mode right now.
+  string transaction_snapshot = 6;
 }
 
 message EventHubConfig {

@@ -72,6 +72,7 @@ impl CatalogConfig {
             user: self.user.clone(),
             password: self.password.clone(),
             database: self.database.clone(),
+            transaction_snapshot: "".to_string(),
         }
     }
 

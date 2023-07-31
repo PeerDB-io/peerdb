@@ -12,19 +12,37 @@ import (
 )
 
 type QRepQueryExecutor struct {
-	pool *pgxpool.Pool
-	ctx  context.Context
+	pool     *pgxpool.Pool
+	ctx      context.Context
+	snapshot string
 }
 
 func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
-		pool: pool,
-		ctx:  ctx,
+		pool:     pool,
+		ctx:      ctx,
+		snapshot: "",
+	}
+}
+
+func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string) *QRepQueryExecutor {
+	return &QRepQueryExecutor{
+		pool:     pool,
+		ctx:      ctx,
+		snapshot: snapshot,
 	}
 }
 
 func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pgx.Rows, error) {
 	rows, err := qe.pool.Query(qe.ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, query string, args ...interface{}) (pgx.Rows, error) {
+	rows, err := tx.Query(qe.ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +103,29 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	query string,
 	args ...interface{},
 ) (*model.QRecordBatch, error) {
-	rows, err := qe.ExecuteQuery(query, args...)
+	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
+		AccessMode: pgx.ReadOnly,
+		IsoLevel:   pgx.RepeatableRead,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
+	}
+
+	defer func() {
+		err := tx.Rollback(qe.ctx)
+		if err != nil && err != pgx.ErrTxClosed {
+			log.Errorf("[pg_query_executor] failed to rollback transaction: %v", err)
+		}
+	}()
+
+	if qe.snapshot != "" {
+		_, err = tx.Exec(qe.ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", qe.snapshot))
+		if err != nil {
+			return nil, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
+		}
+	}
+
+	rows, err := qe.executeQueryInTx(tx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -96,6 +136,11 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	batch, err := qe.ProcessRows(rows, fieldDescriptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process rows: %w", err)
+	}
+
+	err = tx.Commit(qe.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
 	return batch, nil

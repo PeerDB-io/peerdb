@@ -920,6 +920,9 @@ impl serde::Serialize for PostgresConfig {
         if !self.database.is_empty() {
             len += 1;
         }
+        if !self.transaction_snapshot.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.PostgresConfig", len)?;
         if !self.host.is_empty() {
             struct_ser.serialize_field("host", &self.host)?;
@@ -936,6 +939,9 @@ impl serde::Serialize for PostgresConfig {
         if !self.database.is_empty() {
             struct_ser.serialize_field("database", &self.database)?;
         }
+        if !self.transaction_snapshot.is_empty() {
+            struct_ser.serialize_field("transactionSnapshot", &self.transaction_snapshot)?;
+        }
         struct_ser.end()
     }
 }
@@ -951,6 +957,8 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
             "user",
             "password",
             "database",
+            "transaction_snapshot",
+            "transactionSnapshot",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -960,6 +968,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
             User,
             Password,
             Database,
+            TransactionSnapshot,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -987,6 +996,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                             "user" => Ok(GeneratedField::User),
                             "password" => Ok(GeneratedField::Password),
                             "database" => Ok(GeneratedField::Database),
+                            "transactionSnapshot" | "transaction_snapshot" => Ok(GeneratedField::TransactionSnapshot),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1011,6 +1021,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                 let mut user__ = None;
                 let mut password__ = None;
                 let mut database__ = None;
+                let mut transaction_snapshot__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Host => {
@@ -1045,6 +1056,12 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                             }
                             database__ = Some(map.next_value()?);
                         }
+                        GeneratedField::TransactionSnapshot => {
+                            if transaction_snapshot__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("transactionSnapshot"));
+                            }
+                            transaction_snapshot__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1056,6 +1073,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                     user: user__.unwrap_or_default(),
                     password: password__.unwrap_or_default(),
                     database: database__.unwrap_or_default(),
+                    transaction_snapshot: transaction_snapshot__.unwrap_or_default(),
                 })
             }
         }
