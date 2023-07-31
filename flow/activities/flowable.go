@@ -108,11 +108,20 @@ func (a *FlowableActivity) SetupReplication(
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
 
+	slotSignal := connpostgres.NewSlotSignal()
+
 	pgConn := conn.(*connpostgres.PostgresConnector)
-	err = pgConn.SetupReplication(nil, config)
+	err = pgConn.SetupReplication(slotSignal, config)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
+
+	log.Info("waiting for slot to be created...")
+	slotInfo := <-slotSignal.SlotCreated
+	log.Infof("slot '%s' created", slotInfo.SlotName)
+
+
+
 
 	return nil
 }

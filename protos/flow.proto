@@ -75,6 +75,9 @@ message SetupReplicationInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
+  // replicate to destination using ctid, start with 50K
+  // batch size.
+  peerdb_peers.Peer destination_peer = 4;
 }
 
 message CreateRawTableInput {
