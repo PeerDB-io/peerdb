@@ -72,6 +72,9 @@ pub struct PostgresConfig {
     pub password: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub database: ::prost::alloc::string::String,
+    /// this is used only in query replication mode right now.
+    #[prost(string, tag="6")]
+    pub transaction_snapshot: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

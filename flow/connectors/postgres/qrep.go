@@ -44,6 +44,12 @@ func (c *PostgresConnector) GetQRepPartitions(
 		}
 	}()
 
+	err = c.setTransactionSnapshot(tx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
+	}
+
+	// TODO re-enable locing of the watermark table.
 	// // lock the table while we get the partitions.
 	// lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
 	// if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
@@ -81,6 +87,17 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 
 	return partitions, nil
+}
+
+func (c *PostgresConnector) setTransactionSnapshot(tx pgx.Tx) error {
+	snapshot := c.config.TransactionSnapshot
+	if snapshot != "" {
+		if _, err := tx.Exec(c.ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", snapshot)); err != nil {
+			return fmt.Errorf("failed to set transaction snapshot: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (c *PostgresConnector) getNumRowsPartitions(
@@ -252,7 +269,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
 	if partition.FullTablePartition {
 		log.Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor := NewQRepQueryExecutor(c.pool, c.ctx)
+		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
 		query := config.Query
 		return executor.ExecuteAndProcessQuery(query)
 	}
@@ -290,7 +307,7 @@ func (c *PostgresConnector) PullQRepRecords(
 		return nil, err
 	}
 
-	executor := NewQRepQueryExecutor(c.pool, c.ctx)
+	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
 	return executor.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
 }
 
