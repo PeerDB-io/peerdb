@@ -132,7 +132,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
-	totalRecordsAtTarget, err := s.connector.getTableCounts([]string{dstTableName.String()})
+	totalRecordsAtTarget, err := s.connector.getApproxTableCounts([]string{dstTableName.String()})
 	if err != nil {
 		return -1, fmt.Errorf("failed to get total records at target: %v", err)
 	}

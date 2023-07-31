@@ -314,7 +314,7 @@ func (c *PostgresConnector) PullQRepRecords(
 		return nil, err
 	}
 
-	totalRecordsAtSource, err := c.getTableCounts([]string{config.WatermarkTable})
+	totalRecordsAtSource, err := c.getApproxTableCounts([]string{config.WatermarkTable})
 	if err != nil {
 		return nil, err
 	}

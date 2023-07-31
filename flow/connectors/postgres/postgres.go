@@ -209,7 +209,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		return nil, err
 	}
 	if len(recordBatch.Records) > 0 {
-		totalRecordsAtSource, err := c.getTableCounts(maps.Keys(req.TableNameMapping))
+		totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
 		if err != nil {
 			return nil, err
 		}
@@ -420,7 +420,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	log.Printf("normalized %d records", totalRowsAffected)
 	if totalRowsAffected > 0 {
-		totalRowsAtTarget, err := c.getTableCounts(maps.Keys(unchangedToastColsMap))
+		totalRowsAtTarget, err := c.getApproxTableCounts(maps.Keys(unchangedToastColsMap))
 		if err != nil {
 			return nil, err
 		}

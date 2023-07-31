@@ -445,7 +445,7 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 	}
 	return strings.Join(updateStmts, "\n")
 }
-func (c *PostgresConnector) getTableCounts(tables []string) (int64, error) {
+func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error) {
 	countTablesBatch := &pgx.Batch{}
 	totalCount := int64(0)
 	for _, table := range tables {
@@ -454,16 +454,18 @@ func (c *PostgresConnector) getTableCounts(tables []string) (int64, error) {
 			log.Errorf("error while parsing table %s: %v", table, err)
 			return 0, fmt.Errorf("error while parsing table %s: %w", table, err)
 		}
-		countTablesBatch.Queue(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).QueryRow(func(row pgx.Row) error {
-			var count int64
-			err := row.Scan(&count)
-			if err != nil {
-				log.Errorf("error while scanning row: %v", err)
-				return fmt.Errorf("error while scanning row: %w", err)
-			}
-			totalCount += count
-			return nil
-		})
+		countTablesBatch.Queue(
+			fmt.Sprintf("SELECT reltuples::bigint AS estimate FROM pg_class WHERE oid = '%s'::regclass;", table)).
+			QueryRow(func(row pgx.Row) error {
+				var count int64
+				err := row.Scan(&count)
+				if err != nil {
+					log.Errorf("error while scanning row: %v", err)
+					return fmt.Errorf("error while scanning row: %w", err)
+				}
+				totalCount += count
+				return nil
+			})
 	}
 	countTablesResults := c.pool.SendBatch(c.ctx, countTablesBatch)
 	err := countTablesResults.Close()
