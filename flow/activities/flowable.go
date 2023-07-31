@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
@@ -17,57 +18,9 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
-// IFlowable is a collection of activities that deal with flowables.
-// Flowables are entities that can be used as a source or destination in a peer flow.
-type IFlowable interface {
-	// CheckConnection checks the connection to the flowable.
-	CheckConnection(ctx context.Context, config *protos.Peer) (CheckConnectionResult, error)
-	// SetupMetadataTables sets up the metadata tables for the flowable.
-	SetupMetadataTables(ctx context.Context, config *protos.Peer) error
-	// GetLastSyncedID returns the last synced ID for the flowable.
-	// This typically corresponds to the LastLSN for Postgres and similar for other databases.
-	GetLastSyncedID(ctx context.Context, config *protos.GetLastSyncedIDInput) (*protos.LastSyncState, error)
-	// EnsurePullability ensurses that the flowable is pullable, i.e, table exists and requisite
-	// slots and publications are set up.
-	EnsurePullability(ctx context.Context, config *protos.EnsurePullabilityInput) error
-	// CreateRawTable creates the raw table on the flowable.
-	CreateRawTable(
-		ctx context.Context,
-		config *protos.CreateRawTableInput,
-	) (*protos.CreateRawTableOutput, error)
-	// Normalization Setup Methods
-	// GetTableSchema returns the schema of a table.
-	GetTableSchema(ctx context.Context, config *protos.GetTableSchemaInput) (*protos.TableSchema, error)
-	// CreateNormalizedTable sets up the normalized table on the flowable.
-	CreateNormalizedTable(ctx context.Context,
-		config *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error)
-	// StartFlow starts the flow of events from the source to the destination flowable.
-	StartFlow(ctx context.Context, input *protos.StartFlowInput) error
-
-	////////// QRep Methods //////////
-
-	// SetupQRepMetadataTables sets up the QRep metadata tables for the flowable.
-	SetupQRepMetadataTables(ctx context.Context, config *protos.Peer) error
-
-	// GetQRepPartitions returns the partitions for a given QRepConfig.
-	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig) ([]*protos.QRepPartition, error)
-
-	// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
-	ReplicateQRepPartition(ctx context.Context, partition *protos.QRepPartition) error
-
-	// ConsolidateQRepPartitions consolidates the QRepPartitions into the destination.
-	ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error
-
-	// CleanupQrepFlow cleans up the QRep flow.
-	CleanupQrepFlow(ctx context.Context, config *protos.QRepConfig) error
-
-	DropFlow(ctx context.Context, config *protos.DropFlowInput) error
-}
-
-// FlowableActivity is the activity implementation for IFlowable.
 type FlowableActivity struct{}
 
-// CheckConnection implements IFlowable.CheckConnection.
+// CheckConnection implements CheckConnection.
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
 	config *protos.Peer,
@@ -86,7 +39,7 @@ func (a *FlowableActivity) CheckConnection(
 	}, nil
 }
 
-// SetupMetadataTables implements IFlowable.SetupMetadataTables.
+// SetupMetadataTables implements SetupMetadataTables.
 func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.Peer) error {
 	conn, err := connectors.GetConnector(ctx, config)
 	defer connectors.CloseConnector(conn)
@@ -102,7 +55,7 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 	return nil
 }
 
-// GetLastSyncedID implements IFlowable.GetLastSyncedID.
+// GetLastSyncedID implements GetLastSyncedID.
 func (a *FlowableActivity) GetLastSyncedID(
 	ctx context.Context,
 	config *protos.GetLastSyncedIDInput,
@@ -117,7 +70,7 @@ func (a *FlowableActivity) GetLastSyncedID(
 	return conn.GetLastOffset(config.FlowJobName)
 }
 
-// EnsurePullability implements IFlowable.EnsurePullability.
+// EnsurePullability implements EnsurePullability.
 func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
 	config *protos.EnsurePullabilityInput,
@@ -140,13 +93,20 @@ func (a *FlowableActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
 ) error {
+	dbType := config.PeerConnectionConfig.Type
+	if dbType != protos.DBType_POSTGRES {
+		log.Infof("setup replication is no-op for %s", dbType)
+		return nil
+	}
+
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
 	defer connectors.CloseConnector(conn)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	err = conn.SetupReplication(config)
+	pgConn := conn.(*connpostgres.PostgresConnector)
+	err = pgConn.SetupReplication(config)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
@@ -199,7 +159,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	return conn.SetupNormalizedTable(config)
 }
 
-// StartFlow implements IFlowable.StartFlow.
+// StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	conn := input.FlowConnectionConfigs
 

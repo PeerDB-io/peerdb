@@ -259,8 +259,26 @@ func PeerFlowWorkflowWithConfig(
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
 
+		// next part of the setup is to snapshot-initial-copy and setup replication slots.
+		snapshotFlowID, err := GetChildWorkflowID(ctx, "snapshot-flow", cfg.FlowJobName)
+		if err != nil {
+			return state, err
+		}
+		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
+			WorkflowID:        snapshotFlowID,
+			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 2,
+			},
+		}
+		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
+		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
+		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
+			return state, fmt.Errorf("failed to execute child workflow: %w", err)
+		}
+
 		state.SetupComplete = true
-		state.Progress = append(state.Progress, "executed setup flow")
+		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{

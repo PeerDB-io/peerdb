@@ -862,12 +862,6 @@ func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityInput) (*
 	panic("not implemented")
 }
 
-// SetupReplication sets up replication for the source connector.
-func (c *BigQueryConnector) SetupReplication(req *protos.SetupReplicationInput) error {
-	log.Errorf("panicking at call to SetupReplication for Snowflake flow connector")
-	panic("SetupReplication is not implemented for the Snowflake flow connector")
-}
-
 func (c *BigQueryConnector) PullFlowCleanup(jobName string) error {
 	panic("not implemented")
 }

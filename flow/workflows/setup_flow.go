@@ -110,7 +110,6 @@ func (s *SetupFlowExecution) ensurePullability(
 	tmpMap := make(map[uint32]string)
 
 	for srcTableName := range config.TableNameMapping {
-
 		// create EnsurePullabilityInput for the srcTableName
 		ensurePullabilityInput := &protos.EnsurePullabilityInput{
 			PeerConnectionConfig:  config.Source,
@@ -129,31 +128,8 @@ func (s *SetupFlowExecution) ensurePullability(
 		case *protos.TableIdentifier_PostgresTableIdentifier:
 			tmpMap[typedEnsurePullabilityOutput.PostgresTableIdentifier.RelId] = srcTableName
 		}
-
 	}
 	config.SrcTableIdNameMapping = tmpMap
-	return nil
-}
-
-// ensurePullability ensures that the source peer is pullable.
-func (s *SetupFlowExecution) setupReplication(
-	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
-) error {
-	s.logger.Info("setting up replication on source for peer flow - ", s.PeerFlowName)
-
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
-	setupReplicationInput := &protos.SetupReplicationInput{
-		PeerConnectionConfig: config.Source,
-		FlowJobName:          s.PeerFlowName,
-		TableNameMapping:     config.TableNameMapping,
-	}
-	setupReplicationFuture := workflow.ExecuteActivity(ctx, flowable.SetupReplication, setupReplicationInput)
-	if err := setupReplicationFuture.Get(ctx, nil); err != nil {
-		return fmt.Errorf("failed to setup replication on source peer: %w", err)
-	}
 	return nil
 }
 
@@ -247,11 +223,6 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	// then ensure pullability
 	if err := s.ensurePullability(ctx, config); err != nil {
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
-	}
-
-	// then setup replication
-	if err := s.setupReplication(ctx, config); err != nil {
-		return nil, fmt.Errorf("failed to setup replication on source: %w", err)
 	}
 
 	// then create the raw table
