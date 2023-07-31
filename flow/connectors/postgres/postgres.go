@@ -80,6 +80,11 @@ func (c *PostgresConnector) Close() error {
 	if c.pool != nil {
 		c.pool.Close()
 	}
+
+	if c.replPool != nil {
+		c.replPool.Close()
+	}
+
 	return nil
 }
 
