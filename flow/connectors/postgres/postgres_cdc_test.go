@@ -344,7 +344,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	tableNameMapping := map[string]string{
 		nonExistentFlowSrcTableName: nonExistentFlowDstTableName,
 	}
-	err = suite.connector.SetupReplication(&protos.SetupReplicationInput{
+	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
 		FlowJobName:          nonExistentFlowName,
 		TableNameMapping:     tableNameMapping,
 		PeerConnectionConfig: nil, // not used by the connector itself.
@@ -403,7 +403,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	relIDTableNameMapping = map[uint32]string{
 		tableRelID: nonExistentFlowSrcTableName,
 	}
-	err = suite.connector.SetupReplication(&protos.SetupReplicationInput{
+	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
 		FlowJobName:          nonExistentFlowName,
 		TableNameMapping:     tableNameMapping,
 		PeerConnectionConfig: nil, // not used by the connector itself.
@@ -449,7 +449,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	tableNameMapping := map[string]string{
 		simpleHappyFlowSrcTableName: simpleHappyFlowDstTableName,
 	}
-	err = suite.connector.SetupReplication(&protos.SetupReplicationInput{
+	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
 		FlowJobName:          simpleHappyFlowName,
 		TableNameMapping:     tableNameMapping,
 		PeerConnectionConfig: nil, // not used by the connector itself.
@@ -558,7 +558,7 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 	tableNameMapping := map[string]string{
 		allTypesHappyFlowSrcTableName: allTypesHappyFlowDstTableName,
 	}
-	err = suite.connector.SetupReplication(&protos.SetupReplicationInput{
+	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
 		FlowJobName:          allTypesHappyFlowName,
 		TableNameMapping:     tableNameMapping,
 		PeerConnectionConfig: nil, // not used by the connector itself.
@@ -669,7 +669,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	tableNameMapping := map[string]string{
 		toastHappyFlowSrcTableName: toastHappyFlowDstTableName,
 	}
-	err = suite.connector.SetupReplication(&protos.SetupReplicationInput{
+	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
 		FlowJobName:          toastHappyFlowName,
 		TableNameMapping:     tableNameMapping,
 		PeerConnectionConfig: nil, // not used by the connector itself.

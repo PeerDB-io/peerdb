@@ -7,6 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 )
@@ -41,7 +42,7 @@ const (
 	mergeStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS rank
-		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3 
+		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
 	)
 	MERGE INTO %s dst
 	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE rank=1) src
@@ -164,6 +165,7 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
+	signal *SlotSignal,
 	s *SlotCheckResult,
 	slot string,
 	publication string,
@@ -187,18 +189,36 @@ func (c *PostgresConnector) createSlotAndPublication(
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
 		_, err := c.pool.Exec(c.ctx, stmt)
 		if err != nil {
-			return fmt.Errorf("error creating publication: %w", err)
+			return fmt.Errorf("error creating publication '%s': %w", stmt, err)
 		}
 	}
 
 	// create slot only after we succeeded in creating publication.
 	if !s.SlotExists {
-		// Create the logical replication slot
-		_, err := c.pool.Exec(c.ctx,
-			"SELECT * FROM pg_create_logical_replication_slot($1, 'pgoutput')",
-			slot)
+		conn, err := c.replPool.Acquire(c.ctx)
 		if err != nil {
-			return fmt.Errorf("error creating replication slot: %w", err)
+			return fmt.Errorf("[slot] error acquiring connection: %w", err)
+		}
+
+		defer conn.Release()
+
+		log.Infof("Creating replication slot '%s'", slot)
+
+		opts := pglogrepl.CreateReplicationSlotOptions{
+			Temporary: false,
+			Mode:      pglogrepl.LogicalReplication,
+		}
+		res, err := pglogrepl.CreateReplicationSlot(c.ctx, conn.Conn().PgConn(), slot, "pgoutput", opts)
+		if err != nil {
+			return fmt.Errorf("[slot] error creating replication slot: %w", err)
+		}
+
+		log.Infof("Created replication slot '%s'", slot)
+		if signal != nil {
+			signal.SlotCreated <- res
+
+			log.Infof("Waiting for clone to complete")
+			<-signal.CloneComplete
 		}
 	}
 
