@@ -124,11 +124,6 @@ func (c *SQLServerConnector) EnsurePullability(req *protos.EnsurePullabilityInpu
 	panic("EnsurePullability is not implemented for the SQLServer flow connector")
 }
 
-func (c *SQLServerConnector) SetupReplication(req *protos.SetupReplicationInput) error {
-	log.Errorf("panicking at call to SetupReplication for SQLServer flow connector")
-	panic("SetupReplication is not implemented for the SQLServer flow connector")
-}
-
 func (c *SQLServerConnector) PullFlowCleanup(jobName string) error {
 	log.Errorf("panicking at call to PullFlowCleanup for SQLServer flow connector")
 	panic("PullFlowCleanup is not implemented for the SQLServer flow connector")

@@ -94,10 +94,6 @@ func (c *EventHubConnector) EnsurePullability(
 	panic("ensure pullability not implemented for event hub")
 }
 
-func (c *EventHubConnector) SetupReplication(req *protos.SetupReplicationInput) error {
-	panic("setup replication not implemented for event hub")
-}
-
 func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
 	c.tableSchemas = req
 	return nil

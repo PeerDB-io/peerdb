@@ -611,12 +611,6 @@ func (c *SnowflakeConnector) EnsurePullability(req *protos.EnsurePullabilityInpu
 	panic("EnsurePullability is not implemented for the Snowflake flow connector")
 }
 
-// SetupReplication sets up replication for the source connector.
-func (c *SnowflakeConnector) SetupReplication(req *protos.SetupReplicationInput) error {
-	log.Errorf("panicking at call to SetupReplication for Snowflake flow connector")
-	panic("SetupReplication is not implemented for the Snowflake flow connector")
-}
-
 func (c *SnowflakeConnector) PullFlowCleanup(jobName string) error {
 	log.Errorf("panicking at call to PullFlowCleanup for Snowflake flow connector")
 	panic("PullFlowCleanup is not implemented for the Snowflake flow connector")

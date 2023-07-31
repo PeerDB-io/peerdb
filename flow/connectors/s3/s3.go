@@ -100,11 +100,6 @@ func (c *S3Connector) EnsurePullability(req *protos.EnsurePullabilityInput,
 	panic("EnsurePullability is not implemented for the S3 flow connector")
 }
 
-func (c *S3Connector) SetupReplication(req *protos.SetupReplicationInput) error {
-	log.Errorf("panicking at call to SetupReplication for S3 flow connector")
-	panic("SetupReplication is not implemented for the S3 flow connector")
-}
-
 func (c *S3Connector) PullFlowCleanup(jobName string) error {
 	log.Errorf("panicking at call to PullFlowCleanup for S3 flow connector")
 	panic("PullFlowCleanup is not implemented for the S3 flow connector")

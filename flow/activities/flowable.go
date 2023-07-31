@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
@@ -92,13 +93,20 @@ func (a *FlowableActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
 ) error {
+	dbType := config.PeerConnectionConfig.Type
+	if dbType != protos.DBType_POSTGRES {
+		log.Infof("setup replication is no-op for %s", dbType)
+		return nil
+	}
+
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
 	defer connectors.CloseConnector(conn)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	err = conn.SetupReplication(config)
+	pgConn := conn.(*connpostgres.PostgresConnector)
+	err = pgConn.SetupReplication(config)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}

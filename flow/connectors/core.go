@@ -30,9 +30,6 @@ type Connector interface {
 	// EnsurePullability ensures that the connector is pullable.
 	EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error)
 
-	// SetupReplication sets up replication for the source connector
-	SetupReplication(req *protos.SetupReplicationInput) error
-
 	// InitializeTableSchema initializes the table schema of all the destination tables for the connector.
 	InitializeTableSchema(req map[string]*protos.TableSchema) error
 
