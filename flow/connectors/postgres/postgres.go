@@ -201,9 +201,6 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
 
-	// NOTE that the connection pool is shared by PostgresConnector and PostgresCDCSource [passed by pointer]
-	defer cdc.Close()
-
 	recordBatch, err := cdc.PullRecords(req)
 	if err != nil {
 		return nil, err
