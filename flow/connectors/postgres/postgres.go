@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ type PostgresConnector struct {
 	ctx                context.Context
 	config             *protos.PostgresConfig
 	pool               *pgxpool.Pool
+	replPool           *pgxpool.Pool
 	tableSchemaMapping map[string]*protos.TableSchema
 }
 
@@ -49,11 +51,26 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
+	// ensure that replication is set to database
+	connConfig, err := pgxpool.ParseConfig(connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+
+	connConfig.ConnConfig.RuntimeParams["replication"] = "database"
+	connConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
+
+	replPool, err := pgxpool.NewWithConfig(ctx, connConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+	}
+
 	return &PostgresConnector{
-		connStr: connectionString,
-		ctx:     ctx,
-		config:  pgConfig,
-		pool:    pool,
+		connStr:  connectionString,
+		ctx:      ctx,
+		config:   pgConfig,
+		pool:     pool,
+		replPool: replPool,
 	}, nil
 }
 
@@ -163,27 +180,9 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		return nil, fmt.Errorf("replication slot %s does not exist", slotName)
 	}
 
-	// ensure that replication is set to database
-	connConfig, err := pgxpool.ParseConfig(c.connStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
-	}
-
-	connConfig.ConnConfig.RuntimeParams["replication"] = "database"
-	/*
-		setting bytea read output to hex.
-		Postgres defaults to this, however for extra safety as PullRecords and SyncRecords
-	*/
-	connConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
-
-	replPool, err := pgxpool.NewWithConfig(c.ctx, connConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
-	}
-
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:            c.ctx,
-		Connection:            replPool,
+		Connection:            c.replPool,
 		SrcTableIDNameMapping: req.SrcTableIDNameMapping,
 		Slot:                  slotName,
 		Publication:           publicationName,
@@ -545,8 +544,12 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput
 }
 
 // SetupReplication sets up replication for the source connector.
-func (c *PostgresConnector) SetupReplication(req *protos.SetupReplicationInput) error {
-	//schemaTable, err := parseSchemaTable(req.SourceTableIdentifier)
+func (c *PostgresConnector) SetupReplication(signal *SlotSignal, req *protos.SetupReplicationInput) error {
+	// ensure that the flowjob name is [a-z0-9_] only
+	reg := regexp.MustCompile(`^[a-z0-9_]+$`)
+	if !reg.MatchString(req.FlowJobName) {
+		return fmt.Errorf("invalid flow job name: `%s`, it should be [a-z0-9_]+", req.FlowJobName)
+	}
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
@@ -561,10 +564,11 @@ func (c *PostgresConnector) SetupReplication(req *protos.SetupReplicationInput) 
 	}
 
 	// Create the replication slot and publication
-	err = c.createSlotAndPublication(exists, slotName, publicationName, req.TableNameMapping)
+	err = c.createSlotAndPublication(signal, exists, slotName, publicationName, req.TableNameMapping)
 	if err != nil {
 		return fmt.Errorf("error creating replication slot and publication: %w", err)
 	}
+
 	return nil
 }
 

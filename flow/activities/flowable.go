@@ -106,7 +106,7 @@ func (a *FlowableActivity) SetupReplication(
 	}
 
 	pgConn := conn.(*connpostgres.PostgresConnector)
-	err = pgConn.SetupReplication(config)
+	err = pgConn.SetupReplication(nil, config)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
