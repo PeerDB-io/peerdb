@@ -199,6 +199,9 @@ func (c *PostgresConnector) createSlotAndPublication(
 		if err != nil {
 			return fmt.Errorf("[slot] error acquiring connection: %w", err)
 		}
+
+		defer conn.Release()
+
 		log.Infof("Creating replication slot '%s'", slot)
 
 		opts := pglogrepl.CreateReplicationSlotOptions{
