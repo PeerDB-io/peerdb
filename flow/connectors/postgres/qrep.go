@@ -44,12 +44,12 @@ func (c *PostgresConnector) GetQRepPartitions(
 		}
 	}()
 
-	// lock the table while we get the partitions.
-	lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
-	if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
-		// if we aren't able to lock, just log the error and continue
-		log.Warnf("failed to lock table %s: %v", config.WatermarkTable, err)
-	}
+	// // lock the table while we get the partitions.
+	// lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
+	// if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
+	// 	// if we aren't able to lock, just log the error and continue
+	// 	log.Warnf("failed to lock table %s: %v", config.WatermarkTable, err)
+	// }
 
 	if config.NumRowsPerPartition > 0 {
 		return c.getNumRowsPartitions(tx, config, last)
