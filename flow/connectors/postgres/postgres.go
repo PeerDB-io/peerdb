@@ -59,6 +59,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 
 	connConfig.ConnConfig.RuntimeParams["replication"] = "database"
 	connConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
+	connConfig.MaxConns = 1
 
 	replPool, err := pgxpool.NewWithConfig(ctx, connConfig)
 	if err != nil {
@@ -191,9 +192,6 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
-
-	// NOTE that the connection pool is shared by PostgresConnector and PostgresCDCSource [passed by pointer]
-	defer cdc.Close()
 
 	return cdc.PullRecords(req)
 }

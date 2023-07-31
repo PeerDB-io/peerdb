@@ -19,7 +19,7 @@ import (
 
 type PostgresCDCSource struct {
 	ctx                   context.Context
-	conn                  *pgxpool.Pool
+	replPool              *pgxpool.Pool
 	SrcTableIDNameMapping map[uint32]string
 	TableNameMapping      map[string]string
 	slot                  string
@@ -42,7 +42,7 @@ type PostgresCDCConfig struct {
 func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
 	return &PostgresCDCSource{
 		ctx:                   cdcConfig.AppContext,
-		conn:                  cdcConfig.Connection,
+		replPool:              cdcConfig.Connection,
 		SrcTableIDNameMapping: cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:      cdcConfig.TableNameMapping,
 		slot:                  cdcConfig.Slot,
@@ -50,12 +50,6 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, err
 		relations:             make(map[uint32]*pglogrepl.RelationMessage),
 		typeMap:               pgtype.NewMap(),
 	}, nil
-}
-
-// Close closes the connection to the database.
-func (p *PostgresCDCSource) Close() error {
-	p.conn.Close()
-	return nil
 }
 
 // PullRecords pulls records from the cdc stream
@@ -68,7 +62,7 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 	replicationOpts := pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}
 
 	// create replication connection
-	replicationConn, err := p.conn.Acquire(p.ctx)
+	replicationConn, err := p.replPool.Acquire(p.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error acquiring connection for replication: %w", err)
 	}
