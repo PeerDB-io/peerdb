@@ -6,6 +6,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -23,6 +24,9 @@ func (s *SnapshotFlowExecution) setupReplication(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 2,
+		},
 	})
 
 	setupReplicationInput := &protos.SetupReplicationInput{
