@@ -21,6 +21,7 @@ pt = { path = "../pt" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_bytes = "0.11"
+postgres-inet = "0.19.0"
 sqlparser = { path = "../sqlparser-rs" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-postgres = { version = "0.7.6", features = [

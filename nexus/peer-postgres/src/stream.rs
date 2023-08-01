@@ -4,6 +4,7 @@ use futures::Stream;
 use peer_cursor::{Record, RecordStream, SchemaRef};
 use pgerror::PgError;
 use pgwire::error::{PgWireError, PgWireResult};
+use postgres_inet::MaskedIpAddr;
 use rust_decimal::Decimal;
 use std::{
     pin::Pin,
@@ -12,7 +13,6 @@ use std::{
 use tokio_postgres::{types::Type, Row, RowStream};
 use uuid::Uuid;
 use value::{array::ArrayValue, Value};
-
 pub struct PgRecordStream {
     row_stream: Pin<Box<RowStream>>,
     schema: SchemaRef,
@@ -188,8 +188,8 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                     uuid.map(Value::Uuid).unwrap_or(Value::Null)
                 }
                 &Type::INET | &Type::CIDR => {
-                    let s: Option<String> = row.get(i);
-                    s.map(Value::Text).unwrap_or(Value::Null)
+                    let s: Option<MaskedIpAddr> = row.get(i);
+                    s.map(Value::IpAddr).unwrap_or(Value::Null)
                 }
                 &Type::POINT
                 | &Type::POINT_ARRAY

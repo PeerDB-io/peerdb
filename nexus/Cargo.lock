@@ -1989,6 +1989,7 @@ dependencies = [
  "pgerror",
  "pgwire",
  "postgres-connection",
+ "postgres-inet",
  "pt",
  "rust_decimal",
  "serde",
@@ -2274,6 +2275,16 @@ dependencies = [
  "tokio-postgres",
  "tracing",
  "urlencoding",
+]
+
+[[package]]
+name = "postgres-inet"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bb59163b4a07d962ad82510815247b3abc30ed86111215725ccff39a5567a69"
+dependencies = [
+ "bytes",
+ "postgres-types",
 ]
 
 [[package]]
@@ -3900,6 +3911,7 @@ dependencies = [
  "hex",
  "pgwire",
  "postgres",
+ "postgres-inet",
  "postgres-types",
  "rust_decimal",
  "serde",

@@ -32,7 +32,11 @@ CREATE TABLE test.test_table (
     bytea bytea NOT NULL,
     uuid uuid NOT NULL,
     jsonb jsonb NOT NULL,
-    "numeric" numeric
+    "numeric" numeric,
+    internet4 inet,
+    internet6 inet,
+    cidr4 cidr,
+    cidr6 cidr
 );
 
 ALTER TABLE test.test_table OWNER TO postgres;
@@ -52,7 +56,12 @@ INSERT INTO test.test_table (
     bytea, 
     uuid, 
     jsonb, 
-    "numeric") VALUES(
+    "numeric",
+    internet4,
+    internet6,
+    cidr4,
+    cidr6
+    ) VALUES(
     false,
     '2005-10-10',
     '15:13:33.893341',
@@ -67,7 +76,11 @@ INSERT INTO test.test_table (
     E'\\xdeadbeef',
     '63e8c671-7562-4809-b42a-cd8c2d121b12',	
     '{"age": 36, "guid": "bf8b20d9-c9d7-4d9e-b52d-f6e26dcb1d6e", "name": "Adrian Farley", "email": "adrianfarley@proflex.com", "index": 0, "phone": "+1 (815) 475-2975", "gender": "female", "address": "947 Montana Place, Lacomb, Maine, 4927", "balance": "$1,331.54", "company": "PROFLEX", "picture": "http://placehold.it/32x32", "eyeColor": "blue", "isActive": false, "latitude": -26.125532, "longitude": 174.541577, "registered": "2015-04-06T11:47:48 -06:-30"}',
-    123.45
+    123.45,
+    '192.168.1.100', 
+    '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 
+    '192.168.0.0/24', 
+    '2001:0db8::/48'
 );
 
 ALTER TABLE ONLY test.test_table
