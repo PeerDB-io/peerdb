@@ -23,6 +23,7 @@ message FlowConnectionConfigs {
   // the destination isn't ideal for holding metadata.
   peerdb_peers.Peer metadata_peer = 8;
   uint32 max_batch_size = 9;
+  bool do_initial_copy = 10;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
@@ -75,8 +76,7 @@ message SetupReplicationInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
-  // replicate to destination using ctid, start with 50K
-  // batch size.
+  // replicate to destination using ctid
   peerdb_peers.Peer destination_peer = 4;
 }
 

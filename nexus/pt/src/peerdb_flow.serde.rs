@@ -588,6 +588,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.max_batch_size != 0 {
             len += 1;
         }
+        if self.do_initial_copy {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.FlowConnectionConfigs", len)?;
         if let Some(v) = self.source.as_ref() {
             struct_ser.serialize_field("source", v)?;
@@ -616,6 +619,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.max_batch_size != 0 {
             struct_ser.serialize_field("maxBatchSize", &self.max_batch_size)?;
         }
+        if self.do_initial_copy {
+            struct_ser.serialize_field("doInitialCopy", &self.do_initial_copy)?;
+        }
         struct_ser.end()
     }
 }
@@ -642,6 +648,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             "metadataPeer",
             "max_batch_size",
             "maxBatchSize",
+            "do_initial_copy",
+            "doInitialCopy",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -655,6 +663,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             TableNameSchemaMapping,
             MetadataPeer,
             MaxBatchSize,
+            DoInitialCopy,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -686,6 +695,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             "tableNameSchemaMapping" | "table_name_schema_mapping" => Ok(GeneratedField::TableNameSchemaMapping),
                             "metadataPeer" | "metadata_peer" => Ok(GeneratedField::MetadataPeer),
                             "maxBatchSize" | "max_batch_size" => Ok(GeneratedField::MaxBatchSize),
+                            "doInitialCopy" | "do_initial_copy" => Ok(GeneratedField::DoInitialCopy),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -714,6 +724,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                 let mut table_name_schema_mapping__ = None;
                 let mut metadata_peer__ = None;
                 let mut max_batch_size__ = None;
+                let mut do_initial_copy__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -779,6 +790,12 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::DoInitialCopy => {
+                            if do_initial_copy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("doInitialCopy"));
+                            }
+                            do_initial_copy__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -794,6 +811,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                     table_name_schema_mapping: table_name_schema_mapping__.unwrap_or_default(),
                     metadata_peer: metadata_peer__,
                     max_batch_size: max_batch_size__.unwrap_or_default(),
+                    do_initial_copy: do_initial_copy__.unwrap_or_default(),
                 })
             }
         }

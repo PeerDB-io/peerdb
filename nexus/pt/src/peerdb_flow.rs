@@ -30,6 +30,8 @@ pub struct FlowConnectionConfigs {
     pub metadata_peer: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(uint32, tag="9")]
     pub max_batch_size: u32,
+    #[prost(bool, tag="10")]
+    pub do_initial_copy: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -121,8 +123,7 @@ pub struct SetupReplicationInput {
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(map="string, string", tag="3")]
     pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-    /// replicate to destination using ctid, start with 50K
-    /// batch size.
+    /// replicate to destination using ctid
     #[prost(message, optional, tag="4")]
     pub destination_peer: ::core::option::Option<super::peerdb_peers::Peer>,
 }

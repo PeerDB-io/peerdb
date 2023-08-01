@@ -16,6 +16,7 @@ pub struct FlowJob {
     pub target_peer: String,
     pub table_mappings: Vec<FlowJobTableMapping>,
     pub description: String,
+    pub do_initial_copy: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

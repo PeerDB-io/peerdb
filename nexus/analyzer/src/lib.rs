@@ -153,12 +153,23 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             });
                         }
 
+                        // get do_initial_copy from with_options
+                        let mut raw_options = HashMap::new();
+                        for option in &cdc.with_options {
+                            raw_options.insert(&option.name.value as &str, &option.value);
+                        }
+                        let do_initial_copy = match raw_options.remove("do_initial_copy") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            _ => false,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
                             target_peer: cdc.target_peer.to_string().to_lowercase(),
                             table_mappings: flow_job_table_mappings,
                             description: "".to_string(), // TODO: add description
+                            do_initial_copy,
                         };
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))

@@ -171,8 +171,10 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		return nil
 	}
 
-	if err := se.cloneTables(ctx, slotInfo); err != nil {
-		return fmt.Errorf("failed to finish qrep workflow: %w", err)
+	if config.DoInitialCopy {
+		if err := se.cloneTables(ctx, slotInfo); err != nil {
+			return fmt.Errorf("failed to finish qrep workflow: %w", err)
+		}
 	}
 
 	if err := se.closeSlotKeepAlive(sessionCtx); err != nil {
