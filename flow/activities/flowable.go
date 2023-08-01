@@ -19,8 +19,15 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
+type SlotSnapshotSignal struct {
+	signal       *connpostgres.SlotSignal
+	snapshotName string
+	connector    connectors.Connector
+}
+
 type FlowableActivity struct {
-	EnableMetrics bool
+	EnableMetrics       bool
+	SnapshotConnections map[string]*SlotSnapshotSignal
 }
 
 // CheckConnection implements CheckConnection.
@@ -95,23 +102,63 @@ func (a *FlowableActivity) EnsurePullability(
 func (a *FlowableActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
-) error {
+) (*protos.SetupReplicationOutput, error) {
 	dbType := config.PeerConnectionConfig.Type
 	if dbType != protos.DBType_POSTGRES {
 		log.Infof("setup replication is no-op for %s", dbType)
-		return nil
+		return nil, nil
 	}
 
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
-	defer connectors.CloseConnector(conn)
 	if err != nil {
-		return fmt.Errorf("failed to get connector: %w", err)
+		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	pgConn := conn.(*connpostgres.PostgresConnector)
-	err = pgConn.SetupReplication(nil, config)
-	if err != nil {
-		return fmt.Errorf("failed to setup replication: %w", err)
+	slotSignal := connpostgres.NewSlotSignal()
+
+	// This now happens in a goroutine
+	go func() {
+		pgConn := conn.(*connpostgres.PostgresConnector)
+		err = pgConn.SetupReplication(slotSignal, config)
+		if err != nil {
+			log.Errorf("failed to setup replication: %v", err)
+			return
+		}
+	}()
+
+	log.Info("waiting for slot to be created...")
+	slotInfo := <-slotSignal.SlotCreated
+	log.Infof("slot '%s' created", slotInfo.SlotName)
+
+	if slotInfo.Err != nil {
+		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
+	}
+
+	if a.SnapshotConnections == nil {
+		a.SnapshotConnections = make(map[string]*SlotSnapshotSignal)
+	}
+
+	a.SnapshotConnections[config.FlowJobName] = &SlotSnapshotSignal{
+		signal:       slotSignal,
+		snapshotName: slotInfo.SnapshotName,
+		connector:    conn,
+	}
+
+	return &protos.SetupReplicationOutput{
+		SlotName:     slotInfo.SlotName,
+		SnapshotName: slotInfo.SnapshotName,
+	}, nil
+}
+
+// closes the slot signal
+func (a *FlowableActivity) CloseSlotKeepAlive(flowJobName string) error {
+	if a.SnapshotConnections == nil {
+		return nil
+	}
+
+	if s, ok := a.SnapshotConnections[flowJobName]; ok {
+		s.signal.CloneComplete <- true
+		s.connector.Close()
 	}
 
 	return nil

@@ -240,7 +240,12 @@ impl NexusBackend {
                     // make a request to the flow service to start the job.
                     let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                     let workflow_id = flow_handler
-                        .start_peer_flow_job(&flow_job, src_peer, dst_peer)
+                        .start_peer_flow_job(
+                            &flow_job,
+                            src_peer,
+                            dst_peer,
+                            flow_job.do_initial_copy,
+                        )
                         .await
                         .map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
