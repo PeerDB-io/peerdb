@@ -149,19 +149,25 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		logger: logger,
 	}
 
-	sessionOpts := &workflow.SessionOptions{
-		CreationTimeout:  5 * time.Minute,
-		ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
-		HeartbeatTimeout: 15 * time.Minute,
+	var replCtx = ctx
+
+	if config.DoInitialCopy {
+		sessionOpts := &workflow.SessionOptions{
+			CreationTimeout:  5 * time.Minute,
+			ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
+			HeartbeatTimeout: 15 * time.Minute,
+		}
+
+		sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)
+		if err != nil {
+			return fmt.Errorf("failed to create session: %w", err)
+		}
+		defer workflow.CompleteSession(sessionCtx)
+
+		replCtx = sessionCtx
 	}
 
-	sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)
-	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-	defer workflow.CompleteSession(sessionCtx)
-
-	slotInfo, err := se.setupReplication(sessionCtx)
+	slotInfo, err := se.setupReplication(replCtx)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
@@ -177,7 +183,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		}
 	}
 
-	if err := se.closeSlotKeepAlive(sessionCtx); err != nil {
+	if err := se.closeSlotKeepAlive(replCtx); err != nil {
 		return fmt.Errorf("failed to close slot keep alive: %w", err)
 	}
 

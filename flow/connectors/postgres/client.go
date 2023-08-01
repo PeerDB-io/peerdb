@@ -225,6 +225,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			signal.SlotCreated <- slotDetails
 			log.Infof("Waiting for clone to complete")
 			<-signal.CloneComplete
+			log.Infof("Clone complete")
 		}
 	} else {
 		log.Infof("Replication slot '%s' already exists", slot)
