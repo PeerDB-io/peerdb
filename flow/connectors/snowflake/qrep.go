@@ -40,7 +40,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 
 	tblSchema, err := c.getTableSchema(destTable)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
+		return 0, fmt.Errorf("destination table does not exist: failed to get schema of table %s: %w", destTable, err)
 	}
 
 	done, err := c.isPartitionSynced(partition.PartitionId)

@@ -8,13 +8,13 @@ import (
 
 var qValueKindToSnowflakeTypeMap = map[qvalue.QValueKind]string{
 	qvalue.QValueKindBoolean:     "BOOLEAN",
-	qvalue.QValueKindInt16:       "INTEGER",
-	qvalue.QValueKindInt32:       "INTEGER",
-	qvalue.QValueKindInt64:       "INTEGER",
+	qvalue.QValueKindInt16:       "NUMBER",
+	qvalue.QValueKindInt32:       "NUMBER",
+	qvalue.QValueKindInt64:       "NUMBER",
 	qvalue.QValueKindFloat32:     "FLOAT",
 	qvalue.QValueKindFloat64:     "FLOAT",
 	qvalue.QValueKindNumeric:     "NUMBER(38, 9)",
-	qvalue.QValueKindString:      "STRING",
+	qvalue.QValueKindString:      "TEXT",
 	qvalue.QValueKindJSON:        "STRING",
 	qvalue.QValueKindTimestamp:   "TIMESTAMP_NTZ",
 	qvalue.QValueKindTimestampTZ: "TIMESTAMP_TZ",

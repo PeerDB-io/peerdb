@@ -36,7 +36,7 @@ const (
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
 	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
-	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
+	createNormalizedTableSQL    = "CREATE TABLE %s(%s)"
 	toVariantColumnName         = "VAR_COLS"
 	mergeStatementSQL           = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (SELECT _PEERDB_UID,
 		_PEERDB_TIMESTAMP,
@@ -64,8 +64,7 @@ const (
 	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET OFFSET=?, SYNC_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET NORMALIZE_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
 
-	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
-	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
+	checkIfTableExistsSQL       = `SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.columns WHERE table_schema=? and table_name=?`
 	checkIfJobMetadataExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
@@ -181,7 +180,7 @@ func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
 	if err != nil {
 		return true
 	}
-	return !result
+	return len(result) == 0
 }
 
 func (c *SnowflakeConnector) SetupMetadataTables() error {
@@ -329,12 +328,25 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
-	tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
+	tableDataTypes, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
 		normalizedTableNameComponents.tableIdentifier)
 	if err != nil {
 		return nil, fmt.Errorf("error occured while checking if normalized table exists: %w", err)
 	}
-	if tableAlreadyExists {
+
+	if tableDataTypes != nil {
+		log.Infoln("found existing normalized table, checking if it matches the desired schema")
+		for _, column := range tableDataTypes {
+			existingName := strings.ToLower(column.colName)
+			sourceType, ok := req.SourceTableSchema.Columns[existingName]
+			if !ok {
+				return nil, fmt.Errorf("failed to setup normalized table due to non-matching column name: %v", existingName)
+			}
+			sourceTypeConverted := qValueKindToSnowflakeTypeMap[qvalue.QValueKind(sourceType)]
+			if sourceTypeConverted != column.colType {
+				return nil, fmt.Errorf("failed to setup normalized table: mismatched column %v with destination type %v and source type %v", existingName, column.colType, sourceTypeConverted)
+			}
+		}
 		return &protos.SetupNormalizedTableOutput{
 			TableIdentifier: req.TableIdentifier,
 			AlreadyExists:   true,
@@ -661,20 +673,27 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	return nil
 }
 
-func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) (bool, error) {
-	rows, err := c.database.QueryContext(c.ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier)
+type sfTableColumn struct {
+	colName string
+	colType string
+}
+
+func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) ([]sfTableColumn, error) {
+	rows, err := c.database.QueryContext(c.ctx, checkIfTableExistsSQL, strings.ToUpper(schemaIdentifier), strings.ToUpper(tableIdentifier))
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
-	// this query is guaranteed to return exactly one row
-	var result bool
-	rows.Next()
-	err = rows.Scan(&result)
-	if err != nil {
-		return false, fmt.Errorf("error while reading result row: %w", err)
+	var columns []sfTableColumn
+	for rows.Next() {
+		var colName, colType string
+		err = rows.Scan(&colName, &colType)
+		if err != nil {
+			return nil, fmt.Errorf("error while checking for existing table: %w", err)
+		}
+		columns = append(columns, sfTableColumn{colName, colType})
 	}
-	return result, nil
+	return columns, nil
 }
 
 func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sourceTableSchema *protos.TableSchema) string {

@@ -108,22 +108,31 @@ func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) (strin
 	return pkCol, nil
 }
 
-func (c *PostgresConnector) tableExists(schemaTable *SchemaTable) (bool, error) {
-	var exists bool
-	err := c.pool.QueryRow(c.ctx,
-		`SELECT EXISTS (
-			SELECT FROM pg_tables
-			WHERE schemaname = $1
-			AND tablename = $2
-		)`,
+type pgTableColumn struct {
+	colName string
+	colType string
+}
+
+func (c *PostgresConnector) tableExists(schemaTable *SchemaTable) ([]pgTableColumn, error) {
+	rows, err := c.pool.Query(c.ctx,
+		`SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
 		schemaTable.Schema,
 		schemaTable.Table,
-	).Scan(&exists)
+	)
 	if err != nil {
-		return false, fmt.Errorf("error checking if table exists: %w", err)
+		return nil, fmt.Errorf("error checking if table exists: %w", err)
+	}
+	var columns []pgTableColumn
+	for rows.Next() {
+		var colName, colType string
+		err = rows.Scan(&colName, &colType)
+		if err != nil {
+			return nil, fmt.Errorf("error while checking for existing table: %w", err)
+		}
+		columns = append(columns, pgTableColumn{colName, colType})
 	}
 
-	return exists, nil
+	return columns, nil
 }
 
 // checkSlotAndPublication checks if the replication slot and publication exist.

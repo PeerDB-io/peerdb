@@ -108,7 +108,7 @@ func (c *PostgresConnector) NeedsSetupMetadataTables() bool {
 	if err != nil {
 		return true
 	}
-	return !result
+	return len(result) == 0
 }
 
 // SetupMetadataTables sets up the metadata tables.
@@ -529,11 +529,23 @@ func (c *PostgresConnector) SetupNormalizedTable(
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
-	tableAlreadyExists, err := c.tableExists(normalizedTableNameComponents)
+	existingTableColumns, err := c.tableExists(normalizedTableNameComponents)
 	if err != nil {
 		return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 	}
-	if tableAlreadyExists {
+	if existingTableColumns != nil {
+		log.Infoln("found existing normalized table, checking if it matches the desired schema")
+		for _, column := range existingTableColumns {
+			existingName := strings.ToLower(column.colName)
+			sourceType, ok := req.SourceTableSchema.Columns[existingName]
+			if !ok {
+				return nil, fmt.Errorf("failed to setup normalized table due to non-matching column name: %v", existingName)
+			}
+			sourceTypeConverted := strings.ToLower(qValueKindToPostgresType(sourceType))
+			if sourceTypeConverted != column.colType {
+				return nil, fmt.Errorf("failed to setup normalized table: mismatched column %v with destination type %v and source type %v", existingName, column.colType, sourceTypeConverted)
+			}
+		}
 		return &protos.SetupNormalizedTableOutput{
 			TableIdentifier: req.TableIdentifier,
 			AlreadyExists:   true,

@@ -837,8 +837,16 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	table := c.client.Dataset(c.datasetID).Table(req.TableIdentifier)
 
 	// check if the table exists
-	_, err := table.Metadata(c.ctx)
+	metadata, err := table.Metadata(c.ctx)
 	if err == nil {
+		// check if the structure of the table is as needed
+		existingSchema := metadata.Schema
+		for i, existingField := range existingSchema {
+			desiredField := schema[i]
+			if existingField.Name != desiredField.Name || existingField.Type != desiredField.Type {
+				return nil, fmt.Errorf("failed to setup normalized table due to incompatible columns")
+			}
+		}
 		// table exists, return
 		return &protos.SetupNormalizedTableOutput{
 			TableIdentifier: req.TableIdentifier,

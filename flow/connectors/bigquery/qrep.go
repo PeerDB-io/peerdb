@@ -35,7 +35,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
 	tblMetadata, err := bqTable.Metadata(c.ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get metadata of table %s: %w", destTable, err)
+		return 0, fmt.Errorf("destination table does not exist: failed to get metadata of table %s: %w", destTable, err)
 	}
 
 	done, err := c.isPartitionSynced(partition.PartitionId)

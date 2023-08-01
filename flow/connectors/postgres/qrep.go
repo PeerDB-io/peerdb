@@ -335,12 +335,12 @@ func (c *PostgresConnector) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to parse destination table identifier: %w", err)
 	}
 
-	exists, err := c.tableExists(dstTable)
+	sourceColumns, err := c.tableExists(dstTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if table exists: %w", err)
 	}
 
-	if !exists {
+	if len(sourceColumns) == 0 {
 		return 0, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Schema)
 	}
 
