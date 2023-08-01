@@ -143,14 +143,16 @@ func (a *FlowableActivity) SetupReplication(
 }
 
 // closes the slot signal
-func (a *FlowableActivity) CloseSlotKeepAlive(flowJobName string) {
+func (a *FlowableActivity) CloseSlotKeepAlive(flowJobName string) error {
 	if a.SnapshotConnections == nil {
-		return
+		return nil
 	}
 
 	if s, ok := a.SnapshotConnections[flowJobName]; ok {
 		s.signal.CloneComplete <- true
 	}
+
+	return nil
 }
 
 // CreateRawTable creates a raw table in the destination flowable.
