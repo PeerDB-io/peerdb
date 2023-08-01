@@ -61,16 +61,17 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	return nil
 }
 
-// startChildQrepWorkflow starts a child workflow for query based replication.
-func (s *SnapshotFlowExecution) startQrepWorkflow(
+func (s *SnapshotFlowExecution) cloneTable(
 	ctx workflow.Context,
-	slotInfo *protos.SetupReplicationOutput,
+	snapshotName string,
+	sourceTable string,
+	destinationTableName string,
 ) error {
 	flowName := s.config.FlowJobName
-	s.logger.Info("starting child qrep workflow for peer flow - ", flowName)
+	childWorkflowId := fmt.Sprintf("clone-%s-%s", flowName, destinationTableName)
 
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:          fmt.Sprintf("qrep-%s", flowName),
+		WorkflowID:          childWorkflowId,
 		WorkflowTaskTimeout: 5 * time.Minute,
 	})
 
@@ -79,7 +80,27 @@ func (s *SnapshotFlowExecution) startQrepWorkflow(
 		Range:       nil,
 	}
 
-	config := &protos.QRepConfig{}
+	// we know that the source is postgres as setup replication output is non-nil
+	// only for postgres
+	sourcePostgres := s.config.Source
+	sourcePostgres.GetPostgresConfig().TransactionSnapshot = snapshotName
+
+	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", sourceTable)
+
+	config := &protos.QRepConfig{
+		FlowJobName:     childWorkflowId,
+		SourcePeer:      sourcePostgres,
+		DestinationPeer: s.config.Destination,
+		Query:           query,
+		WatermarkColumn: "ctid",
+		WatermarkTable:  sourceTable,
+		InitialCopyOnly: true,
+		// TODO (kaushik): these are currently hardcoded, but should be configurable
+		// when setting the peer flow config.
+		NumRowsPerPartition: 10000,
+		SyncMode:            protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
+		MaxParallelWorkers:  8,
+	}
 
 	numPartitionsProcessed := 0
 
@@ -94,7 +115,23 @@ func (s *SnapshotFlowExecution) startQrepWorkflow(
 		return fmt.Errorf("failed to start child qrep workflow for peer flow: %w", err)
 	}
 
-	s.logger.Info("started child qrep workflow for peer flow - ", flowName)
+	return nil
+}
+
+// startChildQrepWorkflow starts a child workflow for query based replication.
+func (s *SnapshotFlowExecution) cloneTables(
+	ctx workflow.Context,
+	slotInfo *protos.SetupReplicationOutput,
+) error {
+	tablesToReplicate := s.config.TableNameMapping
+
+	var err error
+	for srcTbl, dstTbl := range tablesToReplicate {
+		err = s.cloneTable(ctx, slotInfo.SnapshotName, srcTbl, dstTbl)
+		if err != nil {
+			return fmt.Errorf("failed to start qrep workflow from %s to %s: %w", srcTbl, dstTbl, err)
+		}
+	}
 
 	return nil
 }
@@ -129,7 +166,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		return nil
 	}
 
-	if err := se.startQrepWorkflow(ctx, slotInfo); err != nil {
+	if err := se.cloneTables(ctx, slotInfo); err != nil {
 		return fmt.Errorf("failed to finish qrep workflow: %w", err)
 	}
 
