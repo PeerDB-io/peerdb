@@ -334,6 +334,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Flow_No_Data() {
 		MaxBatchSize:   1,
 	}
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -375,6 +376,7 @@ func (s *E2EPeerFlowTestSuite) Test_Char_ColType_Error() {
 		MaxBatchSize:   1,
 	}
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -435,6 +437,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_BQ() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -506,6 +509,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -568,6 +572,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -642,6 +647,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -737,6 +743,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -805,6 +812,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -878,6 +886,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -939,6 +948,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -1002,6 +1012,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_SF() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -1078,6 +1089,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -1141,6 +1153,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Nochanges_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -1216,6 +1229,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_1_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -1285,6 +1299,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_2_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -1354,6 +1369,7 @@ func (s *E2EPeerFlowTestSuite) Test_Toast_Advance_3_SF() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -1427,6 +1443,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_SF() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
@@ -1490,6 +1507,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_SF() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
+	env.ExecuteWorkflow(peerflow.SetupFlowWorkflow, flowConnConfig)
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
