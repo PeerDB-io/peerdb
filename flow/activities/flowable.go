@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/jackc/pglogrepl"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,9 +20,9 @@ type CheckConnectionResult struct {
 }
 
 type SlotSnapshotSignal struct {
-	signal    *connpostgres.SlotSignal
-	slotInfo  pglogrepl.CreateReplicationSlotResult
-	connector connectors.Connector
+	signal       *connpostgres.SlotSignal
+	snapshotName string
+	connector    connectors.Connector
 }
 
 type FlowableActivity struct {
@@ -131,14 +130,18 @@ func (a *FlowableActivity) SetupReplication(
 	slotInfo := <-slotSignal.SlotCreated
 	log.Infof("slot '%s' created", slotInfo.SlotName)
 
+	if slotInfo.Err != nil {
+		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
+	}
+
 	if a.SnapshotConnections == nil {
 		a.SnapshotConnections = make(map[string]*SlotSnapshotSignal)
 	}
 
 	a.SnapshotConnections[config.FlowJobName] = &SlotSnapshotSignal{
-		signal:    slotSignal,
-		slotInfo:  slotInfo,
-		connector: conn,
+		signal:       slotSignal,
+		snapshotName: slotInfo.SnapshotName,
+		connector:    conn,
 	}
 
 	return &protos.SetupReplicationOutput{

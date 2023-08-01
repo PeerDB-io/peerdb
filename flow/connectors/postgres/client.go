@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -216,10 +217,24 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 		log.Infof("Created replication slot '%s'", slot)
 		if signal != nil {
-			signal.SlotCreated <- res
-
+			slotDetails := &SlotCreationResult{
+				SlotName:     res.SlotName,
+				SnapshotName: res.SnapshotName,
+				Err:          nil,
+			}
+			signal.SlotCreated <- slotDetails
 			log.Infof("Waiting for clone to complete")
 			<-signal.CloneComplete
+		}
+	} else {
+		log.Infof("Replication slot '%s' already exists", slot)
+		if signal != nil {
+			slotDetails := &SlotCreationResult{
+				SlotName:     slot,
+				SnapshotName: "",
+				Err:          errors.New("slot already exists"),
+			}
+			signal.SlotCreated <- slotDetails
 		}
 	}
 
