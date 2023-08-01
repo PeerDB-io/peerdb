@@ -68,10 +68,10 @@ func (s *SnapshotFlowExecution) cloneTable(
 	destinationTableName string,
 ) error {
 	flowName := s.config.FlowJobName
-	childWorkflowId := fmt.Sprintf("clone-%s-%s", flowName, destinationTableName)
+	childWorkflowID := fmt.Sprintf("clone-%s-%s", flowName, destinationTableName)
 
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:          childWorkflowId,
+		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
 	})
 
@@ -88,13 +88,14 @@ func (s *SnapshotFlowExecution) cloneTable(
 	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", sourceTable)
 
 	config := &protos.QRepConfig{
-		FlowJobName:     childWorkflowId,
-		SourcePeer:      sourcePostgres,
-		DestinationPeer: s.config.Destination,
-		Query:           query,
-		WatermarkColumn: "ctid",
-		WatermarkTable:  sourceTable,
-		InitialCopyOnly: true,
+		FlowJobName:                childWorkflowID,
+		SourcePeer:                 sourcePostgres,
+		DestinationPeer:            s.config.Destination,
+		Query:                      query,
+		WatermarkColumn:            "ctid",
+		WatermarkTable:             sourceTable,
+		InitialCopyOnly:            true,
+		DestinationTableIdentifier: destinationTableName,
 		// TODO (kaushik): these are currently hardcoded, but should be configurable
 		// when setting the peer flow config.
 		NumRowsPerPartition: 10000,

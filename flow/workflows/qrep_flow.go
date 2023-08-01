@@ -2,6 +2,7 @@
 package peerflow
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -127,6 +128,8 @@ func (q *QRepFlowExecution) processPartitions(
 	futures := make(map[workflow.Future]struct{})
 	sel := workflow.NewSelector(ctx)
 
+	var childErrors []error
+
 	for _, partition := range partitions {
 		for len(futures) >= maxParallelWorkers {
 			sel.Select(ctx) // waits until one of the futures is ready
@@ -141,11 +144,21 @@ func (q *QRepFlowExecution) processPartitions(
 		sel.AddFuture(future, func(f workflow.Future) {
 			// When the future is ready, remove it from the map
 			delete(futures, f)
+
+			// If the future failed, log the error
+			if err := f.Get(ctx, nil); err != nil {
+				q.logger.Error("failed to process partition", "error", err)
+				childErrors = append(childErrors, err)
+			}
 		})
 	}
 
 	for len(futures) > 0 {
 		sel.Select(ctx)
+	}
+
+	if len(childErrors) > 0 {
+		return fmt.Errorf("failed to process partitions: %w", errors.Join(childErrors...))
 	}
 
 	q.logger.Info("all partitions in batch processed")

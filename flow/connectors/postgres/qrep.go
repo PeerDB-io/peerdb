@@ -34,7 +34,10 @@ func (c *PostgresConnector) GetQRepPartitions(
 	}
 
 	// begin a transaction
-	tx, err := c.pool.Begin(c.ctx)
+	tx, err := c.pool.BeginTx(c.ctx, pgx.TxOptions{
+		AccessMode: pgx.ReadOnly,
+		IsoLevel:   pgx.RepeatableRead,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}

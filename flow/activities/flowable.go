@@ -21,8 +21,9 @@ type CheckConnectionResult struct {
 }
 
 type SlotSnapshotSignal struct {
-	signal   *connpostgres.SlotSignal
-	slotInfo pglogrepl.CreateReplicationSlotResult
+	signal    *connpostgres.SlotSignal
+	slotInfo  pglogrepl.CreateReplicationSlotResult
+	connector connectors.Connector
 }
 
 type FlowableActivity struct {
@@ -110,18 +111,21 @@ func (a *FlowableActivity) SetupReplication(
 	}
 
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
-	defer connectors.CloseConnector(conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
 	slotSignal := connpostgres.NewSlotSignal()
 
-	pgConn := conn.(*connpostgres.PostgresConnector)
-	err = pgConn.SetupReplication(slotSignal, config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup replication: %w", err)
-	}
+	// This now happens in a goroutine
+	go func() {
+		pgConn := conn.(*connpostgres.PostgresConnector)
+		err = pgConn.SetupReplication(slotSignal, config)
+		if err != nil {
+			log.Errorf("failed to setup replication: %v", err)
+			return
+		}
+	}()
 
 	log.Info("waiting for slot to be created...")
 	slotInfo := <-slotSignal.SlotCreated
@@ -132,8 +136,9 @@ func (a *FlowableActivity) SetupReplication(
 	}
 
 	a.SnapshotConnections[config.FlowJobName] = &SlotSnapshotSignal{
-		signal:   slotSignal,
-		slotInfo: slotInfo,
+		signal:    slotSignal,
+		slotInfo:  slotInfo,
+		connector: conn,
 	}
 
 	return &protos.SetupReplicationOutput{
@@ -150,6 +155,7 @@ func (a *FlowableActivity) CloseSlotKeepAlive(flowJobName string) error {
 
 	if s, ok := a.SnapshotConnections[flowJobName]; ok {
 		s.signal.CloneComplete <- true
+		s.connector.Close()
 	}
 
 	return nil
