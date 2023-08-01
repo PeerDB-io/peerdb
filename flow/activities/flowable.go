@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/jackc/pglogrepl"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -19,8 +20,14 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
+type SlotSnapshotSignal struct {
+	signal   *connpostgres.SlotSignal
+	slotInfo pglogrepl.CreateReplicationSlotResult
+}
+
 type FlowableActivity struct {
-	EnableMetrics bool
+	EnableMetrics       bool
+	SnapshotConnections map[string]*SlotSnapshotSignal
 }
 
 // CheckConnection implements CheckConnection.
@@ -95,17 +102,17 @@ func (a *FlowableActivity) EnsurePullability(
 func (a *FlowableActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
-) error {
+) (*protos.SetupReplicationOutput, error) {
 	dbType := config.PeerConnectionConfig.Type
 	if dbType != protos.DBType_POSTGRES {
 		log.Infof("setup replication is no-op for %s", dbType)
-		return nil
+		return nil, nil
 	}
 
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
 	defer connectors.CloseConnector(conn)
 	if err != nil {
-		return fmt.Errorf("failed to get connector: %w", err)
+		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
 	slotSignal := connpostgres.NewSlotSignal()
@@ -113,17 +120,37 @@ func (a *FlowableActivity) SetupReplication(
 	pgConn := conn.(*connpostgres.PostgresConnector)
 	err = pgConn.SetupReplication(slotSignal, config)
 	if err != nil {
-		return fmt.Errorf("failed to setup replication: %w", err)
+		return nil, fmt.Errorf("failed to setup replication: %w", err)
 	}
 
 	log.Info("waiting for slot to be created...")
 	slotInfo := <-slotSignal.SlotCreated
 	log.Infof("slot '%s' created", slotInfo.SlotName)
 
+	if a.SnapshotConnections == nil {
+		a.SnapshotConnections = make(map[string]*SlotSnapshotSignal)
+	}
 
+	a.SnapshotConnections[config.FlowJobName] = &SlotSnapshotSignal{
+		signal:   slotSignal,
+		slotInfo: slotInfo,
+	}
 
+	return &protos.SetupReplicationOutput{
+		SlotName:     slotInfo.SlotName,
+		SnapshotName: slotInfo.SnapshotName,
+	}, nil
+}
 
-	return nil
+// closes the slot signal
+func (a *FlowableActivity) CloseSlotKeepAlive(flowJobName string) {
+	if a.SnapshotConnections == nil {
+		return
+	}
+
+	if s, ok := a.SnapshotConnections[flowJobName]; ok {
+		s.signal.CloneComplete <- true
+	}
 }
 
 // CreateRawTable creates a raw table in the destination flowable.

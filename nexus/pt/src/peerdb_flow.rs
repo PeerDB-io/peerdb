@@ -121,6 +121,18 @@ pub struct SetupReplicationInput {
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(map="string, string", tag="3")]
     pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// replicate to destination using ctid, start with 50K
+    /// batch size.
+    #[prost(message, optional, tag="4")]
+    pub destination_peer: ::core::option::Option<super::peerdb_peers::Peer>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetupReplicationOutput {
+    #[prost(string, tag="1")]
+    pub slot_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub snapshot_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

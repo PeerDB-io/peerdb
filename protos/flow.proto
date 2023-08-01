@@ -80,6 +80,11 @@ message SetupReplicationInput {
   peerdb_peers.Peer destination_peer = 4;
 }
 
+message SetupReplicationOutput {
+  string slot_name = 1;
+  string snapshot_name = 2;
+}
+
 message CreateRawTableInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
