@@ -62,6 +62,7 @@ func (h *FlowRequestHandler) CreatePeerFlow(
 	}
 
 	state := peerflow.NewStartedPeerFlowState()
+	state.SetupComplete = true
 	_, err = h.temporalClient.ExecuteWorkflow(
 		ctx,                                 // context
 		peerflowWorkflowOptions,             // workflow start options

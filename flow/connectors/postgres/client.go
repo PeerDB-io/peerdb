@@ -182,7 +182,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		if len(strings.Split(srcTableName, ".")) != 2 {
 			return fmt.Errorf("source tables identifier is invalid: %v", srcTableName)
 		}
-		srcTableNames = append(srcTableNames, srcTableName)
+		srcTableNames = append(srcTableNames, fmt.Sprintf("ONLY %s", srcTableName))
 	}
 	tableNameString := strings.Join(srcTableNames, ", ")
 

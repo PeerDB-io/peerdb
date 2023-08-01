@@ -70,6 +70,12 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 		return fmt.Errorf("failed to check source peer connection: %w", err)
 	}
 
+	// then check if replication can be setup on the source [postgres] peer
+	srcConnReplicationStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckReplication, config)
+	if err := srcConnReplicationStatusFuture.Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to check source peer replication status: %w", err)
+	}
+
 	// then check the destination peer connection
 	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Destination)
 	var destConnStatus activities.CheckConnectionResult
