@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -57,6 +58,9 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 2,
+		},
 	})
 
 	// first check the source peer connection
@@ -106,6 +110,9 @@ func (s *SetupFlowExecution) ensurePullability(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 2,
+		},
 	})
 	tmpMap := make(map[uint32]string)
 
@@ -141,6 +148,9 @@ func (s *SetupFlowExecution) createRawTable(
 	s.logger.Info("creating raw table on destination - ", s.PeerFlowName)
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 2,
+		},
 	})
 
 	// attempt to create the tables.
@@ -166,6 +176,9 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 2,
+		},
 	})
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)

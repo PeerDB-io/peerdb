@@ -26,9 +26,26 @@ func NewFlowRequestHandler(temporalClient client.Client) *FlowRequestHandler {
 func (h *FlowRequestHandler) CreatePeerFlow(
 	ctx context.Context, req *protos.CreatePeerFlowRequest) (*protos.CreatePeerFlowResponse, error) {
 	cfg := req.ConnectionConfigs
-	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
+	setupflowWorkflowOptions := client.StartWorkflowOptions{
+		ID:        fmt.Sprintf("%s-setupflow-%s", cfg.FlowJobName, uuid.New()),
+		TaskQueue: shared.PeerFlowTaskQueue,
+	}
+
+	setupFlowFuture, err := h.temporalClient.ExecuteWorkflow(
+		ctx,                        // context
+		setupflowWorkflowOptions,   // workflow start options
+		peerflow.SetupFlowWorkflow, // workflow function
+		cfg,                        // workflow input
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to start SetupFlow workflow: %w", err)
+	}
+	if err = setupFlowFuture.Get(ctx, &cfg); err != nil {
+		return nil, fmt.Errorf("MIRROR setup failed")
+	}
+
+	peerflowWorkflowOptions := client.StartWorkflowOptions{
+		ID:        fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New()),
 		TaskQueue: shared.PeerFlowTaskQueue,
 	}
 
@@ -45,9 +62,9 @@ func (h *FlowRequestHandler) CreatePeerFlow(
 	}
 
 	state := peerflow.NewStartedPeerFlowState()
-	_, err := h.temporalClient.ExecuteWorkflow(
+	_, err = h.temporalClient.ExecuteWorkflow(
 		ctx,                                 // context
-		workflowOptions,                     // workflow start options
+		peerflowWorkflowOptions,             // workflow start options
 		peerflow.PeerFlowWorkflowWithConfig, // workflow function
 		cfg,                                 // workflow input
 		limits,                              // workflow limits
@@ -58,7 +75,7 @@ func (h *FlowRequestHandler) CreatePeerFlow(
 	}
 
 	return &protos.CreatePeerFlowResponse{
-		WorflowId: workflowID,
+		WorflowId: peerflowWorkflowOptions.ID,
 	}, nil
 }
 
