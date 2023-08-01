@@ -47,28 +47,62 @@ func (q *QRecordBatch) Equals(other *QRecordBatch) bool {
 	return true
 }
 
+func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
+	stream := NewQRecordStream(buffer)
+
+	err := stream.SetSchema(q.Schema)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		for _, record := range q.Records {
+			stream.Records <- &QRecordOrError{
+				Record: record,
+			}
+		}
+		close(stream.Records)
+	}()
+
+	return stream, nil
+}
+
 type QRecordBatchCopyFromSource struct {
-	currentIndex int
-	records      *QRecordBatch
-	err          error
+	numRecords    int
+	stream        *QRecordStream
+	currentRecord *QRecordOrError
+	err           error
 }
 
 func NewQRecordBatchCopyFromSource(
-	records *QRecordBatch,
+	stream *QRecordStream,
 ) *QRecordBatchCopyFromSource {
 	return &QRecordBatchCopyFromSource{
-		records: records,
+		numRecords:    0,
+		stream:        stream,
+		currentRecord: nil,
+		err:           nil,
 	}
 }
 
 func (src *QRecordBatchCopyFromSource) Next() bool {
-	return src.currentIndex < len(src.records.Records)
+	rec, ok := <-src.stream.Records
+	if !ok {
+		return false
+	}
+
+	src.currentRecord = rec
+	src.numRecords++
+	return true
 }
 
 func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
-	record := src.records.Records[src.currentIndex]
-	src.currentIndex++
+	if src.currentRecord.Err != nil {
+		src.err = src.currentRecord.Err
+		return nil, src.err
+	}
 
+	record := src.currentRecord.Record
 	numEntries := len(record.Entries)
 
 	values := make([]interface{}, numEntries)
@@ -190,6 +224,10 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		}
 	}
 	return values, nil
+}
+
+func (src *QRecordBatchCopyFromSource) NumRecords() int {
+	return src.numRecords
 }
 
 func (src *QRecordBatchCopyFromSource) Err() error {

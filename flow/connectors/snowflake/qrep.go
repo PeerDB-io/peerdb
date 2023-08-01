@@ -33,7 +33,7 @@ func (c *SnowflakeConnector) PullQRepRecords(config *protos.QRepConfig,
 func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	records *model.QRecordBatch,
+	stream *model.QRecordStream,
 ) (int, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
@@ -59,7 +59,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 		return 0, fmt.Errorf("multi-insert sync mode not supported for snowflake")
 	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
 		avroSync := NewSnowflakeAvroSyncMethod(config, c)
-		return avroSync.SyncQRepRecords(config, partition, tblSchema, records)
+		return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
 	default:
 		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
 	}
