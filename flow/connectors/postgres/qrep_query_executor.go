@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/model"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -129,6 +130,7 @@ func (qe *QRepQueryExecutor) ProcessRowsStream(
 }
 
 func (qe *QRepQueryExecutor) processFetchedRows(
+	query string,
 	tx pgx.Tx,
 	cursorName string,
 	fetchSize int,
@@ -163,8 +165,8 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		stream.Records <- &model.QRecordOrError{
 			Err: rows.Err(),
 		}
-		log.Errorf("[pg_query_executor] row iteration failed: %v", rows.Err())
-		return 0, fmt.Errorf("[pg_query_executor] row iteration failed: %w", rows.Err())
+		log.Errorf("[pg_query_executor] row iteration failed '%s': %v", query, rows.Err())
+		return 0, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, rows.Err())
 	}
 
 	return numRows, nil
@@ -216,6 +218,8 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	query string,
 	args ...interface{},
 ) (int, error) {
+	defer close(stream.Records)
+
 	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
@@ -226,8 +230,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	}
 
 	defer func() {
-		close(stream.Records)
-
 		err := tx.Rollback(qe.ctx)
 		if err != nil && err != pgx.ErrTxClosed {
 			log.Errorf("[pg_query_executor] failed to rollback transaction: %v", err)
@@ -245,7 +247,15 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		}
 	}
 
-	cursorName := "peerdb_cursor"
+	randomUint, err := util.RandomUInt64()
+	if err != nil {
+		stream.Records <- &model.QRecordOrError{
+			Err: fmt.Errorf("failed to generate random uint: %w", err),
+		}
+		return 0, fmt.Errorf("[pg_query_executor] failed to generate random uint: %w", err)
+	}
+
+	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
 	fetchSize := 1024
 
 	_, err = tx.Exec(qe.ctx, fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query), args...)
@@ -259,7 +269,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 
 	totalRecordsFetched := 0
 	for {
-		numRows, err := qe.processFetchedRows(tx, cursorName, fetchSize, stream)
+		numRows, err := qe.processFetchedRows(query, tx, cursorName, fetchSize, stream)
 		if err != nil {
 			return 0, err
 		}
