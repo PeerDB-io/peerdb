@@ -34,7 +34,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	dstTableName string,
 	partition *protos.QRepPartition,
 	dstTableMetadata *bigquery.TableMetadata,
-	records *model.QRecordBatch) (int, error) {
+	stream *model.QRecordStream,
+) (int, error) {
 	bqClient := s.connector.client
 	datasetID := s.connector.datasetID
 	startTime := time.Now()
@@ -65,13 +66,27 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
 	}
 
+	schema, err := stream.Schema()
+	if err != nil {
+		log.Errorf("failed to get schema from stream: %v", err)
+		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
+	}
+
+	numRecords := 0
+
 	// Write each QRecord to the OCF file
-	for _, qRecord := range records.Records {
+	for qRecordOrErr := range stream.Records {
+		if qRecordOrErr.Err != nil {
+			log.Errorf("failed to get record from stream: %v", qRecordOrErr.Err)
+			return 0, fmt.Errorf("failed to get record from stream: %w", qRecordOrErr.Err)
+		}
+
+		qRecord := qRecordOrErr.Record
 		avroConverter := model.NewQRecordAvroConverter(
 			qRecord,
 			qvalue.QDWHTypeBigQuery,
 			&nullable,
-			records.Schema.GetColumnNames(),
+			schema.GetColumnNames(),
 		)
 		avroMap, err := avroConverter.Convert()
 		if err != nil {
@@ -82,6 +97,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		if err != nil {
 			return 0, fmt.Errorf("failed to write record to OCF file: %w", err)
 		}
+
+		numRecords++
 	}
 
 	// Write OCF contents to GCS
@@ -141,7 +158,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName,
-		int64(len(records.Records)), time.Since(syncRecordsStartTime))
+		int64(numRecords), time.Since(syncRecordsStartTime))
 
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {
@@ -150,8 +167,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	}
 
 	log.Printf("pushed %d records to GCS %s/%s and loaded into %s.%s",
-		len(records.Records), s.gcsBucket, gcsObjectName, datasetID, dstTableName)
-	return len(records.Records), nil
+		numRecords, s.gcsBucket, gcsObjectName, datasetID, dstTableName)
+	return numRecords, nil
 }
 
 type AvroField struct {

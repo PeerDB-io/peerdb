@@ -20,7 +20,8 @@ type QRepSyncMethod interface {
 		flowJobName string,
 		dstTableName string,
 		partition *protos.QRepPartition,
-		records *model.QRecordBatch) (int, error)
+		stream *model.QRecordStream,
+	) (int, error)
 }
 
 type QRepStagingTableSync struct {
@@ -31,7 +32,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	flowJobName string,
 	dstTableName *SchemaTable,
 	partition *protos.QRepPartition,
-	records *model.QRecordBatch) (int, error) {
+	stream *model.QRecordStream,
+) (int, error) {
 	partitionID := partition.PartitionId
 	runID, err := util.RandomUInt64()
 	if err != nil {
@@ -61,15 +63,21 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to create staging temporary table %s: %w", stagingTable, err)
 	}
 
+	schema, err := stream.Schema()
+	if err != nil {
+		log.Errorf("failed to get schema from stream: %v", err)
+		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
+	}
+
 	// Step 2: Insert records into the staging table.
-	copySource := model.NewQRecordBatchCopyFromSource(records)
+	copySource := model.NewQRecordBatchCopyFromSource(stream)
 
 	// Perform the COPY FROM operation
 	syncRecordsStartTime := time.Now()
 	syncedRows, err := pool.CopyFrom(
 		context.Background(),
 		pgx.Identifier{stagingTable},
-		records.Schema.GetColumnNames(),
+		schema.GetColumnNames(),
 		copySource,
 	)
 	if err != nil {
@@ -90,7 +98,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		}
 	}()
 
-	colNames := records.Schema.GetColumnNames()
+	colNames := schema.GetColumnNames()
 	// wrap the column names in double quotes to handle reserved keywords
 	for i, colName := range colNames {
 		colNames[i] = fmt.Sprintf("\"%s\"", colName)
@@ -146,7 +154,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to commit transaction: %v", err)
 	}
 
-	numRowsInserted := records.NumRecords
+	numRowsInserted := copySource.NumRecords()
 	log.Printf("pushed %d records to %s", numRowsInserted, dstTableName)
-	return int(numRowsInserted), nil
+	return numRowsInserted, nil
 }

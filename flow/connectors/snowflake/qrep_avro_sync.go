@@ -35,16 +35,22 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
-	records *model.QRecordBatch,
+	stream *model.QRecordStream,
 ) (int, error) {
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
-	avroSchema, err := s.getAvroSchema(dstTableName, records.Schema)
+
+	schema, err := stream.Schema()
+	if err != nil {
+		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
+	}
+
+	avroSchema, err := s.getAvroSchema(dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
 
-	localFilePath, err := s.writeToAvroFile(records, avroSchema, partition.PartitionId)
+	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId)
 	if err != nil {
 		return 0, err
 	}
@@ -56,7 +62,7 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, err
 	}
-	metrics.LogQRepSyncMetrics(s.connector.ctx, config.FlowJobName, int64(len(records.Records)),
+	metrics.LogQRepSyncMetrics(s.connector.ctx, config.FlowJobName, int64(numRecords),
 		time.Since(putFileStartTime))
 
 	err = s.insertMetadata(partition, config.FlowJobName, startTime)
@@ -64,7 +70,7 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		return -1, err
 	}
 
-	return len(records.Records), nil
+	return numRecords, nil
 }
 
 func (s *SnowflakeAvroSyncMethod) getAvroSchema(
@@ -81,39 +87,40 @@ func (s *SnowflakeAvroSyncMethod) getAvroSchema(
 }
 
 func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
-	records *model.QRecordBatch,
+	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
-) (string, error) {
+) (int, string, error) {
+	var numRecords int
 	if s.config.StagingPath == "" {
 		tmpDir, err := os.MkdirTemp("", "peerdb-avro")
 		if err != nil {
-			return "", fmt.Errorf("failed to create temp dir: %w", err)
+			return 0, "", fmt.Errorf("failed to create temp dir: %w", err)
 		}
 
 		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
-		err = avro.WriteRecordsToAvroFile(records, avroSchema, localFilePath)
+		numRecords, err = avro.WriteRecordsToAvroFile(stream, avroSchema, localFilePath)
 		if err != nil {
-			return "", fmt.Errorf("failed to write records to Avro file: %w", err)
+			return 0, "", fmt.Errorf("failed to write records to Avro file: %w", err)
 		}
 
-		return localFilePath, nil
+		return numRecords, localFilePath, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
-			return "", fmt.Errorf("failed to parse staging path: %w", err)
+			return 0, "", fmt.Errorf("failed to parse staging path: %w", err)
 		}
 
 		s3Key := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
-		err = avro.WriteRecordsToS3(records, avroSchema, s3o.Bucket, s3Key)
+		numRecords, err = avro.WriteRecordsToS3(stream, avroSchema, s3o.Bucket, s3Key)
 		if err != nil {
-			return "", fmt.Errorf("failed to write records to S3: %w", err)
+			return 0, "", fmt.Errorf("failed to write records to S3: %w", err)
 		}
 
-		return "", nil
+		return numRecords, "", nil
 	}
 
-	return "", fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
+	return 0, "", fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
 }
 
 func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage string) error {

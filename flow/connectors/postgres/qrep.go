@@ -325,8 +325,10 @@ func (c *PostgresConnector) PullQRepRecords(
 	return records, nil
 }
 
-func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
-	partition *protos.QRepPartition, records *model.QRecordBatch,
+func (c *PostgresConnector) SyncQRepRecords(
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
 ) (int, error) {
 	dstTable, err := parseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
@@ -356,7 +358,7 @@ func (c *PostgresConnector) SyncQRepRecords(config *protos.QRepConfig,
 	switch syncMode {
 	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
 		stagingTableSync := &QRepStagingTableSync{connector: c}
-		return stagingTableSync.SyncQRepRecords(config.FlowJobName, dstTable, partition, records)
+		return stagingTableSync.SyncQRepRecords(config.FlowJobName, dstTable, partition, stream)
 	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
 		return 0, fmt.Errorf("[postgres] SyncQRepRecords not implemented for storage avro sync mode")
 	default:

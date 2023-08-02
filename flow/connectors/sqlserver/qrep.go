@@ -218,7 +218,7 @@ func BuildQuery(query string) (string, error) {
 func (c *SQLServerConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	records *model.QRecordBatch,
+	stream *model.QRecordStream,
 ) (int, error) {
 	panic("not implemented")
 }

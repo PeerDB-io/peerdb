@@ -20,7 +20,7 @@ func (c *EventHubConnector) PullQRepRecords(
 }
 
 func (c *EventHubConnector) SyncQRepRecords(
-	config *protos.QRepConfig, partition *protos.QRepPartition, records *model.QRecordBatch) (int, error) {
+	config *protos.QRepConfig, partition *protos.QRepPartition, records *model.QRecordStream) (int, error) {
 	panic("sync qrep records not implemented for eventhub")
 }
 

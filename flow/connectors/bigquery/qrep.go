@@ -28,7 +28,7 @@ func (c *BigQueryConnector) PullQRepRecords(config *protos.QRepConfig,
 func (c *BigQueryConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	records *model.QRecordBatch,
+	stream *model.QRecordStream,
 ) (int, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
@@ -52,10 +52,10 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	switch syncMode {
 	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
 		stagingTableSync := &QRepStagingTableSync{connector: c}
-		return stagingTableSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, records)
+		return stagingTableSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, stream)
 	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
 		avroSync := &QRepAvroSyncMethod{connector: c, gcsBucket: "peerdb_staging"}
-		return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, records)
+		return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, stream)
 	default:
 		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
 	}
