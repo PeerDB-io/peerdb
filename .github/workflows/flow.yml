@@ -61,6 +61,8 @@ jobs:
           sudo apt-get install -y postgresql-client
           psql -h localhost -p 7132 -U postgres -c "CREATE EXTENSION hstore;"
         working-directory: ./flow
+        env:
+          PGPASSWORD: postgres
 
       - name: run tests
         run: |
