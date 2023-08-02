@@ -64,6 +64,8 @@ type PeerFlowState struct {
 	ActiveSignal shared.PeerFlowSignal
 	// SetupComplete indicates whether the peer flow setup has completed.
 	SetupComplete bool
+	// SyncFlowSnapshotComplete indicates whether the sync flow snapshot has completed.
+	SnapshotComplete bool
 	// Errors encountered during child sync flow executions.
 	SyncFlowErrors error
 	// Errors encountered during child sync flow executions.
@@ -78,6 +80,7 @@ func NewStartedPeerFlowState() *PeerFlowState {
 		NormalizeFlowStatuses: nil,
 		ActiveSignal:          shared.NoopSignal,
 		SetupComplete:         false,
+		SnapshotComplete:      false,
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
 	}
@@ -151,48 +154,6 @@ func GetChildWorkflowID(
 // PeerFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type PeerFlowWorkflowResult = PeerFlowState
 
-// PeerFlowWorkflow is the workflow that executes the specified peer flow.
-// This is the main entry point for the application.
-func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*PeerFlowWorkflowResult, error) {
-	fconn, err := fetchConnectionConfigs(ctx, workflow.GetLogger(ctx), input)
-	if err != nil {
-		return nil, err
-	}
-
-	fconn.FlowJobName = input.PeerFlowName
-
-	peerflowWithConfigID, err := GetChildWorkflowID(ctx, "peer-flow-with-config", input.PeerFlowName)
-	if err != nil {
-		return nil, err
-	}
-
-	peerflowWithConfigOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        peerflowWithConfigID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 2,
-		},
-	}
-
-	limits := &PeerFlowLimits{
-		TotalSyncFlows:      input.TotalSyncFlows,
-		TotalNormalizeFlows: input.TotalNormalizeFlows,
-		MaxBatchSize:        input.MaxBatchSize,
-	}
-
-	state := NewStartedPeerFlowState()
-	peerflowWithConfigCtx := workflow.WithChildOptions(ctx, peerflowWithConfigOpts)
-	peerFlowWithConfigFuture := workflow.ExecuteChildWorkflow(
-		peerflowWithConfigCtx, PeerFlowWorkflowWithConfig, fconn, &limits, state)
-
-	var res PeerFlowWorkflowResult
-	if err := peerFlowWithConfigFuture.Get(peerflowWithConfigCtx, &res); err != nil {
-		return nil, fmt.Errorf("failed to execute child workflow: %w", err)
-	}
-
-	return &res, nil
-}
-
 func PeerFlowWorkflowWithConfig(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
@@ -259,6 +220,11 @@ func PeerFlowWorkflowWithConfig(
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
 
+		state.SetupComplete = true
+		state.Progress = append(state.Progress, "executed setup flow")
+	}
+
+	if !state.SnapshotComplete {
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID, err := GetChildWorkflowID(ctx, "snapshot-flow", cfg.FlowJobName)
 		if err != nil {
@@ -277,8 +243,8 @@ func PeerFlowWorkflowWithConfig(
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
 
-		state.SetupComplete = true
-		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
+		state.SnapshotComplete = true
+		state.Progress = append(state.Progress, "executed snapshot flow")
 	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{

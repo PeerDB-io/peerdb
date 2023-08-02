@@ -272,7 +272,6 @@ func registerWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	// set a 300 second timeout for the workflow to execute a few runs.
 	env.SetTestTimeout(300 * time.Second)
 
-	env.RegisterWorkflow(peerflow.PeerFlowWorkflow)
 	env.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	env.RegisterWorkflow(peerflow.SetupFlowWorkflow)
@@ -672,7 +671,7 @@ func (s *E2EPeerFlowTestSuite) SetupPeerFlowStatusQuery(env *testsuite.TestWorkf
 			err = response.Get(&state)
 			s.NoError(err)
 
-			if state.SetupComplete {
+			if state.SetupComplete && state.SnapshotComplete {
 				fmt.Println("query indicates setup is complete")
 				break
 			}

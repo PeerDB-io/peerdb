@@ -73,7 +73,6 @@ func WorkerMain(opts *WorkerOptions) error {
 	w := worker.New(c, shared.PeerFlowTaskQueue, worker.Options{
 		EnableSessionWorker: true,
 	})
-	w.RegisterWorkflow(peerflow.PeerFlowWorkflow)
 	w.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
 	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	w.RegisterWorkflow(peerflow.SetupFlowWorkflow)

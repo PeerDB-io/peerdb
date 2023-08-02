@@ -99,6 +99,37 @@ func (a *FlowableActivity) EnsurePullability(
 	return relID, nil
 }
 
+func (a *FlowableActivity) CheckReplication(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+) error {
+	if config.Source.Type != protos.DBType_POSTGRES {
+		log.Infof("check replication is no-op for %s", config.Source.Type)
+		return nil
+	}
+
+	conn, err := connectors.GetConnector(ctx, config.Source)
+	if err != nil {
+		return fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(conn)
+	pgConn := conn.(*connpostgres.PostgresConnector)
+	err = pgConn.SetupReplication(nil, &protos.SetupReplicationInput{
+		PeerConnectionConfig: config.Source,
+		FlowJobName:          config.FlowJobName,
+		TableNameMapping:     config.TableNameMapping,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to setup replication: %w", err)
+	}
+	err = pgConn.PullFlowCleanup(config.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup replication on source: %w", err)
+	}
+
+	return nil
+}
+
 func (a *FlowableActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
