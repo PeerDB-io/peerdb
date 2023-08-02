@@ -36,7 +36,7 @@ const (
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
 	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
-	createNormalizedTableSQL    = "CREATE TABLE %s(%s)"
+	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	toVariantColumnName         = "VAR_COLS"
 	mergeStatementSQL           = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (SELECT _PEERDB_UID,
 		_PEERDB_TIMESTAMP,
@@ -64,7 +64,9 @@ const (
 	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET OFFSET=?, SYNC_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET NORMALIZE_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
 
-	checkIfTableExistsSQL       = `SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.columns WHERE table_schema=? and table_name=?`
+	checkIfTableExistsSQL = `SELECT COLUMN_NAME, DATA_TYPE 
+							FROM information_schema.columns 
+							WHERE table_schema=? and table_name=?`
 	checkIfJobMetadataExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
@@ -328,23 +330,32 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
-	tableDataTypes, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
+	destinationColumns, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
 		normalizedTableNameComponents.tableIdentifier)
 	if err != nil {
 		return nil, fmt.Errorf("error occured while checking if normalized table exists: %w", err)
 	}
 
-	if tableDataTypes != nil {
+	if destinationColumns != nil {
 		log.Infoln("found existing normalized table, checking if it matches the desired schema")
-		for _, column := range tableDataTypes {
+		if len(destinationColumns) != len(req.SourceTableSchema.Columns) {
+			return nil, fmt.Errorf("failed to setup normalized table: schemas on both sides differ")
+		}
+		for _, column := range destinationColumns {
 			existingName := strings.ToLower(column.colName)
 			sourceType, ok := req.SourceTableSchema.Columns[existingName]
 			if !ok {
-				return nil, fmt.Errorf("failed to setup normalized table due to non-matching column name: %v", existingName)
+				return nil, fmt.Errorf("failed to setup normalized table:"+
+					"non-matching column name: %v",
+					existingName)
 			}
-			sourceTypeConverted := qValueKindToSnowflakeTypeMap[qvalue.QValueKind(sourceType)]
-			if sourceTypeConverted != column.colType {
-				return nil, fmt.Errorf("failed to setup normalized table: mismatched column %v with destination type %v and source type %v", existingName, column.colType, sourceTypeConverted)
+			sourceTypeConverted := qValueKindToSnowflakeType(qvalue.QValueKind(sourceType))
+			exception := (sourceTypeConverted == "INTEGER" && column.colType == "NUMBER") ||
+				(sourceTypeConverted == "STRING" && column.colType == "TEXT")
+			if sourceTypeConverted != column.colType && !exception {
+				return nil, fmt.Errorf("failed to setup normalized table: mismatched column %v"+
+					" with destination type %v and source type %v",
+					existingName, column.colType, sourceTypeConverted)
 			}
 		}
 		return &protos.SetupNormalizedTableOutput{
@@ -678,8 +689,11 @@ type sfTableColumn struct {
 	colType string
 }
 
-func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) ([]sfTableColumn, error) {
-	rows, err := c.database.QueryContext(c.ctx, checkIfTableExistsSQL, strings.ToUpper(schemaIdentifier), strings.ToUpper(tableIdentifier))
+func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string,
+	tableIdentifier string) ([]sfTableColumn, error) {
+	rows, err := c.database.QueryContext(c.ctx,
+		checkIfTableExistsSQL,
+		strings.ToUpper(schemaIdentifier), strings.ToUpper(tableIdentifier))
 	if err != nil {
 		return nil, err
 	}
