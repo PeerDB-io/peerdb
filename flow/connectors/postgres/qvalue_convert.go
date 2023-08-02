@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -177,11 +178,15 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		boolVal := value.(bool)
 		val = &qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: boolVal}
 	case qvalue.QValueKindJSON:
-		jsonVal := value.(map[string]interface{})
-		val = &qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: jsonVal}
+		jsonMap := value.(map[string]interface{})
+		jsonValString, err := json.Marshal(jsonMap)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse JSON: %w", err)
+		}
+		val = &qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: string(jsonValString)}
 	case qvalue.QValueKindInt16:
 		intVal := value.(int16)
-		val = &qvalue.QValue{Kind: qvalue.QValueKindInt16, Value: intVal}
+		val = &qvalue.QValue{Kind: qvalue.QValueKindInt16, Value: int(intVal)}
 	case qvalue.QValueKindInt32:
 		intVal := value.(int32)
 		val = &qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: intVal}

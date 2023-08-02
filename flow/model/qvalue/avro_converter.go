@@ -73,7 +73,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]interface{}{
-				"type":   "map",
+				"type":   "string",
 				"values": "string",
 			},
 		}, nil
@@ -273,16 +273,16 @@ func (c *QValueAvroConverter) processJSON() (interface{}, error) {
 		return nil, nil
 	}
 
-	jsonMap, ok := c.Value.Value.(map[string]interface{})
+	jsonString, ok := c.Value.Value.(string)
 	if !ok {
 		return nil, fmt.Errorf("invalid JSON value %v", c.Value.Value)
 	}
 
 	if c.Nullable {
-		return goavro.Union("map", jsonMap), nil
+		return goavro.Union("string", jsonString), nil
 	}
 
-	return jsonMap, nil
+	return jsonString, nil
 }
 
 func (c *QValueAvroConverter) processUUID() (interface{}, error) {

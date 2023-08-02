@@ -52,6 +52,7 @@ func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 		"f5 hstore",
 		"f6 json",
 		"f7 jsonb",
+		"f8 smallint",
 	}
 
 	tblFieldStr := strings.Join(tblFields, ",")
@@ -77,8 +78,8 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 							1.2345, false, 12345, '%s',
 							12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
-							ARRAY['varchar1', 'varchar2'], '"hkey"=>"hvalue"', '{"key": "value"}',
-							'{"key": "value"}'
+							ARRAY['varchar1', 'varchar2'], '"hkey"=>"hvalue"', '{"key": 8}',
+							'{"key": "value"}', 15
 					)`,
 			uuid.New().String(), uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
@@ -93,7 +94,7 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
 			) VALUES %s;
 	`, tableName, strings.Join(rows, ",")))
 	require.NoError(s.T(), err)

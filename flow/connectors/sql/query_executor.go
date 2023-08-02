@@ -397,18 +397,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			}
 		}
 
-		// try to convert to a map
-		var v map[string]interface{}
-		err := json.Unmarshal([]byte(vstring), &v)
-		if err == nil {
-			if len(v) == 0 {
-				return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: nil}, nil
-			} else {
-				return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: v}, nil
-			}
-		}
-
-		return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: *vraw}, nil
+		return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: vstring}, nil
 
 	case qvalue.QValueKindHStore:
 		// TODO fix this.

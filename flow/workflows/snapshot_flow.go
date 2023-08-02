@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -72,7 +73,10 @@ func (s *SnapshotFlowExecution) cloneTable(
 	destinationTableName string,
 ) error {
 	flowName := s.config.FlowJobName
-	childWorkflowID := fmt.Sprintf("clone-%s-%s", flowName, destinationTableName)
+
+	childWorkflowID := fmt.Sprintf("clone_%s_%s", flowName, destinationTableName)
+	reg := regexp.MustCompile("[^a-zA-Z0-9]+")
+	childWorkflowID = reg.ReplaceAllString(childWorkflowID, "_")
 
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
@@ -103,7 +107,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		// TODO (kaushik): these are currently hardcoded, but should be configurable
 		// when setting the peer flow config.
 		NumRowsPerPartition: 10000,
-		SyncMode:            protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
+		SyncMode:            protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		MaxParallelWorkers:  8,
 	}
 
