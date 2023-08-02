@@ -53,7 +53,7 @@ func (q *QRepFlowExecution) GetPartitions(
 	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
+		StartToCloseTimeout: 10 * time.Hour,
 	})
 
 	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last)
@@ -71,7 +71,7 @@ func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *
 	q.logger.Info("replicating partition - ", partition.PartitionId)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 15 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 2,
 		},
@@ -172,7 +172,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	q.logger.Info("consolidating partitions")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Hour,
+		StartToCloseTimeout: 24 * time.Hour,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.ConsolidateQRepPartitions, q.config).Get(ctx, nil); err != nil {
