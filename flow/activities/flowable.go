@@ -399,7 +399,12 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 
 	log.Printf("pulled %d records\n", len(recordBatch.Records))
 
-	res, err := destConn.SyncQRepRecords(config, partition, recordBatch)
+	stream, err := recordBatch.ToQRecordStream(1024)
+	if err != nil {
+		return fmt.Errorf("failed to convert to qrecord stream: %w", err)
+	}
+
+	res, err := destConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
 		return fmt.Errorf("failed to sync records: %w", err)
 	}

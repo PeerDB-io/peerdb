@@ -19,7 +19,8 @@ type QRepSyncMethod interface {
 		dstTableName string,
 		partition *protos.QRepPartition,
 		dstTableMetadata *bigquery.TableMetadata,
-		records *model.QRecordBatch) (int, error)
+		stream *model.QRecordStream,
+	) (int, error)
 }
 
 type QRepStagingTableSync struct {
@@ -31,7 +32,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	dstTableName string,
 	partition *protos.QRepPartition,
 	dstTableMetadata *bigquery.TableMetadata,
-	records *model.QRecordBatch) (int, error) {
+	stream *model.QRecordStream,
+) (int, error) {
 	partitionID := partition.PartitionId
 
 	startTime := time.Now()
@@ -69,11 +71,23 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	// get an inserter for the staging table and insert the records
 	inserter := stagingBQTable.Inserter()
 
+	schema, err := stream.Schema()
+	if err != nil {
+		log.Errorf("failed to get schema from stream: %v", err)
+		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
+	}
+
 	// Step 2: Insert records into the staging table.
-	valueSaverRecords := make([]bigquery.ValueSaver, 0, len(records.Records))
-	for _, qRecord := range records.Records {
+	valueSaverRecords := make([]bigquery.ValueSaver, 0)
+	for qRecordOrErr := range stream.Records {
+		if qRecordOrErr.Err != nil {
+			log.Errorf("failed to get record from stream: %v", qRecordOrErr.Err)
+			return 0, fmt.Errorf("failed to get record from stream: %w", qRecordOrErr.Err)
+		}
+
+		qRecord := qRecordOrErr.Record
 		toPut := QRecordValueSaver{
-			ColumnNames: records.Schema.GetColumnNames(),
+			ColumnNames: schema.GetColumnNames(),
 			Record:      qRecord,
 			PartitionID: partitionID,
 			RunID:       runID,
@@ -81,7 +95,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 		valueSaverRecords = append(valueSaverRecords, toPut)
 	}
-	err := inserter.Put(s.connector.ctx, valueSaverRecords)
+
+	err = inserter.Put(s.connector.ctx, valueSaverRecords)
 	if err != nil {
 		return -1, fmt.Errorf("failed to insert records into staging table: %v", err)
 	}
