@@ -56,7 +56,7 @@ const (
 	DELETE`
 
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
-	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
 )
 
 // getRelIDForTable returns the relation ID for a table.

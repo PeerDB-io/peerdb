@@ -255,6 +255,36 @@ impl Catalog {
         }
     }
 
+    pub async fn get_peer_by_id(&self, peer_id: i32) -> anyhow::Result<Peer> {
+        let stmt = self
+            .pg
+            .prepare_typed(
+                "SELECT name, type, options FROM peers WHERE id = $1",
+                &[],
+            )
+            .await?;
+
+        let rows = self.pg.query(&stmt, &[&peer_id]).await?;
+
+        if let Some(row) = rows.first() {
+            let name: String = row.get(0);
+            let peer_type: i32 = row.get(1);
+            let options: Vec<u8> = row.get(2);
+            let db_type = DbType::from_i32(peer_type);
+            let config = self.get_config(db_type, &name, options).await?;
+
+            let peer = Peer {
+                name: name.clone().to_lowercase(),
+                r#type: peer_type,
+                config,
+            };
+
+            Ok(peer)
+        } else {
+            Err(anyhow::anyhow!("No peer with id {} found", peer_id))
+        }
+    }
+
     pub async fn get_config(
         &self,
         db_type: Option<DbType>,
@@ -490,11 +520,11 @@ impl Catalog {
         let destination_peer_id: i32 = first_row.get(2);
 
         let source_peer = self
-            .get_peer(&source_peer_id.to_string())
+            .get_peer_by_id(source_peer_id)
             .await
             .context("unable to get source peer")?;
         let destination_peer = self
-            .get_peer(&destination_peer_id.to_string())
+            .get_peer_by_id(destination_peer_id)
             .await
             .context("unable to get destination peer")?;
 
