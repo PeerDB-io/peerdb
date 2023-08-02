@@ -49,3 +49,11 @@ func (s *QRecordStream) SetSchema(schema *QRecordSchema) error {
 	s.schemaSet = true
 	return nil
 }
+
+func (s *QRecordStream) IsSchemaSet() bool {
+	return s.schemaSet
+}
+
+func (s *QRecordStream) SchemaChan() chan *QRecordSchemaOrError {
+	return s.schema
+}

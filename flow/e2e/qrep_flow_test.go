@@ -59,40 +59,46 @@ func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 }
 
 func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount int) {
+	var rows []string
 	for i := 0; i < rowCount-1; i++ {
-		_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO e2e_test.%s (
-				id, card_id, "from", price, created_at,
-				updated_at, transaction_hash, ownerable_type, ownerable_id,
-				user_nonce, transfer_type, blockchain, deal_type,
-				deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
-				paid_eth_price, card_bought_notified, address, account_id,
-				asset_id, status, transaction_id, settled_at, reference_id,
-				settle_at, settlement_delay_reason
-			) VALUES (
-				'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
-				CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
-				1, 0, 1, 'dealType1',
-				'%s', '%s', false, 1.2345,
-				1.2345, false, 12345, '%s',
-				12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
-				CURRENT_TIMESTAMP, 1
-			);
-		`, tableName, uuid.New().String(), uuid.New().String(), uuid.New().String(),
-			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String()))
-		s.NoError(err)
+		row := fmt.Sprintf(`
+					(
+							'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
+							CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
+							1, 0, 1, 'dealType1',
+							'%s', '%s', false, 1.2345,
+							1.2345, false, 12345, '%s',
+							12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
+							CURRENT_TIMESTAMP, 1
+					)`,
+			uuid.New().String(), uuid.New().String(), uuid.New().String(),
+			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
+		rows = append(rows, row)
 	}
 
-	// add a row where all the nullable fields are null
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO e2e_test.%s (
+					id, card_id, "from", price, created_at,
+					updated_at, transaction_hash, ownerable_type, ownerable_id,
+					user_nonce, transfer_type, blockchain, deal_type,
+					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
+					paid_eth_price, card_bought_notified, address, account_id,
+					asset_id, status, transaction_id, settled_at, reference_id,
+					settle_at, settlement_delay_reason
+			) VALUES %s;
+	`, tableName, strings.Join(rows, ",")))
+	s.NoError(err)
+
+	// add a row where all the nullable fields are null
+	_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO e2e_test.%s (
-		id, "from", created_at, updated_at,
-		transfer_type, blockchain, card_bought_notified, asset_id
+			id, "from", created_at, updated_at,
+			transfer_type, blockchain, card_bought_notified, asset_id
 	) VALUES (
-		'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
-		0, 1, false, 12345
+			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+			0, 1, false, 12345
 	);
-`, tableName, uuid.New().String()))
+	`, tableName, uuid.New().String()))
 	require.NoError(s.T(), err)
 }
 
@@ -427,7 +433,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
 
-	numRows := 1
+	numRows := 10
 
 	srcTable := "test_qrep_flow_avro_pg_1"
 	s.setupSourceTable(srcTable, numRows)

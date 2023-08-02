@@ -3,6 +3,7 @@ package activities
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
@@ -361,16 +362,36 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 
 	log.Printf("replicating partition %s\n", partition.PartitionId)
 
-	recordBatch, err := srcConn.PullQRepRecords(config, partition)
-	if err != nil {
-		return fmt.Errorf("failed to pull records: %w", err)
-	}
+	var stream *model.QRecordStream
+	var wg sync.WaitGroup
+	if config.SourcePeer.Type == protos.DBType_POSTGRES {
+		stream = model.NewQRecordStream(1024)
+		wg.Add(1)
 
-	log.Printf("pulled %d records\n", len(recordBatch.Records))
+		pullPgRecords := func() {
+			pgConn := srcConn.(*connpostgres.PostgresConnector)
+			err = pgConn.PullQRepRecordStream(config, partition, stream)
+			if err != nil {
+				log.Errorf("failed to pull records: %v", err)
+				return
+			}
 
-	stream, err := recordBatch.ToQRecordStream(1024)
-	if err != nil {
-		return fmt.Errorf("failed to convert to qrecord stream: %w", err)
+			wg.Done()
+		}
+
+		go pullPgRecords()
+	} else {
+		recordBatch, err := srcConn.PullQRepRecords(config, partition)
+		if err != nil {
+			return fmt.Errorf("failed to pull records: %w", err)
+		}
+
+		log.Printf("pulled %d records\n", len(recordBatch.Records))
+
+		stream, err = recordBatch.ToQRecordStream(1024)
+		if err != nil {
+			return fmt.Errorf("failed to convert to qrecord stream: %w", err)
+		}
 	}
 
 	res, err := destConn.SyncQRepRecords(config, partition, stream)
@@ -378,6 +399,7 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 		return fmt.Errorf("failed to sync records: %w", err)
 	}
 
+	wg.Wait()
 	log.Printf("pushed %d records\n", res)
 	return nil
 }

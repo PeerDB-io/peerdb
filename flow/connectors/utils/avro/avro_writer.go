@@ -42,8 +42,8 @@ func writeRecordsToOCFWriter(
 	numRows := 0
 	for qRecordOrErr := range stream.Records {
 		if qRecordOrErr.Err != nil {
-			log.Errorf("failed to get record from stream: %v", qRecordOrErr.Err)
-			return 0, fmt.Errorf("failed to get record from stream: %w", qRecordOrErr.Err)
+			log.Errorf("[avro] failed to get record from stream: %v", qRecordOrErr.Err)
+			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 
 		qRecord := qRecordOrErr.Record

@@ -70,7 +70,7 @@ func LogNormalizeMetrics(ctx context.Context, flowJobName string, recordsCount i
 }
 
 func LogQRepPullMetrics(ctx context.Context, flowJobName string,
-	recordBatch *model.QRecordBatch, totalRecordsAtSource int64) {
+	numRecords int, totalRecordsAtSource int64) {
 	if ctx.Value(shared.EnableMetricsKey) != true {
 		return
 	}
@@ -79,7 +79,7 @@ func LogQRepPullMetrics(ctx context.Context, flowJobName string,
 	totalRecordsPulledGauge := metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.total_records_pulled", flowJobName))
 	totalRecordsAtSourceGauge := metricsHandler.Gauge(fmt.Sprintf("qrepflow.%s.records_at_source", flowJobName))
 
-	totalRecordsPulledGauge.Update(float64(len(recordBatch.Records)))
+	totalRecordsPulledGauge.Update(float64(numRecords))
 	totalRecordsAtSourceGauge.Update(float64(totalRecordsAtSource))
 }
 
