@@ -78,7 +78,7 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 			} else if recvOID == uint32(oid.T_tsquery) { // TSQUERY
 				return qvalue.QValueKindString
 			}
-			log.Warnf("failed to get type name for oid: %v", recvOID)
+			// log.Warnf("failed to get type name for oid: %v", recvOID)
 			return qvalue.QValueKindInvalid
 		} else {
 			log.Warnf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name)
@@ -186,7 +186,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		val = &qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: string(jsonValString)}
 	case qvalue.QValueKindInt16:
 		intVal := value.(int16)
-		val = &qvalue.QValue{Kind: qvalue.QValueKindInt16, Value: int(intVal)}
+		val = &qvalue.QValue{Kind: qvalue.QValueKindInt16, Value: int32(intVal)}
 	case qvalue.QValueKindInt32:
 		intVal := value.(int32)
 		val = &qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: intVal}
@@ -321,7 +321,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		}
 		val = &qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: hstoreVal}
 	default:
-		log.Warnf("unhandled QValueKind => %v, parsing as string", qvalueKind)
+		// log.Warnf("unhandled QValueKind => %v, parsing as string", qvalueKind)
 		textVal, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)

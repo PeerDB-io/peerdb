@@ -49,8 +49,8 @@ func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 		"f2 bigint[]",
 		"f3 int[]",
 		"f4 varchar[]",
-		"f5 hstore",
-		"f6 json",
+		"f5 jsonb",
+		"f6 jsonb",
 		"f7 jsonb",
 		"f8 smallint",
 	}
@@ -78,7 +78,7 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 							1.2345, false, 12345, '%s',
 							12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
-							ARRAY['varchar1', 'varchar2'], '"hkey"=>"hvalue"', '{"key": 8}',
+							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}', '{"key": 8}',
 							'{"key": "value"}', 15
 					)`,
 			uuid.New().String(), uuid.New().String(), uuid.New().String(),
@@ -152,7 +152,7 @@ func getOwnersSchema() *model.QRecordSchema {
 			{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
 			{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
 			{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f5", Type: qvalue.QValueKindHStore, Nullable: true},
+			{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 		},

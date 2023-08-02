@@ -80,6 +80,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		schema.GetColumnNames(),
 		copySource,
 	)
+
 	if err != nil {
 		return -1, fmt.Errorf("failed to copy records into staging temporary table: %v", err)
 	}

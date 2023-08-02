@@ -181,6 +181,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			timestampTZ := pgtype.Timestamptz{Time: t, Valid: true}
 			values[i] = timestampTZ
+
 		case qvalue.QValueKindUUID:
 			if qValue.Value == nil {
 				values[i] = nil
@@ -219,6 +220,74 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			date := pgtype.Date{Time: t, Valid: true}
 			values[i] = date
+
+		case qvalue.QValueKindArrayString:
+			v, ok := qValue.Value.([]string)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayString value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[string]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindArrayInt32:
+			v, ok := qValue.Value.([]int32)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayInt32 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[int32]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindArrayInt64:
+			v, ok := qValue.Value.([]int64)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayInt64 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[int64]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindArrayFloat32:
+			v, ok := qValue.Value.([]float32)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayFloat32 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[float32]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindArrayFloat64:
+			v, ok := qValue.Value.([]float64)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayFloat64 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[float64]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindJSON:
+			v, ok := qValue.Value.(string)
+			if !ok {
+				src.err = fmt.Errorf("invalid JSON value")
+				return nil, src.err
+			}
+			values[i] = v
 
 		// And so on for the other types...
 		default:
