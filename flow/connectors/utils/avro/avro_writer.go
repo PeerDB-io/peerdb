@@ -92,7 +92,7 @@ func WriteRecordsToS3(
 	bucketName, key string) (int, error) {
 	r, w := io.Pipe()
 
-	numRowsWritten := make(chan int)
+	numRowsWritten := make(chan int, 1)
 	go func() {
 		defer w.Close()
 

@@ -21,7 +21,7 @@ type QRecordStream struct {
 
 func NewQRecordStream(buffer int) *QRecordStream {
 	return &QRecordStream{
-		schema:      make(chan *QRecordSchemaOrError),
+		schema:      make(chan *QRecordSchemaOrError, 1),
 		Records:     make(chan *QRecordOrError, buffer),
 		schemaSet:   false,
 		schemaCache: nil,
