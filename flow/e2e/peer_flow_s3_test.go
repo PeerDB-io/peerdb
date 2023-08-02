@@ -113,7 +113,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_S3_CTID() {
 	s.NoError(err)
 
 	tblName := "test_qrep_flow_s3_ctid"
-	s.setupSourceTable(tblName, 1000)
+	s.setupSourceTable(tblName, 20000)
 	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE ctid BETWEEN {{.start}} AND {{.end}}", tblName)
 	qrepConfig := s.createQRepWorkflowConfig(
 		jobName,
@@ -124,7 +124,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_S3_CTID() {
 		s.s3Helper.GetPeer(),
 	)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
-	qrepConfig.NumRowsPerPartition = 100
+	qrepConfig.NumRowsPerPartition = 2000
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.WatermarkColumn = "ctid"
 

@@ -321,8 +321,69 @@ func (c *PostgresConnector) PullQRepRecords(
 	if err != nil {
 		return nil, err
 	}
-	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, records, totalRecordsAtSource)
+	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, int(records.NumRecords), totalRecordsAtSource)
 	return records, nil
+}
+
+func (c *PostgresConnector) PullQRepRecordStream(
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
+) error {
+	if partition.FullTablePartition {
+		log.Infof("pulling full table partition for flow job %s", config.FlowJobName)
+		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+		query := config.Query
+		_, err := executor.ExecuteAndProcessQueryStream(stream, query)
+		return err
+	}
+
+	var rangeStart interface{}
+	var rangeEnd interface{}
+
+	// Depending on the type of the range, convert the range into the correct type
+	switch x := partition.Range.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		rangeStart = x.IntRange.Start
+		rangeEnd = x.IntRange.End
+	case *protos.PartitionRange_TimestampRange:
+		rangeStart = x.TimestampRange.Start.AsTime()
+		rangeEnd = x.TimestampRange.End.AsTime()
+	case *protos.PartitionRange_TidRange:
+		rangeStart = pgtype.TID{
+			BlockNumber:  x.TidRange.Start.BlockNumber,
+			OffsetNumber: uint16(x.TidRange.Start.OffsetNumber),
+			Valid:        true,
+		}
+		rangeEnd = pgtype.TID{
+			BlockNumber:  x.TidRange.End.BlockNumber,
+			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
+			Valid:        true,
+		}
+	default:
+		return fmt.Errorf("unknown range type: %v", x)
+	}
+
+	// Build the query to pull records within the range from the source table
+	// Be sure to order the results by the watermark column to ensure consistency across pulls
+	query, err := BuildQuery(config.Query)
+	if err != nil {
+		return err
+	}
+
+	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query, rangeStart, rangeEnd)
+	if err != nil {
+		return err
+	}
+
+	totalRecordsAtSource, err := c.getApproxTableCounts([]string{config.WatermarkTable})
+	if err != nil {
+		return err
+	}
+	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, numRecords, totalRecordsAtSource)
+	log.Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
+	return nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(

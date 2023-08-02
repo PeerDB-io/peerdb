@@ -41,11 +41,12 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 	return rows, nil
 }
 
-func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, query string, args ...interface{}) (pgx.Rows, error) {
-	rows, err := tx.Query(qe.ctx, query, args...)
+func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
+	rows, err := tx.Query(qe.ctx, fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName))
 	if err != nil {
 		return nil, err
 	}
+
 	return rows, nil
 }
 
@@ -99,19 +100,130 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	return batch, nil
 }
 
+func (qe *QRepQueryExecutor) ProcessRowsStream(
+	stream *model.QRecordStream,
+	rows pgx.Rows,
+	fieldDescriptions []pgconn.FieldDescription,
+) (int, error) {
+	numRows := 0
+
+	// Iterate over the rows
+	for rows.Next() {
+		record, err := mapRowToQRecord(rows, fieldDescriptions)
+		if err != nil {
+			stream.Records <- &model.QRecordOrError{
+				Err: fmt.Errorf("failed to map row to QRecord: %w", err),
+			}
+			return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
+		}
+
+		stream.Records <- &model.QRecordOrError{
+			Record: record,
+			Err:    nil,
+		}
+
+		numRows++
+	}
+
+	return numRows, nil
+}
+
+func (qe *QRepQueryExecutor) processFetchedRows(
+	tx pgx.Tx,
+	cursorName string,
+	fetchSize int,
+	stream *model.QRecordStream,
+) (int, error) {
+	rows, err := qe.executeQueryInTx(tx, cursorName, fetchSize)
+	if err != nil {
+		stream.Records <- &model.QRecordOrError{
+			Err: err,
+		}
+		return 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
+	}
+
+	defer rows.Close()
+
+	fieldDescriptions := rows.FieldDescriptions()
+	if !stream.IsSchemaSet() {
+		schema := fieldDescriptionsToSchema(fieldDescriptions)
+		_ = stream.SetSchema(schema)
+	}
+
+	numRows, err := qe.ProcessRowsStream(stream, rows, fieldDescriptions)
+	if err != nil {
+		return 0, fmt.Errorf("failed to process rows: %w", err)
+	}
+
+	rows.Close()
+
+	if rows.Err() != nil {
+		stream.Records <- &model.QRecordOrError{
+			Err: rows.Err(),
+		}
+		return 0, fmt.Errorf("[pg_query_executor] row iteration failed: %w", rows.Err())
+	}
+
+	return numRows, nil
+}
+
 func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	query string,
 	args ...interface{},
 ) (*model.QRecordBatch, error) {
+	stream := model.NewQRecordStream(1024)
+
+	errors := make(chan error, 1)
+	defer close(errors)
+
+	go func() {
+		_, err := qe.ExecuteAndProcessQueryStream(stream, query, args...)
+		if err != nil {
+			log.Errorf("[pg_query_executor] failed to execute and process query stream: %v", err)
+			errors <- err
+		}
+	}()
+
+	select {
+	case err := <-errors:
+		return nil, err
+	case schema := <-stream.SchemaChan():
+		if schema.Err != nil {
+			return nil, fmt.Errorf("failed to get schema from stream: %w", schema.Err)
+		}
+		batch := &model.QRecordBatch{
+			NumRecords: 0,
+			Records:    make([]*model.QRecord, 0),
+			Schema:     schema.Schema,
+		}
+		for record := range stream.Records {
+			if record.Err != nil {
+				batch.Records = append(batch.Records, record.Record)
+			} else {
+				return nil, fmt.Errorf("failed to get record from stream: %w", record.Err)
+			}
+		}
+		batch.NumRecords = uint32(len(batch.Records))
+		return batch, nil
+	}
+}
+
+func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
+	stream *model.QRecordStream,
+	query string,
+	args ...interface{},
+) (int, error) {
 	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
+		return 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
 	defer func() {
+		close(stream.Records)
+
 		err := tx.Rollback(qe.ctx)
 		if err != nil && err != pgx.ErrTxClosed {
 			log.Errorf("[pg_query_executor] failed to rollback transaction: %v", err)
@@ -121,29 +233,47 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	if qe.snapshot != "" {
 		_, err = tx.Exec(qe.ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", qe.snapshot))
 		if err != nil {
-			return nil, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
+			stream.Records <- &model.QRecordOrError{
+				Err: fmt.Errorf("failed to set snapshot: %w", err),
+			}
+			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
 
-	rows, err := qe.executeQueryInTx(tx, query, args...)
+	cursorName := "peerdb_cursor"
+	fetchSize := 1024
+
+	_, err = tx.Exec(qe.ctx, fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query), args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		stream.Records <- &model.QRecordOrError{
+			Err: fmt.Errorf("failed to declare cursor: %w", err),
+		}
+		return 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
 	}
-	defer rows.Close()
 
-	fieldDescriptions := rows.FieldDescriptions()
+	totalRecordsFetched := 0
+	for {
+		numRows, err := qe.processFetchedRows(tx, cursorName, fetchSize, stream)
+		if err != nil {
+			return 0, err
+		}
 
-	batch, err := qe.ProcessRows(rows, fieldDescriptions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process rows: %w", err)
+		totalRecordsFetched += numRows
+
+		if numRows == 0 {
+			break
+		}
 	}
 
 	err = tx.Commit(qe.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
+		stream.Records <- &model.QRecordOrError{
+			Err: fmt.Errorf("failed to commit transaction: %w", err),
+		}
+		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
-	return batch, nil
+	return totalRecordsFetched, nil
 }
 
 func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription) (*model.QRecord, error) {
