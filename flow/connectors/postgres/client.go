@@ -434,8 +434,8 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	return resultMap, nil
 }
 
-func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifier string, unchangedToastColumns []string,
-	rawTableIdentifier string, supportsMerge bool) []string {
+func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifier string,
+	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool) []string {
 	if supportsMerge {
 		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns, rawTableIdentifier)}
 	} else {
@@ -445,7 +445,8 @@ func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifi
 	}
 }
 
-func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string, rawTableIdentifier string) []string {
+func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string,
+	rawTableIdentifier string) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
 
