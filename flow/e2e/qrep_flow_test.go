@@ -433,7 +433,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)
 
-	numRows := 1
+	numRows := 10
 
 	srcTable := "test_qrep_flow_avro_pg_1"
 	s.setupSourceTable(srcTable, numRows)
