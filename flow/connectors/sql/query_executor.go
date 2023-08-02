@@ -3,6 +3,7 @@ package peersql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -362,8 +363,141 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		if v, ok := val.(*[]byte); ok && v != nil {
 			return qvalue.QValue{Kind: kind, Value: *v}, nil
 		}
+
+	case qvalue.QValueKindJSON:
+		vraw := val.(*interface{})
+		vstring := (*vraw).(string)
+
+		if strings.HasPrefix(vstring, "[") {
+			// parse the array
+			var v []interface{}
+			err := json.Unmarshal([]byte(vstring), &v)
+			if err != nil {
+				return qvalue.QValue{}, fmt.Errorf("failed to parse json array: %v", vstring)
+			}
+
+			// assume all elements in the array are of the same type
+			// based on the first element, determine the type
+			if len(v) > 0 {
+				kind := qvalue.QValueKindString
+				switch v[0].(type) {
+				case float32:
+					kind = qvalue.QValueKindArrayFloat32
+				case float64:
+					kind = qvalue.QValueKindArrayFloat64
+				case int32:
+					kind = qvalue.QValueKindArrayInt32
+				case int64:
+					kind = qvalue.QValueKindArrayInt64
+				case string:
+					kind = qvalue.QValueKindArrayString
+				}
+
+				return toQValueArray(kind, v)
+			}
+		}
+
+		// try to convert to a map
+		var v map[string]interface{}
+		err := json.Unmarshal([]byte(vstring), &v)
+		if err == nil {
+			if len(v) == 0 {
+				return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: nil}, nil
+			} else {
+				return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: v}, nil
+			}
+		}
+
+		return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: *vraw}, nil
+
+	case qvalue.QValueKindHStore:
+		// TODO fix this.
+		return qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: val}, nil
+
+	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
+		qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64,
+		qvalue.QValueKindArrayString:
+		// TODO fix this.
+		return toQValueArray(kind, val)
 	}
 
 	// If type is unsupported or doesn't match the specified kind, return error
 	return qvalue.QValue{}, fmt.Errorf("unsupported type %T for kind %s", val, kind)
+}
+
+func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
+	var result interface{}
+	switch kind {
+	case qvalue.QValueKindArrayFloat32:
+		switch v := value.(type) {
+		case []float32:
+			result = v
+		case []interface{}:
+			float32Array := make([]float32, len(v))
+			for i, val := range v {
+				float32Array[i] = val.(float32)
+			}
+			result = float32Array
+		default:
+			return qvalue.QValue{}, fmt.Errorf("failed to parse array float32: %v", value)
+		}
+
+	case qvalue.QValueKindArrayFloat64:
+		switch v := value.(type) {
+		case []float64:
+			result = v
+		case []interface{}:
+			float64Array := make([]float64, len(v))
+			for i, val := range v {
+				float64Array[i] = val.(float64)
+			}
+			result = float64Array
+		default:
+			return qvalue.QValue{}, fmt.Errorf("failed to parse array float64: %v", value)
+		}
+
+	case qvalue.QValueKindArrayInt32:
+		switch v := value.(type) {
+		case []int32:
+			result = v
+		case []interface{}:
+			int32Array := make([]int32, len(v))
+			for i, val := range v {
+				int32Array[i] = val.(int32)
+			}
+			result = int32Array
+		default:
+			return qvalue.QValue{}, fmt.Errorf("failed to parse array int32: %v", value)
+		}
+
+	case qvalue.QValueKindArrayInt64:
+		switch v := value.(type) {
+		case []int64:
+			result = v
+		case []interface{}:
+			int64Array := make([]int64, len(v))
+			for i, val := range v {
+				int64Array[i] = val.(int64)
+			}
+			result = int64Array
+		default:
+			return qvalue.QValue{}, fmt.Errorf("failed to parse array int64: %v", value)
+		}
+
+	case qvalue.QValueKindArrayString:
+		switch v := value.(type) {
+		case []string:
+			result = v
+		case []interface{}:
+			stringArray := make([]string, len(v))
+			for i, val := range v {
+				stringArray[i] = val.(string)
+			}
+			result = stringArray
+		default:
+			return qvalue.QValue{}, fmt.Errorf("failed to parse array string: %v", value)
+		}
+	}
+
+	return qvalue.QValue{Kind: kind, Value: result}, nil
 }

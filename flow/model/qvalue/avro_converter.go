@@ -25,9 +25,6 @@ type QValueKindAvroSchema struct {
 // will return an error.
 //
 // The function currently does not support the following QValueKinds:
-// - QValueKindJSON
-// - QValueKindArray
-// - QValueKindStruct
 // - QValueKindBit
 //
 // Please note that for QValueKindNumeric and QValueKindETime, RespectNull is always
@@ -73,8 +70,53 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 				"type": "string",
 			},
 		}, nil
-	case QValueKindJSON, QValueKindArray, QValueKindStruct:
-		return nil, fmt.Errorf("complex or unsupported types: %s", kind)
+	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
+		return &QValueKindAvroSchema{
+			AvroLogicalSchema: map[string]interface{}{
+				"type":   "map",
+				"values": "string",
+			},
+		}, nil
+	case QValueKindArrayFloat32:
+		return &QValueKindAvroSchema{
+			AvroLogicalSchema: map[string]interface{}{
+				"type":  "array",
+				"items": "float",
+			},
+		}, nil
+	case QValueKindArrayFloat64:
+		return &QValueKindAvroSchema{
+			AvroLogicalSchema: map[string]interface{}{
+				"type":  "array",
+				"items": "double",
+			},
+		}, nil
+	case QValueKindArrayInt32:
+		return &QValueKindAvroSchema{
+			AvroLogicalSchema: map[string]interface{}{
+				"type":  "array",
+				"items": "int",
+			},
+		}, nil
+	case QValueKindArrayInt64:
+		return &QValueKindAvroSchema{
+			AvroLogicalSchema: map[string]interface{}{
+				"type":  "array",
+				"items": "long",
+			},
+		}, nil
+	case QValueKindArrayString:
+		return &QValueKindAvroSchema{
+			AvroLogicalSchema: map[string]interface{}{
+				"type":  "array",
+				"items": "string",
+			},
+		}, nil
+	case QValueKindInvalid:
+		// lets attempt to do invalid as a string
+		return &QValueKindAvroSchema{
+			AvroLogicalSchema: "string",
+		}, nil
 	default:
 		return nil, errors.New("unsupported QValueKind type")
 	}
@@ -97,7 +139,8 @@ func NewQValueAvroConverter(value *QValue, targetDWH QDWHType, nullable bool) *Q
 func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	switch c.Value.Kind {
 	case QValueKindInvalid:
-		return nil, fmt.Errorf("invalid QValueKind: %v", c.Value)
+		// we will attempt to convert invalid to a string
+		return c.processNullableUnion("string", c.Value.Value)
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		t, err := c.processGoTime()
 		if err != nil || t == nil {
@@ -130,8 +173,6 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		return c.processNullableUnion("long", c.Value.Value)
 	case QValueKindBoolean:
 		return c.processNullableUnion("boolean", c.Value.Value)
-	case QValueKindArray:
-		return nil, fmt.Errorf("QValueKindArray not supported")
 	case QValueKindStruct:
 		return nil, fmt.Errorf("QValueKindStruct not supported")
 	case QValueKindNumeric:
@@ -139,11 +180,19 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindBytes, QValueKindBit:
 		return c.processBytes()
 	case QValueKindJSON:
-		jsonString, ok := c.Value.Value.(string)
-		if !ok {
-			return nil, fmt.Errorf("invalid JSON value")
-		}
-		return c.processNullableUnion("string", jsonString)
+		return c.processJSON()
+	case QValueKindHStore:
+		return nil, fmt.Errorf("QValueKindHStore not supported")
+	case QValueKindArrayFloat32:
+		return c.processArrayFloat32()
+	case QValueKindArrayFloat64:
+		return c.processArrayFloat64()
+	case QValueKindArrayInt32:
+		return c.processArrayInt32()
+	case QValueKindArrayInt64:
+		return c.processArrayInt64()
+	case QValueKindArrayString:
+		return c.processArrayString()
 	case QValueKindUUID:
 		return c.processUUID()
 	default:
@@ -219,6 +268,23 @@ func (c *QValueAvroConverter) processBytes() (interface{}, error) {
 	return byteData, nil
 }
 
+func (c *QValueAvroConverter) processJSON() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	jsonMap, ok := c.Value.Value.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid JSON value %v", c.Value.Value)
+	}
+
+	if c.Nullable {
+		return goavro.Union("map", jsonMap), nil
+	}
+
+	return jsonMap, nil
+}
+
 func (c *QValueAvroConverter) processUUID() (interface{}, error) {
 	if c.Value.Value == nil {
 		return nil, nil
@@ -245,4 +311,89 @@ func (c *QValueAvroConverter) processUUID() (interface{}, error) {
 	}
 
 	return uuidString, nil
+}
+
+func (c *QValueAvroConverter) processArrayInt32() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayData, ok := c.Value.Value.([]int32)
+	if !ok {
+		return nil, fmt.Errorf("invalid Int32 array value")
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", arrayData), nil
+	}
+
+	return arrayData, nil
+}
+
+func (c *QValueAvroConverter) processArrayInt64() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayData, ok := c.Value.Value.([]int64)
+	if !ok {
+		return nil, fmt.Errorf("invalid Int64 array value")
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", arrayData), nil
+	}
+
+	return arrayData, nil
+}
+
+func (c *QValueAvroConverter) processArrayFloat32() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayData, ok := c.Value.Value.([]float32)
+	if !ok {
+		return nil, fmt.Errorf("invalid Float32 array value")
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", arrayData), nil
+	}
+
+	return arrayData, nil
+}
+
+func (c *QValueAvroConverter) processArrayFloat64() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayData, ok := c.Value.Value.([]float64)
+	if !ok {
+		return nil, fmt.Errorf("invalid Float64 array value")
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", arrayData), nil
+	}
+
+	return arrayData, nil
+}
+
+func (c *QValueAvroConverter) processArrayString() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayData, ok := c.Value.Value.([]string)
+	if !ok {
+		return nil, fmt.Errorf("invalid String array value")
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", arrayData), nil
+	}
+
+	return arrayData, nil
 }

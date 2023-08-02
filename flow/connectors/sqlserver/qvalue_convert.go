@@ -18,11 +18,18 @@ var qValueKindToSQLServerTypeMap = map[qvalue.QValueKind]string{
 	qvalue.QValueKindDate:        "DATE",
 	qvalue.QValueKindBit:         "BINARY",
 	qvalue.QValueKindBytes:       "VARBINARY(MAX)",
-	qvalue.QValueKindArray:       "NTEXT", // SQL Server doesn't support array type
 	qvalue.QValueKindStruct:      "NTEXT", // SQL Server doesn't support struct type
 	qvalue.QValueKindUUID:        "UNIQUEIDENTIFIER",
 	qvalue.QValueKindTimeTZ:      "NTEXT", // SQL Server doesn't have a time with timezone type
 	qvalue.QValueKindInvalid:     "NTEXT",
+	qvalue.QValueKindHStore:      "NTEXT", // SQL Server doesn't have a native HStore type
+
+	// for all array types, we use NTEXT
+	qvalue.QValueKindArrayFloat32: "NTEXT",
+	qvalue.QValueKindArrayFloat64: "NTEXT",
+	qvalue.QValueKindArrayInt32:   "NTEXT",
+	qvalue.QValueKindArrayInt64:   "NTEXT",
+	qvalue.QValueKindArrayString:  "NTEXT",
 }
 
 var sqlServerTypeToQValueKindMap = map[string]qvalue.QValueKind{

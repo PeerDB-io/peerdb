@@ -45,6 +45,13 @@ func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 		"reference_id VARCHAR",
 		"settle_at TIMESTAMP",
 		"settlement_delay_reason INTEGER",
+		"f1 text[]",
+		"f2 bigint[]",
+		"f3 int[]",
+		"f4 varchar[]",
+		"f5 hstore",
+		"f6 json",
+		"f7 jsonb",
 	}
 
 	tblFieldStr := strings.Join(tblFields, ",")
@@ -69,7 +76,9 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 							'%s', '%s', false, 1.2345,
 							1.2345, false, 12345, '%s',
 							12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
-							CURRENT_TIMESTAMP, 1
+							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
+							ARRAY['varchar1', 'varchar2'], '"hkey"=>"hvalue"', '{"key": "value"}',
+							'{"key": "value"}'
 					)`,
 			uuid.New().String(), uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
@@ -84,10 +93,10 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7
 			) VALUES %s;
 	`, tableName, strings.Join(rows, ",")))
-	s.NoError(err)
+	require.NoError(s.T(), err)
 
 	// add a row where all the nullable fields are null
 	_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -138,6 +147,13 @@ func getOwnersSchema() *model.QRecordSchema {
 			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
+			{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
+			{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
+			{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
+			{Name: "f5", Type: qvalue.QValueKindHStore, Nullable: true},
+			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
+			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 		},
 	}
 }
@@ -235,6 +251,10 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector
 		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
 	}
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
+
+	// sleep for 1 min for debugging
+	// time.Sleep(1 * time.Minute)
+
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
 	require.NoError(s.T(), err)
 
