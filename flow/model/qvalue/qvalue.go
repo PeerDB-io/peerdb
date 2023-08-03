@@ -86,6 +86,10 @@ func (q *QValue) GoTimeConvert() (string, error) {
 }
 
 func compareInt16(value1, value2 interface{}) bool {
+	if value1 == nil && value2 == nil {
+		return true
+	}
+
 	int1, ok1 := getInt16(value1)
 	int2, ok2 := getInt16(value2)
 	return ok1 && ok2 && int1 == int2
@@ -328,6 +332,10 @@ func getInt16(v interface{}) (int16, bool) {
 	switch value := v.(type) {
 	case int16:
 		return value, true
+	case int32:
+		return int16(value), true
+	case int64:
+		return int16(value), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 16)
 		if err == nil {

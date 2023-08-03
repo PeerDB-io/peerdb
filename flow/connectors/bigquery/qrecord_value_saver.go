@@ -50,6 +50,9 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 		k := q.ColumnNames[i]
 		if v.Value == nil {
 			bqValues[k] = nil
+			if qvalue.QValueKindIsArray(v.Kind) {
+				bqValues[k] = make([]interface{}, 0)
+			}
 			continue
 		}
 
@@ -69,11 +72,16 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			bqValues[k] = val
 
 		case qvalue.QValueKindInt16:
-			val, ok := v.Value.(int16)
-			if !ok {
+			switch v.Value.(type) {
+			case int16:
+				bqValues[k] = v.Value
+			case int32:
+				bqValues[k] = int16(v.Value.(int32))
+			case int64:
+				bqValues[k] = int16(v.Value.(int64))
+			default:
 				return nil, "", fmt.Errorf("failed to convert %v to int16", v.Value)
 			}
-			bqValues[k] = val
 
 		case qvalue.QValueKindInt32:
 			val, ok := v.Value.(int32)
@@ -132,6 +140,48 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 			}
 			uuidVal := uuid.UUID(val)
 			bqValues[k] = uuidVal.String()
+
+		case qvalue.QValueKindJSON:
+			val, ok := v.Value.(string)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to string", v.Value)
+			}
+			bqValues[k] = val
+
+		case qvalue.QValueKindArrayFloat32:
+			val, ok := v.Value.([]float32)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to []float32", v.Value)
+			}
+			bqValues[k] = val
+
+		case qvalue.QValueKindArrayFloat64:
+			val, ok := v.Value.([]float64)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to []float64", v.Value)
+			}
+			bqValues[k] = val
+
+		case qvalue.QValueKindArrayInt32:
+			val, ok := v.Value.([]int32)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to []int32", v.Value)
+			}
+			bqValues[k] = val
+
+		case qvalue.QValueKindArrayInt64:
+			val, ok := v.Value.([]int64)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to []int64", v.Value)
+			}
+			bqValues[k] = val
+
+		case qvalue.QValueKindArrayString:
+			val, ok := v.Value.([]string)
+			if !ok {
+				return nil, "", fmt.Errorf("failed to convert %v to []string", v.Value)
+			}
+			bqValues[k] = val
 
 		default:
 			// Skip invalid QValueKind, but log the type for debugging

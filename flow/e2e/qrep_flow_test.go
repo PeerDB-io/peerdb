@@ -155,6 +155,7 @@ func getOwnersSchema() *model.QRecordSchema {
 			{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
+			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
 		},
 	}
 }

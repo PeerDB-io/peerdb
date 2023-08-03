@@ -196,7 +196,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindUUID:
 		return c.processUUID()
 	default:
-		return nil, fmt.Errorf("unsupported QValueKind: %s", c.Value.Kind)
+		return nil, fmt.Errorf("[toavro] unsupported QValueKind: %s", c.Value.Kind)
 	}
 }
 

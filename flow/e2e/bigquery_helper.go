@@ -218,6 +218,49 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 		return qvalue.QValue{Kind: qvalue.QValueKindNumeric, Value: v}, nil
 	case []uint8:
 		return qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: v}, nil
+	case []bigquery.Value:
+		// If the type is an array, we need to convert each element
+		// we can assume all elements are of the same type, let us use first element
+		if len(v) == 0 {
+			return qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}, nil
+		}
+
+		firstElement := v[0]
+		switch firstElement.(type) {
+		case int, int32:
+			var arr []int32
+			for _, val := range v {
+				arr = append(arr, val.(int32))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayInt32, Value: arr}, nil
+		case int64:
+			var arr []int64
+			for _, val := range v {
+				arr = append(arr, val.(int64))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayInt64, Value: arr}, nil
+		case float32:
+			var arr []float32
+			for _, val := range v {
+				arr = append(arr, val.(float32))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayFloat32, Value: arr}, nil
+		case float64:
+			var arr []float64
+			for _, val := range v {
+				arr = append(arr, val.(float64))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayFloat64, Value: arr}, nil
+		case string:
+			var arr []string
+			for _, val := range v {
+				arr = append(arr, val.(string))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayString, Value: arr}, nil
+		}
+
+		// If type is unsupported, return error
+		return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
 	case nil:
 		return qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}, nil
 	default:
@@ -351,6 +394,8 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool
 
 func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 	switch val {
+	case qvalue.QValueKindInt16:
+		return "INT64", nil
 	case qvalue.QValueKindInt32:
 		return "INT64", nil
 	case qvalue.QValueKindInt64:
@@ -369,8 +414,20 @@ func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 		return "BYTES", nil
 	case qvalue.QValueKindNumeric:
 		return "NUMERIC", nil
+	case qvalue.QValueKindArrayString:
+		return "ARRAY<STRING>", nil
+	case qvalue.QValueKindArrayInt32:
+		return "ARRAY<INT64>", nil
+	case qvalue.QValueKindArrayInt64:
+		return "ARRAY<INT64>", nil
+	case qvalue.QValueKindArrayFloat32:
+		return "ARRAY<FLOAT64>", nil
+	case qvalue.QValueKindArrayFloat64:
+		return "ARRAY<FLOAT64>", nil
+	case qvalue.QValueKindJSON:
+		return "STRING", nil
 	default:
-		return "", fmt.Errorf("unsupported QValueKind: %v", val)
+		return "", fmt.Errorf("[bq] unsupported QValueKind: %v", val)
 	}
 }
 

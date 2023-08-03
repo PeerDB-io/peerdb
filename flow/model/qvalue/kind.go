@@ -31,3 +31,16 @@ const (
 	QValueKindArrayInt64   QValueKind = "array_int64"
 	QValueKindArrayString  QValueKind = "array_string"
 )
+
+func QValueKindIsArray(kind QValueKind) bool {
+	switch kind {
+	case QValueKindArrayFloat32,
+		QValueKindArrayFloat64,
+		QValueKindArrayInt32,
+		QValueKindArrayInt64,
+		QValueKindArrayString:
+		return true
+	default:
+		return false
+	}
+}
