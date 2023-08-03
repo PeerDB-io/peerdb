@@ -56,7 +56,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	s.logger.Info("checking connections for peer flow - ", s.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 15 * time.Minute,
 	})
 
 	// first check the source peer connection
@@ -105,7 +105,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	s.logger.Info("ensuring pullability for peer flow - ", s.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 15 * time.Minute,
 	})
 	tmpMap := make(map[uint32]string)
 
@@ -140,7 +140,7 @@ func (s *SetupFlowExecution) createRawTable(
 ) error {
 	s.logger.Info("creating raw table on destination - ", s.PeerFlowName)
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 15 * time.Minute,
 	})
 
 	// attempt to create the tables.
@@ -165,7 +165,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	s.logger.Info("fetching table schema for peer flow - ", s.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 15 * time.Minute,
 	})
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)

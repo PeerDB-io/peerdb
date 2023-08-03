@@ -430,7 +430,6 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 		if dt.Name == "uuid" {
 			// below is required to decode uuid to string
 			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
-
 		} else {
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}

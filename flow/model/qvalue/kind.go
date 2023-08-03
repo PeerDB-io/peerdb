@@ -10,7 +10,6 @@ const (
 	QValueKindInt32       QValueKind = "int32"
 	QValueKindInt64       QValueKind = "int64"
 	QValueKindBoolean     QValueKind = "bool"
-	QValueKindArray       QValueKind = "array"
 	QValueKindStruct      QValueKind = "struct"
 	QValueKindString      QValueKind = "string"
 	QValueKindTimestamp   QValueKind = "timestamp"
@@ -23,4 +22,25 @@ const (
 	QValueKindUUID        QValueKind = "uuid"
 	QValueKindJSON        QValueKind = "json"
 	QValueKindBit         QValueKind = "bit"
+	QValueKindHStore      QValueKind = "hstore"
+
+	// array types
+	QValueKindArrayFloat32 QValueKind = "array_float32"
+	QValueKindArrayFloat64 QValueKind = "array_float64"
+	QValueKindArrayInt32   QValueKind = "array_int32"
+	QValueKindArrayInt64   QValueKind = "array_int64"
+	QValueKindArrayString  QValueKind = "array_string"
 )
+
+func QValueKindIsArray(kind QValueKind) bool {
+	switch kind {
+	case QValueKindArrayFloat32,
+		QValueKindArrayFloat64,
+		QValueKindArrayInt32,
+		QValueKindArrayInt64,
+		QValueKindArrayString:
+		return true
+	default:
+		return false
+	}
+}

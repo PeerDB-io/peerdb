@@ -55,6 +55,15 @@ jobs:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
+      - name: create hstore extension
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          psql -h localhost -p 7132 -U postgres -c "CREATE EXTENSION hstore;"
+        working-directory: ./flow
+        env:
+          PGPASSWORD: postgres
+
       - name: run tests
         run: |
           gotestsum --format testname -- -p 1 ./... -timeout 1200s

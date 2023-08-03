@@ -219,15 +219,26 @@ func DefineAvroSchema(dstTableName string, dstTableMetadata *bigquery.TableMetad
 }
 
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
+	considerRepeated := func(typ string, repeated bool) interface{} {
+		if repeated {
+			return map[string]interface{}{
+				"type":  "array",
+				"items": typ,
+			}
+		} else {
+			return typ
+		}
+	}
+
 	switch bqField.Type {
 	case bigquery.StringFieldType:
-		return "string", nil
+		return considerRepeated("string", bqField.Repeated), nil
 	case bigquery.BytesFieldType:
 		return "bytes", nil
 	case bigquery.IntegerFieldType:
-		return "long", nil
+		return considerRepeated("long", bqField.Repeated), nil
 	case bigquery.FloatFieldType:
-		return "double", nil
+		return considerRepeated("double", bqField.Repeated), nil
 	case bigquery.BooleanFieldType:
 		return "boolean", nil
 	case bigquery.TimestampFieldType:

@@ -508,7 +508,8 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 	for _, fieldDescription := range rows.FieldDescriptions() {
 		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
 		if genericColType == qvalue.QValueKindInvalid {
-			return nil, fmt.Errorf("error converting Postgres OID to QValueKind")
+			// we use string for invalid types
+			genericColType = qvalue.QValueKindString
 		}
 
 		res.Columns[fieldDescription.Name] = string(genericColType)
