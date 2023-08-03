@@ -117,19 +117,28 @@ func (a *FlowableActivity) SetupReplication(
 
 	slotSignal := connpostgres.NewSlotSignal()
 
+	replicationErr := make(chan error)
+	defer close(replicationErr)
+
 	// This now happens in a goroutine
 	go func() {
 		pgConn := conn.(*connpostgres.PostgresConnector)
 		err = pgConn.SetupReplication(slotSignal, config)
 		if err != nil {
 			log.Errorf("failed to setup replication: %v", err)
+			replicationErr <- err
 			return
 		}
 	}()
 
 	log.Info("waiting for slot to be created...")
-	slotInfo := <-slotSignal.SlotCreated
-	log.Infof("slot '%s' created", slotInfo.SlotName)
+	var slotInfo *connpostgres.SlotCreationResult
+	select {
+	case slotInfo = <-slotSignal.SlotCreated:
+		log.Infof("slot '%s' created", slotInfo.SlotName)
+	case err := <-replicationErr:
+		return nil, fmt.Errorf("failed to setup replication: %w", err)
+	}
 
 	if slotInfo.Err != nil {
 		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
