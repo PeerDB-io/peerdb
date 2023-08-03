@@ -191,7 +191,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
 		_, err := c.pool.Exec(c.ctx, stmt)
 		if err != nil {
-			return fmt.Errorf("error creating publication '%s': %w", stmt, err)
+			log.Warnf("Error creating publication '%s': %v", publication, err)
 		}
 	}
 

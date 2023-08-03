@@ -57,8 +57,13 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 	// setup options
 	pluginArguments := []string{
 		"proto_version '1'",
-		fmt.Sprintf("publication_names '%s'", p.publication),
 	}
+
+	if p.publication != "" {
+		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
+		pluginArguments = append(pluginArguments, pubOpt)
+	}
+
 	replicationOpts := pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}
 
 	// create replication connection
