@@ -72,8 +72,6 @@ const (
 	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-
-	syncRecordsChunkSize = 1024
 )
 
 type tableNameComponents struct {
@@ -85,17 +83,6 @@ type SnowflakeConnector struct {
 	ctx                context.Context
 	database           *sql.DB
 	tableSchemaMapping map[string]*protos.TableSchema
-}
-
-type snowflakeRawRecord struct {
-	uid                   string
-	timestamp             int64
-	destinationTableName  string
-	data                  string
-	recordType            int
-	matchData             string
-	batchID               int64
-	unchangedToastColumns string
 }
 
 // creating this to capture array results from snowflake.
@@ -367,6 +354,14 @@ func (c *SnowflakeConnector) PullRecords(req *model.PullRecordsRequest) (*model.
 }
 
 func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	if len(req.Records.Records) == 0 {
+		return &model.SyncResponse{
+			FirstSyncedCheckPointID: 0,
+			LastSyncedCheckPointID:  0,
+			NumRecordsSynced:        0,
+		}, nil
+	}
+
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	log.Printf("pushing %d records to Snowflake table %s", len(req.Records.Records), rawTableIdentifier)
 
@@ -375,14 +370,59 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
 	syncBatchID = syncBatchID + 1
-	records := make([]snowflakeRawRecord, 0)
-	tableNameRowsMapping := make(map[string]uint32)
+	recordStream := model.NewQRecordStream(len(req.Records.Records))
+
+	recordStream.SetSchema(&model.QRecordSchema{
+		Fields: []*model.QField{
+			{
+				Name:     "_peerdb_uid",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_timestamp",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_destination_table_name",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_data",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_record_type",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_match_data",
+				Type:     qvalue.QValueKindString,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_batch_id",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_unchanged_toast_columns",
+				Type:     qvalue.QValueKindString,
+				Nullable: true,
+			},
+		},
+	})
 
 	first := true
 	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
 
 	for _, record := range req.Records.Records {
+		var entries [8]qvalue.QValue
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
 			// json.Marshal converts bytes in Hex automatically to BASE64 string.
@@ -392,17 +432,26 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 			}
 
 			// add insert record to the raw table
-			records = append(records, snowflakeRawRecord{
-				uid:                   uuid.New().String(),
-				timestamp:             time.Now().UnixNano(),
-				destinationTableName:  typedRecord.DestinationTableName,
-				data:                  itemsJSON,
-				recordType:            0,
-				matchData:             "",
-				batchID:               syncBatchID,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			})
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
+			entries[2] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: typedRecord.DestinationTableName,
+			}
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 0,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: "",
+			}
+			entries[7] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
+			}
 		case *model.UpdateRecord:
 			newItemsJSON, err := typedRecord.NewItems.ToJSON()
 			if err != nil {
@@ -414,17 +463,26 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 			}
 
 			// add update record to the raw table
-			records = append(records, snowflakeRawRecord{
-				uid:                   uuid.New().String(),
-				timestamp:             time.Now().UnixNano(),
-				destinationTableName:  typedRecord.DestinationTableName,
-				data:                  newItemsJSON,
-				recordType:            1,
-				matchData:             oldItemsJSON,
-				batchID:               syncBatchID,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			})
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
+			entries[2] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: typedRecord.DestinationTableName,
+			}
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: newItemsJSON,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 1,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: oldItemsJSON,
+			}
+			entries[7] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
+			}
 		case *model.DeleteRecord:
 			itemsJSON, err := typedRecord.Items.ToJSON()
 			if err != nil {
@@ -432,17 +490,26 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 			}
 
 			// append delete record to the raw table
-			records = append(records, snowflakeRawRecord{
-				uid:                   uuid.New().String(),
-				timestamp:             time.Now().UnixNano(),
-				destinationTableName:  typedRecord.DestinationTableName,
-				data:                  itemsJSON,
-				recordType:            2,
-				matchData:             itemsJSON,
-				batchID:               syncBatchID,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			})
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
+			entries[2] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: typedRecord.DestinationTableName,
+			}
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 2,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[7] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
+			}
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
 		}
@@ -451,14 +518,26 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 			firstCP = record.GetCheckPointID()
 			first = false
 		}
-	}
 
-	if len(records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
+		entries[0] = qvalue.QValue{
+			Kind:  qvalue.QValueKindString,
+			Value: uuid.New().String(),
+		}
+		entries[1] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: time.Now().UnixNano(),
+		}
+		entries[6] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: syncBatchID,
+		}
+
+		recordStream.Records <- &model.QRecordOrError{
+			Record: &model.QRecord{
+				NumEntries: 8,
+				Entries:    entries[:],
+			},
+		}
 	}
 
 	// transaction for SyncRecords
@@ -474,19 +553,23 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		}
 	}()
 
-	// inserting records into raw table.
-	numRecords := len(records)
-	startTime := time.Now()
-	for begin := 0; begin < numRecords; begin += syncRecordsChunkSize {
-		end := begin + syncRecordsChunkSize
+	qrepConfig := &protos.QRepConfig{
+		StagingPath: "",
+		FlowJobName: req.FlowJobName,
+		DestinationTableIdentifier: fmt.Sprintf("%s.%s", peerDBInternalSchema,
+			rawTableIdentifier),
+	}
+	avroSyncer := NewSnowflakeAvroSyncMethod(qrepConfig, c)
+	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
+	if err != nil {
+		return nil, err
+	}
 
-		if end > numRecords {
-			end = numRecords
-		}
-		err = c.insertRecordsInRawTable(rawTableIdentifier, records[begin:end], syncRecordsTx)
-		if err != nil {
-			return nil, err
-		}
+	startTime := time.Now()
+	close(recordStream.Records)
+	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, recordStream)
+	if err != nil {
+		return nil, err
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
@@ -504,9 +587,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
 		LastSyncedCheckPointID:  lastCP,
-		NumRecordsSynced:        int64(len(records)),
-		CurrentSyncBatchID:      syncBatchID,
-		TableNameRowsMapping:    tableNameRowsMapping,
+		NumRecordsSynced:        int64(len(req.Records.Records)),
 	}, nil
 }
 
@@ -576,12 +657,12 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		totalRowsAffected += rowsAffected
 	}
 	if totalRowsAffected > 0 {
-		totalRowsAtSource, err := c.getTableCounts(destinationTableNames)
+		totalRowsAtTarget, err := c.getTableCounts(destinationTableNames)
 		if err != nil {
 			return nil, err
 		}
 		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, totalRowsAffected, time.Since(startTime),
-			totalRowsAtSource)
+			totalRowsAtTarget)
 	}
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)
@@ -705,33 +786,9 @@ func generateCreateTableSQLForNormalizedTable(
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
 }
 
-func generateMultiValueInsertSQL(tableIdentifier string, chunkSize int) string {
-	// inferring the width of the raw table from the create table statement
-	rawTableWidth := strings.Count(createRawTableSQL, ",") + 1
-
-	return fmt.Sprintf(rawTableMultiValueInsertSQL, peerDBInternalSchema, tableIdentifier,
-		strings.TrimSuffix(strings.Repeat(fmt.Sprintf("(%s),", strings.TrimSuffix(strings.Repeat("?,", rawTableWidth), ",")), chunkSize), ","))
-}
-
 func getRawTableIdentifier(jobName string) string {
 	jobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(jobName, "_")
 	return fmt.Sprintf("%s_%s", rawTablePrefix, jobName)
-}
-
-func (c *SnowflakeConnector) insertRecordsInRawTable(rawTableIdentifier string,
-	snowflakeRawRecords []snowflakeRawRecord, syncRecordsTx *sql.Tx) error {
-	rawRecordsData := make([]any, 0)
-
-	for _, record := range snowflakeRawRecords {
-		rawRecordsData = append(rawRecordsData, record.uid, record.timestamp, record.destinationTableName,
-			record.data, record.recordType, record.matchData, record.batchID, record.unchangedToastColumns)
-	}
-	_, err := syncRecordsTx.ExecContext(c.ctx,
-		generateMultiValueInsertSQL(rawTableIdentifier, len(snowflakeRawRecords)), rawRecordsData...)
-	if err != nil {
-		return fmt.Errorf("failed to insert record into raw table: %w", err)
-	}
-	return nil
 }
 
 func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableIdentifier string,
@@ -824,7 +881,8 @@ func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
 	return result, nil
 }
 
-func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64, syncRecordsTx *sql.Tx) error {
+func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64,
+	syncBatchID int64, syncRecordsTx *sql.Tx) error {
 	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)

@@ -32,6 +32,54 @@ func NewSnowflakeAvroSyncMethod(
 	}
 }
 
+func (s *SnowflakeAvroSyncMethod) SyncRecords(
+	dstTableSchema []*sql.ColumnType,
+	stream *model.QRecordStream,
+) (int, error) {
+	dstTableName := s.config.DestinationTableIdentifier
+
+	schema, err := stream.Schema()
+	if err != nil {
+		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
+	}
+
+	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+	if err != nil {
+		return 0, err
+	}
+
+	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, "17")
+	if err != nil {
+		return 0, err
+	}
+	log.Infof("written %d records to Avro file", numRecords)
+
+	stage := s.connector.getStageNameForJob(s.config.FlowJobName)
+	err = s.connector.createStage(stage, s.config)
+	if err != nil {
+		return 0, err
+	}
+
+	allCols, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
+	if err != nil {
+		return 0, err
+	}
+
+	err = s.putFileToStage(localFilePath, stage)
+	if err != nil {
+		return 0, err
+	}
+	log.Infof("Pushed avro file to stage")
+
+	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, allCols)
+	if err != nil {
+		return 0, err
+	}
+	log.Infof("copying records into %s from stage %s", s.config.DestinationTableIdentifier, stage)
+
+	return numRecords, nil
+}
+
 func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
