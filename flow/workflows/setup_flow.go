@@ -75,15 +75,6 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	s.logger.Info("ensuring metadata table exists - ", s.PeerFlowName)
 
-	if srcConnStatus.NeedsSetupMetadataTables {
-		fSrc := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Source)
-		if err := fSrc.Get(ctx, nil); err != nil {
-			return fmt.Errorf("failed to setup source peer metadata tables: %w", err)
-		}
-	} else {
-		s.logger.Info("source peer metadata tables already exist")
-	}
-
 	// then setup the destination peer metadata tables
 	if destConnStatus.NeedsSetupMetadataTables {
 		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Destination)

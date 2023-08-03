@@ -66,6 +66,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		PeerConnectionConfig: config.Destination,
 		FlowJobName:          s.PeerFlowName,
 	}
+
 	lastSyncFuture := workflow.ExecuteActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
 	var dstSyncState *protos.LastSyncState
 	if err := lastSyncFuture.Get(syncMetaCtx, &dstSyncState); err != nil {
