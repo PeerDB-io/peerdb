@@ -106,7 +106,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		DestinationTableIdentifier: destinationTableName,
 		// TODO (kaushik): these are currently hardcoded, but should be configurable
 		// when setting the peer flow config.
-		NumRowsPerPartition: 10000,
+		NumRowsPerPartition: 500000,
 		SyncMode:            protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		MaxParallelWorkers:  8,
 	}

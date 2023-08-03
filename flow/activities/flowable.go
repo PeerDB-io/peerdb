@@ -363,9 +363,10 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	log.Printf("replicating partition %s\n", partition.PartitionId)
 
 	var stream *model.QRecordStream
+	bufferSize := 1024 * 16
 	var wg sync.WaitGroup
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
-		stream = model.NewQRecordStream(1024)
+		stream = model.NewQRecordStream(bufferSize)
 		wg.Add(1)
 
 		pullPgRecords := func() {
@@ -388,7 +389,7 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 
 		log.Printf("pulled %d records\n", len(recordBatch.Records))
 
-		stream, err = recordBatch.ToQRecordStream(1024)
+		stream, err = recordBatch.ToQRecordStream(bufferSize)
 		if err != nil {
 			return fmt.Errorf("failed to convert to qrecord stream: %w", err)
 		}
