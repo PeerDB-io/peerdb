@@ -336,6 +336,8 @@ func getInt16(v interface{}) (int16, bool) {
 		return int16(value), true
 	case int64:
 		return int16(value), true
+	case *big.Rat:
+		return int16(value.Num().Int64()), true
 	case string:
 		parsed, err := strconv.ParseInt(value, 10, 16)
 		if err == nil {
