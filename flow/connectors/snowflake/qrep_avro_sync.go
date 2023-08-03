@@ -69,7 +69,7 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	if err != nil {
 		return 0, err
 	}
-	log.Infof("Pushed avro file to stage")
+	log.Infof("pushed avro file to stage")
 
 	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, allCols)
 	if err != nil {

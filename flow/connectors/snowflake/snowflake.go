@@ -191,6 +191,7 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for creating metadata tables: %w", err)
 	}
+
 	return nil
 }
 
@@ -707,6 +708,12 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 		return nil, fmt.Errorf("unable to commit transaction for creation of raw table: %w", err)
 	}
 
+	stage := c.getStageNameForJob(req.FlowJobName)
+	err = c.createStage(stage, &protos.QRepConfig{})
+	if err != nil {
+		return nil, err
+	}
+
 	return &protos.CreateRawTableOutput{
 		TableIdentifier: rawTableIdentifier,
 	}, nil
@@ -750,6 +757,12 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
+
+	err = c.dropStage("", jobName)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
