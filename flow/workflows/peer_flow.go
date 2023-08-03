@@ -292,7 +292,7 @@ func PeerFlowWorkflowWithConfig(
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
 			w.logger.Info("peer flow has been shutdown")
-			break
+			return state, nil
 		}
 
 		// check if total sync flows have been completed
