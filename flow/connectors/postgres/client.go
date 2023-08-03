@@ -272,8 +272,11 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 }
 
 func (c *PostgresConnector) getLastSyncBatchID(jobName string) (int64, error) {
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, internalSchema,
-		mirrorJobsTableIdentifier), jobName)
+	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(
+		getLastSyncBatchID_SQL,
+		internalSchema,
+		mirrorJobsTableIdentifier,
+	), jobName)
 	if err != nil {
 		return 0, fmt.Errorf("error querying Postgres peer for last syncBatchId: %w", err)
 	}
