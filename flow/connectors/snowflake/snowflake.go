@@ -372,7 +372,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	syncBatchID = syncBatchID + 1
 	recordStream := model.NewQRecordStream(len(req.Records.Records))
 
-	recordStream.SetSchema(&model.QRecordSchema{
+	err = recordStream.SetSchema(&model.QRecordSchema{
 		Fields: []*model.QField{
 			{
 				Name:     "_peerdb_uid",
@@ -416,6 +416,9 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 			},
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	first := true
 	var firstCP int64 = 0
