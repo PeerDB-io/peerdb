@@ -163,6 +163,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => false,
                         };
 
+                        let publication_name: Option<String> = match raw_options
+                            .remove("publication_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -170,6 +177,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             table_mappings: flow_job_table_mappings,
                             description: "".to_string(), // TODO: add description
                             do_initial_copy,
+                            publication_name,
                         };
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))

@@ -24,6 +24,8 @@ message FlowConnectionConfigs {
   peerdb_peers.Peer metadata_peer = 8;
   uint32 max_batch_size = 9;
   bool do_initial_copy = 10;
+
+  string publication_name = 11;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }

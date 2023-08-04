@@ -245,6 +245,7 @@ impl NexusBackend {
                             src_peer,
                             dst_peer,
                             flow_job.do_initial_copy,
+                            flow_job.publication_name.clone(),
                         )
                         .await
                         .map_err(|err| {

@@ -24,6 +24,8 @@ type PullRecordsRequest struct {
 	TableNameMapping map[string]string
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
+	// override publication name
+	OverridePublicationName string
 }
 
 type Record interface {

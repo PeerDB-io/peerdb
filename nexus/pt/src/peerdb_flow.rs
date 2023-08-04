@@ -32,6 +32,8 @@ pub struct FlowConnectionConfigs {
     pub max_batch_size: u32,
     #[prost(bool, tag="10")]
     pub do_initial_copy: bool,
+    #[prost(string, tag="11")]
+    pub publication_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

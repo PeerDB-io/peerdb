@@ -123,6 +123,7 @@ impl FlowGrpcClient {
         src: pt::peerdb_peers::Peer,
         dst: pt::peerdb_peers::Peer,
         do_initial_copy: bool,
+        publication_name: Option<String>,
     ) -> anyhow::Result<String> {
         let mut src_dst_name_map: HashMap<String, String> = HashMap::new();
         job.table_mappings.iter().for_each(|mapping| {
@@ -138,6 +139,7 @@ impl FlowGrpcClient {
             flow_job_name: job.name.clone(),
             table_name_mapping: src_dst_name_map,
             do_initial_copy,
+            publication_name: publication_name.unwrap_or_default(),
             ..Default::default()
         };
 
