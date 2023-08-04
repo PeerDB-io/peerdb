@@ -21,7 +21,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	defer pool.Close()
 
 	// Create a new QRepQueryExecutor instance
-	qe := NewQRepQueryExecutor(pool, context.Background())
+	qe := NewQRepQueryExecutor(pool, context.Background(), false)
 
 	// Run the benchmark
 	b.ResetTimer()
