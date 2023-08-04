@@ -373,7 +373,7 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	log.Printf("replicating partition %s\n", partition.PartitionId)
 
 	var stream *model.QRecordStream
-	bufferSize := 1024 * 16
+	bufferSize := 1024 * 512
 	var wg sync.WaitGroup
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
 		stream = model.NewQRecordStream(bufferSize)
