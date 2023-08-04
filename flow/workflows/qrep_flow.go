@@ -4,6 +4,7 @@ package peerflow
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -256,6 +257,16 @@ func QRepFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to get partitions: %w", err)
 	}
+
+	workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		numPartitions := len(partitions.Partitions)
+		if numPartitions > 0 {
+			rand.Shuffle(len(partitions.Partitions), func(i, j int) {
+				partitions.Partitions[i], partitions.Partitions[j] = partitions.Partitions[j], partitions.Partitions[i]
+			})
+		}
+		return nil
+	})
 
 	logger.Info("partitions to replicate - ", len(partitions.Partitions))
 	if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
