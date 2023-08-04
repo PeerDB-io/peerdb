@@ -246,6 +246,8 @@ impl NexusBackend {
                             dst_peer,
                             flow_job.do_initial_copy,
                             flow_job.publication_name.clone(),
+                            flow_job.snapshot_num_rows_per_partition,
+                            flow_job.snapshot_max_parallel_workers,
                         )
                         .await
                         .map_err(|err| {

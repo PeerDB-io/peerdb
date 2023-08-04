@@ -95,6 +95,16 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", sourceTable)
 
+	numWorkers := uint32(8)
+	if s.config.SnapshotMaxParallelWorkers > 0 {
+		numWorkers = s.config.SnapshotMaxParallelWorkers
+	}
+
+	numRowsPerPartition := uint32(500000)
+	if s.config.SnapshotNumRowsPerPartition > 0 {
+		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
+	}
+
 	config := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
 		SourcePeer:                 sourcePostgres,
@@ -106,9 +116,9 @@ func (s *SnapshotFlowExecution) cloneTable(
 		DestinationTableIdentifier: destinationTableName,
 		// TODO (kaushik): these are currently hardcoded, but should be configurable
 		// when setting the peer flow config.
-		NumRowsPerPartition: 500000,
+		NumRowsPerPartition: numRowsPerPartition,
 		SyncMode:            protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
-		MaxParallelWorkers:  8,
+		MaxParallelWorkers:  numWorkers,
 	}
 
 	numPartitionsProcessed := 0

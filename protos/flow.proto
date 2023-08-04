@@ -26,6 +26,8 @@ message FlowConnectionConfigs {
   bool do_initial_copy = 10;
 
   string publication_name = 11;
+  uint32 snapshot_num_rows_per_partition = 12;
+  uint32 snapshot_max_parallel_workers = 13;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }

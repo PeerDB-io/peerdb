@@ -34,6 +34,10 @@ pub struct FlowConnectionConfigs {
     pub do_initial_copy: bool,
     #[prost(string, tag="11")]
     pub publication_name: ::prost::alloc::string::String,
+    #[prost(uint32, tag="12")]
+    pub snapshot_num_rows_per_partition: u32,
+    #[prost(uint32, tag="13")]
+    pub snapshot_max_parallel_workers: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

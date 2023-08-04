@@ -170,6 +170,20 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let snapshot_num_rows_per_partition: Option<u32> = match raw_options
+                            .remove("snapshot_num_rows_per_partition")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
+                        let snapshot_max_parallel_workers: Option<u32> = match raw_options
+                            .remove("snapshot_max_parallel_workers")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -178,6 +192,8 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             description: "".to_string(), // TODO: add description
                             do_initial_copy,
                             publication_name,
+                            snapshot_num_rows_per_partition,
+                            snapshot_max_parallel_workers,
                         };
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
