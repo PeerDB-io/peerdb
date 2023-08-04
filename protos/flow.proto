@@ -205,8 +205,6 @@ message QRepConfig {
   // and instead uses the number of rows per partition to determine
   // how many rows to process per batch.
   uint32 num_rows_per_partition = 16;
-
-  bool use_cursor = 17;
 }
 
 message QRepPartition {
