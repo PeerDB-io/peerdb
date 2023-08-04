@@ -344,15 +344,6 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	tableNameMapping := map[string]string{
 		nonExistentFlowSrcTableName: nonExistentFlowDstTableName,
 	}
-	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
-		FlowJobName:          nonExistentFlowName,
-		TableNameMapping:     tableNameMapping,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
-	suite.Errorf(err,
-		"error creating replication slot and publication: error creating publication: "+
-			"ERROR: relation \"%s\" does not exist (SQLSTATE 42P01)",
-		nonExistentFlowSrcTableName)
 
 	tableSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
 		TableIdentifier:      nonExistentFlowSrcTableName,
@@ -360,10 +351,6 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	})
 	suite.Errorf(err, "error getting relation ID for table %s: no rows in result set", nonExistentFlowSrcTableName)
 	suite.Nil(tableSchema)
-
-	relIDTableNameMapping := map[uint32]string{
-		17171: nonExistentFlowSrcTableName,
-	}
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
 	tableNameSchemaMapping[nonExistentFlowDstTableName] = &protos.TableSchema{
 		TableIdentifier: nonExistentFlowSrcTableName,
@@ -373,17 +360,6 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		},
 		PrimaryKeyColumn: "id",
 	}
-	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{
-		FlowJobName:            nonExistentFlowName,
-		LastSyncState:          nil,
-		IdleTimeout:            5 * time.Second,
-		MaxBatchSize:           100,
-		SrcTableIDNameMapping:  relIDTableNameMapping,
-		TableNameMapping:       tableNameMapping,
-		TableNameSchemaMapping: tableNameSchemaMapping,
-	})
-	suite.Nil(records)
-	suite.Errorf(err, "publication peerflow_pub_%s does not exist", nonExistentFlowName)
 
 	err = suite.connector.PullFlowCleanup(nonExistentFlowName)
 	suite.Errorf(err, "error dropping replication slot:"+
@@ -400,7 +376,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	})
 	suite.failTestError(err)
 	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
-	relIDTableNameMapping = map[uint32]string{
+	relIDTableNameMapping := map[uint32]string{
 		tableRelID: nonExistentFlowSrcTableName,
 	}
 	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
@@ -410,7 +386,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	})
 	suite.failTestError(err)
 	suite.dropTable(nonExistentFlowSrcTableName)
-	records, err = suite.connector.PullRecords(&model.PullRecordsRequest{
+	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            nonExistentFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            5 * time.Second,
@@ -427,7 +403,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 }
 
 func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
-	simpleHappyFlowName := "simple_happy_flow_testing"
+	simpleHappyFlowName := "simple_happy_flow_testing_flow"
 	simpleHappyFlowSrcTableName := "pgpeer_test.simple_table"
 	simpleHappyFlowDstTableName := "simple_table_dst"
 

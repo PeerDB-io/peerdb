@@ -182,9 +182,12 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	if err != nil {
 		return nil, fmt.Errorf("error checking for replication slot and publication: %w", err)
 	}
+
 	if !exists.PublicationExists {
-		return nil, fmt.Errorf("publication %s does not exist", publicationName)
+		log.Warnf("publication %s does not exist", publicationName)
+		publicationName = ""
 	}
+
 	if !exists.SlotExists {
 		return nil, fmt.Errorf("replication slot %s does not exist", slotName)
 	}
@@ -627,14 +630,17 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 			log.Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
 		}
 	}()
+
 	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s", publicationName))
 	if err != nil {
 		return fmt.Errorf("error dropping publication: %w", err)
 	}
+
 	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slotName))
 	if err != nil {
 		return fmt.Errorf("error dropping replication slot: %w", err)
 	}
+
 	err = pullFlowCleanupTx.Commit(c.ctx)
 	if err != nil {
 		return fmt.Errorf("error committing transaction for flow cleanup: %w", err)
