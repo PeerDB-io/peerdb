@@ -59,8 +59,11 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 		"proto_version '1'",
 	}
 
-	if p.publication != "" {
+	if p.publication != "" && req.OverridePublicationName == "" {
 		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
+		pluginArguments = append(pluginArguments, pubOpt)
+	} else {
+		pubOpt := fmt.Sprintf("publication_names '%s'", req.OverridePublicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	}
 

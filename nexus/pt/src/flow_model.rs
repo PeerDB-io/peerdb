@@ -17,6 +17,7 @@ pub struct FlowJob {
     pub table_mappings: Vec<FlowJobTableMapping>,
     pub description: String,
     pub do_initial_copy: bool,
+    pub publication_name: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
