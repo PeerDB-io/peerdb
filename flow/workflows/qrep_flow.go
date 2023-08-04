@@ -15,6 +15,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+const hBatchSize = 200
+
 type QRepFlowExecution struct {
 	config          *protos.QRepConfig
 	flowExecutionID string
@@ -88,9 +90,9 @@ func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *
 }
 
 // getPartitionWorkflowID returns the child workflow ID for a new sync flow.
-func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string, error) {
+func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context, prefix string) (string, error) {
 	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, uuid.New().String())
+		return fmt.Sprintf("%s-%s-%s", prefix, q.config.FlowJobName, uuid.New().String())
 	})
 
 	var childWorkflowID string
@@ -105,7 +107,7 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 func (q *QRepFlowExecution) startChildWorkflow(
 	ctx workflow.Context,
 	partition *protos.QRepPartition) (workflow.Future, error) {
-	wid, err := q.getPartitionWorkflowID(ctx)
+	wid, err := q.getPartitionWorkflowID(ctx, "qrep-part")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
 	}
@@ -118,6 +120,57 @@ func (q *QRepFlowExecution) startChildWorkflow(
 	})
 
 	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partition), nil
+}
+
+// startChildBatchWorkflow starts a single child batch workflow.
+func (q *QRepFlowExecution) startChildBatchWorkflow(
+	ctx workflow.Context,
+	partitions []*protos.QRepPartition) (workflow.Future, error) {
+	wid, err := q.getPartitionWorkflowID(ctx, "qrep-batch")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
+	}
+
+	partFlowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID:        wid,
+		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 2,
+		},
+	})
+
+	return workflow.ExecuteChildWorkflow(partFlowCtx, QRep200PartitionsWorkflow, q.config, partitions), nil
+}
+
+// processPartitions handles the logic for processing the partitions.
+func (q *QRepFlowExecution) processPartitionsBatch(
+	ctx workflow.Context,
+	partitions []*protos.QRepPartition,
+) error {
+	batches := make([][]*protos.QRepPartition, 0)
+
+	for i := 0; i < len(partitions); i += hBatchSize {
+		end := i + hBatchSize
+		if end > len(partitions) {
+			end = len(partitions)
+		}
+		batches = append(batches, partitions[i:end])
+	}
+
+	for _, batch := range batches {
+		f, err := q.startChildBatchWorkflow(ctx, batch)
+		if err != nil {
+			return err
+		}
+
+		if err := f.Get(ctx, nil); err != nil {
+			q.logger.Error("failed to process partition", "error", err)
+			return fmt.Errorf("failed to process batch partitions: %w", err)
+		}
+	}
+
+	q.logger.Info("all batch partitions in batch processed")
+	return nil
 }
 
 // processPartitions handles the logic for processing the partitions.
@@ -210,6 +263,7 @@ func QRepFlowWorkflow(
 	if config.MaxParallelWorkers > 0 {
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
+	config.MaxParallelWorkers = uint32(maxParallelWorkers)
 
 	waitBetweenBatches := 5 * time.Second
 	if config.WaitBetweenBatchesSeconds > 0 {
@@ -269,7 +323,7 @@ func QRepFlowWorkflow(
 	})
 
 	logger.Info("partitions to replicate - ", len(partitions.Partitions))
-	if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
+	if err = q.processPartitionsBatch(ctx, partitions.Partitions); err != nil {
 		return err
 	}
 
@@ -310,6 +364,17 @@ func QRepFlowWorkflow(
 
 	// Continue the workflow with new state
 	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+}
+
+// QRep200PartitionsWorkflow replicates 200 partitions. This is to workaround
+// temporal history size limitations.
+func QRep200PartitionsWorkflow(
+	ctx workflow.Context,
+	config *protos.QRepConfig,
+	partitions []*protos.QRepPartition,
+) error {
+	q := NewQRepFlowExecution(ctx, config)
+	return q.processPartitions(ctx, int(config.MaxParallelWorkers), partitions)
 }
 
 // QRepPartitionWorkflow replicate a single partition.
