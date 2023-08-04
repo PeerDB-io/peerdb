@@ -119,6 +119,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		NumRowsPerPartition: numRowsPerPartition,
 		SyncMode:            protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		MaxParallelWorkers:  numWorkers,
+		UseCursor:           false,
 	}
 
 	numPartitionsProcessed := 0

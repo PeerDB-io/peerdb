@@ -1716,6 +1716,9 @@ impl serde::Serialize for QRepConfig {
         if self.num_rows_per_partition != 0 {
             len += 1;
         }
+        if self.use_cursor {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.QRepConfig", len)?;
         if !self.flow_job_name.is_empty() {
             struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
@@ -1767,6 +1770,9 @@ impl serde::Serialize for QRepConfig {
         if self.num_rows_per_partition != 0 {
             struct_ser.serialize_field("numRowsPerPartition", &self.num_rows_per_partition)?;
         }
+        if self.use_cursor {
+            struct_ser.serialize_field("useCursor", &self.use_cursor)?;
+        }
         struct_ser.end()
     }
 }
@@ -1808,6 +1814,8 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
             "stagingPath",
             "num_rows_per_partition",
             "numRowsPerPartition",
+            "use_cursor",
+            "useCursor",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1828,6 +1836,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
             WriteMode,
             StagingPath,
             NumRowsPerPartition,
+            UseCursor,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1866,6 +1875,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                             "writeMode" | "write_mode" => Ok(GeneratedField::WriteMode),
                             "stagingPath" | "staging_path" => Ok(GeneratedField::StagingPath),
                             "numRowsPerPartition" | "num_rows_per_partition" => Ok(GeneratedField::NumRowsPerPartition),
+                            "useCursor" | "use_cursor" => Ok(GeneratedField::UseCursor),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1901,6 +1911,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                 let mut write_mode__ = None;
                 let mut staging_path__ = None;
                 let mut num_rows_per_partition__ = None;
+                let mut use_cursor__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::FlowJobName => {
@@ -2009,6 +2020,12 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::UseCursor => {
+                            if use_cursor__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("useCursor"));
+                            }
+                            use_cursor__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2031,6 +2048,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                     write_mode: write_mode__,
                     staging_path: staging_path__.unwrap_or_default(),
                     num_rows_per_partition: num_rows_per_partition__.unwrap_or_default(),
+                    use_cursor: use_cursor__.unwrap_or_default(),
                 })
             }
         }

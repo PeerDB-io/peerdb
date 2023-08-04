@@ -49,7 +49,7 @@ func TestNewQRepQueryExecutor(t *testing.T) {
 	defer teardownDB(t, pool, schema)
 
 	ctx := context.Background()
-	qe := NewQRepQueryExecutor(pool, ctx)
+	qe := NewQRepQueryExecutor(pool, ctx, true)
 
 	if qe == nil {
 		t.Fatalf("expected QRepQueryExecutor, got nil")
@@ -63,7 +63,7 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	defer teardownDB(t, pool, schemaName)
 
 	ctx := context.Background()
-	qe := NewQRepQueryExecutor(pool, ctx)
+	qe := NewQRepQueryExecutor(pool, ctx, true)
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)
 	rows, err := qe.ExecuteQuery(query)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestAllDataTypes(t *testing.T) {
 	defer teardownDB(t, pool, schemaName)
 
 	ctx := context.Background()
-	qe := NewQRepQueryExecutor(pool, ctx)
+	qe := NewQRepQueryExecutor(pool, ctx, true)
 
 	// Create a table that contains every data type we want to test
 	query := fmt.Sprintf(`
