@@ -256,7 +256,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	}
 
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
-	fetchSize := 1024 * 512
+	fetchSize := 1024 * 16
 
 	_, err = tx.Exec(qe.ctx, fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query), args...)
 	if err != nil {
