@@ -5,6 +5,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/shared"
+	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -25,9 +26,10 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	}
 	defer c.Close()
 
-	w := worker.New(c, shared.PeerFlowTaskQueue, worker.Options{
+	w := worker.New(c, shared.SnapshotFlowTaskQueue, worker.Options{
 		EnableSessionWorker: true,
 	})
+	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	w.RegisterActivity(&activities.SnapshotActivity{})
 
 	err = w.Run(worker.InterruptCh())

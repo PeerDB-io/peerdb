@@ -1,8 +1,9 @@
 package shared
 
 const (
-	PeerFlowTaskQueue  = "peer-flow-task-queue"
-	PeerFlowSignalName = "peer-flow-signal"
+	PeerFlowTaskQueue     = "peer-flow-task-queue"
+	SnapshotFlowTaskQueue = "snapshot-flow-task-queue"
+	PeerFlowSignalName    = "peer-flow-signal"
 )
 
 type PeerFlowSignal int64

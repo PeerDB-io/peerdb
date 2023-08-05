@@ -270,6 +270,7 @@ func PeerFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 2,
 			},
+			TaskQueue: shared.SnapshotFlowTaskQueue,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)

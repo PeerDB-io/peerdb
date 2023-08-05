@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -67,7 +68,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 }
 
 func (s *SnapshotFlowExecution) cloneTable(
-	ctx workflow.Context,
+	childCtx workflow.Context,
 	snapshotName string,
 	sourceTable string,
 	destinationTableName string,
@@ -78,9 +79,10 @@ func (s *SnapshotFlowExecution) cloneTable(
 	reg := regexp.MustCompile("[^a-zA-Z0-9]+")
 	childWorkflowID = reg.ReplaceAllString(childWorkflowID, "_")
 
-	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+	childCtx = workflow.WithChildOptions(childCtx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
+		TaskQueue:           shared.PeerFlowTaskQueue,
 	})
 
 	lastPartition := &protos.QRepPartition{
@@ -124,13 +126,13 @@ func (s *SnapshotFlowExecution) cloneTable(
 	numPartitionsProcessed := 0
 
 	qrepFuture := workflow.ExecuteChildWorkflow(
-		ctx,
+		childCtx,
 		QRepFlowWorkflow,
 		config,
 		lastPartition,
 		numPartitionsProcessed,
 	)
-	if err := qrepFuture.Get(ctx, nil); err != nil {
+	if err := qrepFuture.Get(childCtx, nil); err != nil {
 		return fmt.Errorf("failed to start child qrep workflow for peer flow: %w", err)
 	}
 

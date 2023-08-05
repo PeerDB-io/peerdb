@@ -75,7 +75,6 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
 	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	w.RegisterWorkflow(peerflow.SetupFlowWorkflow)
-	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	w.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
 	w.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	w.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
