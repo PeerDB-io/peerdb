@@ -13,32 +13,24 @@ import (
 )
 
 type QRepQueryExecutor struct {
-	pool      *pgxpool.Pool
-	ctx       context.Context
-	snapshot  string
-	useCursor bool
+	pool     *pgxpool.Pool
+	ctx      context.Context
+	snapshot string
 }
 
-func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context, useCursor bool) *QRepQueryExecutor {
+func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
-		pool:      pool,
-		ctx:       ctx,
-		snapshot:  "",
-		useCursor: useCursor,
+		pool:     pool,
+		ctx:      ctx,
+		snapshot: "",
 	}
 }
 
-func NewQRepQueryExecutorSnapshot(
-	pool *pgxpool.Pool,
-	ctx context.Context,
-	snapshot string,
-	useCursor bool,
-) *QRepQueryExecutor {
+func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
-		pool:      pool,
-		ctx:       ctx,
-		snapshot:  snapshot,
-		useCursor: useCursor,
+		pool:     pool,
+		ctx:      ctx,
+		snapshot: snapshot,
 	}
 }
 
@@ -255,78 +247,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		}
 	}
 
-	var totalRecordsFetched int
-	if qe.useCursor {
-		totalRecordsFetched, err = qe.executeWithCursor(stream, tx, query, args...)
-		if err != nil {
-			return 0, err
-		}
-	} else {
-		totalRecordsFetched, err = qe.executeDirectly(stream, tx, query, args...)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	err = tx.Commit(qe.ctx)
-	if err != nil {
-		stream.Records <- &model.QRecordOrError{
-			Err: fmt.Errorf("failed to commit transaction: %w", err),
-		}
-		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
-	}
-
-	return totalRecordsFetched, nil
-}
-
-func (qe *QRepQueryExecutor) executeDirectly(
-	stream *model.QRecordStream,
-	tx pgx.Tx,
-	query string,
-	args ...interface{},
-) (int, error) {
-	rows, err := tx.Query(qe.ctx, query, args...)
-	if err != nil {
-		stream.Records <- &model.QRecordOrError{
-			Err: fmt.Errorf("failed to execute query: %w", err),
-		}
-		log.Errorf("[pg_query_executor] failed to execute query: %v", err)
-		return 0, fmt.Errorf("[pg_query_executor] failed to execute query: %w", err)
-	}
-
-	defer rows.Close()
-
-	fieldDescriptions := rows.FieldDescriptions()
-	if !stream.IsSchemaSet() {
-		schema := fieldDescriptionsToSchema(fieldDescriptions)
-		_ = stream.SetSchema(schema)
-	}
-
-	numRows, err := qe.ProcessRowsStream(stream, rows, fieldDescriptions)
-	if err != nil {
-		log.Errorf("[pg_query_executor] failed to process rows: %v", err)
-		return 0, fmt.Errorf("failed to process rows: %w", err)
-	}
-
-	rows.Close()
-
-	if rows.Err() != nil {
-		stream.Records <- &model.QRecordOrError{
-			Err: rows.Err(),
-		}
-		log.Errorf("[pg_query_executor] row iteration failed '%s': %v", query, rows.Err())
-		return 0, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, rows.Err())
-	}
-
-	return numRows, nil
-}
-
-func (qe *QRepQueryExecutor) executeWithCursor(
-	stream *model.QRecordStream,
-	tx pgx.Tx,
-	query string,
-	args ...interface{},
-) (int, error) {
 	randomUint, err := util.RandomUInt64()
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{
@@ -359,6 +279,14 @@ func (qe *QRepQueryExecutor) executeWithCursor(
 		if numRows == 0 {
 			break
 		}
+	}
+
+	err = tx.Commit(qe.ctx)
+	if err != nil {
+		stream.Records <- &model.QRecordOrError{
+			Err: fmt.Errorf("failed to commit transaction: %w", err),
+		}
+		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
 	return totalRecordsFetched, nil
