@@ -81,6 +81,18 @@ func main() {
 				},
 			},
 			{
+				Name: "snapshot-worker",
+				Action: func(ctx *cli.Context) error {
+					temporalHostPort := ctx.String("temporal-host-port")
+					return SnapshotWorkerMain(&SnapshotWorkerOptions{
+						TemporalHostPort: temporalHostPort,
+					})
+				},
+				Flags: []cli.Flag{
+					temporalHostPortFlag,
+				},
+			},
+			{
 				Name: "api",
 				Flags: []cli.Flag{
 					&cli.UintFlag{

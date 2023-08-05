@@ -282,6 +282,7 @@ func registerWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
 	env.RegisterActivity(&activities.FetchConfigActivity{})
 	env.RegisterActivity(&activities.FlowableActivity{})
+	env.RegisterActivity(&activities.SnapshotActivity{})
 }
 
 func (s *E2EPeerFlowTestSuite) Test_Invalid_Connection_Config() {
