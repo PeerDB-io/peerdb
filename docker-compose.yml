@@ -1,4 +1,4 @@
-version: '3.9'
+version: "3.9"
 
 services:
   temporalite:
@@ -22,15 +22,7 @@ services:
     stdin_open: true
     tty: true
     healthcheck:
-      test:
-        [
-          "CMD",
-          "tctl",
-          "--address",
-          "temporalite:7233",
-          "workflow",
-          "list"
-        ]
+      test: ["CMD", "tctl", "--address", "temporalite:7233", "workflow", "list"]
       interval: 1s
       timeout: 5s
       retries: 30
@@ -50,15 +42,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready",
-          "-d",
-          "postgres",
-          "-U",
-          "postgres"
-        ]
+      test: ["CMD-SHELL", "pg_isready", "-d", "postgres", "-U", "postgres"]
       interval: 10s
       timeout: 30s
       retries: 5
@@ -71,6 +55,17 @@ services:
       dockerfile: stacks/flow-api.Dockerfile
     ports:
       - 8112:8112
+    environment:
+      TEMPORAL_HOST_PORT: temporalite:7233
+    depends_on:
+      temporal-admin-tools:
+        condition: service_healthy
+
+  flow_snapshot_worker:
+    container_name: flow_snapshot_worker
+    build:
+      context: .
+      dockerfile: stacks/flow-snapshot-worker.Dockerfile
     environment:
       TEMPORAL_HOST_PORT: temporalite:7233
     depends_on:

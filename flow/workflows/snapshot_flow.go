@@ -37,7 +37,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	}
 
 	res := &protos.SetupReplicationOutput{}
-	setupReplicationFuture := workflow.ExecuteActivity(ctx, flowable.SetupReplication, setupReplicationInput)
+	setupReplicationFuture := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput)
 	if err := setupReplicationFuture.Get(ctx, &res); err != nil {
 		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
@@ -57,7 +57,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 		StartToCloseTimeout: 15 * time.Minute,
 	})
 
-	if err := workflow.ExecuteActivity(ctx, flowable.CloseSlotKeepAlive, flowName).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, snapshot.CloseSlotKeepAlive, flowName).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to close slot keep alive for peer flow: %w", err)
 	}
 

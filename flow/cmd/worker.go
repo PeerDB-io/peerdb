@@ -70,9 +70,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	}
 	defer c.Close()
 
-	w := worker.New(c, shared.PeerFlowTaskQueue, worker.Options{
-		EnableSessionWorker: true,
-	})
+	w := worker.New(c, shared.PeerFlowTaskQueue, worker.Options{})
 	w.RegisterWorkflow(peerflow.PeerFlowWorkflow)
 	w.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
 	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)

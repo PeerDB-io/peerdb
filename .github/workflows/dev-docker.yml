@@ -61,3 +61,13 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/peerdb-io/flow-worker:dev-${{ steps.vars.outputs.sha_short }}
+
+      - name: Build (optionally publish) Flow Snapshot Worker Dev Image
+        uses: depot/build-push-action@v1
+        with:
+          token: ${{ secrets.DEPOT_TOKEN }}
+          context: .
+          file: stacks/flow-snapshot-worker.Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/peerdb-io/flow-snapshot-worker:dev-${{ steps.vars.outputs.sha_short }}
