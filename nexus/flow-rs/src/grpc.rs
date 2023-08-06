@@ -122,10 +122,6 @@ impl FlowGrpcClient {
         job: &FlowJob,
         src: pt::peerdb_peers::Peer,
         dst: pt::peerdb_peers::Peer,
-        do_initial_copy: bool,
-        publication_name: Option<String>,
-        snapshot_num_rows_per_partition: Option<u32>,
-        snapshot_max_parallel_workers: Option<u32>,
     ) -> anyhow::Result<String> {
         let mut src_dst_name_map: HashMap<String, String> = HashMap::new();
         job.table_mappings.iter().for_each(|mapping| {
@@ -134,6 +130,12 @@ impl FlowGrpcClient {
                 mapping.target_table_identifier.clone(),
             );
         });
+
+        let do_initial_copy = job.do_initial_copy;
+        let publication_name = job.publication_name.clone();
+        let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
+        let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
+        let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
 
         let flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
             source: Some(src),
@@ -144,6 +146,7 @@ impl FlowGrpcClient {
             publication_name: publication_name.unwrap_or_default(),
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
             snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
+            snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
             ..Default::default()
         };
 

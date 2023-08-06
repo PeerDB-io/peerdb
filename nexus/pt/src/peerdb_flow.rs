@@ -38,6 +38,8 @@ pub struct FlowConnectionConfigs {
     pub snapshot_num_rows_per_partition: u32,
     #[prost(uint32, tag="13")]
     pub snapshot_max_parallel_workers: u32,
+    #[prost(uint32, tag="14")]
+    pub snapshot_num_tables_in_parallel: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

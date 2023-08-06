@@ -148,6 +148,7 @@ func CopyStageToDestination(
 	copyOpts := []string{
 		"FILE_FORMAT = (TYPE = AVRO)",
 		"MATCH_BY_COLUMN_NAME='CASE_INSENSITIVE'",
+		"PURGE = TRUE",
 	}
 
 	writeHandler := NewSnowflakeAvroWriteHandler(connector, dstTableName, stage, copyOpts)

@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -72,7 +73,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	snapshotName string,
 	sourceTable string,
 	destinationTableName string,
-) error {
+) workflow.Future {
 	flowName := s.config.FlowJobName
 
 	childWorkflowID := fmt.Sprintf("clone_%s_%s", flowName, destinationTableName)
@@ -132,27 +133,52 @@ func (s *SnapshotFlowExecution) cloneTable(
 		lastPartition,
 		numPartitionsProcessed,
 	)
-	if err := qrepFuture.Get(childCtx, nil); err != nil {
-		return fmt.Errorf("failed to start child qrep workflow for peer flow: %w", err)
-	}
 
-	return nil
+	return qrepFuture
 }
 
 // startChildQrepWorkflow starts a child workflow for query based replication.
 func (s *SnapshotFlowExecution) cloneTables(
 	ctx workflow.Context,
 	slotInfo *protos.SetupReplicationOutput,
+	maxParallelClones int,
 ) error {
+	futures := make(map[workflow.Future]struct{})
+	sel := workflow.NewSelector(ctx)
+
+	var childErrors []error
+
 	tablesToReplicate := s.config.TableNameMapping
 
-	var err error
 	for srcTbl, dstTbl := range tablesToReplicate {
-		err = s.cloneTable(ctx, slotInfo.SnapshotName, srcTbl, dstTbl)
-		if err != nil {
-			return fmt.Errorf("failed to start qrep workflow from %s to %s: %w", srcTbl, dstTbl, err)
+		if len(futures) >= maxParallelClones {
+			sel.Select(ctx)
 		}
+
+		future := s.cloneTable(ctx, slotInfo.SnapshotName, srcTbl, dstTbl)
+		futures[future] = struct{}{}
+
+		sel.AddFuture(future, func(f workflow.Future) {
+			delete(futures, f)
+
+			var err error
+			if err = f.Get(ctx, nil); err != nil {
+				s.logger.Error("failed to clone table", "table", srcTbl, "error", err)
+				childErrors = append(childErrors, err)
+			}
+		})
 	}
+
+	for len(futures) > 0 {
+		sel.Select(ctx)
+	}
+
+	if len(childErrors) > 0 {
+		err := errors.Join(childErrors...)
+		return fmt.Errorf("failed to clone tables: %w", err)
+	}
+
+	s.logger.Info("finished cloning tables")
 
 	return nil
 }
@@ -194,7 +220,12 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 	}
 
 	if config.DoInitialCopy {
-		if err := se.cloneTables(ctx, slotInfo); err != nil {
+		numTablesInParallel := int(config.SnapshotNumTablesInParallel)
+		if numTablesInParallel <= 0 {
+			numTablesInParallel = 1
+		}
+
+		if err := se.cloneTables(ctx, slotInfo, numTablesInParallel); err != nil {
 			return fmt.Errorf("failed to finish qrep workflow: %w", err)
 		}
 	}
