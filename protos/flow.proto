@@ -27,7 +27,10 @@ message FlowConnectionConfigs {
 
   string publication_name = 11;
   uint32 snapshot_num_rows_per_partition = 12;
+
+  // max parallel workers is per table
   uint32 snapshot_max_parallel_workers = 13;
+  uint32 snapshot_num_tables_in_parallel = 14;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
