@@ -177,6 +177,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
+                            .remove("snapshot_num_tables_in_parallel")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
                         {
@@ -194,6 +201,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             publication_name,
                             snapshot_num_rows_per_partition,
                             snapshot_max_parallel_workers,
+                            snapshot_num_tables_in_parallel,
                         };
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
