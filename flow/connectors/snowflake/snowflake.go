@@ -345,7 +345,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(req.TableIdentifier, req.SourceTableSchema)
 	_, err = c.database.ExecContext(c.ctx, normalizedTableCreateSQL)
 	if err != nil {
-		return nil, fmt.Errorf("error while creating normalized table: %w", err)
+		return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 	}
 
 	return &protos.SetupNormalizedTableOutput{
@@ -677,14 +677,19 @@ func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableId
 	return result, nil
 }
 
-func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string, sourceTableSchema *protos.TableSchema) string {
+func generateCreateTableSQLForNormalizedTable(
+	sourceTableIdentifier string,
+	sourceTableSchema *protos.TableSchema,
+) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
+	primaryColUpper := strings.ToUpper(sourceTableSchema.PrimaryKeyColumn)
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
-		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s PRIMARY KEY,",
-				columnName, qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
+		columnNameUpper := strings.ToUpper(columnName)
+		if primaryColUpper == columnNameUpper {
+			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s PRIMARY KEY,`,
+				columnNameUpper, qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
 		} else {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s,", columnName,
+			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper,
 				qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
 		}
 	}
@@ -731,10 +736,11 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		sfType := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		targetColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
-				"AS %s,", toVariantColumnName, columnName, columnName))
+				"AS %s,", toVariantColumnName, columnName, targetColumnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
 		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
@@ -742,16 +748,21 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,",
-				toVariantColumnName,
-				columnName, sfType, columnName))
+				toVariantColumnName, columnName, sfType, targetColumnName))
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")
 
-	insertColumnsSQL := strings.TrimSuffix(strings.Join(columnNames, ","), ",")
+	quotedUpperColNames := make([]string, 0, len(columnNames))
+	for _, columnName := range columnNames {
+		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(columnName)))
+	}
+	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
+
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", columnName))
+		quotedUpperColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
+		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", quotedUpperColumnName))
 	}
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
@@ -769,7 +780,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 
 	result, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
-		return 0, fmt.Errorf("failed to merge records into %s: %w", destinationTableIdentifier, err)
+		return 0, fmt.Errorf("failed to merge records into %s (statement: %s): %w",
+			destinationTableIdentifier, mergeStatement, err)
 	}
 
 	return result.RowsAffected()
@@ -886,7 +898,8 @@ func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchanged
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
-			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", colName, colName))
+			quotedUpperColName := fmt.Sprintf(`"%s"`, strings.ToUpper(colName))
+			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", quotedUpperColName, quotedUpperColName))
 		}
 		ssep := strings.Join(tmpArray, ", ")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
