@@ -78,7 +78,8 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 							1.2345, false, 12345, '%s',
 							12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
-							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}', '{"key": 8}',
+							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}',
+							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
 							'{"key": "value"}', 15
 					)`,
 			uuid.New().String(), uuid.New().String(), uuid.New().String(),

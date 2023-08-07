@@ -944,7 +944,7 @@ func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.T(), env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	count1, err := s.bqHelper.CountRows("test1_bq")

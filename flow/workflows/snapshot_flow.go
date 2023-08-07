@@ -1,11 +1,11 @@
 package peerflow
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/concurrency"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/sdk/log"
@@ -143,38 +143,23 @@ func (s *SnapshotFlowExecution) cloneTables(
 	slotInfo *protos.SetupReplicationOutput,
 	maxParallelClones int,
 ) error {
-	futures := make(map[workflow.Future]struct{})
-	sel := workflow.NewSelector(ctx)
+	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
 
-	var childErrors []error
+	for srcTbl, dstTbl := range s.config.TableNameMapping {
+		source := srcTbl
+		future := s.cloneTable(ctx, slotInfo.SnapshotName, source, dstTbl)
 
-	tablesToReplicate := s.config.TableNameMapping
-
-	for srcTbl, dstTbl := range tablesToReplicate {
-		if len(futures) >= maxParallelClones {
-			sel.Select(ctx)
-		}
-
-		future := s.cloneTable(ctx, slotInfo.SnapshotName, srcTbl, dstTbl)
-		futures[future] = struct{}{}
-
-		sel.AddFuture(future, func(f workflow.Future) {
-			delete(futures, f)
-
-			var err error
-			if err = f.Get(ctx, nil); err != nil {
-				s.logger.Error("failed to clone table", "table", srcTbl, "error", err)
-				childErrors = append(childErrors, err)
+		boundSelector.AddFuture(future, func(f workflow.Future) error {
+			if err := f.Get(ctx, nil); err != nil {
+				s.logger.Error("failed to clone table", "table", source, "error", err)
+				return err
 			}
+
+			return nil
 		})
 	}
 
-	for len(futures) > 0 {
-		sel.Select(ctx)
-	}
-
-	if len(childErrors) > 0 {
-		err := errors.Join(childErrors...)
+	if err := boundSelector.Wait(); err != nil {
 		return fmt.Errorf("failed to clone tables: %w", err)
 	}
 
