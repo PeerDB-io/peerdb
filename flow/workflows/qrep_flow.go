@@ -2,11 +2,11 @@
 package peerflow
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/concurrency"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
@@ -126,44 +126,30 @@ func (q *QRepFlowExecution) processPartitions(
 	maxParallelWorkers int,
 	partitions []*protos.QRepPartition,
 ) error {
-	futures := make(map[workflow.Future]struct{})
-	sel := workflow.NewSelector(ctx)
-
-	var childErrors []error
+	boundSelector := concurrency.NewBoundSelector(maxParallelWorkers, ctx)
 
 	for _, partition := range partitions {
-		for len(futures) >= maxParallelWorkers {
-			sel.Select(ctx) // waits until one of the futures is ready
-		}
-
 		future, err := q.startChildWorkflow(ctx, partition)
 		if err != nil {
 			return err
 		}
 
-		futures[future] = struct{}{}
-		sel.AddFuture(future, func(f workflow.Future) {
-			// When the future is ready, remove it from the map
-			delete(futures, f)
-
-			// If the future failed, log the error
+		boundSelector.AddFuture(future, func(f workflow.Future) error {
 			if err := f.Get(ctx, nil); err != nil {
 				q.logger.Error("failed to process partition", "error", err)
-				childErrors = append(childErrors, err)
+				return err
 			}
+
+			return nil
 		})
 	}
 
-	for len(futures) > 0 {
-		sel.Select(ctx)
-	}
-
-	if len(childErrors) > 0 {
-		return fmt.Errorf("failed to process partitions: %w", errors.Join(childErrors...))
+	err := boundSelector.Wait()
+	if err != nil {
+		return fmt.Errorf("failed to process partitions: %w", err)
 	}
 
 	q.logger.Info("all partitions in batch processed")
-
 	return nil
 }
 
