@@ -146,11 +146,12 @@ func (s *SnapshotFlowExecution) cloneTables(
 	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
 
 	for srcTbl, dstTbl := range s.config.TableNameMapping {
-		future := s.cloneTable(ctx, slotInfo.SnapshotName, srcTbl, dstTbl)
+		source := srcTbl
+		future := s.cloneTable(ctx, slotInfo.SnapshotName, source, dstTbl)
 
 		boundSelector.AddFuture(future, func(f workflow.Future) error {
 			if err := f.Get(ctx, nil); err != nil {
-				s.logger.Error("failed to clone table", "table", srcTbl, "error", err)
+				s.logger.Error("failed to clone table", "table", source, "error", err)
 				return err
 			}
 

@@ -104,11 +104,13 @@ func (s *SetupFlowExecution) ensurePullability(
 	boundSelector := concurrency.NewBoundSelector(8, ctx)
 
 	for srcTableName := range config.TableNameMapping {
+		source := srcTableName
+
 		// create EnsurePullabilityInput for the srcTableName
 		ensurePullabilityInput := &protos.EnsurePullabilityInput{
 			PeerConnectionConfig:  config.Source,
 			FlowJobName:           s.PeerFlowName,
-			SourceTableIdentifier: srcTableName,
+			SourceTableIdentifier: source,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
@@ -121,7 +123,7 @@ func (s *SetupFlowExecution) ensurePullability(
 
 			switch typedEnsurePullabilityOutput := ensurePullabilityOutput.TableIdentifier.TableIdentifier.(type) {
 			case *protos.TableIdentifier_PostgresTableIdentifier:
-				tmpMap[typedEnsurePullabilityOutput.PostgresTableIdentifier.RelId] = srcTableName
+				tmpMap[typedEnsurePullabilityOutput.PostgresTableIdentifier.RelId] = source
 			}
 
 			return nil
@@ -168,7 +170,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	s.logger.Info("fetching table schema for peer flow - ", s.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 1 * time.Hour,
 	})
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
@@ -176,23 +178,27 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	boundSelector := concurrency.NewBoundSelector(8, ctx)
 
 	for srcTableName := range flowConnectionConfigs.TableNameMapping {
+		source := srcTableName
+
 		// fetch source table schema for the normalized table setup.
 		tableSchemaInput := &protos.GetTableSchemaInput{
 			PeerConnectionConfig: flowConnectionConfigs.Source,
-			TableIdentifier:      srcTableName,
+			TableIdentifier:      source,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
 		boundSelector.AddFuture(future, func(f workflow.Future) error {
+			s.logger.Info("fetching schema for source table - ", source)
 			var srcTableSchema *protos.TableSchema
 			if err := f.Get(ctx, &srcTableSchema); err != nil {
 				s.logger.Error("failed to fetch schema for source table: ", err)
 				return err
 			}
 
-			dstTableName, ok := flowConnectionConfigs.TableNameMapping[srcTableName]
+			dstTableName, ok := flowConnectionConfigs.TableNameMapping[source]
 			if !ok {
-				return fmt.Errorf("failed to find destination table name for source table %s", srcTableName)
+				s.logger.Error("failed to find destination table name for source table: ", source)
+				return fmt.Errorf("failed to find destination table name for source table %s", source)
 			}
 
 			tableNameSchemaMapping[dstTableName] = srcTableSchema
@@ -201,14 +207,20 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	}
 
 	if err := boundSelector.Wait(); err != nil {
+		s.logger.Error("failed to fetch table schema: ", err)
 		return nil, fmt.Errorf("failed to fetch table schema: %w", err)
 	}
 
+	s.logger.Info("setting up normalized tables for peer flow - ",
+		s.PeerFlowName, flowConnectionConfigs.TableNameMapping, tableNameSchemaMapping)
+
+	boundSelector = concurrency.NewBoundSelector(8, ctx)
 	// now setup the normalized tables on the destination peer
-	for srcTableName := range flowConnectionConfigs.TableNameMapping {
-		dstTableName := flowConnectionConfigs.TableNameMapping[srcTableName]
-		srcTableSchema, ok := tableNameSchemaMapping[dstTableName]
+	for srcTableName, dstTable := range flowConnectionConfigs.TableNameMapping {
+		s.logger.Info("setting up normalized table for peer flow - ", s.PeerFlowName, "table", srcTableName)
+		srcTableSchema, ok := tableNameSchemaMapping[dstTable]
 		if !ok {
+			s.logger.Error("failed to find table schema for table table: ", srcTableSchema, dstTable)
 			return nil, fmt.Errorf("failed to find table schema for source table %s", srcTableName)
 		}
 
@@ -227,16 +239,19 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 				return err
 			}
 
-			s.logger.Info("set up normalized table for source table %s, dest table %s and peer flow %s",
-				srcTableName, flowConnectionConfigs.TableNameMapping[srcTableName], s.PeerFlowName)
+			msg := fmt.Sprintf("normalized table %s setup", setupOutput.TableIdentifier)
+			s.logger.Info(msg)
 			return nil
 		})
 	}
 
+	s.logger.Info("waiting for normalized tables to be setup for peer flow - ", s.PeerFlowName)
 	if err := boundSelector.Wait(); err != nil {
+		s.logger.Error("failed to setup normalized tables: ", err)
 		return nil, fmt.Errorf("failed to setup normalized tables: %w", err)
 	}
 
+	s.logger.Info("finished setting up normalized tables for peer flow - ", s.PeerFlowName)
 	return tableNameSchemaMapping, nil
 }
 

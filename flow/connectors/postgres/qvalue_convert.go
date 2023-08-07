@@ -126,6 +126,14 @@ func qValueKindToPostgresType(qvalueKind string) string {
 	}
 }
 
+func parseJSON(value interface{}) (*qvalue.QValue, error) {
+	jsonVal, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+	return &qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: string(jsonVal)}, nil
+}
+
 func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (*qvalue.QValue, error) {
 	var val *qvalue.QValue = nil
 
@@ -178,12 +186,11 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		boolVal := value.(bool)
 		val = &qvalue.QValue{Kind: qvalue.QValueKindBoolean, Value: boolVal}
 	case qvalue.QValueKindJSON:
-		jsonMap := value.(map[string]interface{})
-		jsonValString, err := json.Marshal(jsonMap)
+		tmp, err := parseJSON(value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)
 		}
-		val = &qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: string(jsonValString)}
+		val = tmp
 	case qvalue.QValueKindInt16:
 		intVal := value.(int16)
 		val = &qvalue.QValue{Kind: qvalue.QValueKindInt16, Value: int32(intVal)}
