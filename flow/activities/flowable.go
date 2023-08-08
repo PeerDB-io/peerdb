@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -227,9 +228,11 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context,
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
+	shutdownCh := utils.HeartbeatRoutine(ctx, 1*time.Second)
 	log.Info("initializing table schema...")
 	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
+		shutdownCh <- true
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
 	}
 
@@ -237,11 +240,13 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context,
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 	})
 	if err != nil {
+		shutdownCh <- true
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
 	}
 
 	// log the number of batches normalized
 	if res != nil {
+		shutdownCh <- true
 		log.Printf("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID)
 	}
 
@@ -349,8 +354,10 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
-
-	return dst.ConsolidateQRepPartitions(config)
+	shutdownCh := utils.HeartbeatRoutine(ctx, 5*time.Minute)
+	err = dst.ConsolidateQRepPartitions(config)
+	shutdownCh <- true
+	return err
 }
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {

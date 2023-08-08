@@ -81,10 +81,10 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	}
 
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 15 * time.Minute,
 		// TODO: activity needs to call heartbeat.
 		// see https://github.com/PeerDB-io/nexus/issues/216
-		HeartbeatTimeout: 3 * time.Minute,
+		HeartbeatTimeout: 5 * time.Minute,
 	})
 
 	// execute StartFlow on the peers to start the flow
@@ -136,7 +136,8 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	s.logger.Info("executing normalize flow - ", s.PeerFlowName)
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
+		StartToCloseTimeout: 15 * time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 
 	// execute StartFlow on the peers to start the flow

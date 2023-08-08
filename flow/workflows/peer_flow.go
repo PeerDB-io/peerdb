@@ -106,7 +106,7 @@ func fetchConnectionConfigs(
 	logger.Info("fetching connection configs for peer flow - ", input.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 1 * time.Minute,
 	})
 
 	fetchConfigActivityInput := &activities.FetchConfigActivityInput{

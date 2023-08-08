@@ -161,7 +161,8 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 
 	// only an operation for Snowflake currently.
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 4 * time.Hour,
+		StartToCloseTimeout: 16 * time.Hour,
+		HeartbeatTimeout:    10 * time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.ConsolidateQRepPartitions, q.config).Get(ctx, nil); err != nil {
