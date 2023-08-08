@@ -228,7 +228,7 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context,
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	shutdownCh := utils.HeartbeatRoutine(ctx, 1*time.Second)
+	shutdownCh := utils.HeartbeatRoutine(ctx, 2*time.Minute)
 	log.Info("initializing table schema...")
 	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
