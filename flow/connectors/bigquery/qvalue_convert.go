@@ -39,6 +39,13 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 	// bytes
 	case qvalue.QValueKindBit, qvalue.QValueKindBytes:
 		return bigquery.BytesFieldType
+	// For Arrays we return the types of the individual elements,
+	// and wherever this function is called, the 'Repeated' attribute of
+	// FieldSchema must be set to true.
+	case qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64:
+		return bigquery.IntegerFieldType
+	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64:
+		return bigquery.FloatFieldType
 	// rest will be strings
 	default:
 		return bigquery.StringFieldType

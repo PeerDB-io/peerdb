@@ -826,8 +826,9 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	idx := 0
 	for colName, genericColType := range sourceSchema.Columns {
 		columns[idx] = &bigquery.FieldSchema{
-			Name: colName,
-			Type: qValueKindToBigQueryType(genericColType),
+			Name:     colName,
+			Type:     qValueKindToBigQueryType(genericColType),
+			Repeated: strings.Contains(genericColType, "array"),
 		}
 		idx++
 	}
