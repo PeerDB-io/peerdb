@@ -1,37 +1,24 @@
 version: "3.9"
 
+x-catalog-config: &catalog-config
+  PEERDB_CATALOG_HOST: catalog
+  PEERDB_CATALOG_PORT: 5432
+  PEERDB_CATALOG_USER: postgres
+  PEERDB_CATALOG_PASSWORD: postgres
+  PEERDB_CATALOG_DATABASE: postgres
+
+x-flow-worker-env: &flow-worker-env
+  <<: *catalog-config
+  TEMPORAL_HOST_PORT: temporal:7233
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
+  AWS_REGION: ${AWS_REGION:-""}
+
 services:
-  temporalite:
-    container_name: temporalite
-    image: slamdev/temporalite:0.3.0
-    entrypoint: |
-      temporalite start -n default --ephemeral --ip 0.0.0.0 --log-level warn
-    volumes:
-      - temporalitedata:/data
-    ports:
-      - 7233:7233
-      - 8233:8233
-
-  temporal-admin-tools:
-    container_name: temporal-admin-tools
-    depends_on:
-      - temporalite
-    environment:
-      - TEMPORAL_CLI_ADDRESS=temporalite:7233
-    image: temporalio/admin-tools:1.17.5
-    stdin_open: true
-    tty: true
-    healthcheck:
-      test: ["CMD", "tctl", "--address", "temporalite:7233", "workflow", "list"]
-      interval: 1s
-      timeout: 5s
-      retries: 30
-
   catalog:
     container_name: catalog
     image: debezium/postgres:15-alpine
     ports:
-      # mapping is from host to container
       - 9901:5432
     environment:
       PGUSER: postgres
@@ -48,6 +35,53 @@ services:
       retries: 5
       start_period: 60s
 
+  temporal:
+    container_name: temporal
+    depends_on:
+      catalog:
+        condition: service_healthy
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=postgres
+      - POSTGRES_SEEDS=catalog
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    image: temporalio/auto-setup:1.21.3
+    ports:
+      - 7233:7233
+    volumes:
+      - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
+    labels:
+      kompose.volume.type: configMap
+
+  temporal-admin-tools:
+    container_name: temporal-admin-tools
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    image: temporalio/admin-tools:1.21.3
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "tctl", "workflow", "list"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  temporal-ui:
+    container_name: temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    image: temporalio/ui:2.17.2
+    ports:
+      - 8085:8080
+
   flow_api:
     container_name: flow_api
     build:
@@ -56,7 +90,7 @@ services:
     ports:
       - 8112:8112
     environment:
-      TEMPORAL_HOST_PORT: temporalite:7233
+      TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -67,7 +101,7 @@ services:
       context: .
       dockerfile: stacks/flow-snapshot-worker.Dockerfile
     environment:
-      TEMPORAL_HOST_PORT: temporalite:7233
+      TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -78,14 +112,11 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
+      <<: *flow-worker-env
       ENABLE_PROFILING: true
       ENABLE_METRICS: true
       PROFILING_SERVER: 0.0.0.0:6060
       METRICS_SERVER: 0.0.0.0:6061
-      TEMPORAL_HOST_PORT: temporalite:7233
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
-      AWS_REGION: ${AWS_REGION:-""}
     ports:
       - 6060:6060
       - 6061:6061
@@ -99,14 +130,11 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
+      <<: *flow-worker-env
       ENABLE_PROFILING: true
       ENABLE_METRICS: false
       PROFILING_SERVER: 0.0.0.0:6062
       METRICS_SERVER: 0.0.0.0:6063
-      TEMPORAL_HOST_PORT: temporalite:7233
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
-      AWS_REGION: ${AWS_REGION:-""}
     ports:
       - 6062:6062
       - 6063:6063
@@ -123,14 +151,11 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
+      <<: *flow-worker-env
       ENABLE_PROFILING: true
       ENABLE_METRICS: false
       PROFILING_SERVER: 0.0.0.0:6064
       METRICS_SERVER: 0.0.0.0:6065
-      TEMPORAL_HOST_PORT: temporalite:7233
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
-      AWS_REGION: ${AWS_REGION:-""}
     ports:
       - 6064:6064
       - 6065:6065
@@ -147,12 +172,8 @@ services:
       context: .
       dockerfile: stacks/nexus.Dockerfile
     environment:
+      <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
-      PEERDB_CATALOG_HOST: catalog
-      PEERDB_CATALOG_PORT: 5432
-      PEERDB_CATALOG_USER: postgres
-      PEERDB_CATALOG_PASSWORD: postgres
-      PEERDB_CATALOG_DATABASE: postgres
       PEERDB_PASSWORD: peerdb
       PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
       RUST_LOG: info
@@ -192,5 +213,4 @@ services:
 
 volumes:
   pgdata:
-  temporalitedata:
   prometheusdata:

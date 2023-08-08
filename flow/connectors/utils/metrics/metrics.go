@@ -10,8 +10,12 @@ import (
 	"go.temporal.io/sdk/activity"
 )
 
-func LogPullMetrics(ctx context.Context, flowJobName string, recordBatch *model.RecordBatch,
-	totalRecordsAtSource int64) {
+func LogPullMetrics(
+	ctx context.Context,
+	flowJobName string,
+	recordBatch *model.RecordBatch,
+	totalRecordsAtSource int64,
+) {
 	if ctx.Value(shared.EnableMetricsKey) != true {
 		return
 	}
@@ -53,8 +57,13 @@ func LogSyncMetrics(ctx context.Context, flowJobName string, recordsCount int64,
 	recordsSyncedPerSecondGauge.Update(float64(recordsCount) / duration.Seconds())
 }
 
-func LogNormalizeMetrics(ctx context.Context, flowJobName string, recordsCount int64,
-	duration time.Duration, totalRecordsAtTarget int64) {
+func LogNormalizeMetrics(
+	ctx context.Context,
+	flowJobName string,
+	recordsCount int64,
+	duration time.Duration,
+	totalRecordsAtTarget int64,
+) {
 	if ctx.Value(shared.EnableMetricsKey) != true {
 		return
 	}
