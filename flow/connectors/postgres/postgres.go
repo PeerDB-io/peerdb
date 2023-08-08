@@ -686,7 +686,7 @@ func parseSchemaTable(tableName string) (*SchemaTable, error) {
 	}
 
 	return &SchemaTable{
-		Schema: parts[0],
-		Table:  parts[1],
+		Schema: strings.ToLower(parts[0]),
+		Table:  strings.ToLower(parts[1]),
 	}, nil
 }
