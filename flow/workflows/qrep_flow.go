@@ -54,7 +54,8 @@ func (q *QRepFlowExecution) GetPartitions(
 	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
+		StartToCloseTimeout: 1 * time.Hour,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 
 	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last)

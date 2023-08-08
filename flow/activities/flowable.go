@@ -275,11 +275,13 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(conn)
 
+	shutdownCh := utils.HeartbeatRoutine(ctx, 2*time.Minute)
 	partitions, err := conn.GetQRepPartitions(config, last)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
 	}
 
+	shutdownCh <- true
 	return &protos.QRepParitionResult{
 		Partitions: partitions,
 	}, nil
