@@ -55,6 +55,15 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
+	if localFilePath != "" {
+		defer func() {
+			err := os.Remove(localFilePath)
+			if err != nil {
+				log.Errorf("failed to remove temp file %s: %v", localFilePath, err)
+			}
+		}()
+	}
+
 	stage := s.connector.getStageNameForJob(config.FlowJobName)
 
 	putFileStartTime := time.Now()
