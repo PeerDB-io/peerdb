@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 )
 
 type SQLQueryExecutor interface {
@@ -72,6 +73,7 @@ func (g *GenericSQLQueryExecutor) DropSchema(schemaName string) error {
 	return err
 }
 
+// the SQL query this function executes appears to be MySQL/MariaDB specific.
 func (g *GenericSQLQueryExecutor) CheckSchemaExists(schemaName string) (bool, error) {
 	var exists bool
 	// use information schemata to check if schema exists
@@ -154,6 +156,9 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	}
 
 	var records []*model.QRecord
+	totalRowsProcessed := 0
+	const heartbeatInterval = 50000
+	heartbeatIntervalRecords := 0
 
 	for rows.Next() {
 		columns, err := rows.Columns()
@@ -220,6 +225,11 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		}
 
 		records = append(records, record)
+		totalRowsProcessed += 1
+		if heartbeatIntervalRecords > heartbeatInterval {
+			activity.RecordHeartbeat(g.ctx, totalRowsProcessed)
+			heartbeatIntervalRecords %= heartbeatInterval
+		}
 	}
 
 	if err := rows.Err(); err != nil {

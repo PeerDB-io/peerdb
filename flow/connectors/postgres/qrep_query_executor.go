@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 )
 
 type QRepQueryExecutor struct {
@@ -271,6 +272,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	log.Infof("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query)
 
 	totalRecordsFetched := 0
+	heartbeatIntervalRecords := 0
 	for {
 		numRows, err := qe.processFetchedRows(query, tx, cursorName, fetchSize, stream)
 		if err != nil {
@@ -279,9 +281,14 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 
 		log.Infof("[pg_query_executor] fetched %d rows for query '%s'", numRows, query)
 		totalRecordsFetched += numRows
+		heartbeatIntervalRecords += numRows
 
 		if numRows == 0 {
 			break
+		}
+		if heartbeatIntervalRecords > (fetchSize / 2) {
+			activity.RecordHeartbeat(qe.ctx, totalRecordsFetched)
+			heartbeatIntervalRecords %= (fetchSize / 2)
 		}
 	}
 

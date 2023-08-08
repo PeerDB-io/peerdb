@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
@@ -27,7 +28,7 @@ type SlotSnapshotSignal struct {
 }
 
 type FlowableActivity struct {
-	EnableMetrics       bool
+	EnableMetrics bool
 }
 
 // CheckConnection implements CheckConnection.
@@ -186,6 +187,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	// log the number of records
 	numRecords := len(records.Records)
 	log.Printf("pulled %d records", numRecords)
+	activity.RecordHeartbeat(ctx, "pulled records")
 
 	if numRecords == 0 {
 		log.Info("no records to push")
@@ -203,6 +205,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		log.Warnf("failed to push records: %v", err)
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
+	activity.RecordHeartbeat(ctx, "pushed records")
 
 	return res, nil
 }
