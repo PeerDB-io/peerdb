@@ -28,7 +28,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 2,
+			MaximumAttempts: 20,
 		},
 	})
 
@@ -142,7 +142,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	ctx workflow.Context,
 	slotInfo *protos.SetupReplicationOutput,
 	maxParallelClones int,
-) error {
+) {
 	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
 
 	for srcTbl, dstTbl := range s.config.TableNameMapping {
@@ -160,12 +160,13 @@ func (s *SnapshotFlowExecution) cloneTables(
 	}
 
 	if err := boundSelector.Wait(); err != nil {
-		return fmt.Errorf("failed to clone tables: %w", err)
+		s.logger.Error("failed to clone some tables", "error", err)
+		return
 	}
 
 	s.logger.Info("finished cloning tables")
 
-	return nil
+	return
 }
 
 func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
@@ -210,9 +211,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 			numTablesInParallel = 1
 		}
 
-		if err := se.cloneTables(ctx, slotInfo, numTablesInParallel); err != nil {
-			return fmt.Errorf("failed to finish qrep workflow: %w", err)
-		}
+		se.cloneTables(ctx, slotInfo, numTablesInParallel)
 	}
 
 	if err := se.closeSlotKeepAlive(replCtx); err != nil {

@@ -258,7 +258,8 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
 	fetchSize := 1024 * 16 * 8
 
-	_, err = tx.Exec(qe.ctx, fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query), args...)
+	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
+	_, err = tx.Exec(qe.ctx, cursorQuery, args...)
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{
 			Err: fmt.Errorf("failed to declare cursor: %w", err),
@@ -267,6 +268,8 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		return 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
 	}
 
+	log.Infof("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query)
+
 	totalRecordsFetched := 0
 	for {
 		numRows, err := qe.processFetchedRows(query, tx, cursorName, fetchSize, stream)
@@ -274,6 +277,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 			return 0, err
 		}
 
+		log.Infof("[pg_query_executor] fetched %d rows for query '%s'", numRows, query)
 		totalRecordsFetched += numRows
 
 		if numRows == 0 {
@@ -289,6 +293,8 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
+	log.Infof("[pg_query_executor] committed transaction for query '%s', rows = %d",
+		query, totalRecordsFetched)
 	return totalRecordsFetched, nil
 }
 

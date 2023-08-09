@@ -197,10 +197,12 @@ func (s *SnowflakeAvroSyncMethod) insertMetadata(
 ) error {
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {
+		log.Errorf("failed to create metadata insert statement: %v", err)
 		return fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
 
 	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
+		log.Errorf("failed to execute metadata insert statement '%s': %v", insertMetadataStmt, err)
 		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
 	}
 

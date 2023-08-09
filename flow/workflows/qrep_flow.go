@@ -74,7 +74,7 @@ func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 2,
+			MaximumAttempts: 20,
 		},
 	})
 
@@ -113,7 +113,7 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		WorkflowID:        wid,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 2,
+			MaximumAttempts: 20,
 		},
 	})
 
