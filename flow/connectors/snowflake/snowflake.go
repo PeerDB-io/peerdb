@@ -144,6 +144,7 @@ func NewSnowflakeConnector(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
+
 	// checking if connection was actually established, since sql.Open doesn't guarantee that
 	err = database.PingContext(ctx)
 	if err != nil {
