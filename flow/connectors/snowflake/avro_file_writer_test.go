@@ -142,7 +142,8 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
 
 	// Call function
-	_, err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(nil, records, avroSchema)
+	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -167,7 +168,8 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
 
 	// Call function
-	_, err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(nil, records, avroSchema)
+	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -193,7 +195,8 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
 
 	// Call function
-	_, err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(nil, records, avroSchema)
+	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty

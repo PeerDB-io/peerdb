@@ -8,10 +8,12 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
@@ -27,7 +29,7 @@ type SlotSnapshotSignal struct {
 }
 
 type FlowableActivity struct {
-	EnableMetrics       bool
+	EnableMetrics bool
 }
 
 // CheckConnection implements CheckConnection.
@@ -186,6 +188,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	// log the number of records
 	numRecords := len(records.Records)
 	log.Printf("pulled %d records", numRecords)
+	activity.RecordHeartbeat(ctx, fmt.Sprintf("pulled %d records", numRecords))
 
 	if numRecords == 0 {
 		log.Info("no records to push")
@@ -203,6 +206,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		log.Warnf("failed to push records: %v", err)
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
+	activity.RecordHeartbeat(ctx, "pushed records")
 
 	return res, nil
 }
@@ -223,6 +227,11 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
+
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	defer func() {
+		shutdown <- true
+	}()
 
 	log.Info("initializing table schema...")
 	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
@@ -266,6 +275,11 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(conn)
+
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	defer func() {
+		shutdown <- true
+	}()
 
 	partitions, err := conn.GetQRepPartitions(config, last)
 	if err != nil {
@@ -347,7 +361,13 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	return dst.ConsolidateQRepPartitions(config)
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	defer func() {
+		shutdown <- true
+	}()
+
+	err = dst.ConsolidateQRepPartitions(config)
+	return err
 }
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {

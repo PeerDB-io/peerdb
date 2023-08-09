@@ -58,7 +58,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	s.logger.Info("executing sync flow - ", s.PeerFlowName)
 
 	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 1 * time.Minute,
 	})
 
 	// execute GetLastSyncedID on destination peer
@@ -136,10 +136,8 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	s.logger.Info("executing normalize flow - ", s.PeerFlowName)
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Hour,
-		// TODO: activity needs to call heartbeat.
-		// see https://github.com/PeerDB-io/nexus/issues/216
-		HeartbeatTimeout: 1 * time.Hour,
+		StartToCloseTimeout: 15 * time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 
 	// execute StartFlow on the peers to start the flow

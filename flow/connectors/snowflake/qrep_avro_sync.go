@@ -15,6 +15,7 @@ import (
 	util "github.com/PeerDB-io/peer-flow/utils"
 	log "github.com/sirupsen/logrus"
 	_ "github.com/snowflakedb/gosnowflake"
+	"go.temporal.io/sdk/activity"
 )
 
 type SnowflakeAvroSyncMethod struct {
@@ -80,6 +81,8 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		return -1, err
 	}
 
+	activity.RecordHeartbeat(s.connector.ctx, "finished syncing records")
+
 	return numRecords, nil
 }
 
@@ -102,6 +105,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	partitionID string,
 ) (int, string, error) {
 	var numRecords int
+	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema)
 	if s.config.StagingPath == "" {
 		tmpDir, err := os.MkdirTemp("", "peerdb-avro")
 		if err != nil {
@@ -109,7 +113,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 		}
 
 		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
-		numRecords, err = avro.WriteRecordsToAvroFile(stream, avroSchema, localFilePath)
+		numRecords, err = ocfWriter.WriteRecordsToAvroFile(localFilePath)
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to write records to Avro file: %w", err)
 		}
@@ -122,7 +126,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 		}
 
 		s3Key := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
-		numRecords, err = avro.WriteRecordsToS3(stream, avroSchema, s3o.Bucket, s3Key)
+		numRecords, err = ocfWriter.WriteRecordsToS3(s3o.Bucket, s3Key)
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to write records to S3: %w", err)
 		}
@@ -139,6 +143,7 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage str
 		return nil
 	}
 
+	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
 	putCmd := fmt.Sprintf("PUT file://%s @%s", localFilePath, stage)
 	if _, err := s.connector.database.Exec(putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)

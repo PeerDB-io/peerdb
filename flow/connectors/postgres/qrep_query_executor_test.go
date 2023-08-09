@@ -63,7 +63,10 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	defer teardownDB(t, pool, schemaName)
 
 	ctx := context.Background()
+
 	qe := NewQRepQueryExecutor(pool, ctx)
+	qe.SetTestEnv(true)
+
 	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)
 	rows, err := qe.ExecuteQuery(query)
 	if err != nil {

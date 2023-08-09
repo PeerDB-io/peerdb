@@ -106,7 +106,7 @@ func fetchConnectionConfigs(
 	logger.Info("fetching connection configs for peer flow - ", input.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 1 * time.Minute,
 	})
 
 	fetchConfigActivityInput := &activities.FetchConfigActivityInput{
@@ -344,7 +344,7 @@ func PeerFlowWorkflowWithConfig(
 			NormalizeFlow will start only after Initial Load
 		*/
 		if limits.TotalNormalizeFlows != 0 && currentNormalizeFlowNum == limits.TotalNormalizeFlows {
-			w.logger.Info("All the normalizer flows have completed successfully, there was a"+
+			w.logger.Info("All the normalize flows have completed successfully, there was a"+
 				" limit on the number of normalizer to be executed: ", limits.TotalNormalizeFlows)
 			break
 		}

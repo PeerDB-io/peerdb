@@ -12,6 +12,7 @@ import (
 )
 
 type S3Connector struct {
+	ctx    context.Context
 	url    string
 	client s3.S3
 }
@@ -23,6 +24,7 @@ func NewS3Connector(ctx context.Context,
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 	return &S3Connector{
+		ctx:    ctx,
 		url:    s3ProtoConfig.Url,
 		client: *s3Client,
 	}, nil

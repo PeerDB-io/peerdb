@@ -35,7 +35,7 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 	q.logger.Info("setting up metadata tables for qrep flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Minute,
+		StartToCloseTimeout: 5 * time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupQRepMetadataTables, q.config).Get(ctx, nil); err != nil {
@@ -54,7 +54,8 @@ func (q *QRepFlowExecution) GetPartitions(
 	q.logger.Info("fetching partitions to replicate for peer flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 10 * time.Hour,
+		StartToCloseTimeout: 5 * time.Hour,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 
 	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last)
@@ -72,10 +73,11 @@ func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *
 	q.logger.Info("replicating partition - ", partition.PartitionId)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Hour,
+		StartToCloseTimeout: 24 * 5 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 20,
 		},
+		HeartbeatTimeout: 10 * time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx,
@@ -158,8 +160,10 @@ func (q *QRepFlowExecution) processPartitions(
 func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	q.logger.Info("consolidating partitions")
 
+	// only an operation for Snowflake currently.
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
+		HeartbeatTimeout:    10 * time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, flowable.ConsolidateQRepPartitions, q.config).Get(ctx, nil); err != nil {

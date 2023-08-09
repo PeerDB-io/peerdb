@@ -10,12 +10,14 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 )
 
 type QRepQueryExecutor struct {
 	pool     *pgxpool.Pool
 	ctx      context.Context
 	snapshot string
+	testEnv  bool
 }
 
 func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context) *QRepQueryExecutor {
@@ -32,6 +34,10 @@ func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snaps
 		ctx:      ctx,
 		snapshot: snapshot,
 	}
+}
+
+func (qe *QRepQueryExecutor) SetTestEnv(testEnv bool) {
+	qe.testEnv = testEnv
 }
 
 func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pgx.Rows, error) {
@@ -107,6 +113,7 @@ func (qe *QRepQueryExecutor) ProcessRowsStream(
 	fieldDescriptions []pgconn.FieldDescription,
 ) (int, error) {
 	numRows := 0
+	const heartBeatNumRows = 5000
 
 	// Iterate over the rows
 	for rows.Next() {
@@ -123,10 +130,25 @@ func (qe *QRepQueryExecutor) ProcessRowsStream(
 			Err:    nil,
 		}
 
+		if numRows%heartBeatNumRows == 0 {
+			qe.recordHeartbeat("fetched %d records", numRows)
+		}
+
 		numRows++
 	}
 
+	qe.recordHeartbeat("fetched %d records", numRows)
+
 	return numRows, nil
+}
+
+func (qe *QRepQueryExecutor) recordHeartbeat(x string, args ...interface{}) {
+	if qe.testEnv {
+		log.Infof(x, args...)
+		return
+	}
+	msg := fmt.Sprintf(x, args...)
+	activity.RecordHeartbeat(qe.ctx, msg)
 }
 
 func (qe *QRepQueryExecutor) processFetchedRows(
@@ -271,6 +293,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	log.Infof("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query)
 
 	totalRecordsFetched := 0
+	numFetchOpsComplete := 0
 	for {
 		numRows, err := qe.processFetchedRows(query, tx, cursorName, fetchSize, stream)
 		if err != nil {
@@ -283,6 +306,9 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		if numRows == 0 {
 			break
 		}
+
+		numFetchOpsComplete++
+		qe.recordHeartbeat("#%d fetched %d rows", numFetchOpsComplete, numRows)
 	}
 
 	err = tx.Commit(qe.ctx)
