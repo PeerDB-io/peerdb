@@ -302,7 +302,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 
 		log.Infof("[pg_query_executor] fetched %d rows for query '%s'", numRows, query)
 		totalRecordsFetched += numRows
-		heartbeatIntervalRecords += numRows
 
 		if numRows == 0 {
 			break

@@ -157,7 +157,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 
 	var records []*model.QRecord
 	totalRowsProcessed := 0
-	const heartBearNumRows = 5000
+	const heartBeatNumRows = 25000
 
 	for rows.Next() {
 		columns, err := rows.Columns()
@@ -226,7 +226,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		records = append(records, record)
 		totalRowsProcessed += 1
 
-		if totalRowsProcessed%heartBearNumRows == 0 {
+		if totalRowsProcessed%heartBeatNumRows == 0 {
 			activity.RecordHeartbeat(g.ctx, fmt.Sprintf("processed %d rows", totalRowsProcessed))
 		}
 	}
