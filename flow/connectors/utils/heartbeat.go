@@ -10,19 +10,19 @@ import (
 
 func HeartbeatRoutine(ctx context.Context, interval time.Duration) chan bool {
 	counter := 1
-	shutdownCh := make(chan bool)
-	go func(shutdownCh chan bool) {
+	shutdown := make(chan bool)
+	go func() {
 		for {
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("heartbeat instance #%d for interval %v",
-				counter, interval))
+			msg := fmt.Sprintf("heartbeat instance #%d for interval %v", counter, interval)
+			activity.RecordHeartbeat(ctx, msg)
 			counter += 1
-			timeoutCh := time.After(interval)
+			to := time.After(interval)
 			select {
-			case <-shutdownCh:
+			case <-shutdown:
 				return
-			case <-timeoutCh:
+			case <-to:
 			}
 		}
-	}(shutdownCh)
-	return shutdownCh
+	}()
+	return shutdown
 }

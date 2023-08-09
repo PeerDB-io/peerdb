@@ -81,7 +81,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	}
 
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 24 * time.Hour,
 		// TODO: activity needs to call heartbeat.
 		// see https://github.com/PeerDB-io/nexus/issues/216
 		HeartbeatTimeout: 5 * time.Minute,

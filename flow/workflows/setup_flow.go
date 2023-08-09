@@ -145,7 +145,7 @@ func (s *SetupFlowExecution) createRawTable(
 ) error {
 	s.logger.Info("creating raw table on destination - ", s.PeerFlowName)
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
+		StartToCloseTimeout: 5 * time.Minute,
 	})
 
 	// attempt to create the tables.

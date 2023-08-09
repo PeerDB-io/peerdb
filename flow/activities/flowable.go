@@ -188,7 +188,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	// log the number of records
 	numRecords := len(records.Records)
 	log.Printf("pulled %d records", numRecords)
-	activity.RecordHeartbeat(ctx, "pulled records")
+	activity.RecordHeartbeat(ctx, fmt.Sprintf("pulled %d records", numRecords))
 
 	if numRecords == 0 {
 		log.Info("no records to push")
@@ -228,11 +228,14 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context,
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	shutdownCh := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	defer func() {
+		shutdown <- true
+	}()
+
 	log.Info("initializing table schema...")
 	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
-		shutdownCh <- true
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
 	}
 
@@ -240,13 +243,11 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context,
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 	})
 	if err != nil {
-		shutdownCh <- true
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
 	}
 
 	// log the number of batches normalized
 	if res != nil {
-		shutdownCh <- true
 		log.Printf("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID)
 	}
 
@@ -275,13 +276,16 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(conn)
 
-	shutdownCh := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	defer func() {
+		shutdown <- true
+	}()
+
 	partitions, err := conn.GetQRepPartitions(config, last)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
 	}
 
-	shutdownCh <- true
 	return &protos.QRepParitionResult{
 		Partitions: partitions,
 	}, nil
@@ -356,9 +360,13 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
-	shutdownCh := utils.HeartbeatRoutine(ctx, 5*time.Minute)
+
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	defer func() {
+		shutdown <- true
+	}()
+
 	err = dst.ConsolidateQRepPartitions(config)
-	shutdownCh <- true
 	return err
 }
 
