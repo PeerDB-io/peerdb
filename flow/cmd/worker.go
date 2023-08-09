@@ -3,6 +3,10 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
 	"time"
 
 	//nolint:gosec
@@ -46,6 +50,17 @@ func WorkerMain(opts *WorkerOptions) error {
 			}
 		}()
 	}
+
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGQUIT)
+		buf := make([]byte, 1<<20)
+		for {
+			<-sigs
+			stacklen := runtime.Stack(buf, true)
+			log.Printf("=== received SIGQUIT ===\n*** goroutine dump...\n%s\n*** end\n", buf[:stacklen])
+		}
+	}()
 
 	var clientOptions client.Options
 	if opts.EnableMetrics {
