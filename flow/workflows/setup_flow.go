@@ -57,7 +57,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	s.logger.Info("checking connections for peer flow - ", s.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 2 * time.Minute,
 	})
 
 	// first check the source peer connection

@@ -57,6 +57,7 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 
 	if localFilePath != "" {
 		defer func() {
+			log.Infof("removing temp file %s", localFilePath)
 			err := os.Remove(localFilePath)
 			if err != nil {
 				log.Errorf("failed to remove temp file %s: %v", localFilePath, err)
