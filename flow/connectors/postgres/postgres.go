@@ -239,7 +239,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 			if err != nil {
 				return nil, err
 			}
-			cdcMirrorMonitor.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, req.FlowJobName, latestLSN)
+			err = cdcMirrorMonitor.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, req.FlowJobName, latestLSN)
 			if err != nil {
 				return nil, err
 			}
