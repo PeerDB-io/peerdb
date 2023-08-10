@@ -83,8 +83,8 @@ func (c *CatalogMirrorMonitor) AddCDCBatchForFlow(ctx context.Context, flowJobNa
 	}
 
 	_, err := c.catalogConn.Exec(ctx,
-		`INSERT INTO peerdb_stats.cdc_batches(flow_name,batch_id,rows_in_batch,batch_start_lsn,batch_end_lsn,start_time)
-		 VALUES($1,$2,$3,$4,$5,$6)`, flowJobName, batchInfo.BatchID, batchInfo.RowsInBatch,
+		`INSERT INTO peerdb_stats.cdc_batches(flow_name,batch_id,rows_in_batch,batch_start_lsn,batch_end_lsn,
+		start_time) VALUES($1,$2,$3,$4,$5,$6)`, flowJobName, batchInfo.BatchID, batchInfo.RowsInBatch,
 		uint64(batchInfo.BatchStartLSN), uint64(batchInfo.BatchEndlSN), batchInfo.StartTime)
 	if err != nil {
 		return fmt.Errorf("error while inserting batch into cdc_batch: %w", err)
@@ -122,7 +122,8 @@ func (c *CatalogMirrorMonitor) AddCDCBatchTablesForFlow(ctx context.Context, flo
 
 	for destinationTableName, numRows := range tableNameRowsMapping {
 		_, err = insertBatchTablesTx.Exec(ctx,
-			"INSERT INTO peerdb_stats.cdc_batch_table(flow_name,batch_id,destination_table_name,num_rows) VALUES($1,$2,$3,$4)",
+			`INSERT INTO peerdb_stats.cdc_batch_table(flow_name,batch_id,destination_table_name,num_rows)
+			 VALUES($1,$2,$3,$4)`,
 			flowJobName, batchID, destinationTableName, numRows)
 		if err != nil {
 			return fmt.Errorf("error while inserting statistics into cdc_batch_table: %w", err)
