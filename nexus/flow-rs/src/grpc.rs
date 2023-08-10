@@ -147,6 +147,11 @@ impl FlowGrpcClient {
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
             snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
             snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
+            snapshot_sync_mode: job
+                .snapshot_sync_mode
+                .clone()
+                .map(|s| s.as_proto_sync_mode())
+                .unwrap_or(0),
             ..Default::default()
         };
 
