@@ -8,11 +8,13 @@ x-catalog-config: &catalog-config
   PEERDB_CATALOG_DATABASE: postgres
 
 x-flow-worker-env: &flow-worker-env
-  <<: *catalog-config
   TEMPORAL_HOST_PORT: temporal:7233
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
   AWS_REGION: ${AWS_REGION:-""}
+  ENABLE_PROFILING: true
+  ENABLE_METRICS: true
+  ENABLE_MONITORING: true
 
 services:
   catalog:
@@ -112,9 +114,7 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
-      <<: *flow-worker-env
-      ENABLE_PROFILING: true
-      ENABLE_METRICS: true
+      <<: [*catalog-config, *flow-worker-env]
       PROFILING_SERVER: 0.0.0.0:6060
       METRICS_SERVER: 0.0.0.0:6061
     ports:
@@ -130,9 +130,7 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
-      <<: *flow-worker-env
-      ENABLE_PROFILING: true
-      ENABLE_METRICS: false
+      <<: [*catalog-config, *flow-worker-env]
       PROFILING_SERVER: 0.0.0.0:6062
       METRICS_SERVER: 0.0.0.0:6063
     ports:
@@ -151,9 +149,7 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
-      <<: *flow-worker-env
-      ENABLE_PROFILING: true
-      ENABLE_METRICS: false
+      <<: [*catalog-config, *flow-worker-env]
       PROFILING_SERVER: 0.0.0.0:6064
       METRICS_SERVER: 0.0.0.0:6065
     ports:

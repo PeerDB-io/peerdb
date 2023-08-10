@@ -9,9 +9,11 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/jackc/pglogrepl"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 )
@@ -29,7 +31,8 @@ type SlotSnapshotSignal struct {
 }
 
 type FlowableActivity struct {
-	EnableMetrics bool
+	EnableMetrics        bool
+	CatalogMirrorMonitor *monitoring.CatalogMirrorMonitor
 }
 
 // CheckConnection implements CheckConnection.
@@ -106,14 +109,23 @@ func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
+	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
-	defer connectors.CloseConnector(conn)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
+	defer connectors.CloseConnector(conn)
 
-	return conn.CreateRawTable(config)
+	res, err := conn.CreateRawTable(config)
+	if err != nil {
+		return nil, err
+	}
+	err = a.CatalogMirrorMonitor.InitializeCDCFlow(ctx, config.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
 
 // GetTableSchema returns the schema of a table.
@@ -151,6 +163,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	conn := input.FlowConnectionConfigs
 
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
+	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
 	src, err := connectors.GetConnector(ctx, conn.Source)
 	defer connectors.CloseConnector(src)
 	if err != nil {
@@ -199,6 +212,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		Records:     records,
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 	})
+	if err != nil {
+		return nil, err
+	}
+	err = a.CatalogMirrorMonitor.
+		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
+			pglogrepl.LSN(records.LastCheckPointID))
 
 	log.Info("pushed records")
 
@@ -244,6 +263,12 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
+	}
+
+	err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
+		res.EndBatchID)
+	if err != nil {
+		return nil, err
 	}
 
 	// log the number of batches normalized

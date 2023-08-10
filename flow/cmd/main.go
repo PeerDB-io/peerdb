@@ -44,6 +44,13 @@ func main() {
 		EnvVars: []string{"ENABLE_METRICS"},
 	}
 
+	monitoringFlag := &cli.BoolFlag{
+		Name:    "enable-monitoring",
+		Value:   false, // Default is off
+		Usage:   "Enable mirror monitoring for the application",
+		EnvVars: []string{"ENABLE_MONITORING"},
+	}
+
 	profilingServerFlag := &cli.StringFlag{
 		Name:    "profiling-server",
 		Value:   "localhost:6060", // Default is localhost:6060
@@ -69,6 +76,7 @@ func main() {
 						TemporalHostPort: temporalHostPort,
 						EnableProfiling:  ctx.Bool("enable-profiling"),
 						EnableMetrics:    ctx.Bool("enable-metrics"),
+						EnableMonitoring: ctx.Bool("enable-monitoring"),
 						ProfilingServer:  ctx.String("profiling-server"),
 						MetricsServer:    ctx.String("metrics-server"),
 					})
@@ -77,6 +85,7 @@ func main() {
 					temporalHostPortFlag,
 					profilingFlag,
 					metricsFlag,
+					monitoringFlag,
 					profilingServerFlag,
 					metricsServerFlag,
 				},

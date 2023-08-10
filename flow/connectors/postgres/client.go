@@ -557,3 +557,13 @@ func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error)
 	}
 	return totalCount, nil
 }
+
+func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
+	row := c.pool.QueryRow(c.ctx, "SELECT pg_current_wal_lsn();")
+	var result string
+	err := row.Scan(&result)
+	if err != nil {
+		return 0, fmt.Errorf("error while running query: %w", err)
+	}
+	return pglogrepl.ParseLSN(result)
+}

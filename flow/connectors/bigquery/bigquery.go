@@ -14,9 +14,11 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/api/iterator"
@@ -431,6 +433,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	syncBatchID = syncBatchID + 1
 
 	records := make([]StagingBQRecord, 0)
+	tableNameRowsMapping := make(map[string]uint32)
 
 	first := true
 	var firstCP int64 = 0
@@ -463,6 +466,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				stagingBatchID:        stagingBatchID,
 				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[r.DestinationTableName] += 1
 		case *model.UpdateRecord:
 			// create the 5 required fields
 			//   1. _peerdb_uid - uuid
@@ -494,6 +498,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				stagingBatchID:        stagingBatchID,
 				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[r.DestinationTableName] += 1
 		case *model.DeleteRecord:
 			// create the 4 required fields
 			//   1. _peerdb_uid - uuid
@@ -520,6 +525,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				stagingBatchID:        stagingBatchID,
 				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[r.DestinationTableName] += 1
 		default:
 			return nil, fmt.Errorf("record type %T not supported", r)
 		}
@@ -576,9 +582,6 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 
-	// print the statements as one string
-	// log.Printf("statements to execute in a transaction: %s", strings.Join(stmts, "\n"))
-
 	// execute the statements in a transaction
 	startTime := time.Now()
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
@@ -588,6 +591,14 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
+
+	cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
+	if ok {
+		err = cdcMirrorMonitor.AddCDCBatchTablesForFlow(c.ctx, req.FlowJobName, syncBatchID, tableNameRowsMapping)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
