@@ -67,6 +67,10 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtSourceForCDCFlow(ctx context.Con
 
 func (c *CatalogMirrorMonitor) UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, flowJobName string,
 	latestLSNAtTarget pglogrepl.LSN) error {
+	if c == nil || c.catalogConn == nil {
+		return nil
+	}
+
 	_, err := c.catalogConn.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtTarget), flowJobName)
@@ -94,6 +98,10 @@ func (c *CatalogMirrorMonitor) AddCDCBatchForFlow(ctx context.Context, flowJobNa
 
 func (c *CatalogMirrorMonitor) UpdateEndTimeForCDCBatch(ctx context.Context, flowJobName string,
 	batchID int64) error {
+	if c == nil || c.catalogConn == nil {
+		return nil
+	}
+
 	_, err := c.catalogConn.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_batches SET end_time=$1 WHERE flow_name=$2 AND batch_id=$3",
 		time.Now(), flowJobName, batchID)
