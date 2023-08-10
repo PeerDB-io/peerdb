@@ -36,10 +36,13 @@ pub struct FlowConnectionConfigs {
     pub publication_name: ::prost::alloc::string::String,
     #[prost(uint32, tag="12")]
     pub snapshot_num_rows_per_partition: u32,
+    /// max parallel workers is per table
     #[prost(uint32, tag="13")]
     pub snapshot_max_parallel_workers: u32,
     #[prost(uint32, tag="14")]
     pub snapshot_num_tables_in_parallel: u32,
+    #[prost(enumeration="QRepSyncMode", tag="15")]
+    pub snapshot_sync_mode: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

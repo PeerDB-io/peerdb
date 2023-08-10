@@ -603,6 +603,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.snapshot_num_tables_in_parallel != 0 {
             len += 1;
         }
+        if self.snapshot_sync_mode != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.FlowConnectionConfigs", len)?;
         if let Some(v) = self.source.as_ref() {
             struct_ser.serialize_field("source", v)?;
@@ -646,6 +649,11 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.snapshot_num_tables_in_parallel != 0 {
             struct_ser.serialize_field("snapshotNumTablesInParallel", &self.snapshot_num_tables_in_parallel)?;
         }
+        if self.snapshot_sync_mode != 0 {
+            let v = QRepSyncMode::from_i32(self.snapshot_sync_mode)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.snapshot_sync_mode)))?;
+            struct_ser.serialize_field("snapshotSyncMode", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -682,6 +690,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             "snapshotMaxParallelWorkers",
             "snapshot_num_tables_in_parallel",
             "snapshotNumTablesInParallel",
+            "snapshot_sync_mode",
+            "snapshotSyncMode",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -700,6 +710,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             SnapshotNumRowsPerPartition,
             SnapshotMaxParallelWorkers,
             SnapshotNumTablesInParallel,
+            SnapshotSyncMode,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -736,6 +747,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             "snapshotNumRowsPerPartition" | "snapshot_num_rows_per_partition" => Ok(GeneratedField::SnapshotNumRowsPerPartition),
                             "snapshotMaxParallelWorkers" | "snapshot_max_parallel_workers" => Ok(GeneratedField::SnapshotMaxParallelWorkers),
                             "snapshotNumTablesInParallel" | "snapshot_num_tables_in_parallel" => Ok(GeneratedField::SnapshotNumTablesInParallel),
+                            "snapshotSyncMode" | "snapshot_sync_mode" => Ok(GeneratedField::SnapshotSyncMode),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -769,6 +781,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                 let mut snapshot_num_rows_per_partition__ = None;
                 let mut snapshot_max_parallel_workers__ = None;
                 let mut snapshot_num_tables_in_parallel__ = None;
+                let mut snapshot_sync_mode__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -870,6 +883,12 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::SnapshotSyncMode => {
+                            if snapshot_sync_mode__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("snapshotSyncMode"));
+                            }
+                            snapshot_sync_mode__ = Some(map.next_value::<QRepSyncMode>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -890,6 +909,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                     snapshot_num_rows_per_partition: snapshot_num_rows_per_partition__.unwrap_or_default(),
                     snapshot_max_parallel_workers: snapshot_max_parallel_workers__.unwrap_or_default(),
                     snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel__.unwrap_or_default(),
+                    snapshot_sync_mode: snapshot_sync_mode__.unwrap_or_default(),
                 })
             }
         }

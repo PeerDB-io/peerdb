@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Context;
 use pt::{
-    flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
+    flow_model::{FlowJob, FlowJobTableMapping, FlowSyncMode, QRepFlowJob},
     peerdb_peers::{
         peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
         S3Config, SnowflakeConfig, SqlServerConfig,
@@ -184,6 +184,15 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let snapshot_sync_mode: Option<FlowSyncMode> =
+                            match raw_options.remove("snapshot_sync_mode") {
+                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                    let s = s.to_lowercase();
+                                    FlowSyncMode::parse_string(&s).ok()
+                                }
+                                _ => None,
+                            };
+
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
                         {
@@ -202,6 +211,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             snapshot_num_rows_per_partition,
                             snapshot_max_parallel_workers,
                             snapshot_num_tables_in_parallel,
+                            snapshot_sync_mode,
                         };
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
