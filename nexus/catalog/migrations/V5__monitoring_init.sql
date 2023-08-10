@@ -1,11 +1,13 @@
-CREATE TABLE IF NOT EXISTS cdc_flows (
+CREATE SCHEMA IF NOT EXISTS peerdb_stats;
+
+CREATE TABLE IF NOT EXISTS peerdb_stats.cdc_flows (
     flow_name TEXT PRIMARY KEY,
     latest_lsn_at_source NUMERIC NOT NULL,
     latest_lsn_at_target NUMERIC NOT NULL,
     metadata JSONB
 );
 
-CREATE TABLE IF NOT EXISTS cdc_batches (
+CREATE TABLE IF NOT EXISTS peerdb_stats.cdc_batches (
     flow_name TEXT NOT NULL,
     batch_id BIGINT NOT NULL,
     rows_in_batch INTEGER NOT NULL,
@@ -16,7 +18,7 @@ CREATE TABLE IF NOT EXISTS cdc_batches (
     metadata JSONB
 );
 
-CREATE TABLE IF NOT EXISTS cdc_batch_table (
+CREATE TABLE IF NOT EXISTS peerdb_stats.cdc_batch_table (
     flow_name TEXT NOT NULL,
     batch_id BIGINT NOT NULL,
     destination_table_name TEXT NOT NULL,
@@ -24,7 +26,7 @@ CREATE TABLE IF NOT EXISTS cdc_batch_table (
     metadata JSONB
 );
 
-CREATE TABLE IF NOT EXISTS qrep_runs (
+CREATE TABLE IF NOT EXISTS peerdb_stats.qrep_runs (
     flow_name TEXT NOT NULL,
     run_uuid TEXT NOT NULL,
     num_rows_to_sync BIGINT,
@@ -33,7 +35,7 @@ CREATE TABLE IF NOT EXISTS qrep_runs (
     metadata JSONB
 );
 
-CREATE TABLE IF NOT EXISTS qrep_partitions (
+CREATE TABLE IF NOT EXISTS peerdb_stats.qrep_partitions (
     flow_name TEXT NOT NULL,
     run_uuid TEXT NOT NULL,
     partition_uuid TEXT NOT NULL,

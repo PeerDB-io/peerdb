@@ -42,7 +42,7 @@ func (c *CatalogMirrorMonitor) InitializeCDCFlow(ctx context.Context, flowJobNam
 	}
 
 	_, err := c.catalogConn.Exec(ctx,
-		`INSERT INTO cdc_flows(flow_name,latest_lsn_at_source,latest_lsn_at_target) VALUES($1,0,0)
+		`INSERT INTO peerdb_stats.cdc_flows(flow_name,latest_lsn_at_source,latest_lsn_at_target) VALUES($1,0,0)
 		 ON CONFLICT DO NOTHING`, flowJobName)
 	if err != nil {
 		return fmt.Errorf("error while inserting flow into cdc_flows: %w", err)
@@ -57,7 +57,7 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtSourceForCDCFlow(ctx context.Con
 	}
 
 	_, err := c.catalogConn.Exec(ctx,
-		"UPDATE cdc_flows SET latest_lsn_at_source=$1 WHERE flow_name=$2",
+		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_source=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtSource), flowJobName)
 	if err != nil {
 		return fmt.Errorf("error while updating flow in cdc_flows: %w", err)
@@ -68,7 +68,7 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtSourceForCDCFlow(ctx context.Con
 func (c *CatalogMirrorMonitor) UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, flowJobName string,
 	latestLSNAtTarget pglogrepl.LSN) error {
 	_, err := c.catalogConn.Exec(ctx,
-		"UPDATE cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
+		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtTarget), flowJobName)
 	if err != nil {
 		return fmt.Errorf("error while updating flow in cdc_flows: %w", err)
@@ -83,7 +83,7 @@ func (c *CatalogMirrorMonitor) AddCDCBatchForFlow(ctx context.Context, flowJobNa
 	}
 
 	_, err := c.catalogConn.Exec(ctx,
-		`INSERT INTO cdc_batches(flow_name,batch_id,rows_in_batch,batch_start_lsn,batch_end_lsn,start_time)
+		`INSERT INTO peerdb_stats.cdc_batches(flow_name,batch_id,rows_in_batch,batch_start_lsn,batch_end_lsn,start_time)
 		 VALUES($1,$2,$3,$4,$5,$6)`, flowJobName, batchInfo.BatchID, batchInfo.RowsInBatch,
 		uint64(batchInfo.BatchStartLSN), uint64(batchInfo.BatchEndlSN), batchInfo.StartTime)
 	if err != nil {
@@ -95,7 +95,7 @@ func (c *CatalogMirrorMonitor) AddCDCBatchForFlow(ctx context.Context, flowJobNa
 func (c *CatalogMirrorMonitor) UpdateEndTimeForCDCBatch(ctx context.Context, flowJobName string,
 	batchID int64) error {
 	_, err := c.catalogConn.Exec(ctx,
-		"UPDATE cdc_batches SET end_time=$1 WHERE flow_name=$2 AND batch_id=$3",
+		"UPDATE peerdb_stats.cdc_batches SET end_time=$1 WHERE flow_name=$2 AND batch_id=$3",
 		time.Now(), flowJobName, batchID)
 	if err != nil {
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
@@ -122,7 +122,7 @@ func (c *CatalogMirrorMonitor) AddCDCBatchTablesForFlow(ctx context.Context, flo
 
 	for destinationTableName, numRows := range tableNameRowsMapping {
 		_, err = insertBatchTablesTx.Exec(ctx,
-			"INSERT INTO cdc_batch_table(flow_name,batch_id,destination_table_name,num_rows) VALUES($1,$2,$3,$4)",
+			"INSERT INTO peerdb_stats.cdc_batch_table(flow_name,batch_id,destination_table_name,num_rows) VALUES($1,$2,$3,$4)",
 			flowJobName, batchID, destinationTableName, numRows)
 		if err != nil {
 			return fmt.Errorf("error while inserting statistics into cdc_batch_table: %w", err)

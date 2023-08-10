@@ -48,7 +48,7 @@ func main() {
 		Name:    "enable-monitoring",
 		Value:   false, // Default is off
 		Usage:   "Enable mirror monitoring for the application",
-		EnvVars: []string{"ENABLE_MONITORING"},
+		EnvVars: []string{"ENABLE_STATS"},
 	}
 
 	profilingServerFlag := &cli.StringFlag{
