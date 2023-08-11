@@ -7,6 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -121,7 +122,8 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	return batch, nil
 }
 
-func (qe *QRepQueryExecutor) ProcessRowsStream(
+func (qe *QRepQueryExecutor) processRowsStream(
+	cursorName string,
 	stream *model.QRecordStream,
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
@@ -145,13 +147,13 @@ func (qe *QRepQueryExecutor) ProcessRowsStream(
 		}
 
 		if numRows%heartBeatNumRows == 0 {
-			qe.recordHeartbeat("fetched %d records", numRows)
+			qe.recordHeartbeat("cursor: %s - fetched %d records", cursorName, numRows)
 		}
 
 		numRows++
 	}
 
-	qe.recordHeartbeat("fetch completed - %d records", numRows)
+	qe.recordHeartbeat("cursor %s - fetch completed - %d records", cursorName, numRows)
 
 	return numRows, nil
 }
@@ -189,7 +191,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		_ = stream.SetSchema(schema)
 	}
 
-	numRows, err := qe.ProcessRowsStream(stream, rows, fieldDescriptions)
+	numRows, err := qe.processRowsStream(cursorName, stream, rows, fieldDescriptions)
 	if err != nil {
 		log.Errorf("[pg_query_executor] failed to process rows: %v", err)
 		return 0, fmt.Errorf("failed to process rows: %w", err)
@@ -292,7 +294,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	}
 
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
-	fetchSize := 1024 * 16 * 8
+	fetchSize := shared.FetchAndChannelSize
 
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
 	_, err = tx.Exec(qe.ctx, cursorQuery, args...)
