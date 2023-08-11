@@ -26,7 +26,7 @@ WORKDIR /root/nexus
 RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerdb-server
 
 FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y ca-certificates
+RUN apt-get update && apt-get install -y ca-certificates postgresql-client wget curl iputils-ping
 RUN mkdir -p /var/log/peerdb
 WORKDIR /root
 COPY --from=builder /root/nexus/target/release/peerdb-server .
