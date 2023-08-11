@@ -120,6 +120,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		NumRowsPerPartition:        numRowsPerPartition,
 		SyncMode:                   s.config.SnapshotSyncMode,
 		MaxParallelWorkers:         numWorkers,
+		StagingPath:                s.config.SnapshotStagingPath,
 	}
 
 	numPartitionsProcessed := 0

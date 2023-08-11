@@ -152,6 +152,7 @@ impl FlowGrpcClient {
                 .clone()
                 .map(|s| s.as_proto_sync_mode())
                 .unwrap_or(0),
+            snapshot_staging_path: job.snapshot_staging_path.clone().unwrap_or_default(),
             ..Default::default()
         };
 

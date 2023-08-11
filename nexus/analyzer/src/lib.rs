@@ -184,6 +184,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let snapshot_staging_path = match raw_options
+                            .remove("snapshot_staging_path")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
                         let snapshot_sync_mode: Option<FlowSyncMode> =
                             match raw_options.remove("snapshot_sync_mode") {
                                 Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
@@ -212,6 +219,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             snapshot_max_parallel_workers,
                             snapshot_num_tables_in_parallel,
                             snapshot_sync_mode,
+                            snapshot_staging_path,
                         };
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
