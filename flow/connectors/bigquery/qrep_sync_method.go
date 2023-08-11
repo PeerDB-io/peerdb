@@ -94,12 +94,12 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		}
 
 		valueSaverRecords = append(valueSaverRecords, toPut)
-		err = inserter.Put(s.connector.ctx, toPut)
-		if err != nil {
-			return -1, fmt.Errorf("failed to insert record into staging table: %v", err)
-		}
 	}
 
+	err = inserter.Put(s.connector.ctx, valueSaverRecords)
+	if err != nil {
+		return -1, fmt.Errorf("failed to insert records into staging table: %v", err)
+	}
 	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName, int64(len(valueSaverRecords)),
 		time.Since(startTime))
 
