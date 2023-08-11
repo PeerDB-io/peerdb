@@ -126,7 +126,7 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 
 func (s *E2EPeerFlowTestSuite) generate20MBJson() []byte {
 	xn := make(map[string]interface{})
-	for i := 0; i < 1000000; i++ {
+	for i := 0; i < 225000; i++ {
 		xn[uuid.New().String()] = uuid.New().String()
 	}
 
