@@ -7,6 +7,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/concurrency"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	cmap "github.com/orcaman/concurrent-map/v2"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
@@ -173,7 +174,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
-	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
+	tableNameSchemaMapping := cmap.New[*protos.TableSchema]()
 
 	boundSelector := concurrency.NewBoundSelector(8, ctx)
 
@@ -201,7 +202,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 				return fmt.Errorf("failed to find destination table name for source table %s", source)
 			}
 
-			tableNameSchemaMapping[dstTableName] = srcTableSchema
+			tableNameSchemaMapping.Set(dstTableName, srcTableSchema)
 			return nil
 		})
 	}
@@ -218,7 +219,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	// now setup the normalized tables on the destination peer
 	for srcTableName, dstTable := range flowConnectionConfigs.TableNameMapping {
 		s.logger.Info("setting up normalized table for peer flow - ", s.PeerFlowName, "table", srcTableName)
-		srcTableSchema, ok := tableNameSchemaMapping[dstTable]
+		srcTableSchema, ok := tableNameSchemaMapping.Get(dstTable)
 		if !ok {
 			s.logger.Error("failed to find table schema for table table: ", srcTableSchema, dstTable)
 			return nil, fmt.Errorf("failed to find table schema for source table %s", srcTableName)
@@ -252,7 +253,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	}
 
 	s.logger.Info("finished setting up normalized tables for peer flow - ", s.PeerFlowName)
-	return tableNameSchemaMapping, nil
+	return tableNameSchemaMapping.Items(), nil
 }
 
 // executeSetupFlow executes the setup flow.
