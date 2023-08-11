@@ -92,6 +92,12 @@ func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 
 		numRows++
 	}
+
+	if p.ctx != nil {
+		msg := fmt.Sprintf("written all: %d rows to OCF", numRows)
+		activity.RecordHeartbeat(p.ctx, msg)
+	}
+
 	return numRows, nil
 }
 

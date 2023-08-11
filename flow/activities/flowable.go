@@ -256,8 +256,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	return res, nil
 }
 
-func (a *FlowableActivity) StartNormalize(ctx context.Context,
-	input *protos.StartNormalizeInput) (*model.NormalizeResponse, error) {
+func (a *FlowableActivity) StartNormalize(
+	ctx context.Context,
+	input *protos.StartNormalizeInput,
+) (*model.NormalizeResponse, error) {
 	conn := input.FlowConnectionConfigs
 
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
@@ -273,7 +275,9 @@ func (a *FlowableActivity) StartNormalize(ctx context.Context,
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
+	})
 	defer func() {
 		shutdown <- true
 	}()
@@ -327,7 +331,10 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(conn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
+	})
+
 	defer func() {
 		shutdown <- true
 	}()
@@ -412,7 +419,10 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute)
+	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
+	})
+
 	defer func() {
 		shutdown <- true
 	}()
