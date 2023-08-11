@@ -36,6 +36,7 @@ require (
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.0.0 // indirect
+	github.com/orcaman/concurrent-map/v2 v2.0.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/twmb/murmur3 v1.1.8 // indirect
 )
