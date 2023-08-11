@@ -29,6 +29,10 @@ func NewCatalogMirrorMonitor(catalogConn *pgxpool.Pool) CatalogMirrorMonitor {
 	}
 }
 
+func (c *CatalogMirrorMonitor) IsActive() bool {
+	return !(c == nil || c.catalogConn == nil)
+}
+
 func (c *CatalogMirrorMonitor) Close() {
 	if c == nil || c.catalogConn == nil {
 		return

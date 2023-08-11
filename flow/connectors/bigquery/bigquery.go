@@ -14,11 +14,9 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/api/iterator"
@@ -589,21 +587,14 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
-
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
-
-	cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
-	if ok {
-		err = cdcMirrorMonitor.AddCDCBatchTablesForFlow(c.ctx, req.FlowJobName, syncBatchID, tableNameRowsMapping)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
 		LastSyncedCheckPointID:  lastCP,
 		NumRecordsSynced:        int64(numRecords),
+		CurrentSyncBatchID:      syncBatchID,
+		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
 

@@ -20,6 +20,7 @@ type Connector interface {
 	NeedsSetupMetadataTables() bool
 	SetupMetadataTables() error
 	GetLastOffset(jobName string) (*protos.LastSyncState, error)
+	GetLastSyncBatchID(jobName string) (int64, error)
 
 	// GetTableSchema returns the schema of a table.
 	GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error)

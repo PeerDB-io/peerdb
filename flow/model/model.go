@@ -180,6 +180,10 @@ type SyncResponse struct {
 	LastSyncedCheckPointID int64
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced int64
+	// CurrentSyncBatchID is the ID of the currently synced batch.
+	CurrentSyncBatchID int64
+	// TableNameRowsMapping tells how many records need to be synced to each destination table.
+	TableNameRowsMapping map[string]uint32
 }
 
 type NormalizeResponse struct {

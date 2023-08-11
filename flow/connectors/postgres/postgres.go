@@ -16,7 +16,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
-	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -207,7 +206,6 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
 
-	startTime := time.Now()
 	recordBatch, err := cdc.PullRecords(req)
 	if err != nil {
 		return nil, err
@@ -220,21 +218,6 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
 		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
 		if ok {
-			lastBatchID, err := c.getLastSyncBatchID(req.FlowJobName)
-			if err != nil {
-				return nil, err
-			}
-			err = cdcMirrorMonitor.AddCDCBatchForFlow(c.ctx, req.FlowJobName, monitoring.CDCBatchInfo{
-				BatchID:       lastBatchID + 1,
-				RowsInBatch:   uint32(len(recordBatch.Records)),
-				BatchStartLSN: pglogrepl.LSN(recordBatch.FirstCheckPointID),
-				BatchEndlSN:   pglogrepl.LSN(recordBatch.LastCheckPointID),
-				StartTime:     startTime,
-			})
-			if err != nil {
-				return nil, err
-			}
-
 			latestLSN, err := c.getCurrentLSN()
 			if err != nil {
 				return nil, err
@@ -254,7 +237,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	log.Printf("pushing %d records to Postgres table %s via COPY", len(req.Records.Records), rawTableIdentifier)
 
-	syncBatchID, err := c.getLastSyncBatchID(req.FlowJobName)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
@@ -365,13 +348,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			len(records), syncedRecordsCount)
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, syncedRecordsCount, time.Since(startTime))
-	cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
-	if ok {
-		err = cdcMirrorMonitor.AddCDCBatchTablesForFlow(c.ctx, req.FlowJobName, syncBatchID, tableNameRowsMapping)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	log.Printf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier)
 
@@ -390,12 +366,14 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		FirstSyncedCheckPointID: firstCP,
 		LastSyncedCheckPointID:  lastCP,
 		NumRecordsSynced:        int64(len(records)),
+		CurrentSyncBatchID:      syncBatchID,
+		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
 
 func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	syncBatchID, err := c.getLastSyncBatchID(req.FlowJobName)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}

@@ -289,7 +289,7 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
 }
 
-func (c *PostgresConnector) getLastSyncBatchID(jobName string) (int64, error) {
+func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(
 		getLastSyncBatchID_SQL,
 		internalSchema,
