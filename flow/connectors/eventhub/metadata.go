@@ -2,6 +2,7 @@ package conneventhub
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -133,6 +134,11 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	return &protos.LastSyncState{
 		Checkpoint: offset,
 	}, nil
+}
+
+func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
+	log.Errorf("GetLastSyncBatchID not supported for EventHub")
+	return 0, fmt.Errorf("GetLastSyncBatchID not supported for EventHub connector")
 }
 
 // update offset for a job

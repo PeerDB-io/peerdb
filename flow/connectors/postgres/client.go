@@ -289,7 +289,7 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
 }
 
-func (c *PostgresConnector) getLastSyncBatchID(jobName string) (int64, error) {
+func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(
 		getLastSyncBatchID_SQL,
 		internalSchema,
@@ -556,4 +556,14 @@ func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error)
 		return 0, fmt.Errorf("error while closing statement batch: %w", err)
 	}
 	return totalCount, nil
+}
+
+func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
+	row := c.pool.QueryRow(c.ctx, "SELECT pg_current_wal_lsn();")
+	var result string
+	err := row.Scan(&result)
+	if err != nil {
+		return 0, fmt.Errorf("error while running query: %w", err)
+	}
+	return pglogrepl.ParseLSN(result)
 }

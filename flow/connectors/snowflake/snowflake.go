@@ -375,6 +375,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	}
 	syncBatchID = syncBatchID + 1
 	records := make([]snowflakeRawRecord, 0)
+	tableNameRowsMapping := make(map[string]uint32)
 
 	first := true
 	var firstCP int64 = 0
@@ -400,6 +401,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				batchID:               syncBatchID,
 				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
 			newItemsJSON, err := typedRecord.NewItems.ToJSON()
 			if err != nil {
@@ -421,6 +423,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				batchID:               syncBatchID,
 				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.DeleteRecord:
 			itemsJSON, err := typedRecord.Items.ToJSON()
 			if err != nil {
@@ -438,6 +441,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 				batchID:               syncBatchID,
 				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
 		}
@@ -500,6 +504,8 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		FirstSyncedCheckPointID: firstCP,
 		LastSyncedCheckPointID:  lastCP,
 		NumRecordsSynced:        int64(len(records)),
+		CurrentSyncBatchID:      syncBatchID,
+		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
 

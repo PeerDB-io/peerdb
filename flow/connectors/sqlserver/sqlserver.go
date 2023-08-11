@@ -77,6 +77,11 @@ func (c *SQLServerConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 	return nil, fmt.Errorf("cdc based replication is not currently supported for SQLServer target")
 }
 
+func (c *SQLServerConnector) GetLastSyncBatchID(jobName string) (int64, error) {
+	log.Errorf("GetLastSyncBatchID not supported for SQLServer")
+	return 0, fmt.Errorf("cdc based replication is not currently supported for SQLServer target")
+}
+
 func (c *SQLServerConnector) GetLastNormalizeBatchID() (int64, error) {
 	log.Errorf("GetLastNormalizeBatchID not supported for SQLServer")
 	return 0, fmt.Errorf("cdc based replication is not currently supported for SQLServer target")

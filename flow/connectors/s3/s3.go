@@ -55,6 +55,11 @@ func (c *S3Connector) GetLastOffset(jobName string) (*protos.LastSyncState, erro
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
+func (c *S3Connector) GetLastSyncBatchID(jobName string) (int64, error) {
+	log.Errorf("GetLastSyncBatchID not supported for S3")
+	return 0, fmt.Errorf("cdc based replication is not currently supported for S3 target")
+}
+
 func (c *S3Connector) GetLastNormalizeBatchID() (int64, error) {
 	log.Errorf("GetLastNormalizeBatchID not supported for S3")
 	return 0, fmt.Errorf("cdc based replication is not currently supported for S3 target")

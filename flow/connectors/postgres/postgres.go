@@ -10,9 +10,11 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -214,7 +216,19 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 			return nil, err
 		}
 		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
+		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
+		if ok {
+			latestLSN, err := c.getCurrentLSN()
+			if err != nil {
+				return nil, err
+			}
+			err = cdcMirrorMonitor.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, req.FlowJobName, latestLSN)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
+
 	return recordBatch, nil
 }
 
@@ -223,12 +237,13 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	log.Printf("pushing %d records to Postgres table %s via COPY", len(req.Records.Records), rawTableIdentifier)
 
-	syncBatchID, err := c.getLastSyncBatchID(req.FlowJobName)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
 	syncBatchID = syncBatchID + 1
 	records := make([][]interface{}, 0)
+	tableNameRowsMapping := make(map[string]uint32)
 
 	first := true
 	var firstCP int64 = 0
@@ -252,6 +267,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				syncBatchID,
 				utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
 			newItemsJSON, err := typedRecord.NewItems.ToJSON()
 			if err != nil {
@@ -272,6 +288,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				syncBatchID,
 				utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.DeleteRecord:
 			itemsJSON, err := typedRecord.Items.ToJSON()
 			if err != nil {
@@ -288,6 +305,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				syncBatchID,
 				utils.KeysToString(typedRecord.UnchangedToastColumns),
 			})
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		default:
 			return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 		}
@@ -348,12 +366,14 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		FirstSyncedCheckPointID: firstCP,
 		LastSyncedCheckPointID:  lastCP,
 		NumRecordsSynced:        int64(len(records)),
+		CurrentSyncBatchID:      syncBatchID,
+		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
 
 func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	syncBatchID, err := c.getLastSyncBatchID(req.FlowJobName)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -477,6 +497,7 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	if err != nil {
 		return nil, fmt.Errorf("error committing transaction for creating raw table: %w", err)
 	}
+
 	return nil, nil
 }
 
