@@ -145,6 +145,15 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage str
 
 	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
 	putCmd := fmt.Sprintf("PUT file://%s @%s", localFilePath, stage)
+
+	sutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
+		return fmt.Sprintf("putting file to stage %s", stage)
+	})
+
+	defer func() {
+		sutdown <- true
+	}()
+
 	if _, err := s.connector.database.Exec(putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
 	}

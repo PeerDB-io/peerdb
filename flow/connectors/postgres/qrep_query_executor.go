@@ -3,7 +3,9 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5"
@@ -49,7 +51,19 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 }
 
 func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
-	rows, err := tx.Query(qe.ctx, fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName))
+	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
+
+	if !qe.testEnv {
+		shutdownCh := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
+			return fmt.Sprintf("running '%s'", q)
+		})
+
+		defer func() {
+			shutdownCh <- true
+		}()
+	}
+
+	rows, err := tx.Query(qe.ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +151,7 @@ func (qe *QRepQueryExecutor) ProcessRowsStream(
 		numRows++
 	}
 
-	qe.recordHeartbeat("fetched %d records", numRows)
+	qe.recordHeartbeat("fetch completed - %d records", numRows)
 
 	return numRows, nil
 }

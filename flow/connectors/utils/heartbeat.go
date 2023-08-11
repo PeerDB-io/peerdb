@@ -8,12 +8,16 @@ import (
 	"go.temporal.io/sdk/activity"
 )
 
-func HeartbeatRoutine(ctx context.Context, interval time.Duration) chan bool {
+func HeartbeatRoutine(
+	ctx context.Context,
+	interval time.Duration,
+	message func() string,
+) chan bool {
 	counter := 1
 	shutdown := make(chan bool)
 	go func() {
 		for {
-			msg := fmt.Sprintf("heartbeat instance #%d for interval %v", counter, interval)
+			msg := fmt.Sprintf("heartbeat #%d: %s", counter, message())
 			activity.RecordHeartbeat(ctx, msg)
 			counter += 1
 			to := time.After(interval)

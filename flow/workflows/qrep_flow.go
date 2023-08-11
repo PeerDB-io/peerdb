@@ -77,7 +77,7 @@ func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 20,
 		},
-		HeartbeatTimeout: 10 * time.Minute,
+		HeartbeatTimeout: 1 * time.Hour,
 	})
 
 	if err := workflow.ExecuteActivity(ctx,
