@@ -278,10 +278,10 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s PRIMARY KEY,",
+			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s PRIMARY KEY,",
 				columnName, qValueKindToPostgresType(genericColumnType)))
 		} else {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s,", columnName,
+			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
 				qValueKindToPostgresType(genericColumnType)))
 		}
 	}
