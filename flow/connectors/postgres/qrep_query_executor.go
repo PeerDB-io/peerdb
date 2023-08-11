@@ -53,13 +53,15 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
 
-	shutdownCh := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
-		return fmt.Sprintf("running '%s'", q)
-	})
+	if !qe.testEnv {
+		shutdownCh := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
+			return fmt.Sprintf("running '%s'", q)
+		})
 
-	defer func() {
-		shutdownCh <- true
-	}()
+		defer func() {
+			shutdownCh <- true
+		}()
+	}
 
 	rows, err := tx.Query(qe.ctx, q)
 	if err != nil {
