@@ -54,6 +54,19 @@ const (
 	%s
 	WHEN MATCHED AND src._peerdb_record_type=2 THEN
 	DELETE`
+	fallbackUpsertStatementSQL = `WITH src_rank AS (
+		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS rank
+		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
+	)
+	INSERT INTO %s (%s) SELECT %s FROM src_rank WHERE rank=1 AND _peerdb_record_type!=2 
+	ON CONFLICT (%s) DO UPDATE SET %s`
+	fallbackDeleteStatementSQL = `WITH src_rank AS (
+		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS rank
+		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
+	)
+	DELETE FROM %s USING src_rank WHERE %s.%s=%s AND src_rank.rank=1 AND src_rank._peerdb_record_type=2`
 
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
@@ -419,6 +432,51 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 		log.Fatalf("Error iterating over rows: %v", err)
 	}
 	return resultMap, nil
+}
+
+func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifier string,
+	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool) []string {
+	if supportsMerge {
+		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns, rawTableIdentifier)}
+	} else {
+		log.Warnf("Postgres version is not high enough to support MERGE, falling back to UPSERT + DELETE")
+		log.Warnf("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
+		return c.generateFallbackStatements(destinationTableIdentifier, rawTableIdentifier)
+	}
+}
+
+func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string,
+	rawTableIdentifier string) []string {
+	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
+	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
+
+	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
+	var primaryKeyColumnCast string
+	for columnName, genericColumnType := range normalizedTableSchema.Columns {
+		columnNames = append(columnNames, columnName)
+		pgType := qValueKindToPostgresType(genericColumnType)
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
+			columnName, pgType, columnName))
+		if normalizedTableSchema.PrimaryKeyColumn == columnName {
+			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+		}
+	}
+	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
+
+	insertColumnsSQL := strings.TrimSuffix(strings.Join(columnNames, ","), ",")
+	updateColumnsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
+	for columnName := range normalizedTableSchema.Columns {
+		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf("%s=EXCLUDED.%s", columnName, columnName))
+	}
+	updateColumnsSQL := strings.TrimSuffix(strings.Join(updateColumnsSQLArray, ","), ",")
+	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL, primaryKeyColumnCast, internalSchema,
+		rawTableIdentifier, destinationTableIdentifier, insertColumnsSQL, flattenedCastsSQL,
+		normalizedTableSchema.PrimaryKeyColumn, updateColumnsSQL)
+	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL, primaryKeyColumnCast, internalSchema,
+		rawTableIdentifier, destinationTableIdentifier, destinationTableIdentifier,
+		normalizedTableSchema.PrimaryKeyColumn, primaryKeyColumnCast)
+
+	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
 
 func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier string, unchangedToastColumns []string,

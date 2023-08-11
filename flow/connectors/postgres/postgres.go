@@ -352,15 +352,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 }
 
 func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	good, err := c.majorVersionCheck(150000)
-	if err != nil {
-		return nil, err
-	}
-	if !good {
-		//nolint:stylecheck
-		return nil, fmt.Errorf("Postgres version is not 15 or higher, required for MERGE")
-	}
-
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	syncBatchID, err := c.getLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -400,15 +391,22 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		}
 	}()
 
+	supportsMerge, err := c.majorVersionCheck(150000)
+	if err != nil {
+		return nil, err
+	}
 	mergeStatementsBatch := &pgx.Batch{}
 	totalRowsAffected := 0
 	for destinationTableName, unchangedToastCols := range unchangedToastColsMap {
-		mergeStatementsBatch.Queue(c.generateMergeStatement(destinationTableName, unchangedToastCols,
-			rawTableIdentifier), normalizeBatchID, syncBatchID, destinationTableName).Exec(
-			func(ct pgconn.CommandTag) error {
-				totalRowsAffected += int(ct.RowsAffected())
-				return nil
-			})
+		normalizeStatements := c.generateNormalizeStatements(destinationTableName, unchangedToastCols,
+			rawTableIdentifier, supportsMerge)
+		for _, normalizeStatement := range normalizeStatements {
+			mergeStatementsBatch.Queue(normalizeStatement, normalizeBatchID, syncBatchID, destinationTableName).Exec(
+				func(ct pgconn.CommandTag) error {
+					totalRowsAffected += int(ct.RowsAffected())
+					return nil
+				})
+		}
 	}
 	startTime := time.Now()
 	if mergeStatementsBatch.Len() > 0 {
