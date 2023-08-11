@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -67,8 +68,11 @@ func (s *E2EPeerFlowTestSuite) createSourceTable(tableName string) {
 }
 
 func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount int) {
+	var ids []string
 	var rows []string
 	for i := 0; i < rowCount-1; i++ {
+		id := uuid.New().String()
+		ids = append(ids, id)
 		row := fmt.Sprintf(`
 					(
 							'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
@@ -82,7 +86,7 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
 							'{"key": "value"}', 15
 					)`,
-			uuid.New().String(), uuid.New().String(), uuid.New().String(),
+			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
 		rows = append(rows, row)
 	}
@@ -111,6 +115,25 @@ func (s *E2EPeerFlowTestSuite) populateSourceTable(tableName string, rowCount in
 	);
 	`, tableName, uuid.New().String()))
 	require.NoError(s.T(), err)
+
+	// generate a 20 MB json and update id[0]'s col f5 to it
+	v := s.generate20MBJson()
+	_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+		UPDATE e2e_test.%s SET f5 = '%s' WHERE id = '%s';
+	`, tableName, v, ids[0]))
+	require.NoError(s.T(), err)
+}
+
+func (s *E2EPeerFlowTestSuite) generate20MBJson() []byte {
+	xn := make(map[string]interface{})
+	for i := 0; i < 1000000; i++ {
+		xn[uuid.New().String()] = uuid.New().String()
+	}
+
+	v, err := json.Marshal(xn)
+	require.NoError(s.T(), err)
+
+	return v
 }
 
 func (s *E2EPeerFlowTestSuite) setupSourceTable(tableName string, rowCount int) {
