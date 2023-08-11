@@ -184,6 +184,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 
 	log.Info("pulling records...")
 
+	startTime := time.Now()
 	records, err := src.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:             input.FlowConnectionConfigs.FlowJobName,
 		SrcTableIDNameMapping:   input.FlowConnectionConfigs.SrcTableIdNameMapping,
@@ -196,6 +197,24 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull records: %w", err)
+	}
+	if a.CatalogMirrorMonitor.IsActive() && len(records.Records) > 0 {
+		syncBatchID, err := dest.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
+		if err != nil {
+			return nil, err
+		}
+
+		err = a.CatalogMirrorMonitor.AddCDCBatchForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
+			monitoring.CDCBatchInfo{
+				BatchID:       syncBatchID + 1,
+				RowsInBatch:   uint32(len(records.Records)),
+				BatchStartLSN: pglogrepl.LSN(records.FirstCheckPointID),
+				BatchEndlSN:   pglogrepl.LSN(records.LastCheckPointID),
+				StartTime:     startTime,
+			})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// log the number of records
@@ -213,18 +232,25 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 	})
 	if err != nil {
-		return nil, err
-	}
-	err = a.CatalogMirrorMonitor.
-		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
-			pglogrepl.LSN(records.LastCheckPointID))
-
-	log.Info("pushed records")
-
-	if err != nil {
 		log.Warnf("failed to push records: %v", err)
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
+	log.Info("pushed records")
+
+	err = a.CatalogMirrorMonitor.
+		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
+			pglogrepl.LSN(records.LastCheckPointID))
+	if err != nil {
+		return nil, err
+	}
+	if res.TableNameRowsMapping != nil {
+		err = a.CatalogMirrorMonitor.AddCDCBatchTablesForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
+			res.CurrentSyncBatchID, res.TableNameRowsMapping)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	activity.RecordHeartbeat(ctx, "pushed records")
 
 	return res, nil
