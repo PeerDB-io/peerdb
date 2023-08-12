@@ -945,7 +945,7 @@ func generateCreateTableSQLForNormalizedTable(
 	sourceTableSchema *protos.TableSchema,
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
-	primaryColUpper := strings.ToUpper(sourceTableSchema.PrimaryKeyColumn)
+	primaryColUpper := strings.ToUpper(sourceTableSchema.PrimaryKeyColumns[0])
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		columnNameUpper := strings.ToUpper(columnName)
 		if primaryColUpper == columnNameUpper {
@@ -1046,7 +1046,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	// TARGET.<pkey> = SOURCE.<pkey>
 	pkeyColStr := fmt.Sprintf("TARGET.%s = SOURCE.%s",
-		normalizedTableSchema.PrimaryKeyColumn, normalizedTableSchema.PrimaryKeyColumn)
+		normalizedTableSchema.PrimaryKeyColumns[0], normalizedTableSchema.PrimaryKeyColumns[0])
 
 	deletePart := "DELETE"
 	if softDelete {
@@ -1055,8 +1055,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
-		normalizedTableSchema.PrimaryKeyColumn, pkeyColStr, insertColumnsSQL, insertValuesSQL,
-		updateStringToastCols, deletePart)
+		normalizedTableSchema.PrimaryKeyColumns[0], pkeyColStr, insertColumnsSQL, insertValuesSQL,
+		updateStringToastCols)
 
 	result, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {

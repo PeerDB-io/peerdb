@@ -4725,7 +4725,7 @@ impl serde::Serialize for TableSchema {
         if !self.columns.is_empty() {
             len += 1;
         }
-        if !self.primary_key_column.is_empty() {
+        if !self.primary_key_columns.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.TableSchema", len)?;
@@ -4735,8 +4735,8 @@ impl serde::Serialize for TableSchema {
         if !self.columns.is_empty() {
             struct_ser.serialize_field("columns", &self.columns)?;
         }
-        if !self.primary_key_column.is_empty() {
-            struct_ser.serialize_field("primaryKeyColumn", &self.primary_key_column)?;
+        if !self.primary_key_columns.is_empty() {
+            struct_ser.serialize_field("primaryKeyColumns", &self.primary_key_columns)?;
         }
         struct_ser.end()
     }
@@ -4751,15 +4751,15 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             "table_identifier",
             "tableIdentifier",
             "columns",
-            "primary_key_column",
-            "primaryKeyColumn",
+            "primary_key_columns",
+            "primaryKeyColumns",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             TableIdentifier,
             Columns,
-            PrimaryKeyColumn,
+            PrimaryKeyColumns,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4784,7 +4784,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                         match value {
                             "tableIdentifier" | "table_identifier" => Ok(GeneratedField::TableIdentifier),
                             "columns" => Ok(GeneratedField::Columns),
-                            "primaryKeyColumn" | "primary_key_column" => Ok(GeneratedField::PrimaryKeyColumn),
+                            "primaryKeyColumns" | "primary_key_columns" => Ok(GeneratedField::PrimaryKeyColumns),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4806,7 +4806,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             {
                 let mut table_identifier__ = None;
                 let mut columns__ = None;
-                let mut primary_key_column__ = None;
+                let mut primary_key_columns__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::TableIdentifier => {
@@ -4823,11 +4823,11 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                                 map.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
-                        GeneratedField::PrimaryKeyColumn => {
-                            if primary_key_column__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("primaryKeyColumn"));
+                        GeneratedField::PrimaryKeyColumns => {
+                            if primary_key_columns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("primaryKeyColumns"));
                             }
-                            primary_key_column__ = Some(map.next_value()?);
+                            primary_key_columns__ = Some(map.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
@@ -4837,7 +4837,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                 Ok(TableSchema {
                     table_identifier: table_identifier__.unwrap_or_default(),
                     columns: columns__.unwrap_or_default(),
-                    primary_key_column: primary_key_column__.unwrap_or_default(),
+                    primary_key_columns: primary_key_columns__.unwrap_or_default(),
                 })
             }
         }

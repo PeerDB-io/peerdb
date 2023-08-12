@@ -1278,13 +1278,13 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 			) _peerdb_ranked
 			WHERE _peerdb_rank = 1
 	) SELECT * FROM _peerdb_de_duplicated_data_res`
-	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
+	pkey := m.NormalizedTableSchema.PrimaryKeyColumns[0]
 	return fmt.Sprintf(cte, pkey)
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
-	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
+func (m *MergeStmtGenerator) generateMergeStmt() string {
+	pkey := m.NormalizedTableSchema.PrimaryKeyColumns[0]
 
 	// comma separated list of column names
 	backtickColNames := make([]string, 0)
@@ -1295,8 +1295,8 @@ func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	}
 	csep := strings.Join(backtickColNames, ", ")
 
-	udateStatementsforToastCols := m.generateUpdateStatement(pureColNames, m.UnchangedToastColumns)
-	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
+	updateStatementsforToastCols := m.generateUpdateStatement(colNames, m.UnchangedToastColumns)
+	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
 	return fmt.Sprintf(`
 	MERGE %s.%s _peerdb_target USING %s _peerdb_deduped

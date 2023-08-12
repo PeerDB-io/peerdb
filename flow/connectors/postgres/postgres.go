@@ -565,7 +565,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 	defer rows.Close()
 
-	pkey, err := c.getPrimaryKeyColumn(schemaTable)
+	pKeyCols, err := c.getPrimaryKeyColumn(schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 	}
