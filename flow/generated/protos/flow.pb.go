@@ -1524,7 +1524,7 @@ type TableSchema struct {
 	// list of column names and types, types can be one of the following:
 	// "string", "int", "float", "bool", "timestamp".
 	Columns               map[string]string `protobuf:"bytes,2,rep,name=columns,proto3" json:"columns,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	PrimaryKeyColumn      string            `protobuf:"bytes,3,opt,name=primary_key_column,json=primaryKeyColumn,proto3" json:"primary_key_column,omitempty"`
+	PrimaryKeyColumns     []string          `protobuf:"bytes,3,rep,name=primary_key_columns,json=primaryKeyColumns,proto3" json:"primary_key_columns,omitempty"`
 	IsReplicaIdentityFull bool              `protobuf:"varint,4,opt,name=is_replica_identity_full,json=isReplicaIdentityFull,proto3" json:"is_replica_identity_full,omitempty"`
 }
 
@@ -1574,11 +1574,11 @@ func (x *TableSchema) GetColumns() map[string]string {
 	return nil
 }
 
-func (x *TableSchema) GetPrimaryKeyColumn() string {
+func (x *TableSchema) GetPrimaryKeyColumns() []string {
 	if x != nil {
-		return x.PrimaryKeyColumn
+		return x.PrimaryKeyColumns
 	}
-	return ""
+	return nil
 }
 
 func (x *TableSchema) GetIsReplicaIdentityFull() bool {
@@ -3537,7 +3537,7 @@ func file_flow_proto_rawDescGZIP() []byte {
 }
 
 var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_flow_proto_goTypes = []interface{}{
 	(QRepSyncMode)(0),                       // 0: peerdb_flow.QRepSyncMode
 	(QRepWriteType)(0),                      // 1: peerdb_flow.QRepWriteType
@@ -4207,7 +4207,7 @@ func file_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_flow_proto_rawDesc,
 			NumEnums:      2,
-			NumMessages:   54,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

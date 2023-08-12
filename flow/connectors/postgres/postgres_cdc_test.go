@@ -408,7 +408,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 			"id":   string(qvalue.QValueKindInt32),
 			"name": string(qvalue.QValueKindString),
 		},
-		PrimaryKeyColumn: "id",
+		PrimaryKeyColumns: []string{"id"},
 	}
 
 	err = suite.connector.PullFlowCleanup(nonExistentFlowName)

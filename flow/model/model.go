@@ -282,7 +282,7 @@ func (r *DeleteRecord) GetItems() *RecordItems {
 
 type TableWithPkey struct {
 	TableName  string
-	PkeyColVal qvalue.QValue
+	PkeyColVal string
 }
 
 type RecordBatch struct {

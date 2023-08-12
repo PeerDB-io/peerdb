@@ -587,6 +587,17 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 	defer rows.Close()
 
+	pKeyCols, err := c.getPrimaryKeyColumn(schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+	}
+
+	res := &protos.TableSchema{
+		TableIdentifier:   req.TableIdentifier,
+		Columns:           make(map[string]string),
+		PrimaryKeyColumns: pKeyCols,
+	}
+
 	for _, fieldDescription := range rows.FieldDescriptions() {
 		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
 		if genericColType == qvalue.QValueKindInvalid {

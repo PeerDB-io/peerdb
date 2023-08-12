@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -238,29 +239,28 @@ func (p *PostgresCDCSource) consumeStream(
 					// tableName here is destination tableName.
 					// should be ideally sourceTableName as we are in PullRecords.
 					// will change in future
-					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
-					if isFullReplica {
-						records.Records = append(records.Records, rec)
-					} else {
-						pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+					pkeyColsMerged := make([]string, 0)
+					for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
 						pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
 						if err != nil {
 							return nil, fmt.Errorf("error getting pkey column value: %w", err)
 						}
-
-						tablePkeyVal := model.TableWithPkey{
-							TableName:  tableName,
-							PkeyColVal: *pkeyColVal,
-						}
-						_, ok := records.TablePKeyLastSeen[tablePkeyVal]
-						if !ok {
-							records.Records = append(records.Records, rec)
-							records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
-						} else {
-							oldRec := records.Records[records.TablePKeyLastSeen[tablePkeyVal]]
-							// iterate through unchanged toast cols and set them in new record
-							updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
-							for _, col := range updatedCols {
+						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal))
+					}
+					tablePkeyVal := model.TableWithPkey{
+						TableName:  tableName,
+						PkeyColVal: strings.Join(pkeyColsMerged, " "),
+					}
+					_, ok := records.TablePKeyLastSeen[tablePkeyVal]
+					if !ok {
+						result.Records = append(result.Records, rec)
+						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
+					} else {
+						oldRec := result.Records[result.TablePKeyLastSeen[tablePkeyVal]]
+						// iterate through unchanged toast cols and set them
+						for col, val := range oldRec.GetItems() {
+							if _, ok := r.NewItems[col]; !ok {
+								r.NewItems[col] = val
 								delete(r.UnchangedToastColumns, col)
 							}
 							records.Records = append(records.Records, rec)
@@ -268,23 +268,22 @@ func (p *PostgresCDCSource) consumeStream(
 						}
 					}
 				case *model.InsertRecord:
-					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
-					if isFullReplica {
-						records.Records = append(records.Records, rec)
-					} else {
-						pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+					pkeyColsMerged := make([]string, 0)
+					for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
 						pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
 						if err != nil {
 							return nil, fmt.Errorf("error getting pkey column value: %w", err)
 						}
-						tablePkeyVal := model.TableWithPkey{
-							TableName:  tableName,
-							PkeyColVal: *pkeyColVal,
-						}
-						records.Records = append(records.Records, rec)
-						// all columns will be set in insert record, so add it to the map
-						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal))
 					}
+
+					tablePkeyVal := model.TableWithPkey{
+						TableName:  tableName,
+						PkeyColVal: strings.Join(pkeyColsMerged, " "),
+					}
+					result.Records = append(result.Records, rec)
+					// all columns will be set in insert record, so add it to the map
+					result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 				case *model.DeleteRecord:
 					records.Records = append(records.Records, rec)
 				case *model.RelationRecord:
