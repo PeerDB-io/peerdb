@@ -15,3 +15,5 @@ const (
 	EnableMetricsKey    ContextKey = "enableMetrics"
 	CDCMirrorMonitorKey ContextKey = "cdcMirrorMonitor"
 )
+
+const FetchAndChannelSize = 256 * 1024
