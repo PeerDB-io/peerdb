@@ -624,7 +624,8 @@ func (c *PostgresConnector) SetupReplication(signal *SlotSignal, req *protos.Set
 	}
 
 	// Create the replication slot and publication
-	err = c.createSlotAndPublication(signal, exists, slotName, publicationName, req.TableNameMapping)
+	err = c.createSlotAndPublication(signal, exists,
+		slotName, publicationName, req.TableNameMapping, req.DoInitialCopy)
 	if err != nil {
 		return fmt.Errorf("error creating replication slot and publication: %w", err)
 	}

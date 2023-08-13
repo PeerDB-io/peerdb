@@ -137,6 +137,8 @@ pub struct SetupReplicationInput {
     /// replicate to destination using ctid
     #[prost(message, optional, tag="4")]
     pub destination_peer: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(bool, tag="5")]
+    pub do_initial_copy: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

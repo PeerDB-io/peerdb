@@ -86,6 +86,7 @@ message SetupReplicationInput {
   map<string, string> table_name_mapping = 3;
   // replicate to destination using ctid
   peerdb_peers.Peer destination_peer = 4;
+  bool do_initial_copy = 5;
 }
 
 message SetupReplicationOutput {
