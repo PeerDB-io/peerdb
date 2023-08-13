@@ -36,6 +36,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		PeerConnectionConfig: s.config.Source,
 		FlowJobName:          flowName,
 		TableNameMapping:     s.config.TableNameMapping,
+		DoInitialCopy:        s.config.DoInitialCopy,
 	}
 
 	res := &protos.SetupReplicationOutput{}

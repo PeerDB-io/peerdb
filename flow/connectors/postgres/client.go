@@ -185,6 +185,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	slot string,
 	publication string,
 	tableNameMapping map[string]string,
+	doInitialCopy bool,
 ) error {
 	/*
 		iterating through source tables and creating a publication.
@@ -248,10 +249,16 @@ func (c *PostgresConnector) createSlotAndPublication(
 	} else {
 		log.Infof("Replication slot '%s' already exists", slot)
 		if signal != nil {
+			var e error
+			if doInitialCopy {
+				e = errors.New("slot already exists")
+			} else {
+				e = nil
+			}
 			slotDetails := &SlotCreationResult{
 				SlotName:     slot,
 				SnapshotName: "",
-				Err:          errors.New("slot already exists"),
+				Err:          e,
 			}
 			signal.SlotCreated <- slotDetails
 		}

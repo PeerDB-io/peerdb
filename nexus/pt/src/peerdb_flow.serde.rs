@@ -2831,6 +2831,9 @@ impl serde::Serialize for SetupReplicationInput {
         if self.destination_peer.is_some() {
             len += 1;
         }
+        if self.do_initial_copy {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.SetupReplicationInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
@@ -2843,6 +2846,9 @@ impl serde::Serialize for SetupReplicationInput {
         }
         if let Some(v) = self.destination_peer.as_ref() {
             struct_ser.serialize_field("destinationPeer", v)?;
+        }
+        if self.do_initial_copy {
+            struct_ser.serialize_field("doInitialCopy", &self.do_initial_copy)?;
         }
         struct_ser.end()
     }
@@ -2862,6 +2868,8 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
             "tableNameMapping",
             "destination_peer",
             "destinationPeer",
+            "do_initial_copy",
+            "doInitialCopy",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2870,6 +2878,7 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
             FlowJobName,
             TableNameMapping,
             DestinationPeer,
+            DoInitialCopy,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2896,6 +2905,7 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
                             "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
                             "tableNameMapping" | "table_name_mapping" => Ok(GeneratedField::TableNameMapping),
                             "destinationPeer" | "destination_peer" => Ok(GeneratedField::DestinationPeer),
+                            "doInitialCopy" | "do_initial_copy" => Ok(GeneratedField::DoInitialCopy),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2919,6 +2929,7 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
                 let mut flow_job_name__ = None;
                 let mut table_name_mapping__ = None;
                 let mut destination_peer__ = None;
+                let mut do_initial_copy__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -2947,6 +2958,12 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
                             }
                             destination_peer__ = map.next_value()?;
                         }
+                        GeneratedField::DoInitialCopy => {
+                            if do_initial_copy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("doInitialCopy"));
+                            }
+                            do_initial_copy__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2957,6 +2974,7 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
                     flow_job_name: flow_job_name__.unwrap_or_default(),
                     table_name_mapping: table_name_mapping__.unwrap_or_default(),
                     destination_peer: destination_peer__,
+                    do_initial_copy: do_initial_copy__.unwrap_or_default(),
                 })
             }
         }
