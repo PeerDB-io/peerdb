@@ -413,7 +413,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			"flowName": req.FlowJobName,
 		}).Printf("no records to normalize: syncBatchID %d, normalizeBatchID %d", syncBatchID, normalizeBatchID)
 		return &model.NormalizeResponse{
-			Done:         true,
+			Done:         false,
 			StartBatchID: normalizeBatchID,
 			EndBatchID:   syncBatchID,
 		}, nil

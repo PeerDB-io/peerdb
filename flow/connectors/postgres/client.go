@@ -492,6 +492,8 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), internalSchema,
 		rawTableIdentifier, destinationTableIdentifier, deleteWhereClauseSQL)
 
+	log.Errorln("fallbackUpsertStatement", fallbackUpsertStatement)
+	log.Errorln("fallbackDeleteStatement", fallbackDeleteStatement)
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
 
