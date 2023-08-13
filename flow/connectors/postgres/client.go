@@ -27,6 +27,8 @@ const (
 		_peerdb_timestamp BIGINT NOT NULL,_peerdb_destination_table_name TEXT NOT NULL,_peerdb_data JSONB NOT NULL,
 		_peerdb_record_type INTEGER NOT NULL, _peerdb_match_data JSONB,_peerdb_batch_id INTEGER,
 		_peerdb_unchanged_toast_columns TEXT)`
+	createRawTableBatchIDIndexSQL  = "CREATE INDEX IF NOT EXISTS %s_batchid_idx ON %s.%s(_peerdb_batch_id)"
+	createRawTableDstTableIndexSQL = "CREATE INDEX IF NOT EXISTS %s_dst_table_idx ON %s.%s(_peerdb_destination_table_name)"
 
 	getLastOffsetSQL            = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
 	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
@@ -87,9 +89,9 @@ func (c *PostgresConnector) getRelIDForTable(schemaTable *SchemaTable) (uint32, 
 	return relID, nil
 }
 
-// getPrimaryKeyColumn for table returns the primary key column for a given table
+// getPrimaryKeyColumns for table returns the primary key column for a given table
 // errors if there is no primary key column or if there is more than one primary key column.
-func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) ([]string, error) {
+func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *SchemaTable) ([]string, error) {
 	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
@@ -490,7 +492,6 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), internalSchema,
 		rawTableIdentifier, destinationTableIdentifier, deleteWhereClauseSQL)
 
-	log.Error([]string{fallbackUpsertStatement, fallbackDeleteStatement})
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
 
