@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	PeerFlowStatusQuery          = "q-peer-flow-status"
-	maxSyncFlowsPerPeerFlow      = 32
-	maxNormalizeFlowsPerPeerFlow = 32
+	PeerFlowStatusQuery     = "q-peer-flow-status"
+	maxSyncFlowsPerPeerFlow = 32
 )
 
 type PeerFlowLimits struct {
@@ -209,10 +208,6 @@ func PeerFlowWorkflowWithConfig(
 
 	w := NewPeerFlowWorkflowExecution(ctx)
 
-	if limits.TotalNormalizeFlows == 0 {
-		limits.TotalNormalizeFlows = maxNormalizeFlowsPerPeerFlow
-	}
-
 	if limits.TotalSyncFlows == 0 {
 		limits.TotalSyncFlows = maxSyncFlowsPerPeerFlow
 	}
@@ -287,7 +282,6 @@ func PeerFlowWorkflowWithConfig(
 	}
 
 	currentSyncFlowNum := 0
-	currentNormalizeFlowNum := 0
 
 	for {
 		// check if the peer flow has been shutdown
@@ -335,52 +329,38 @@ func PeerFlowWorkflowWithConfig(
 			}
 		})
 		selector.Select(ctx)
-
-		/*
-			NormalizeFlow - normalize raw changes on target to final table
-			SyncFlow and NormalizeFlow are independent.
-			TODO -
-			1. Currently NormalizeFlow runs right after SyncFlow. We need to make it asynchronous
-			NormalizeFlow will start only after Initial Load
-		*/
-		if limits.TotalNormalizeFlows != 0 && currentNormalizeFlowNum == limits.TotalNormalizeFlows {
-			w.logger.Info("All the normalize flows have completed successfully, there was a"+
-				" limit on the number of normalizer to be executed: ", limits.TotalNormalizeFlows)
-			break
-		}
-		currentNormalizeFlowNum++
-
-		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
-		if err != nil {
-			return state, err
-		}
-
-		// execute the normalize flow as a child workflow
-		childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        normalizeFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 20,
-			},
-		}
-		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
-		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
-			ctx,
-			NormalizeFlowWorkflow,
-			cfg,
-		)
-
-		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
-			var childNormalizeFlowRes *model.NormalizeResponse
-			if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
-				w.logger.Error("failed to execute normalize flow: ", err)
-				state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
-			} else {
-				state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
-			}
-		})
-		selector.Select(ctx)
 	}
+
+	normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
+	if err != nil {
+		return state, err
+	}
+
+	// execute the normalize flow as a child workflow
+	childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
+		WorkflowID:        normalizeFlowID,
+		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 20,
+		},
+	}
+	ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
+	childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
+		ctx,
+		NormalizeFlowWorkflow,
+		cfg,
+	)
+
+	selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
+		var childNormalizeFlowRes *model.NormalizeResponse
+		if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
+			w.logger.Error("failed to execute normalize flow: ", err)
+			state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
+		} else {
+			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
+		}
+	})
+	selector.Select(ctx)
 
 	return nil, workflow.NewContinueAsNewError(ctx, PeerFlowWorkflowWithConfig, cfg, limits, state)
 }
