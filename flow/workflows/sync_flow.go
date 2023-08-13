@@ -136,7 +136,7 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	s.logger.Info("executing normalize flow - ", s.PeerFlowName)
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 7 * 24 * time.Hour,
 		HeartbeatTimeout:    5 * time.Minute,
 	})
 
