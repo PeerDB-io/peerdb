@@ -525,6 +525,16 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	if err != nil {
 		return nil, fmt.Errorf("error creating raw table: %w", err)
 	}
+	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableBatchIDIndexSQL, rawTableIdentifier,
+		internalSchema, rawTableIdentifier))
+	if err != nil {
+		return nil, fmt.Errorf("error creating batch ID index on raw table: %w", err)
+	}
+	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier,
+		internalSchema, rawTableIdentifier))
+	if err != nil {
+		return nil, fmt.Errorf("error creating batch ID index on raw table: %w", err)
+	}
 
 	err = createRawTableTx.Commit(c.ctx)
 	if err != nil {
@@ -587,7 +597,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 	defer rows.Close()
 
-	pKeyCols, err := c.getPrimaryKeyColumn(schemaTable)
+	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 	}

@@ -106,23 +106,6 @@ func (c *PostgresConnector) isTableFullReplica(schemaTable *SchemaTable) (bool, 
 	return string(replicaIdentity) == "f", nil
 }
 
-// getReplicaIdentity returns the replica identity for a table.
-func (c *PostgresConnector) isTableFullReplica(schemaTable *SchemaTable) (bool, error) {
-	relID, relIDErr := c.getRelIDForTable(schemaTable)
-	if relIDErr != nil {
-		return false, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, relIDErr)
-	}
-
-	var replicaIdentity rune
-	err := c.pool.QueryRow(c.ctx,
-		`SELECT relreplident FROM pg_class WHERE oid = $1;`,
-		relID).Scan(&replicaIdentity)
-	if err != nil {
-		return false, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
-	}
-	return string(replicaIdentity) == "f", nil
-}
-
 // getPrimaryKeyColumns for table returns the primary key column for a given table
 // errors if there is no primary key column or if there is more than one primary key column.
 func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *SchemaTable) ([]string, error) {
@@ -529,8 +512,6 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), internalSchema,
 		rawTableIdentifier, destinationTableIdentifier, deleteWhereClauseSQL)
 
-	log.Errorln("fallbackUpsertStatement", fallbackUpsertStatement)
-	log.Errorln("fallbackDeleteStatement", fallbackDeleteStatement)
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
 
