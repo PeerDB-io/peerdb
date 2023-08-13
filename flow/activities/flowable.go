@@ -358,10 +358,12 @@ func (a *FlowableActivity) StartNormalize(
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
 	}
 
-	err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
-		res.EndBatchID)
-	if err != nil {
-		return nil, err
+	if res.Done {
+		err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
+			res.EndBatchID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// log the number of batches normalized

@@ -893,7 +893,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if !hasJob || normalizeBatchID == syncBatchID {
 		log.Printf("waiting for sync to catch up for job %s, so finishing", req.FlowJobName)
 		return &model.NormalizeResponse{
-			Done:         true,
+			Done:         false,
 			StartBatchID: normalizeBatchID,
 			EndBatchID:   syncBatchID,
 		}, nil
