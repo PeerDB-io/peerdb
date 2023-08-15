@@ -325,8 +325,7 @@ func (c *SnowflakeConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*p
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTables(
-	req *protos.SetupNormalizedTableParallelInput) (*protos.SetupNormalizedTableParallelOutput, error) {
-
+	req *protos.SetupNormalizedTableBatchInput) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
 		normalizedTableNameComponents, err := parseTableName(tableIdentifier)
@@ -336,7 +335,7 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 		tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
 			normalizedTableNameComponents.tableIdentifier)
 		if err != nil {
-			return nil, fmt.Errorf("error occured while checking if normalized table exists: %w", err)
+			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
 		if tableAlreadyExists {
 			tableExistsMapping[tableIdentifier] = true
@@ -351,7 +350,7 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 		tableExistsMapping[tableIdentifier] = false
 	}
 
-	return &protos.SetupNormalizedTableParallelOutput{
+	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
 	}, nil
 }

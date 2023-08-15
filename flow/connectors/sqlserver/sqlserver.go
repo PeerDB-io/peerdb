@@ -93,8 +93,8 @@ func (c *SQLServerConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*p
 }
 
 func (c *SQLServerConnector) SetupNormalizedTables(
-	req *protos.SetupNormalizedTableParallelInput) (
-	*protos.SetupNormalizedTableParallelOutput, error) {
+	req *protos.SetupNormalizedTableBatchInput) (
+	*protos.SetupNormalizedTableBatchOutput, error) {
 	log.Errorf("SetupNormalizedTable not supported for SQLServer")
 	return nil, fmt.Errorf("cdc based replication is not currently supported for SQLServer target")
 }

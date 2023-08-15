@@ -121,7 +121,7 @@ message SetupNormalizedTableInput {
   TableSchema source_table_schema = 3;
 }
 
-message SetupNormalizedTableParallelInput {
+message SetupNormalizedTableBatchInput {
   peerdb_peers.Peer peer_connection_config = 1;
   map<string, TableSchema> table_name_schema_mapping = 2;
 }
@@ -131,7 +131,7 @@ message SetupNormalizedTableOutput {
   bool already_exists = 2;
 }
 
-message SetupNormalizedTableParallelOutput {
+message SetupNormalizedTableBatchOutput {
   map<string, bool> table_exists_mapping = 1;
 }
 

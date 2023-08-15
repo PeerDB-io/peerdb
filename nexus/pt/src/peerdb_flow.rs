@@ -196,7 +196,7 @@ pub struct SetupNormalizedTableInput {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetupNormalizedTableParallelInput {
+pub struct SetupNormalizedTableBatchInput {
     #[prost(message, optional, tag="1")]
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(map="string, message", tag="2")]
@@ -212,7 +212,7 @@ pub struct SetupNormalizedTableOutput {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SetupNormalizedTableParallelOutput {
+pub struct SetupNormalizedTableBatchOutput {
     #[prost(map="string, bool", tag="1")]
     pub table_exists_mapping: ::std::collections::HashMap<::prost::alloc::string::String, bool>,
 }

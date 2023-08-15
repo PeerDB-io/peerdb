@@ -819,9 +819,8 @@ func (c *BigQueryConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
 func (c *BigQueryConnector) SetupNormalizedTables(
-	req *protos.SetupNormalizedTableParallelInput,
-) (*protos.SetupNormalizedTableParallelOutput, error) {
-
+	req *protos.SetupNormalizedTableBatchInput,
+) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
 		// convert the column names and types to bigquery types
@@ -858,7 +857,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		log.Printf("created table %s", tableIdentifier)
 	}
 
-	return &protos.SetupNormalizedTableParallelOutput{
+	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
 	}, nil
 }

@@ -298,8 +298,8 @@ func (c *EventHubConnector) getEventHubMgmtClient() (*armeventhub.EventHubsClien
 // Normalization
 
 func (c *EventHubConnector) SetupNormalizedTables(
-	req *protos.SetupNormalizedTableParallelInput) (
-	*protos.SetupNormalizedTableParallelOutput, error) {
+	req *protos.SetupNormalizedTableBatchInput) (
+	*protos.SetupNormalizedTableBatchOutput, error) {
 	log.Infof("normalization for event hub is a no-op")
 	return nil, nil
 }

@@ -545,10 +545,8 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 }
 
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
-func (c *PostgresConnector) SetupNormalizedTables(
-	req *protos.SetupNormalizedTableParallelInput,
-) (*protos.SetupNormalizedTableParallelOutput, error) {
-
+func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
+	*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	createNormalizedTablesTx, err := c.pool.Begin(c.ctx)
@@ -592,7 +590,7 @@ func (c *PostgresConnector) SetupNormalizedTables(
 		return nil, fmt.Errorf("error committing transaction for creating normalized tables: %w", err)
 	}
 
-	return &protos.SetupNormalizedTableParallelOutput{
+	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
 	}, nil
 }

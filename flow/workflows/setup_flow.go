@@ -216,16 +216,16 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		s.PeerFlowName, flowConnectionConfigs.TableNameMapping, tableNameSchemaMapping)
 
 	// now setup the normalized tables on the destination peer
-	setupConfig := &protos.SetupNormalizedTableParallelInput{
+	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerConnectionConfig:   flowConnectionConfigs.Destination,
 		TableNameSchemaMapping: flowConnectionConfigs.TableNameSchemaMapping,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
-	var createNormalizedTablesOutput protos.SetupNormalizedTableParallelOutput
+	var createNormalizedTablesOutput protos.SetupNormalizedTableBatchOutput
 	if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
 		s.logger.Error("failed to create normalized tables: ", err)
-		return nil, fmt.Errorf("failed to create normalized tables: ", err)
+		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
 	s.logger.Info("finished setting up normalized tables for peer flow - ", s.PeerFlowName)
