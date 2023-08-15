@@ -319,7 +319,8 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *SnowflakeConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	log.Errorf("panicking at call to GetTableSchema for Snowflake flow connector")
 	panic("GetTableSchema is not implemented for the Snowflake flow connector")
 }

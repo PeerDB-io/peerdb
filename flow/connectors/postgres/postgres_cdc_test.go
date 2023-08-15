@@ -345,10 +345,12 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		nonExistentFlowSrcTableName: nonExistentFlowDstTableName,
 	}
 
-	tableSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
-		TableIdentifier:      nonExistentFlowSrcTableName,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
+	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
+		TableIdentifiers:     []string{nonExistentFlowSrcTableName},
+		PeerConnectionConfig: nil,
+	}
+
+	tableSchema, err := suite.connector.GetTableSchema(getTblSchemaInput)
 	suite.Errorf(err, "error getting relation ID for table %s: no rows in result set", nonExistentFlowSrcTableName)
 	suite.Nil(tableSchema)
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
@@ -433,10 +435,12 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	suite.failTestError(err)
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
-	tableNameSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
-		TableIdentifier:      simpleHappyFlowSrcTableName,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
+
+	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
+		TableIdentifiers:     []string{simpleHappyFlowSrcTableName},
+		PeerConnectionConfig: nil,
+	}
+	tableNameSchema, err := suite.connector.GetTableSchema(getTblSchemaInput)
 	suite.failTestError(err)
 	suite.Equal(&protos.TableSchema{
 		TableIdentifier: simpleHappyFlowSrcTableName,
@@ -446,7 +450,8 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		},
 		PrimaryKeyColumn: "id",
 	}, tableNameSchema)
-	tableNameSchemaMapping[simpleHappyFlowDstTableName] = tableNameSchema
+	tableNameSchemaMapping[simpleHappyFlowDstTableName] =
+		tableNameSchema.TableNameSchemaMapping[simpleHappyFlowSrcTableName]
 
 	// pulling with no records.
 	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{
@@ -542,10 +547,11 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 	suite.failTestError(err)
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
-	tableNameSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
-		TableIdentifier:      allTypesHappyFlowSrcTableName,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
+	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
+		TableIdentifiers:     []string{allTypesHappyFlowSrcTableName},
+		PeerConnectionConfig: nil,
+	}
+	tableNameSchema, err := suite.connector.GetTableSchema(getTblSchemaInput)
 	suite.failTestError(err)
 	suite.Equal(&protos.TableSchema{
 		TableIdentifier: allTypesHappyFlowSrcTableName,
@@ -588,7 +594,8 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 		},
 		PrimaryKeyColumn: "id",
 	}, tableNameSchema)
-	tableNameSchemaMapping[allTypesHappyFlowDstTableName] = tableNameSchema
+	tableNameSchemaMapping[allTypesHappyFlowDstTableName] =
+		tableNameSchema.TableNameSchemaMapping[allTypesHappyFlowSrcTableName]
 
 	_, err = suite.connector.pool.Exec(context.Background(),
 		fmt.Sprintf(`INSERT INTO %s SELECT 2, 2, b'1', b'101',
@@ -653,10 +660,11 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	suite.failTestError(err)
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
-	tableNameSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
-		TableIdentifier:      toastHappyFlowSrcTableName,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
+	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
+		TableIdentifiers:     []string{toastHappyFlowSrcTableName},
+		PeerConnectionConfig: nil,
+	}
+	tableNameSchema, err := suite.connector.GetTableSchema(getTblSchemaInput)
 	suite.failTestError(err)
 	suite.Equal(&protos.TableSchema{
 		TableIdentifier: toastHappyFlowSrcTableName,
@@ -669,7 +677,8 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		},
 		PrimaryKeyColumn: "id",
 	}, tableNameSchema)
-	tableNameSchemaMapping[toastHappyFlowDstTableName] = tableNameSchema
+	tableNameSchemaMapping[toastHappyFlowDstTableName] =
+		tableNameSchema.TableNameSchemaMapping[toastHappyFlowSrcTableName]
 
 	suite.insertToastRecords(toastHappyFlowSrcTableName)
 	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{

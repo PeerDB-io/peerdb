@@ -812,7 +812,8 @@ func (c *BigQueryConnector) metadataHasJob(jobName string) (bool, error) {
 }
 
 // GetTableSchema returns the schema for a table, implementing the Connector interface.
-func (c *BigQueryConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *BigQueryConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	panic("not implemented")
 }
 

@@ -240,7 +240,8 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	return nil, nil
 }
 
-func (c *EventHubConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *EventHubConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	panic("get table schema not implemented for event hub")
 }
 

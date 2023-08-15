@@ -502,15 +502,33 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 }
 
 // GetTableSchema returns the schema for a table, implementing the Connector interface.
-func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
-	schemaTable, err := parseSchemaTable(req.TableIdentifier)
+func (c *PostgresConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
+	res := make(map[string]*protos.TableSchema)
+	for _, tableName := range req.TableIdentifiers {
+		tableSchema, err := c.getTableSchemaForTable(tableName)
+		if err != nil {
+			return nil, err
+		}
+		res[tableName] = tableSchema
+	}
+
+	return &protos.GetTableSchemaBatchOutput{
+		TableNameSchemaMapping: res,
+	}, nil
+}
+
+func (c *PostgresConnector) getTableSchemaForTable(
+	tableName string,
+) (*protos.TableSchema, error) {
+	schemaTable, err := parseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
-		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, req.TableIdentifier))
+		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName))
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
@@ -522,7 +540,7 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 	}
 
 	res := &protos.TableSchema{
-		TableIdentifier:  req.TableIdentifier,
+		TableIdentifier:  tableName,
 		Columns:          make(map[string]string),
 		PrimaryKeyColumn: pkey,
 	}

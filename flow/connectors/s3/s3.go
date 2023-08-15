@@ -65,7 +65,8 @@ func (c *S3Connector) GetLastNormalizeBatchID() (int64, error) {
 	return 0, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
-func (c *S3Connector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *S3Connector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	log.Errorf("GetTableSchema not supported for S3 flow connector")
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }

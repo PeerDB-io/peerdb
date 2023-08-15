@@ -23,7 +23,7 @@ type Connector interface {
 	GetLastSyncBatchID(jobName string) (int64, error)
 
 	// GetTableSchema returns the schema of a table.
-	GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error)
+	GetTableSchema(req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
 
 	// SetupNormalizedTables sets up the normalized table on the connector.
 	SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (

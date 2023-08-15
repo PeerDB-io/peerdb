@@ -131,8 +131,8 @@ func (a *FlowableActivity) CreateRawTable(
 // GetTableSchema returns the schema of a table.
 func (a *FlowableActivity) GetTableSchema(
 	ctx context.Context,
-	config *protos.GetTableSchemaInput,
-) (*protos.TableSchema, error) {
+	config *protos.GetTableSchemaBatchInput,
+) (*protos.GetTableSchemaBatchOutput, error) {
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
 	defer connectors.CloseConnector(conn)
 

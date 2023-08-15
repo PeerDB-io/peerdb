@@ -102,17 +102,21 @@ message CreateRawTableInput {
 
 message CreateRawTableOutput { string table_identifier = 1; }
 
-message GetTableSchemaInput {
-  peerdb_peers.Peer peer_connection_config = 1;
-  string table_identifier = 2;
-}
-
 message TableSchema {
   string table_identifier = 1;
   // list of column names and types, types can be one of the following:
   // "string", "int", "float", "bool", "timestamp".
   map<string, string> columns = 2;
   string primary_key_column = 3;
+}
+
+message GetTableSchemaBatchInput {
+  peerdb_peers.Peer peer_connection_config = 1;
+  repeated string table_identifiers = 2;
+}
+
+message GetTableSchemaBatchOutput {
+  map<string, TableSchema> table_name_schema_mapping = 1;
 }
 
 message SetupNormalizedTableInput {

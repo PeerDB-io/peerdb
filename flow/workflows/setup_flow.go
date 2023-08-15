@@ -182,9 +182,9 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		source := srcTableName
 
 		// fetch source table schema for the normalized table setup.
-		tableSchemaInput := &protos.GetTableSchemaInput{
+		tableSchemaInput := &protos.GetTableSchemaBatchInput{
 			PeerConnectionConfig: flowConnectionConfigs.Source,
-			TableIdentifier:      source,
+			TableIdentifiers:     []string{source},
 		}
 
 		dstTableName, ok := flowConnectionConfigs.TableNameMapping[source]
