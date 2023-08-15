@@ -187,6 +187,12 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 			TableIdentifier:      source,
 		}
 
+		dstTableName, ok := flowConnectionConfigs.TableNameMapping[source]
+		if !ok {
+			s.logger.Error("failed to find destination table name for source table: ", source)
+			return nil, fmt.Errorf("failed to find destination table name for source table %s", source)
+		}
+
 		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
 		boundSelector.AddFuture(future, func(f workflow.Future) error {
 			s.logger.Info("fetching schema for source table - ", source)
@@ -194,12 +200,6 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 			if err := f.Get(ctx, &srcTableSchema); err != nil {
 				s.logger.Error("failed to fetch schema for source table: ", err)
 				return err
-			}
-
-			dstTableName, ok := flowConnectionConfigs.TableNameMapping[source]
-			if !ok {
-				s.logger.Error("failed to find destination table name for source table: ", source)
-				return fmt.Errorf("failed to find destination table name for source table %s", source)
 			}
 
 			tableNameSchemaMapping.Set(dstTableName, srcTableSchema)
