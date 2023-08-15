@@ -818,48 +818,48 @@ func (c *BigQueryConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
-func (c *BigQueryConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput,
-) (*protos.SetupNormalizedTableOutput, error) {
-	// convert the column names and types to bigquery types
-	sourceSchema := req.SourceTableSchema
+func (c *BigQueryConnector) SetupNormalizedTables(
+	req *protos.SetupNormalizedTableParallelInput,
+) (*protos.SetupNormalizedTableParallelOutput, error) {
 
-	columns := make([]*bigquery.FieldSchema, len(sourceSchema.Columns))
-	idx := 0
-	for colName, genericColType := range sourceSchema.Columns {
-		columns[idx] = &bigquery.FieldSchema{
-			Name:     colName,
-			Type:     qValueKindToBigQueryType(genericColType),
-			Repeated: strings.Contains(genericColType, "array"),
+	tableExistsMapping := make(map[string]bool)
+	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
+		// convert the column names and types to bigquery types
+		columns := make([]*bigquery.FieldSchema, len(tableSchema.Columns))
+		idx := 0
+		for colName, genericColType := range tableSchema.Columns {
+			columns[idx] = &bigquery.FieldSchema{
+				Name:     colName,
+				Type:     qValueKindToBigQueryType(genericColType),
+				Repeated: strings.Contains(genericColType, "array"),
+			}
+			idx++
 		}
-		idx++
+
+		// create the table using the columns
+		schema := bigquery.Schema(columns)
+		table := c.client.Dataset(c.datasetID).Table(tableIdentifier)
+
+		// check if the table exists
+		_, err := table.Metadata(c.ctx)
+		if err == nil {
+			// table exists, go to next table
+			tableExistsMapping[tableIdentifier] = true
+			continue
+		}
+
+		err = table.Create(c.ctx, &bigquery.TableMetadata{Schema: schema})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create table %s: %w", tableIdentifier, err)
+		}
+
+		tableExistsMapping[tableIdentifier] = false
+		// log that table was created
+		log.Printf("created table %s", tableIdentifier)
 	}
 
-	// create the table using the columns
-	schema := bigquery.Schema(columns)
-	table := c.client.Dataset(c.datasetID).Table(req.TableIdentifier)
-
-	// check if the table exists
-	_, err := table.Metadata(c.ctx)
-	if err == nil {
-		// table exists, return
-		return &protos.SetupNormalizedTableOutput{
-			TableIdentifier: req.TableIdentifier,
-			AlreadyExists:   true,
-		}, nil
-	}
-
-	err = table.Create(c.ctx, &bigquery.TableMetadata{Schema: schema})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create table %s: %w", req.TableIdentifier, err)
-	}
-
-	// log that table was created
-	log.Printf("created table %s", req.TableIdentifier)
-
-	return &protos.SetupNormalizedTableOutput{
-		TableIdentifier: req.TableIdentifier,
-		AlreadyExists:   false,
+	return &protos.SetupNormalizedTableParallelOutput{
+		TableExistsMapping: tableExistsMapping,
 	}, nil
 }
 

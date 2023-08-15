@@ -146,8 +146,8 @@ func (a *FlowableActivity) GetTableSchema(
 // CreateNormalizedTable creates a normalized table in the destination flowable.
 func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
-	config *protos.SetupNormalizedTableInput,
-) (*protos.SetupNormalizedTableOutput, error) {
+	config *protos.SetupNormalizedTableParallelInput,
+) (*protos.SetupNormalizedTableParallelOutput, error) {
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
 	defer connectors.CloseConnector(conn)
 
@@ -155,7 +155,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	return conn.SetupNormalizedTable(config)
+	return conn.SetupNormalizedTables(config)
 }
 
 // StartFlow implements StartFlow.

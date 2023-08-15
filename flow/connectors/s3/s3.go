@@ -70,8 +70,9 @@ func (c *S3Connector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.T
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
-func (c *S3Connector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+func (c *S3Connector) SetupNormalizedTables(
+	req *protos.SetupNormalizedTableParallelInput) (
+	*protos.SetupNormalizedTableParallelOutput, error) {
 	log.Errorf("SetupNormalizedTable not supported for S3")
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }

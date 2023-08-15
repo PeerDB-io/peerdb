@@ -127,7 +127,7 @@ func (c *CatalogMirrorMonitor) AddCDCBatchTablesForFlow(ctx context.Context, flo
 	}
 	defer func() {
 		err = insertBatchTablesTx.Rollback(ctx)
-		if err != pgx.ErrNoRows && err != nil {
+		if err != pgx.ErrTxClosed && err != nil {
 			log.Error("unexpected error during transaction rollback: %w", err)
 		}
 	}()

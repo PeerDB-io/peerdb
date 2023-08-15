@@ -25,8 +25,9 @@ type Connector interface {
 	// GetTableSchema returns the schema of a table.
 	GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error)
 
-	// SetupNormalizedTable sets up the normalized table on the connector.
-	SetupNormalizedTable(req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error)
+	// SetupNormalizedTables sets up the normalized table on the connector.
+	SetupNormalizedTables(req *protos.SetupNormalizedTableParallelInput) (
+		*protos.SetupNormalizedTableParallelOutput, error)
 
 	// EnsurePullability ensures that the connector is pullable.
 	EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error)

@@ -121,9 +121,18 @@ message SetupNormalizedTableInput {
   TableSchema source_table_schema = 3;
 }
 
+message SetupNormalizedTableParallelInput {
+  peerdb_peers.Peer peer_connection_config = 1;
+  map<string, TableSchema> table_name_schema_mapping = 2;
+}
+
 message SetupNormalizedTableOutput {
   string table_identifier = 1;
   bool already_exists = 2;
+}
+
+message SetupNormalizedTableParallelOutput {
+  map<string, bool> table_exists_mapping = 1;
 }
 
 // partition ranges [start, end] inclusive

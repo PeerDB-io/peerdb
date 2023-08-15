@@ -545,34 +545,55 @@ func (c *PostgresConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*pr
 }
 
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
-func (c *PostgresConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput,
-) (*protos.SetupNormalizedTableOutput, error) {
-	normalizedTableNameComponents, err := parseSchemaTable(req.TableIdentifier)
+func (c *PostgresConnector) SetupNormalizedTables(
+	req *protos.SetupNormalizedTableParallelInput,
+) (*protos.SetupNormalizedTableParallelOutput, error) {
+
+	tableExistsMapping := make(map[string]bool)
+	// Postgres is cool and supports transactional DDL. So we use a transaction.
+	createNormalizedTablesTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
 	}
-	tableAlreadyExists, err := c.tableExists(normalizedTableNameComponents)
-	if err != nil {
-		return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
-	}
-	if tableAlreadyExists {
-		return &protos.SetupNormalizedTableOutput{
-			TableIdentifier: req.TableIdentifier,
-			AlreadyExists:   true,
-		}, nil
+	defer func() {
+		deferErr := createNormalizedTablesTx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
+		}
+	}()
+
+	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
+		normalizedTableNameComponents, err := parseSchemaTable(tableIdentifier)
+		if err != nil {
+			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+		}
+		tableAlreadyExists, err := c.tableExists(normalizedTableNameComponents)
+		if err != nil {
+			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
+		}
+		if tableAlreadyExists {
+			tableExistsMapping[tableIdentifier] = true
+			continue
+		}
+
+		// convert the column names and types to Postgres types
+		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(tableIdentifier, tableSchema)
+		_, err = createNormalizedTablesTx.Exec(c.ctx, normalizedTableCreateSQL)
+		if err != nil {
+			return nil, fmt.Errorf("error while creating normalized table: %w", err)
+		}
+
+		tableExistsMapping[tableIdentifier] = false
+		log.Printf("created table %s", tableIdentifier)
 	}
 
-	// convert the column names and types to Postgres types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(req.TableIdentifier, req.SourceTableSchema)
-	_, err = c.pool.Exec(c.ctx, normalizedTableCreateSQL)
+	err = createNormalizedTablesTx.Commit(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error while creating normalized table: %w", err)
+		return nil, fmt.Errorf("error committing transaction for creating normalized tables: %w", err)
 	}
 
-	return &protos.SetupNormalizedTableOutput{
-		TableIdentifier: req.TableIdentifier,
-		AlreadyExists:   false,
+	return &protos.SetupNormalizedTableParallelOutput{
+		TableExistsMapping: tableExistsMapping,
 	}, nil
 }
 
