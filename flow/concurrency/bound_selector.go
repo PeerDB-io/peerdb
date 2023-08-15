@@ -32,16 +32,18 @@ func (s *BoundSelector) AddFuture(future workflow.Future, f func(workflow.Future
 		s.selector.Select(s.ctx)
 	}
 	s.futures[future] = struct{}{}
+	s.mu.Unlock()
 
 	s.selector.AddFuture(future, func(ready workflow.Future) {
+		s.mu.Lock()
 		delete(s.futures, ready)
 
 		err := f(ready)
 		if err != nil {
 			s.ferrors = append(s.ferrors, err)
 		}
+		s.mu.Unlock()
 	})
-	s.mu.Unlock()
 }
 
 func (s *BoundSelector) Wait() error {
