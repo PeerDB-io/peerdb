@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/concurrency"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"golang.org/x/exp/maps"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
@@ -97,41 +97,29 @@ func (s *SetupFlowExecution) ensurePullability(
 	s.logger.Info("ensuring pullability for peer flow - ", s.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
+		StartToCloseTimeout: 15 * time.Minute,
 	})
 	tmpMap := make(map[uint32]string)
 
-	boundSelector := concurrency.NewBoundSelector(8, ctx)
-
-	for srcTableName := range config.TableNameMapping {
-		source := srcTableName
-
-		// create EnsurePullabilityInput for the srcTableName
-		ensurePullabilityInput := &protos.EnsurePullabilityInput{
-			PeerConnectionConfig:  config.Source,
-			FlowJobName:           s.PeerFlowName,
-			SourceTableIdentifier: source,
-		}
-
-		future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
-		boundSelector.AddFuture(future, func(f workflow.Future) error {
-			var ensurePullabilityOutput protos.EnsurePullabilityOutput
-			if err := f.Get(ctx, &ensurePullabilityOutput); err != nil {
-				s.logger.Error("failed to ensure pullability: ", err)
-				return err
-			}
-
-			switch typedEnsurePullabilityOutput := ensurePullabilityOutput.TableIdentifier.TableIdentifier.(type) {
-			case *protos.TableIdentifier_PostgresTableIdentifier:
-				tmpMap[typedEnsurePullabilityOutput.PostgresTableIdentifier.RelId] = source
-			}
-
-			return nil
-		})
+	// create EnsurePullabilityInput for the srcTableName
+	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
+		PeerConnectionConfig:   config.Source,
+		FlowJobName:            s.PeerFlowName,
+		SourceTableIdentifiers: maps.Keys(config.TableNameMapping),
 	}
 
-	if err := boundSelector.Wait(); err != nil {
-		return fmt.Errorf("failed to ensure pullability: %w", err)
+	future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
+	var ensurePullabilityOutput *protos.EnsurePullabilityBatchOutput
+	if err := future.Get(ctx, &ensurePullabilityOutput); err != nil {
+		s.logger.Error("failed to ensure pullability for tables: ", err)
+		return fmt.Errorf("failed to ensure pullability for tables: %w", err)
+	}
+
+	for tableName, tableIdentifier := range ensurePullabilityOutput.TableIdentifierMapping {
+		switch typedTableIdentifier := tableIdentifier.TableIdentifier.(type) {
+		case *protos.TableIdentifier_PostgresTableIdentifier:
+			tmpMap[typedTableIdentifier.PostgresTableIdentifier.RelId] = tableName
+		}
 	}
 
 	config.SrcTableIdNameMapping = tmpMap
@@ -170,7 +158,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	s.logger.Info("fetching table schema for peer flow - ", s.PeerFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 1 * time.Hour,
 	})
 
 	sourceTables := make([]string, 0)

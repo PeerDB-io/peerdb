@@ -620,24 +620,31 @@ func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSc
 }
 
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
-func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityInput,
-) (*protos.EnsurePullabilityOutput, error) {
-	schemaTable, err := parseSchemaTable(req.SourceTableIdentifier)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing schema and table: %w", err)
+func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
+) (*protos.EnsurePullabilityBatchOutput, error) {
+
+	tableIdentifierMapping := make(map[string]*protos.TableIdentifier)
+	for _, tableName := range req.SourceTableIdentifiers {
+		schemaTable, err := parseSchemaTable(tableName)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing schema and table: %w", err)
+		}
+
+		// check if the table exists by getting the relation ID
+		relID, err := c.getRelIDForTable(schemaTable)
+		if err != nil {
+			return nil, err
+		}
+
+		tableIdentifierMapping[tableName] = &protos.TableIdentifier{
+			TableIdentifier: &protos.TableIdentifier_PostgresTableIdentifier{
+				PostgresTableIdentifier: &protos.PostgresTableIdentifier{
+					RelId: relID},
+			},
+		}
 	}
 
-	// check if the table exists by getting the relation ID
-	relID, err := c.getRelIDForTable(schemaTable)
-	if err != nil {
-		return nil, err
-	}
-	return &protos.EnsurePullabilityOutput{TableIdentifier: &protos.TableIdentifier{
-		TableIdentifier: &protos.TableIdentifier_PostgresTableIdentifier{
-			PostgresTableIdentifier: &protos.PostgresTableIdentifier{
-				RelId: relID},
-		},
-	}}, nil
+	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
 // SetupReplication sets up replication for the source connector.

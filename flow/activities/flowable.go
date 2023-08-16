@@ -88,20 +88,20 @@ func (a *FlowableActivity) GetLastSyncedID(
 // EnsurePullability implements EnsurePullability.
 func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
-	config *protos.EnsurePullabilityInput,
-) (*protos.EnsurePullabilityOutput, error) {
+	config *protos.EnsurePullabilityBatchInput,
+) (*protos.EnsurePullabilityBatchOutput, error) {
 	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
 	defer connectors.CloseConnector(conn)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	relID, err := conn.EnsurePullability(config)
+	output, err := conn.EnsurePullability(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
 
-	return relID, nil
+	return output, nil
 }
 
 // CreateRawTable creates a raw table in the destination flowable.

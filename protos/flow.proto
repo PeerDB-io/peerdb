@@ -66,6 +66,12 @@ message EnsurePullabilityInput {
   string source_table_identifier = 3;
 }
 
+message EnsurePullabilityBatchInput {
+  peerdb_peers.Peer peer_connection_config = 1;
+  string flow_job_name = 2;
+  repeated string source_table_identifiers = 3;
+}
+
 message PostgresTableIdentifier {
   uint32 rel_id = 1;
 }
@@ -78,6 +84,10 @@ message TableIdentifier {
 
 message EnsurePullabilityOutput {
   TableIdentifier table_identifier = 1;
+}
+
+message EnsurePullabilityBatchOutput {
+  map<string, TableIdentifier> table_identifier_mapping = 1;
 }
 
 message SetupReplicationInput {

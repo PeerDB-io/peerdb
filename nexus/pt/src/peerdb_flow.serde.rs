@@ -325,6 +325,236 @@ impl<'de> serde::Deserialize<'de> for DropFlowInput {
         deserializer.deserialize_struct("peerdb_flow.DropFlowInput", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for EnsurePullabilityBatchInput {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.peer_connection_config.is_some() {
+            len += 1;
+        }
+        if !self.flow_job_name.is_empty() {
+            len += 1;
+        }
+        if !self.source_table_identifiers.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.EnsurePullabilityBatchInput", len)?;
+        if let Some(v) = self.peer_connection_config.as_ref() {
+            struct_ser.serialize_field("peerConnectionConfig", v)?;
+        }
+        if !self.flow_job_name.is_empty() {
+            struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
+        }
+        if !self.source_table_identifiers.is_empty() {
+            struct_ser.serialize_field("sourceTableIdentifiers", &self.source_table_identifiers)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for EnsurePullabilityBatchInput {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "peer_connection_config",
+            "peerConnectionConfig",
+            "flow_job_name",
+            "flowJobName",
+            "source_table_identifiers",
+            "sourceTableIdentifiers",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PeerConnectionConfig,
+            FlowJobName,
+            SourceTableIdentifiers,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
+                            "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
+                            "sourceTableIdentifiers" | "source_table_identifiers" => Ok(GeneratedField::SourceTableIdentifiers),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = EnsurePullabilityBatchInput;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.EnsurePullabilityBatchInput")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<EnsurePullabilityBatchInput, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut peer_connection_config__ = None;
+                let mut flow_job_name__ = None;
+                let mut source_table_identifiers__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::PeerConnectionConfig => {
+                            if peer_connection_config__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peerConnectionConfig"));
+                            }
+                            peer_connection_config__ = map.next_value()?;
+                        }
+                        GeneratedField::FlowJobName => {
+                            if flow_job_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowJobName"));
+                            }
+                            flow_job_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::SourceTableIdentifiers => {
+                            if source_table_identifiers__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sourceTableIdentifiers"));
+                            }
+                            source_table_identifiers__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(EnsurePullabilityBatchInput {
+                    peer_connection_config: peer_connection_config__,
+                    flow_job_name: flow_job_name__.unwrap_or_default(),
+                    source_table_identifiers: source_table_identifiers__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.EnsurePullabilityBatchInput", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for EnsurePullabilityBatchOutput {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.table_identifier_mapping.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.EnsurePullabilityBatchOutput", len)?;
+        if !self.table_identifier_mapping.is_empty() {
+            struct_ser.serialize_field("tableIdentifierMapping", &self.table_identifier_mapping)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for EnsurePullabilityBatchOutput {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "table_identifier_mapping",
+            "tableIdentifierMapping",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            TableIdentifierMapping,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "tableIdentifierMapping" | "table_identifier_mapping" => Ok(GeneratedField::TableIdentifierMapping),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = EnsurePullabilityBatchOutput;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.EnsurePullabilityBatchOutput")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<EnsurePullabilityBatchOutput, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut table_identifier_mapping__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::TableIdentifierMapping => {
+                            if table_identifier_mapping__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tableIdentifierMapping"));
+                            }
+                            table_identifier_mapping__ = Some(
+                                map.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(EnsurePullabilityBatchOutput {
+                    table_identifier_mapping: table_identifier_mapping__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.EnsurePullabilityBatchOutput", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for EnsurePullabilityInput {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
