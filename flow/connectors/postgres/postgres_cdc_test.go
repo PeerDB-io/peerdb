@@ -444,7 +444,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	suite.failTestError(err)
 	suite.Equal(&protos.GetTableSchemaBatchOutput{
 		TableNameSchemaMapping: map[string]*protos.TableSchema{
-			simpleHappyFlowDstTableName: {
+			simpleHappyFlowSrcTableName: {
 				TableIdentifier: simpleHappyFlowSrcTableName,
 				Columns: map[string]string{
 					"id":   string(qvalue.QValueKindInt32),
@@ -558,7 +558,7 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 	suite.failTestError(err)
 	suite.Equal(&protos.GetTableSchemaBatchOutput{
 		TableNameSchemaMapping: map[string]*protos.TableSchema{
-			allTypesHappyFlowDstTableName: {
+			allTypesHappyFlowSrcTableName: {
 				TableIdentifier: allTypesHappyFlowSrcTableName,
 				Columns: map[string]string{
 					"id":  string(qvalue.QValueKindInt64),
@@ -675,7 +675,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	suite.failTestError(err)
 	suite.Equal(&protos.GetTableSchemaBatchOutput{
 		TableNameSchemaMapping: map[string]*protos.TableSchema{
-			toastHappyFlowDstTableName: {
+			toastHappyFlowSrcTableName: {
 				TableIdentifier: toastHappyFlowSrcTableName,
 				Columns: map[string]string{
 					"id":    string(qvalue.QValueKindInt32),
