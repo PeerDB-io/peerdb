@@ -30,7 +30,8 @@ type Connector interface {
 		*protos.SetupNormalizedTableBatchOutput, error)
 
 	// EnsurePullability ensures that the connector is pullable.
-	EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error)
+	EnsurePullability(req *protos.EnsurePullabilityBatchInput) (
+		*protos.EnsurePullabilityBatchOutput, error)
 
 	// InitializeTableSchema initializes the table schema of all the destination tables for the connector.
 	InitializeTableSchema(req map[string]*protos.TableSchema) error

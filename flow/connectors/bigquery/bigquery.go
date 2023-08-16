@@ -864,7 +864,8 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 }
 
 // EnsurePullability ensures that the given table is pullable, implementing the Connector interface.
-func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error) {
+func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityBatchInput) (
+	*protos.EnsurePullabilityBatchOutput, error) {
 	panic("not implemented")
 }
 

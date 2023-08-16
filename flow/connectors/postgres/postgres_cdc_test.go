@@ -333,10 +333,10 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	nonExistentFlowSrcTableName := "pgpeer_test.non_existent_table"
 	nonExistentFlowDstTableName := "non_existent_table_dst"
 
-	ensurePullabilityOutput, err := suite.connector.EnsurePullability(&protos.EnsurePullabilityInput{
-		FlowJobName:           nonExistentFlowName,
-		SourceTableIdentifier: nonExistentFlowSrcTableName,
-		PeerConnectionConfig:  nil, // not used by the connector itself.
+	ensurePullabilityOutput, err := suite.connector.EnsurePullability(&protos.EnsurePullabilityBatchInput{
+		FlowJobName:            nonExistentFlowName,
+		SourceTableIdentifiers: []string{nonExistentFlowSrcTableName},
+		PeerConnectionConfig:   nil, // not used by the connector itself.
 	})
 	suite.Nil(ensurePullabilityOutput)
 	suite.Errorf(err, "error getting relation ID for table %s: no rows in result set", nonExistentFlowSrcTableName)
@@ -371,13 +371,14 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	_, err = suite.connector.pool.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(id INT PRIMARY KEY, name TEXT)", nonExistentFlowSrcTableName))
 	suite.failTestError(err)
-	ensurePullabilityOutput, err = suite.connector.EnsurePullability(&protos.EnsurePullabilityInput{
-		FlowJobName:           nonExistentFlowName,
-		SourceTableIdentifier: nonExistentFlowSrcTableName,
-		PeerConnectionConfig:  nil, // not used by the connector itself.
+	ensurePullabilityOutput, err = suite.connector.EnsurePullability(&protos.EnsurePullabilityBatchInput{
+		FlowJobName:            nonExistentFlowName,
+		SourceTableIdentifiers: []string{nonExistentFlowSrcTableName},
+		PeerConnectionConfig:   nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
-	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
+	tableRelID := ensurePullabilityOutput.TableIdentifierMapping[nonExistentFlowSrcTableName].
+		GetPostgresTableIdentifier().RelId
 	relIDTableNameMapping := map[uint32]string{
 		tableRelID: nonExistentFlowSrcTableName,
 	}
@@ -413,13 +414,14 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(id INT PRIMARY KEY, name TEXT)", simpleHappyFlowSrcTableName))
 	suite.failTestError(err)
 
-	ensurePullabilityOutput, err := suite.connector.EnsurePullability(&protos.EnsurePullabilityInput{
-		FlowJobName:           simpleHappyFlowName,
-		SourceTableIdentifier: simpleHappyFlowSrcTableName,
-		PeerConnectionConfig:  nil, // not used by the connector itself.
+	ensurePullabilityOutput, err := suite.connector.EnsurePullability(&protos.EnsurePullabilityBatchInput{
+		FlowJobName:            simpleHappyFlowName,
+		SourceTableIdentifiers: []string{simpleHappyFlowSrcTableName},
+		PeerConnectionConfig:   nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
-	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
+	tableRelID := ensurePullabilityOutput.TableIdentifierMapping[simpleHappyFlowSrcTableName].
+		GetPostgresTableIdentifier().RelId
 
 	relIDTableNameMapping := map[uint32]string{
 		tableRelID: simpleHappyFlowSrcTableName,
@@ -528,13 +530,14 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 			allTypesHappyFlowSrcTableName))
 	suite.failTestError(err)
 
-	ensurePullabilityOutput, err := suite.connector.EnsurePullability(&protos.EnsurePullabilityInput{
-		FlowJobName:           allTypesHappyFlowName,
-		SourceTableIdentifier: allTypesHappyFlowSrcTableName,
-		PeerConnectionConfig:  nil, // not used by the connector itself.
+	ensurePullabilityOutput, err := suite.connector.EnsurePullability(&protos.EnsurePullabilityBatchInput{
+		FlowJobName:            allTypesHappyFlowName,
+		SourceTableIdentifiers: []string{allTypesHappyFlowSrcTableName},
+		PeerConnectionConfig:   nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
-	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
+	tableRelID := ensurePullabilityOutput.TableIdentifierMapping[allTypesHappyFlowSrcTableName].
+		GetPostgresTableIdentifier().RelId
 
 	relIDTableNameMapping := map[uint32]string{
 		tableRelID: allTypesHappyFlowSrcTableName,
@@ -645,13 +648,14 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		 n_t TEXT, lz4_t TEXT COMPRESSION LZ4, n_b BYTEA, lz4_b BYTEA COMPRESSION LZ4)`, toastHappyFlowSrcTableName))
 	suite.failTestError(err)
 
-	ensurePullabilityOutput, err := suite.connector.EnsurePullability(&protos.EnsurePullabilityInput{
-		FlowJobName:           toastHappyFlowName,
-		SourceTableIdentifier: toastHappyFlowSrcTableName,
-		PeerConnectionConfig:  nil, // not used by the connector itself.
+	ensurePullabilityOutput, err := suite.connector.EnsurePullability(&protos.EnsurePullabilityBatchInput{
+		FlowJobName:            toastHappyFlowName,
+		SourceTableIdentifiers: []string{toastHappyFlowSrcTableName},
+		PeerConnectionConfig:   nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
-	tableRelID := ensurePullabilityOutput.TableIdentifier.GetPostgresTableIdentifier().RelId
+	tableRelID := ensurePullabilityOutput.TableIdentifierMapping[toastHappyFlowSrcTableName].
+		GetPostgresTableIdentifier().RelId
 
 	relIDTableNameMapping := map[uint32]string{
 		tableRelID: toastHappyFlowSrcTableName,

@@ -125,8 +125,8 @@ func (c *SQLServerConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	return nil, fmt.Errorf("cdc based replication is not currently supported for SQLServer target")
 }
 
-func (c *SQLServerConnector) EnsurePullability(req *protos.EnsurePullabilityInput,
-) (*protos.EnsurePullabilityOutput, error) {
+func (c *SQLServerConnector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
+) (*protos.EnsurePullabilityBatchOutput, error) {
 	log.Errorf("panicking at call to EnsurePullability for SQLServer flow connector")
 	panic("EnsurePullability is not implemented for the SQLServer flow connector")
 }

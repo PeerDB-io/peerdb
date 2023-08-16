@@ -90,7 +90,7 @@ func (c *EventHubConnector) ConnectionActive() bool {
 }
 
 func (c *EventHubConnector) EnsurePullability(
-	req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error) {
+	req *protos.EnsurePullabilityBatchInput) (*protos.EnsurePullabilityBatchOutput, error) {
 	panic("ensure pullability not implemented for event hub")
 }
 
