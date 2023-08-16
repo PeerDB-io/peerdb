@@ -817,7 +817,7 @@ func (c *BigQueryConnector) GetTableSchema(
 	panic("not implemented")
 }
 
-// SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
+// SetupNormalizedTables sets up normalized tables, implementing the Connector interface.
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
 func (c *BigQueryConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput,
