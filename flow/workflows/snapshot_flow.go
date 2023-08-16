@@ -146,8 +146,9 @@ func (s *SnapshotFlowExecution) cloneTables(
 
 	for srcTbl, dstTbl := range s.config.TableNameMapping {
 		source := srcTbl
-		future := s.cloneTable(ctx, slotInfo.SnapshotName, source, dstTbl)
+		snapshotName := slotInfo.SnapshotName
 
+		future := s.cloneTable(ctx, snapshotName, source, dstTbl)
 		boundSelector.AddFuture(future, func(f workflow.Future) error {
 			if err := f.Get(ctx, nil); err != nil {
 				s.logger.Error("failed to clone table", "table", source, "error", err)

@@ -319,39 +319,40 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *SnowflakeConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	log.Errorf("panicking at call to GetTableSchema for Snowflake flow connector")
 	panic("GetTableSchema is not implemented for the Snowflake flow connector")
 }
 
-func (c *SnowflakeConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
-	normalizedTableNameComponents, err := parseTableName(req.TableIdentifier)
-	if err != nil {
-		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
-	}
-	tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
-		normalizedTableNameComponents.tableIdentifier)
-	if err != nil {
-		return nil, fmt.Errorf("error occured while checking if normalized table exists: %w", err)
-	}
-	if tableAlreadyExists {
-		return &protos.SetupNormalizedTableOutput{
-			TableIdentifier: req.TableIdentifier,
-			AlreadyExists:   true,
-		}, nil
+func (c *SnowflakeConnector) SetupNormalizedTables(
+	req *protos.SetupNormalizedTableBatchInput) (*protos.SetupNormalizedTableBatchOutput, error) {
+	tableExistsMapping := make(map[string]bool)
+	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
+		normalizedTableNameComponents, err := parseTableName(tableIdentifier)
+		if err != nil {
+			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+		}
+		tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
+			normalizedTableNameComponents.tableIdentifier)
+		if err != nil {
+			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
+		}
+		if tableAlreadyExists {
+			tableExistsMapping[tableIdentifier] = true
+			continue
+		}
+
+		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(tableIdentifier, tableSchema)
+		_, err = c.database.ExecContext(c.ctx, normalizedTableCreateSQL)
+		if err != nil {
+			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
+		}
+		tableExistsMapping[tableIdentifier] = false
 	}
 
-	// convert the column names and types to Snowflake types
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(req.TableIdentifier, req.SourceTableSchema)
-	_, err = c.database.ExecContext(c.ctx, normalizedTableCreateSQL)
-	if err != nil {
-		return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
-	}
-
-	return &protos.SetupNormalizedTableOutput{
-		TableIdentifier: req.TableIdentifier,
-		AlreadyExists:   false,
+	return &protos.SetupNormalizedTableBatchOutput{
+		TableExistsMapping: tableExistsMapping,
 	}, nil
 }
 

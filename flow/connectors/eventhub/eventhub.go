@@ -240,7 +240,8 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	return nil, nil
 }
 
-func (c *EventHubConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *EventHubConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	panic("get table schema not implemented for event hub")
 }
 
@@ -297,8 +298,9 @@ func (c *EventHubConnector) getEventHubMgmtClient() (*armeventhub.EventHubsClien
 
 // Normalization
 
-func (c *EventHubConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+func (c *EventHubConnector) SetupNormalizedTables(
+	req *protos.SetupNormalizedTableBatchInput) (
+	*protos.SetupNormalizedTableBatchOutput, error) {
 	log.Infof("normalization for event hub is a no-op")
 	return nil, nil
 }

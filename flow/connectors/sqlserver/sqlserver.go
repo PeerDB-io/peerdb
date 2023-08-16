@@ -87,13 +87,15 @@ func (c *SQLServerConnector) GetLastNormalizeBatchID() (int64, error) {
 	return 0, fmt.Errorf("cdc based replication is not currently supported for SQLServer target")
 }
 
-func (c *SQLServerConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *SQLServerConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	log.Errorf("GetTableSchema not supported for SQLServer flow connector")
 	return nil, fmt.Errorf("cdc based replication is not currently supported for SQLServer target")
 }
 
-func (c *SQLServerConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+func (c *SQLServerConnector) SetupNormalizedTables(
+	req *protos.SetupNormalizedTableBatchInput) (
+	*protos.SetupNormalizedTableBatchOutput, error) {
 	log.Errorf("SetupNormalizedTable not supported for SQLServer")
 	return nil, fmt.Errorf("cdc based replication is not currently supported for SQLServer target")
 }

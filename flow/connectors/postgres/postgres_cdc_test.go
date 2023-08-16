@@ -345,10 +345,12 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		nonExistentFlowSrcTableName: nonExistentFlowDstTableName,
 	}
 
-	tableSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
-		TableIdentifier:      nonExistentFlowSrcTableName,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
+	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
+		TableIdentifiers:     []string{nonExistentFlowSrcTableName},
+		PeerConnectionConfig: nil,
+	}
+
+	tableSchema, err := suite.connector.GetTableSchema(getTblSchemaInput)
 	suite.Errorf(err, "error getting relation ID for table %s: no rows in result set", nonExistentFlowSrcTableName)
 	suite.Nil(tableSchema)
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
@@ -433,20 +435,26 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	suite.failTestError(err)
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
-	tableNameSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
-		TableIdentifier:      simpleHappyFlowSrcTableName,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
+
+	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
+		TableIdentifiers:     []string{simpleHappyFlowSrcTableName},
+		PeerConnectionConfig: nil,
+	}
+	tableNameSchema, err := suite.connector.GetTableSchema(getTblSchemaInput)
 	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: simpleHappyFlowSrcTableName,
-		Columns: map[string]string{
-			"id":   string(qvalue.QValueKindInt32),
-			"name": string(qvalue.QValueKindString),
-		},
-		PrimaryKeyColumn: "id",
-	}, tableNameSchema)
-	tableNameSchemaMapping[simpleHappyFlowDstTableName] = tableNameSchema
+	suite.Equal(&protos.GetTableSchemaBatchOutput{
+		TableNameSchemaMapping: map[string]*protos.TableSchema{
+			simpleHappyFlowSrcTableName: {
+				TableIdentifier: simpleHappyFlowSrcTableName,
+				Columns: map[string]string{
+					"id":   string(qvalue.QValueKindInt32),
+					"name": string(qvalue.QValueKindString),
+				},
+				PrimaryKeyColumn: "id",
+			},
+		}}, tableNameSchema)
+	tableNameSchemaMapping[simpleHappyFlowDstTableName] =
+		tableNameSchema.TableNameSchemaMapping[simpleHappyFlowSrcTableName]
 
 	// pulling with no records.
 	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{
@@ -542,53 +550,59 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 	suite.failTestError(err)
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
-	tableNameSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
-		TableIdentifier:      allTypesHappyFlowSrcTableName,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
+	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
+		TableIdentifiers:     []string{allTypesHappyFlowSrcTableName},
+		PeerConnectionConfig: nil,
+	}
+	tableNameSchema, err := suite.connector.GetTableSchema(getTblSchemaInput)
 	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: allTypesHappyFlowSrcTableName,
-		Columns: map[string]string{
-			"id":  string(qvalue.QValueKindInt64),
-			"c1":  string(qvalue.QValueKindInt64),
-			"c2":  string(qvalue.QValueKindBit),
-			"c3":  string(qvalue.QValueKindBit),
-			"c4":  string(qvalue.QValueKindBoolean),
-			"c6":  string(qvalue.QValueKindBytes),
-			"c7":  string(qvalue.QValueKindString),
-			"c8":  string(qvalue.QValueKindString),
-			"c9":  string(qvalue.QValueKindString),
-			"c11": string(qvalue.QValueKindDate),
-			"c12": string(qvalue.QValueKindFloat64),
-			"c13": string(qvalue.QValueKindFloat64),
-			"c14": string(qvalue.QValueKindString),
-			"c15": string(qvalue.QValueKindInt32),
-			"c16": string(qvalue.QValueKindString),
-			"c17": string(qvalue.QValueKindJSON),
-			"c18": string(qvalue.QValueKindJSON),
-			"c21": string(qvalue.QValueKindString),
-			"c22": string(qvalue.QValueKindString),
-			"c23": string(qvalue.QValueKindNumeric),
-			"c24": string(qvalue.QValueKindString),
-			"c28": string(qvalue.QValueKindFloat32),
-			"c29": string(qvalue.QValueKindInt16),
-			"c30": string(qvalue.QValueKindInt16),
-			"c31": string(qvalue.QValueKindInt32),
-			"c32": string(qvalue.QValueKindString),
-			"c33": string(qvalue.QValueKindTimestamp),
-			"c34": string(qvalue.QValueKindTimestampTZ),
-			"c35": string(qvalue.QValueKindTime),
-			"c36": string(qvalue.QValueKindTimeTZ),
-			"c37": string(qvalue.QValueKindString),
-			"c38": string(qvalue.QValueKindString),
-			"c39": string(qvalue.QValueKindString),
-			"c40": string(qvalue.QValueKindUUID),
-			"c41": string(qvalue.QValueKindString),
+	suite.Equal(&protos.GetTableSchemaBatchOutput{
+		TableNameSchemaMapping: map[string]*protos.TableSchema{
+			allTypesHappyFlowSrcTableName: {
+				TableIdentifier: allTypesHappyFlowSrcTableName,
+				Columns: map[string]string{
+					"id":  string(qvalue.QValueKindInt64),
+					"c1":  string(qvalue.QValueKindInt64),
+					"c2":  string(qvalue.QValueKindBit),
+					"c3":  string(qvalue.QValueKindBit),
+					"c4":  string(qvalue.QValueKindBoolean),
+					"c6":  string(qvalue.QValueKindBytes),
+					"c7":  string(qvalue.QValueKindString),
+					"c8":  string(qvalue.QValueKindString),
+					"c9":  string(qvalue.QValueKindString),
+					"c11": string(qvalue.QValueKindDate),
+					"c12": string(qvalue.QValueKindFloat64),
+					"c13": string(qvalue.QValueKindFloat64),
+					"c14": string(qvalue.QValueKindString),
+					"c15": string(qvalue.QValueKindInt32),
+					"c16": string(qvalue.QValueKindString),
+					"c17": string(qvalue.QValueKindJSON),
+					"c18": string(qvalue.QValueKindJSON),
+					"c21": string(qvalue.QValueKindString),
+					"c22": string(qvalue.QValueKindString),
+					"c23": string(qvalue.QValueKindNumeric),
+					"c24": string(qvalue.QValueKindString),
+					"c28": string(qvalue.QValueKindFloat32),
+					"c29": string(qvalue.QValueKindInt16),
+					"c30": string(qvalue.QValueKindInt16),
+					"c31": string(qvalue.QValueKindInt32),
+					"c32": string(qvalue.QValueKindString),
+					"c33": string(qvalue.QValueKindTimestamp),
+					"c34": string(qvalue.QValueKindTimestampTZ),
+					"c35": string(qvalue.QValueKindTime),
+					"c36": string(qvalue.QValueKindTimeTZ),
+					"c37": string(qvalue.QValueKindString),
+					"c38": string(qvalue.QValueKindString),
+					"c39": string(qvalue.QValueKindString),
+					"c40": string(qvalue.QValueKindUUID),
+					"c41": string(qvalue.QValueKindString),
+				},
+				PrimaryKeyColumn: "id",
+			},
 		},
-		PrimaryKeyColumn: "id",
 	}, tableNameSchema)
-	tableNameSchemaMapping[allTypesHappyFlowDstTableName] = tableNameSchema
+	tableNameSchemaMapping[allTypesHappyFlowDstTableName] =
+		tableNameSchema.TableNameSchemaMapping[allTypesHappyFlowSrcTableName]
 
 	_, err = suite.connector.pool.Exec(context.Background(),
 		fmt.Sprintf(`INSERT INTO %s SELECT 2, 2, b'1', b'101',
@@ -653,23 +667,28 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	suite.failTestError(err)
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema)
-	tableNameSchema, err := suite.connector.GetTableSchema(&protos.GetTableSchemaInput{
-		TableIdentifier:      toastHappyFlowSrcTableName,
-		PeerConnectionConfig: nil, // not used by the connector itself.
-	})
+	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
+		TableIdentifiers:     []string{toastHappyFlowSrcTableName},
+		PeerConnectionConfig: nil,
+	}
+	tableNameSchema, err := suite.connector.GetTableSchema(getTblSchemaInput)
 	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: toastHappyFlowSrcTableName,
-		Columns: map[string]string{
-			"id":    string(qvalue.QValueKindInt32),
-			"n_t":   string(qvalue.QValueKindString),
-			"lz4_t": string(qvalue.QValueKindString),
-			"n_b":   string(qvalue.QValueKindBytes),
-			"lz4_b": string(qvalue.QValueKindBytes),
-		},
-		PrimaryKeyColumn: "id",
-	}, tableNameSchema)
-	tableNameSchemaMapping[toastHappyFlowDstTableName] = tableNameSchema
+	suite.Equal(&protos.GetTableSchemaBatchOutput{
+		TableNameSchemaMapping: map[string]*protos.TableSchema{
+			toastHappyFlowSrcTableName: {
+				TableIdentifier: toastHappyFlowSrcTableName,
+				Columns: map[string]string{
+					"id":    string(qvalue.QValueKindInt32),
+					"n_t":   string(qvalue.QValueKindString),
+					"lz4_t": string(qvalue.QValueKindString),
+					"n_b":   string(qvalue.QValueKindBytes),
+					"lz4_b": string(qvalue.QValueKindBytes),
+				},
+				PrimaryKeyColumn: "id",
+			},
+		}}, tableNameSchema)
+	tableNameSchemaMapping[toastHappyFlowDstTableName] =
+		tableNameSchema.TableNameSchemaMapping[toastHappyFlowSrcTableName]
 
 	suite.insertToastRecords(toastHappyFlowSrcTableName)
 	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{

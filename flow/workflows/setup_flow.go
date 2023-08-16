@@ -7,7 +7,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/concurrency"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	cmap "github.com/orcaman/concurrent-map/v2"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
@@ -174,86 +173,49 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
-	tableNameSchemaMapping := cmap.New[*protos.TableSchema]()
-
-	boundSelector := concurrency.NewBoundSelector(8, ctx)
-
+	sourceTables := make([]string, 0)
 	for srcTableName := range flowConnectionConfigs.TableNameMapping {
-		source := srcTableName
-
-		// fetch source table schema for the normalized table setup.
-		tableSchemaInput := &protos.GetTableSchemaInput{
-			PeerConnectionConfig: flowConnectionConfigs.Source,
-			TableIdentifier:      source,
-		}
-
-		dstTableName, ok := flowConnectionConfigs.TableNameMapping[source]
-		if !ok {
-			s.logger.Error("failed to find destination table name for source table: ", source)
-			return nil, fmt.Errorf("failed to find destination table name for source table %s", source)
-		}
-
-		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
-		boundSelector.AddFuture(future, func(f workflow.Future) error {
-			s.logger.Info("fetching schema for source table - ", source)
-			var srcTableSchema *protos.TableSchema
-			if err := f.Get(ctx, &srcTableSchema); err != nil {
-				s.logger.Error("failed to fetch schema for source table: ", err)
-				return err
-			}
-
-			tableNameSchemaMapping.Set(dstTableName, srcTableSchema)
-			return nil
-		})
+		sourceTables = append(sourceTables, srcTableName)
 	}
 
-	if err := boundSelector.Wait(); err != nil {
-		s.logger.Error("failed to fetch table schema: ", err)
-		return nil, fmt.Errorf("failed to fetch table schema: %w", err)
+	tableSchemaInput := &protos.GetTableSchemaBatchInput{
+		PeerConnectionConfig: flowConnectionConfigs.Source,
+		TableIdentifiers:     sourceTables,
 	}
 
-	s.logger.Info("setting up normalized tables for peer flow - ",
-		s.PeerFlowName, flowConnectionConfigs.TableNameMapping, tableNameSchemaMapping)
+	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
 
-	boundSelector = concurrency.NewBoundSelector(8, ctx)
+	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
+	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
+		s.logger.Error("failed to fetch schema for source tables: ", err)
+		return nil, fmt.Errorf("failed to fetch schema for source table %s: %w", sourceTables, err)
+	}
+
+	tableNameSchemaMapping := tblSchemaOutput.TableNameSchemaMapping
+
+	s.logger.Info("setting up normalized tables for peer flow - ", s.PeerFlowName)
+	normalizedTableMapping := make(map[string]*protos.TableSchema)
+	for srcTableName, tableSchema := range tableNameSchemaMapping {
+		normalizedTableName := flowConnectionConfigs.TableNameMapping[srcTableName]
+		normalizedTableMapping[normalizedTableName] = tableSchema
+		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)
+	}
+
 	// now setup the normalized tables on the destination peer
-	for srcTableName, dstTable := range flowConnectionConfigs.TableNameMapping {
-		s.logger.Info("setting up normalized table for peer flow - ", s.PeerFlowName, "table", srcTableName)
-		srcTableSchema, ok := tableNameSchemaMapping.Get(dstTable)
-		if !ok {
-			s.logger.Error("failed to find table schema for table table: ", srcTableSchema, dstTable)
-			return nil, fmt.Errorf("failed to find table schema for source table %s", srcTableName)
-		}
-
-		// now setup the normalized tables on the destination peer
-		setupConfig := &protos.SetupNormalizedTableInput{
-			PeerConnectionConfig: flowConnectionConfigs.Destination,
-			TableIdentifier:      flowConnectionConfigs.TableNameMapping[srcTableName],
-			SourceTableSchema:    srcTableSchema,
-		}
-
-		future := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
-		boundSelector.AddFuture(future, func(f workflow.Future) error {
-			var setupOutput *protos.SetupNormalizedTableOutput
-			if err := f.Get(ctx, &setupOutput); err != nil {
-				s.logger.Error("failed to setup normalized tables: ", err)
-				return err
-			}
-
-			msg := fmt.Sprintf("normalized table %s setup", setupOutput.TableIdentifier)
-			s.logger.Info(msg)
-			return nil
-		})
+	setupConfig := &protos.SetupNormalizedTableBatchInput{
+		PeerConnectionConfig:   flowConnectionConfigs.Destination,
+		TableNameSchemaMapping: normalizedTableMapping,
 	}
 
-	s.logger.Info("waiting for normalized tables to be setup for peer flow - ", s.PeerFlowName)
-	if err := boundSelector.Wait(); err != nil {
-		s.logger.Error("failed to setup normalized tables: ", err)
-		return nil, fmt.Errorf("failed to setup normalized tables: %w", err)
+	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
+	var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
+	if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
+		s.logger.Error("failed to create normalized tables: ", err)
+		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
 	s.logger.Info("finished setting up normalized tables for peer flow - ", s.PeerFlowName)
-	return tableNameSchemaMapping.Items(), nil
+	return normalizedTableMapping, nil
 }
 
 // executeSetupFlow executes the setup flow.
