@@ -185,31 +185,37 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
 
-	var srcTableSchema *protos.GetTableSchemaBatchOutput
-	if err := future.Get(ctx, &srcTableSchema); err != nil {
+	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
+	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
 		s.logger.Error("failed to fetch schema for source tables: ", err)
 		return nil, fmt.Errorf("failed to fetch schema for source table %s: %w", sourceTables, err)
 	}
 
-	tableNameSchemaMapping := srcTableSchema.TableNameSchemaMapping
-	s.logger.Info("setting up normalized tables for peer flow - ",
-		s.PeerFlowName, flowConnectionConfigs.TableNameMapping, tableNameSchemaMapping)
+	tableNameSchemaMapping := tblSchemaOutput.TableNameSchemaMapping
+
+	s.logger.Info("setting up normalized tables for peer flow - ", s.PeerFlowName)
+	normalizedTableMapping := make(map[string]*protos.TableSchema)
+	for srcTableName, tableSchema := range tableNameSchemaMapping {
+		normalizedTableName := flowConnectionConfigs.TableNameMapping[srcTableName]
+		normalizedTableMapping[normalizedTableName] = tableSchema
+		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)
+	}
 
 	// now setup the normalized tables on the destination peer
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerConnectionConfig:   flowConnectionConfigs.Destination,
-		TableNameSchemaMapping: flowConnectionConfigs.TableNameSchemaMapping,
+		TableNameSchemaMapping: normalizedTableMapping,
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
-	var createNormalizedTablesOutput protos.SetupNormalizedTableBatchOutput
+	var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
 	if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
 		s.logger.Error("failed to create normalized tables: ", err)
 		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
 	s.logger.Info("finished setting up normalized tables for peer flow - ", s.PeerFlowName)
-	return tableNameSchemaMapping, nil
+	return normalizedTableMapping, nil
 }
 
 // executeSetupFlow executes the setup flow.
