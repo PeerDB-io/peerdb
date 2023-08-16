@@ -102,8 +102,8 @@ func (c *S3Connector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.C
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
-func (c *S3Connector) EnsurePullability(req *protos.EnsurePullabilityInput,
-) (*protos.EnsurePullabilityOutput, error) {
+func (c *S3Connector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
+) (*protos.EnsurePullabilityBatchOutput, error) {
 	log.Errorf("panicking at call to EnsurePullability for S3 flow connector")
 	panic("EnsurePullability is not implemented for the S3 flow connector")
 }
