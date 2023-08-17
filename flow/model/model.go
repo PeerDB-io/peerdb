@@ -167,6 +167,8 @@ type SyncRecordsRequest struct {
 	Records *RecordBatch
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
+	// SyncMode to use for pushing raw records
+	SyncMode protos.QRepSyncMode
 }
 
 type NormalizeRecordsRequest struct {

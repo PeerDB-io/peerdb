@@ -43,6 +43,8 @@ pub struct FlowConnectionConfigs {
     pub snapshot_num_tables_in_parallel: u32,
     #[prost(enumeration="QRepSyncMode", tag="15")]
     pub snapshot_sync_mode: i32,
+    #[prost(enumeration="QRepSyncMode", tag="16")]
+    pub cdc_sync_mode: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
