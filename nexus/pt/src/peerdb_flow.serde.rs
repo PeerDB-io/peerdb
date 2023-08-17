@@ -836,6 +836,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.snapshot_sync_mode != 0 {
             len += 1;
         }
+        if self.cdc_sync_mode != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.FlowConnectionConfigs", len)?;
         if let Some(v) = self.source.as_ref() {
             struct_ser.serialize_field("source", v)?;
@@ -884,6 +887,11 @@ impl serde::Serialize for FlowConnectionConfigs {
                 .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.snapshot_sync_mode)))?;
             struct_ser.serialize_field("snapshotSyncMode", &v)?;
         }
+        if self.cdc_sync_mode != 0 {
+            let v = QRepSyncMode::from_i32(self.cdc_sync_mode)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.cdc_sync_mode)))?;
+            struct_ser.serialize_field("cdcSyncMode", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -922,6 +930,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             "snapshotNumTablesInParallel",
             "snapshot_sync_mode",
             "snapshotSyncMode",
+            "cdc_sync_mode",
+            "cdcSyncMode",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -941,6 +951,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             SnapshotMaxParallelWorkers,
             SnapshotNumTablesInParallel,
             SnapshotSyncMode,
+            CdcSyncMode,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -978,6 +989,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             "snapshotMaxParallelWorkers" | "snapshot_max_parallel_workers" => Ok(GeneratedField::SnapshotMaxParallelWorkers),
                             "snapshotNumTablesInParallel" | "snapshot_num_tables_in_parallel" => Ok(GeneratedField::SnapshotNumTablesInParallel),
                             "snapshotSyncMode" | "snapshot_sync_mode" => Ok(GeneratedField::SnapshotSyncMode),
+                            "cdcSyncMode" | "cdc_sync_mode" => Ok(GeneratedField::CdcSyncMode),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1012,6 +1024,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                 let mut snapshot_max_parallel_workers__ = None;
                 let mut snapshot_num_tables_in_parallel__ = None;
                 let mut snapshot_sync_mode__ = None;
+                let mut cdc_sync_mode__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -1119,6 +1132,12 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             }
                             snapshot_sync_mode__ = Some(map.next_value::<QRepSyncMode>()? as i32);
                         }
+                        GeneratedField::CdcSyncMode => {
+                            if cdc_sync_mode__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cdcSyncMode"));
+                            }
+                            cdc_sync_mode__ = Some(map.next_value::<QRepSyncMode>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1140,6 +1159,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                     snapshot_max_parallel_workers: snapshot_max_parallel_workers__.unwrap_or_default(),
                     snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel__.unwrap_or_default(),
                     snapshot_sync_mode: snapshot_sync_mode__.unwrap_or_default(),
+                    cdc_sync_mode: cdc_sync_mode__.unwrap_or_default(),
                 })
             }
         }

@@ -152,6 +152,11 @@ impl FlowGrpcClient {
                 .clone()
                 .map(|s| s.as_proto_sync_mode())
                 .unwrap_or(0),
+            cdc_sync_mode: job
+                .cdc_sync_mode
+                .clone()
+                .map(|s| s.as_proto_sync_mode())
+                .unwrap_or(0),
             ..Default::default()
         };
 
