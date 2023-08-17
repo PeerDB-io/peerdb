@@ -406,6 +406,14 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 // currently only supports inserts,updates and deletes
 // more record types will be added in the future.
 func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	if len(req.Records.Records) == 0 {
+		return &model.SyncResponse{
+			FirstSyncedCheckPointID: 0,
+			LastSyncedCheckPointID:  0,
+			NumRecordsSynced:        0,
+		}, nil
+	}
+
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	log.Printf("pushing %d records to %s.%s", len(req.Records.Records), c.datasetID, rawTableName)
@@ -436,9 +444,9 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	first := true
 	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
-
 	// loop over req.Records
 	for _, record := range req.Records.Records {
+
 		switch r := record.(type) {
 		case *model.InsertRecord:
 			// create the 3 required fields
@@ -450,7 +458,6 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			if err != nil {
 				return nil, fmt.Errorf("failed to create items to json: %v", err)
 			}
-
 			// append the row to the records
 			records = append(records, StagingBQRecord{
 				uid:                   uuid.New().String(),
@@ -482,7 +489,6 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			if err != nil {
 				return nil, fmt.Errorf("failed to create old items to json: %v", err)
 			}
-
 			// append the row to the records
 			records = append(records, StagingBQRecord{
 				uid:                   uuid.New().String(),
@@ -509,7 +515,6 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			if err != nil {
 				return nil, fmt.Errorf("failed to create items to json: %v", err)
 			}
-
 			// append the row to the records
 			records = append(records, StagingBQRecord{
 				uid:                   uuid.New().String(),
@@ -543,49 +548,69 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}, nil
 	}
 
-	// insert the records into the staging table
-	stagingInserter := stagingTable.Inserter()
-	stagingInserter.IgnoreUnknownValues = true
-
-	// insert the records into the staging table in batches of size syncRecordsBatchSize
-	for i := 0; i < numRecords; i += SyncRecordsBatchSize {
-		end := i + SyncRecordsBatchSize
-
-		if end > numRecords {
-			end = numRecords
-		}
-
-		chunk := records[i:end]
-		err = stagingInserter.Put(c.ctx, chunk)
-		if err != nil {
-			return nil, fmt.Errorf("failed to insert chunked rows into staging table: %v", err)
-		}
-	}
-
-	// we have to do the following things in a transaction
-	// 1. append the records in the staging table to the raw table.
-	// 2. execute the update metadata query to store the last committed watermark.
-	// 2.(contd) keep track of the last batchID that is synced.
-	appendStmt := c.getAppendStagingToRawStmt(rawTableName, stagingTableName, stagingBatchID)
-
 	updateMetadataStmt, err := c.getUpdateMetadataStmt(req.FlowJobName, lastCP, syncBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get update metadata statement: %v", err)
 	}
-
-	// append all the statements to one list
-	stmts := []string{}
-	stmts = append(stmts, "BEGIN TRANSACTION;")
-	stmts = append(stmts, appendStmt)
-	stmts = append(stmts, updateMetadataStmt)
-	stmts = append(stmts, "COMMIT TRANSACTION;")
-
 	// execute the statements in a transaction
 	startTime := time.Now()
-	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
+	_, err = c.client.Query("BEGIN TRANSACTION;").Read(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
+		return nil, fmt.Errorf("failed to begin transaction: %v", err)
 	}
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
+		// insert the records into the staging table
+		stagingInserter := stagingTable.Inserter()
+		stagingInserter.IgnoreUnknownValues = true
+
+		// insert the records into the staging table in batches of size syncRecordsBatchSize
+		for i := 0; i < numRecords; i += SyncRecordsBatchSize {
+			end := i + SyncRecordsBatchSize
+
+			if end > numRecords {
+				end = numRecords
+			}
+
+			chunk := records[i:end]
+			err = stagingInserter.Put(c.ctx, chunk)
+			if err != nil {
+				return nil, fmt.Errorf("failed to insert chunked rows into staging table: %v", err)
+			}
+		}
+
+		// we have to do the following things in a transaction
+		// 1. append the records in the staging table to the raw table.
+		// 2. execute the update metadata query to store the last committed watermark.
+		// 2.(contd) keep track of the last batchID that is synced.
+		appendStmt := c.getAppendStagingToRawStmt(rawTableName, stagingTableName, stagingBatchID)
+		_, err = c.client.Query(appendStmt).Read(c.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to append staging table to raw table: %v", err)
+		}
+	}
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
+		log.Infoln("[bq_avro]: Avro Sync kicking off")
+		avroSync := NewQRepAvroSyncMethod(c, "peerdb_avro")
+		rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
+		}
+		log.Infoln("[bq_avro]: Obtained metadata")
+		recordStream := model.NewQRecordStream(len(req.Records.Records))
+		numRecords, err = avroSync.SyncRecords(rawTableName, rawTableMetadata, fmt.Sprint(syncBatchID), recordStream)
+		if err != nil {
+			return nil, fmt.Errorf("failed to sync records via avro : %v", err)
+		}
+	}
+	_, err = c.client.Query(updateMetadataStmt).Read(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update metadata: %v", err)
+	}
+	_, err = c.client.Query("COMMIT TRANSACTION;").Read(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
