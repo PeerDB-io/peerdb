@@ -45,6 +45,10 @@ pub struct FlowConnectionConfigs {
     pub snapshot_sync_mode: i32,
     #[prost(enumeration="QRepSyncMode", tag="16")]
     pub cdc_sync_mode: i32,
+    #[prost(string, tag="17")]
+    pub snapshot_staging_path: ::prost::alloc::string::String,
+    #[prost(string, tag="18")]
+    pub cdc_staging_path: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

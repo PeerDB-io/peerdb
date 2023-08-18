@@ -406,20 +406,17 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 // currently only supports inserts,updates and deletes
 // more record types will be added in the future.
 func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	if len(req.Records.Records) == 0 {
+		return &model.SyncResponse{
+			FirstSyncedCheckPointID: 0,
+			LastSyncedCheckPointID:  0,
+			NumRecordsSynced:        0,
+		}, nil
+	}
+
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	log.Printf("pushing %d records to %s.%s", len(req.Records.Records), c.datasetID, rawTableName)
-
-	stagingTableName := c.getStagingTableName(req.FlowJobName)
-	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
-	err := c.truncateTable(stagingTableName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to truncate staging table: %v", err)
-	}
-	// separate staging batchID which is random/unique
-	// to handle the case where ingestion into staging passes but raw fails
-	// helps avoid duplicates in the raw table
-	stagingBatchID := rand.Int63()
 
 	// generate a sequential number for the last synced batch
 	// this sequence will be used to keep track of records that are normalized
@@ -430,13 +427,40 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 	syncBatchID = syncBatchID + 1
 
+	var res *model.SyncResponse
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
+		res, err = c.SyncRecordsViaAvro(req, rawTableName, syncBatchID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
+		res, err = c.SyncRecordsViaSQL(req, rawTableName, syncBatchID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return res, nil
+}
+
+func (c *BigQueryConnector) SyncRecordsViaSQL(req *model.SyncRecordsRequest,
+	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
+	stagingTableName := c.getStagingTableName(req.FlowJobName)
+	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
+	err := c.truncateTable(stagingTableName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to truncate staging table: %v", err)
+	}
+	// separate staging batchID which is random/unique
+	// to handle the case where ingestion into staging passes but raw fails
+	// helps avoid duplicates in the raw table
+	stagingBatchID := rand.Int63()
 	records := make([]StagingBQRecord, 0)
 	tableNameRowsMapping := make(map[string]uint32)
-
 	first := true
 	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
-
 	// loop over req.Records
 	for _, record := range req.Records.Records {
 		switch r := record.(type) {
@@ -523,6 +547,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				stagingBatchID:        stagingBatchID,
 				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
 			})
+
 			tableNameRowsMapping[r.DestinationTableName] += 1
 		default:
 			return nil, fmt.Errorf("record type %T not supported", r)
@@ -567,25 +592,245 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// 2. execute the update metadata query to store the last committed watermark.
 	// 2.(contd) keep track of the last batchID that is synced.
 	appendStmt := c.getAppendStagingToRawStmt(rawTableName, stagingTableName, stagingBatchID)
-
 	updateMetadataStmt, err := c.getUpdateMetadataStmt(req.FlowJobName, lastCP, syncBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get update metadata statement: %v", err)
 	}
 
-	// append all the statements to one list
+	// execute the statements in a transaction
 	stmts := []string{}
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 	stmts = append(stmts, appendStmt)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
-
-	// execute the statements in a transaction
 	startTime := time.Now()
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
+
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
+	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
+
+	return &model.SyncResponse{
+		FirstSyncedCheckPointID: firstCP,
+		LastSyncedCheckPointID:  lastCP,
+		NumRecordsSynced:        int64(numRecords),
+		CurrentSyncBatchID:      syncBatchID,
+		TableNameRowsMapping:    tableNameRowsMapping,
+	}, nil
+}
+
+func (c *BigQueryConnector) SyncRecordsViaAvro(req *model.SyncRecordsRequest,
+	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
+	tableNameRowsMapping := make(map[string]uint32)
+	first := true
+	var firstCP int64 = 0
+	lastCP := req.Records.LastCheckPointID
+	recordStream := model.NewQRecordStream(len(req.Records.Records))
+	err := recordStream.SetSchema(&model.QRecordSchema{
+		Fields: []*model.QField{
+			{
+				Name:     "_peerdb_uid",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_timestamp",
+				Type:     qvalue.QValueKindTimestamp,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_timestamp_nanos",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_destination_table_name",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_data",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_record_type",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_match_data",
+				Type:     qvalue.QValueKindString,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_staging_batch_id",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_batch_id",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_unchanged_toast_columns",
+				Type:     qvalue.QValueKindString,
+				Nullable: true,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// loop over req.Records
+	for _, record := range req.Records.Records {
+		var entries [10]qvalue.QValue
+		switch r := record.(type) {
+		case *model.InsertRecord:
+
+			itemsJSON, err := r.Items.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create items to json: %v", err)
+			}
+
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: r.DestinationTableName,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 0,
+			}
+			entries[6] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: "",
+			}
+			entries[9] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(r.UnchangedToastColumns),
+			}
+
+			tableNameRowsMapping[r.DestinationTableName] += 1
+		case *model.UpdateRecord:
+			newItemsJSON, err := r.NewItems.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create new items to json: %v", err)
+			}
+
+			oldItemsJSON, err := r.OldItems.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create old items to json: %v", err)
+			}
+
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: r.DestinationTableName,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: newItemsJSON,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 1,
+			}
+			entries[6] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: oldItemsJSON,
+			}
+			entries[9] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(r.UnchangedToastColumns),
+			}
+
+			tableNameRowsMapping[r.DestinationTableName] += 1
+		case *model.DeleteRecord:
+			itemsJSON, err := r.Items.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create items to json: %v", err)
+			}
+
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: r.DestinationTableName,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 2,
+			}
+			entries[6] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[9] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(r.UnchangedToastColumns),
+			}
+
+			tableNameRowsMapping[r.DestinationTableName] += 1
+		default:
+			return nil, fmt.Errorf("record type %T not supported", r)
+		}
+
+		if first {
+			firstCP = record.GetCheckPointID()
+			first = false
+		}
+
+		entries[0] = qvalue.QValue{
+			Kind:  qvalue.QValueKindString,
+			Value: uuid.New().String(),
+		}
+		entries[1] = qvalue.QValue{
+			Kind:  qvalue.QValueKindTimestamp,
+			Value: time.Now(),
+		}
+		entries[2] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: time.Now().UnixNano(),
+		}
+		entries[7] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: syncBatchID,
+		}
+		entries[8] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: syncBatchID,
+		}
+		recordStream.Records <- &model.QRecordOrError{
+			Record: &model.QRecord{
+				NumEntries: 10,
+				Entries:    entries[:],
+			},
+		}
+	}
+
+	startTime := time.Now()
+	close(recordStream.Records)
+	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath)
+	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
+	}
+
+	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName,
+		lastCP, rawTableMetadata, syncBatchID, recordStream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync records via avro : %v", err)
+	}
+
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 

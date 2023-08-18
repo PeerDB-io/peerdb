@@ -52,6 +52,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_S3() {
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.s3Helper.GetPeer(),
+		"stage",
 	)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
@@ -122,6 +123,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_S3_CTID() {
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.s3Helper.GetPeer(),
+		"stage",
 	)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 	qrepConfig.NumRowsPerPartition = 2000
