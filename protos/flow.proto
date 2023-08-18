@@ -109,6 +109,7 @@ message CreateRawTableInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
+  QRepSyncMode cdc_sync_mode = 4;
 }
 
 message CreateRawTableOutput { string table_identifier = 1; }

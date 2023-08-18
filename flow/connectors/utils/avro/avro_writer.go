@@ -55,7 +55,7 @@ func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 
 	colNames := schema.GetColumnNames()
 	numRows := 0
-	const heartBeatNumRows = 1000
+	const heartBeatNumRows = 10000
 	for qRecordOrErr := range p.stream.Records {
 		if qRecordOrErr.Err != nil {
 			log.Errorf("[avro] failed to get record from stream: %v", qRecordOrErr.Err)

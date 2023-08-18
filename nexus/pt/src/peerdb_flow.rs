@@ -175,6 +175,8 @@ pub struct CreateRawTableInput {
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(map="string, string", tag="3")]
     pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(enumeration="QRepSyncMode", tag="4")]
+    pub cdc_sync_mode: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

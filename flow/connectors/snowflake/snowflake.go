@@ -204,6 +204,7 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for creating metadata tables: %w", err)
 	}
+
 	return nil
 }
 
@@ -367,6 +368,14 @@ func (c *SnowflakeConnector) PullRecords(req *model.PullRecordsRequest) (*model.
 }
 
 func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	if len(req.Records.Records) == 0 {
+		return &model.SyncResponse{
+			FirstSyncedCheckPointID: 0,
+			LastSyncedCheckPointID:  0,
+			NumRecordsSynced:        0,
+		}, nil
+	}
+
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	log.Printf("pushing %d records to Snowflake table %s", len(req.Records.Records), rawTableIdentifier)
 
@@ -375,6 +384,50 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
 	syncBatchID = syncBatchID + 1
+
+	// transaction for SyncRecords
+	syncRecordsTx, err := c.database.BeginTx(c.ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	// in case we return after error, ensure transaction is rolled back
+	defer func() {
+		deferErr := syncRecordsTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for SyncRecords: %v", deferErr)
+		}
+	}()
+
+	var res *model.SyncResponse
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
+		res, err = c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
+		if err != nil {
+			return nil, err
+		}
+	} else if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
+		res, err = c.syncRecordsViaSQL(req, rawTableIdentifier, syncBatchID, syncRecordsTx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// updating metadata with new offset and syncBatchID
+	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckPointID, syncBatchID, syncRecordsTx)
+	if err != nil {
+		return nil, err
+	}
+	// transaction commits
+	err = syncRecordsTx.Commit()
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, rawTableIdentifier string,
+	syncBatchID int64, syncRecordsTx *sql.Tx) (*model.SyncResponse, error) {
+
 	records := make([]snowflakeRawRecord, 0)
 	tableNameRowsMapping := make(map[string]uint32)
 
@@ -453,27 +506,6 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		}
 	}
 
-	if len(records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
-	// transaction for SyncRecords
-	syncRecordsTx, err := c.database.BeginTx(c.ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	// in case we return after error, ensure transaction is rolled back
-	defer func() {
-		deferErr := syncRecordsTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for SyncRecords: %v", deferErr)
-		}
-	}()
-
 	// inserting records into raw table.
 	numRecords := len(records)
 	startTime := time.Now()
@@ -483,28 +515,225 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		if end > numRecords {
 			end = numRecords
 		}
-		err = c.insertRecordsInRawTable(rawTableIdentifier, records[begin:end], syncRecordsTx)
+		err := c.insertRecordsInRawTable(rawTableIdentifier, records[begin:end], syncRecordsTx)
 		if err != nil {
 			return nil, err
 		}
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
-	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)
-	if err != nil {
-		return nil, err
-	}
-	// transaction commits
-	err = syncRecordsTx.Commit()
-	if err != nil {
-		return nil, err
-	}
-
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
 		LastSyncedCheckPointID:  lastCP,
 		NumRecordsSynced:        int64(len(records)),
+		CurrentSyncBatchID:      syncBatchID,
+		TableNameRowsMapping:    tableNameRowsMapping,
+	}, nil
+}
+
+func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, rawTableIdentifier string,
+	syncBatchID int64) (*model.SyncResponse, error) {
+	recordStream := model.NewQRecordStream(len(req.Records.Records))
+
+	err := recordStream.SetSchema(&model.QRecordSchema{
+		Fields: []*model.QField{
+			{
+				Name:     "_peerdb_uid",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_timestamp",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_destination_table_name",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_data",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_record_type",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_match_data",
+				Type:     qvalue.QValueKindString,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_batch_id",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_unchanged_toast_columns",
+				Type:     qvalue.QValueKindString,
+				Nullable: true,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	first := true
+	var firstCP int64 = 0
+	lastCP := req.Records.LastCheckPointID
+	tableNameRowsMapping := make(map[string]uint32)
+
+	for _, record := range req.Records.Records {
+		var entries [8]qvalue.QValue
+		switch typedRecord := record.(type) {
+		case *model.InsertRecord:
+			// json.Marshal converts bytes in Hex automatically to BASE64 string.
+			itemsJSON, err := typedRecord.Items.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
+			}
+
+			// add insert record to the raw table
+			entries[2] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: typedRecord.DestinationTableName,
+			}
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 0,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: "",
+			}
+			entries[7] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
+			}
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
+		case *model.UpdateRecord:
+			newItemsJSON, err := typedRecord.NewItems.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
+			}
+			oldItemsJSON, err := typedRecord.OldItems.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
+			}
+
+			// add update record to the raw table
+			entries[2] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: typedRecord.DestinationTableName,
+			}
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: newItemsJSON,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 1,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: oldItemsJSON,
+			}
+			entries[7] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
+			}
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
+		case *model.DeleteRecord:
+			itemsJSON, err := typedRecord.Items.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
+			}
+
+			// append delete record to the raw table
+			entries[2] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: typedRecord.DestinationTableName,
+			}
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 2,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[7] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
+			}
+			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
+		default:
+			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
+		}
+
+		if first {
+			firstCP = record.GetCheckPointID()
+			first = false
+		}
+
+		entries[0] = qvalue.QValue{
+			Kind:  qvalue.QValueKindString,
+			Value: uuid.New().String(),
+		}
+		entries[1] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: time.Now().UnixNano(),
+		}
+		entries[6] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: syncBatchID,
+		}
+
+		recordStream.Records <- &model.QRecordOrError{
+			Record: &model.QRecord{
+				NumEntries: 8,
+				Entries:    entries[:],
+			},
+		}
+	}
+
+	qrepConfig := &protos.QRepConfig{
+		StagingPath: "",
+		FlowJobName: req.FlowJobName,
+		DestinationTableIdentifier: fmt.Sprintf("%s.%s", peerDBInternalSchema,
+			rawTableIdentifier),
+	}
+	avroSyncer := NewSnowflakeAvroSyncMethod(qrepConfig, c)
+	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	startTime := time.Now()
+	close(recordStream.Records)
+	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, recordStream)
+	if err != nil {
+		return nil, err
+	}
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
+
+	return &model.SyncResponse{
+		FirstSyncedCheckPointID: firstCP,
+		LastSyncedCheckPointID:  lastCP,
+		NumRecordsSynced:        int64(len(req.Records.Records)),
 		CurrentSyncBatchID:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
@@ -576,12 +805,12 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		totalRowsAffected += rowsAffected
 	}
 	if totalRowsAffected > 0 {
-		totalRowsAtSource, err := c.getTableCounts(destinationTableNames)
+		totalRowsAtTarget, err := c.getTableCounts(destinationTableNames)
 		if err != nil {
 			return nil, err
 		}
 		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, totalRowsAffected, time.Since(startTime),
-			totalRowsAtSource)
+			totalRowsAtTarget)
 	}
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)
@@ -621,6 +850,14 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	err = createRawTableTx.Commit()
 	if err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for creation of raw table: %w", err)
+	}
+
+	if req.CdcSyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
+		stage := c.getStageNameForJob(req.FlowJobName)
+		err = c.createStage(stage, &protos.QRepConfig{})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &protos.CreateRawTableOutput{
@@ -666,6 +903,12 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
+
+	err = c.dropStage("", jobName)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -824,7 +1067,8 @@ func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
 	return result, nil
 }
 
-func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64, syncRecordsTx *sql.Tx) error {
+func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64,
+	syncBatchID int64, syncRecordsTx *sql.Tx) error {
 	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)

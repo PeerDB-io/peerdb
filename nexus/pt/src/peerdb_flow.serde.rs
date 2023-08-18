@@ -16,6 +16,9 @@ impl serde::Serialize for CreateRawTableInput {
         if !self.table_name_mapping.is_empty() {
             len += 1;
         }
+        if self.cdc_sync_mode != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.CreateRawTableInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
@@ -25,6 +28,11 @@ impl serde::Serialize for CreateRawTableInput {
         }
         if !self.table_name_mapping.is_empty() {
             struct_ser.serialize_field("tableNameMapping", &self.table_name_mapping)?;
+        }
+        if self.cdc_sync_mode != 0 {
+            let v = QRepSyncMode::from_i32(self.cdc_sync_mode)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.cdc_sync_mode)))?;
+            struct_ser.serialize_field("cdcSyncMode", &v)?;
         }
         struct_ser.end()
     }
@@ -42,6 +50,8 @@ impl<'de> serde::Deserialize<'de> for CreateRawTableInput {
             "flowJobName",
             "table_name_mapping",
             "tableNameMapping",
+            "cdc_sync_mode",
+            "cdcSyncMode",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -49,6 +59,7 @@ impl<'de> serde::Deserialize<'de> for CreateRawTableInput {
             PeerConnectionConfig,
             FlowJobName,
             TableNameMapping,
+            CdcSyncMode,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -74,6 +85,7 @@ impl<'de> serde::Deserialize<'de> for CreateRawTableInput {
                             "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
                             "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
                             "tableNameMapping" | "table_name_mapping" => Ok(GeneratedField::TableNameMapping),
+                            "cdcSyncMode" | "cdc_sync_mode" => Ok(GeneratedField::CdcSyncMode),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -96,6 +108,7 @@ impl<'de> serde::Deserialize<'de> for CreateRawTableInput {
                 let mut peer_connection_config__ = None;
                 let mut flow_job_name__ = None;
                 let mut table_name_mapping__ = None;
+                let mut cdc_sync_mode__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -118,6 +131,12 @@ impl<'de> serde::Deserialize<'de> for CreateRawTableInput {
                                 map.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
+                        GeneratedField::CdcSyncMode => {
+                            if cdc_sync_mode__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cdcSyncMode"));
+                            }
+                            cdc_sync_mode__ = Some(map.next_value::<QRepSyncMode>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -127,6 +146,7 @@ impl<'de> serde::Deserialize<'de> for CreateRawTableInput {
                     peer_connection_config: peer_connection_config__,
                     flow_job_name: flow_job_name__.unwrap_or_default(),
                     table_name_mapping: table_name_mapping__.unwrap_or_default(),
+                    cdc_sync_mode: cdc_sync_mode__.unwrap_or_default(),
                 })
             }
         }

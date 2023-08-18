@@ -28,6 +28,7 @@ type FlowConnectionGenerationConfig struct {
 	TableNameMapping map[string]string
 	PostgresPort     int
 	Destination      *protos.Peer
+	CDCSyncMode      protos.QRepSyncMode
 }
 
 // GenerateSnowflakePeer generates a snowflake peer config for testing.
@@ -49,6 +50,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 	ret.TableNameMapping = c.TableNameMapping
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
 	ret.Destination = c.Destination
+	ret.CdcSyncMode = c.CDCSyncMode
 	return ret, nil
 }
 
