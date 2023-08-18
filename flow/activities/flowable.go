@@ -228,10 +228,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	}
 
 	res, err := dest.SyncRecords(&model.SyncRecordsRequest{
-		SyncMode:    conn.CdcSyncMode,
 		Records:     records,
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 		SyncMode:    input.FlowConnectionConfigs.CdcSyncMode,
+		StagingPath: input.FlowConnectionConfigs.CdcStagingPath,
 	})
 	if err != nil {
 		log.Warnf("failed to push records: %v", err)

@@ -31,21 +31,21 @@ func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string) *QRep
 
 func (s *QRepAvroSyncMethod) SyncRecords(
 	dstTableName string,
+	flowJobName string,
+	lastCP int64,
 	dstTableMetadata *bigquery.TableMetadata,
-	syncBatchID string,
+	syncBatchID int64,
 	stream *model.QRecordStream,
 ) (int, error) {
-	log.Infoln("[bq_avro]: Starting SyncRecords")
+
 	// You will need to define your Avro schema as a string
 	avroSchema, nullable, err := DefineAvroSchema(dstTableName, dstTableMetadata)
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 
-	log.Infoln("[bq_avro]: Obtained avroSchema")
-
-	stagingTable := fmt.Sprintf("%s_%s_staging", dstTableName, syncBatchID)
-	numRecords, err := s.writeToStage(syncBatchID, dstTableName, avroSchema, stagingTable, stream, nullable)
+	stagingTable := fmt.Sprintf("%s_%s_staging", dstTableName, fmt.Sprint(syncBatchID))
+	numRecords, err := s.writeToStage(fmt.Sprint(syncBatchID), dstTableName, avroSchema, stagingTable, stream, nullable)
 	if err != nil {
 		return -1, fmt.Errorf("failed to push to avro stage: %v", err)
 	}
@@ -54,7 +54,17 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	datasetID := s.connector.datasetID
 	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT * FROM `%s.%s`;",
 		datasetID, dstTableName, datasetID, stagingTable)
-	_, err = bqClient.Query(insertStmt).Read(s.connector.ctx)
+	updateMetadataStmt, err := s.connector.getUpdateMetadataStmt(flowJobName, lastCP, syncBatchID)
+	if err != nil {
+		return -1, fmt.Errorf("failed to update metadata: %v", err)
+	}
+	// execute the statements in a transaction
+	stmts := []string{}
+	stmts = append(stmts, "BEGIN TRANSACTION;")
+	stmts = append(stmts, insertStmt)
+	stmts = append(stmts, updateMetadataStmt)
+	stmts = append(stmts, "COMMIT TRANSACTION;")
+	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
@@ -111,9 +121,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
 	stmts = append(stmts, insertMetadataStmt)
-
 	stmts = append(stmts, "COMMIT TRANSACTION;")
-
 	// Execute the statements in a transaction
 	syncRecordsStartTime := time.Now()
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
@@ -277,7 +285,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	ctx := context.Background()
 	bucket := s.connector.storageClient.Bucket(s.gcsBucket)
 	gcsObjectName := fmt.Sprintf("%s/%s.avro", objectFolder, syncID)
-	log.Infoln("[bq_avro]: obtained gcsObjectName")
+
 	obj := bucket.Object(gcsObjectName)
 	w := obj.NewWriter(ctx)
 
@@ -290,18 +298,15 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
 	}
-	log.Infoln("[bq_avro]: Created OCF Writer")
 	schema, err := stream.Schema()
 	if err != nil {
 		log.Errorf("failed to get schema from stream: %v", err)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
-
 	numRecords := 0
 
 	// Write each QRecord to the OCF file
 	for qRecordOrErr := range stream.Records {
-		log.Infoln("[bq_avro]: Writing first QRecord to OCF File")
 		if qRecordOrErr.Err != nil {
 			log.Errorf("[bq_avro] failed to get record from stream: %v", qRecordOrErr.Err)
 			return 0, fmt.Errorf("[bq_avro] failed to get record from stream: %w", qRecordOrErr.Err)
@@ -323,7 +328,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		if err != nil {
 			return 0, fmt.Errorf("failed to write record to OCF file: %w", err)
 		}
-
 		numRecords++
 	}
 
@@ -335,7 +339,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	if err := w.Close(); err != nil {
 		return 0, fmt.Errorf("failed to close GCS object writer: %w", err)
 	}
-	log.Infoln("[bq_avro]: OCF to GCS Done")
 
 	// write this file to bigquery
 	gcsRef := bigquery.NewGCSReference(fmt.Sprintf("gs://%s/%s", s.gcsBucket, gcsObjectName))

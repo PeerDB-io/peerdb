@@ -32,7 +32,9 @@ message FlowConnectionConfigs {
   uint32 snapshot_max_parallel_workers = 13;
   uint32 snapshot_num_tables_in_parallel = 14;
   QRepSyncMode snapshot_sync_mode = 15;
-  QRepSyncMode cdc_sync_mode = 16;
+  string snapshot_staging_path = 16;
+  QRepSyncMode cdc_sync_mode = 17;
+  string cdc_staging_path = 18;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
