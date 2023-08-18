@@ -43,10 +43,10 @@ pub struct FlowConnectionConfigs {
     pub snapshot_num_tables_in_parallel: u32,
     #[prost(enumeration="QRepSyncMode", tag="15")]
     pub snapshot_sync_mode: i32,
-    #[prost(string, tag="16")]
-    pub snapshot_staging_path: ::prost::alloc::string::String,
-    #[prost(enumeration="QRepSyncMode", tag="17")]
+    #[prost(enumeration="QRepSyncMode", tag="16")]
     pub cdc_sync_mode: i32,
+    #[prost(string, tag="17")]
+    pub snapshot_staging_path: ::prost::alloc::string::String,
     #[prost(string, tag="18")]
     pub cdc_staging_path: ::prost::alloc::string::String,
 }
