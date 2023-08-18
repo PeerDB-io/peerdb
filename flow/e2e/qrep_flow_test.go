@@ -424,7 +424,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF() {
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
-		"not used",
+		"",
 	)
 
 	runQrepFlowWorkflow(env, qrepConfig)
@@ -463,7 +463,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
-		"not used",
+		"",
 	)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
@@ -511,7 +511,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
 		postgresPeer,
-		"not used",
+		"",
 	)
 
 	runQrepFlowWorkflow(env, qrepConfig)
@@ -552,7 +552,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_S3() {
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
-		"not used",
+		"",
 	)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 
@@ -595,7 +595,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() 
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		sfPeer,
-		"not used",
+		"",
 	)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 
