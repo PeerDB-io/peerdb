@@ -903,6 +903,152 @@ func (s *E2EPeerFlowTestSuite) Test_Types_BQ() {
 	env.AssertExpectations(s.T())
 }
 
+func (s *E2EPeerFlowTestSuite) Test_Types_Avro_BQ() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	_, err := s.pool.Exec(context.Background(), `
+
+	CREATE TABLE e2e_test.test_types_avro_bq(id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
+		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
+		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
+		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
+		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
+		c39 TXID_SNAPSHOT,c40 UUID,c41 XML);
+	CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
+		RETURNS bytea AS $body$
+			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
+			FROM generate_series(1, $1);
+		$body$
+		LANGUAGE 'sql'
+		VOLATILE
+		SET search_path = 'pg_catalog';
+	`)
+	s.NoError(err)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "test_types_avro_bq",
+		TableNameMapping: map[string]string{"e2e_test.test_types_avro_bq": "test_types_avro_bq"},
+		PostgresPort:     postgresPort,
+		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	limits := peerflow.PeerFlowLimits{
+
+		TotalSyncFlows: 1,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and execute a transaction touching toast columns
+	go func() {
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		/* test inserting various types*/
+		_, err = s.pool.Exec(context.Background(), `
+		INSERT INTO e2e_test.test_types_avro_bq SELECT 2,2,b'1',b'101',
+		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
+		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
+		'{"sai":1}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
+		1.2,1.23,4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
+		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
+		txid_current_snapshot(),
+		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello');
+		`)
+		s.NoError(err)
+		fmt.Println("Executed an insert with all types")
+	}()
+
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
+
+	noNulls, err := s.bqHelper.CheckNull("test_types_avro_bq", []string{"c41", "c1", "c2", "c3", "c4",
+		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
+		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
+		"c37", "c38", "c7", "c8", "c32"})
+	if err != nil {
+		fmt.Println("error  %w", err)
+	}
+	// Make sure that there are no nulls
+	s.Equal(noNulls, true)
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) Test_Simple_Flow_BQ_Avro_CDC() {
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	_, err := s.pool.Exec(context.Background(), `
+		CREATE TABLE e2e_test.test_simple_flow_bq_avro_cdc (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL
+		);
+	`)
+	s.NoError(err)
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "test_simple_flow_bq_avro_cdc",
+		TableNameMapping: map[string]string{"e2e_test.test_simple_flow_bq_avro_cdc": "test_simple_flow_bq_avro_cdc"},
+		PostgresPort:     postgresPort,
+		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	limits := peerflow.PeerFlowLimits{
+		TotalSyncFlows: 2,
+		MaxBatchSize:   100,
+	}
+
+	go func() {
+		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		for i := 0; i < 10; i++ {
+			testKey := fmt.Sprintf("test_key_%d", i)
+			testValue := fmt.Sprintf("test_value_%d", i)
+			_, err = s.pool.Exec(context.Background(), `
+			INSERT INTO e2e_test.test_simple_flow_bq_avro_cdc (key, value) VALUES ($1, $2)
+		`, testKey, testValue)
+			s.NoError(err)
+		}
+		fmt.Println("Inserted 10 rows into the source table")
+	}()
+
+	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
+
+	count, err := s.bqHelper.CountRows("test_simple_flow_bq")
+	s.NoError(err)
+	s.Equal(10, count)
+
+	// TODO: verify that the data is correctly synced to the destination table
+	// on the bigquery side
+
+	env.AssertExpectations(s.T())
+}
+
 func (s *E2EPeerFlowTestSuite) Test_Multi_Table_BQ() {
 	env := s.NewTestWorkflowEnvironment()
 	registerWorkflowsAndActivities(env)

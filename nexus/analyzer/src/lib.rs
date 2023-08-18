@@ -183,7 +183,6 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
-
                         let snapshot_sync_mode: Option<FlowSyncMode> =
                             match raw_options.remove("snapshot_sync_mode") {
                                 Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
@@ -192,7 +191,12 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                                 }
                                 _ => None,
                             };
-
+                        let snapshot_staging_path = match raw_options
+                            .remove("snapshot_staging_path")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
                         let cdc_sync_mode: Option<FlowSyncMode> =
                             match raw_options.remove("cdc_sync_mode") {
                                 Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
@@ -209,6 +213,11 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -221,8 +230,27 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             snapshot_max_parallel_workers,
                             snapshot_num_tables_in_parallel,
                             snapshot_sync_mode,
-                            cdc_sync_mode
+                            snapshot_staging_path,
+                            cdc_sync_mode,
+                            cdc_staging_path,
                         };
+
+                        // Error reporting
+                        if Some(FlowSyncMode::Avro) == flow_job.snapshot_sync_mode
+                            && flow_job.snapshot_staging_path.is_none()
+                        {
+                            return Err(anyhow::anyhow!(
+                                "snapshot_staging_path must be set for AVRO snapshot mode."
+                            ));
+                        }
+
+                        if Some(FlowSyncMode::Avro) == flow_job.cdc_sync_mode
+                            && flow_job.cdc_staging_path.is_none()
+                        {
+                            return Err(anyhow::anyhow!(
+                                "cdc_staging_path must be set for AVRO CDC mode."
+                            ));
+                        }
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
                     }

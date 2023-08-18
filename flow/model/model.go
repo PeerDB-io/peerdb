@@ -175,6 +175,8 @@ type SyncRecordsRequest struct {
 	FlowJobName string
 	// SyncMode to use for pushing raw records
 	SyncMode protos.QRepSyncMode
+	// Staging path for AVRO files in CDC
+	StagingPath string
 }
 
 type NormalizeRecordsRequest struct {
