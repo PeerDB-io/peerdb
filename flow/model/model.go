@@ -44,6 +44,12 @@ func (r RecordItems) ToJSON() (string, error) {
 	for k, v := range r {
 		var err error
 		switch v.Kind {
+		case qvalue.QValueKindString, qvalue.QValueKindJSON:
+			if len(v.Value.(string)) > 15*1024*1024 {
+				jsonStruct[k] = ""
+			} else {
+				jsonStruct[k] = v.Value
+			}
 		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
 			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
 			jsonStruct[k], err = v.GoTimeConvert()
