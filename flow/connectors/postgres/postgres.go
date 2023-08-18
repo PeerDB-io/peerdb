@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
 )
 
@@ -511,6 +512,7 @@ func (c *PostgresConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
+		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
@@ -601,6 +603,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 		tableExistsMapping[tableIdentifier] = false
 		log.Printf("created table %s", tableIdentifier)
+		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	err = createNormalizedTablesTx.Commit(c.ctx)
@@ -642,6 +645,7 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 					RelId: relID},
 			},
 		}
+		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
