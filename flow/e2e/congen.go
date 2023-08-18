@@ -62,6 +62,7 @@ type QRepFlowConnectionGenerationConfig struct {
 	DestinationTableIdentifier string
 	PostgresPort               int
 	Destination                *protos.Peer
+	StagingPath                string
 }
 
 // GenerateQRepConfig generates a qrep config for testing.
@@ -81,6 +82,7 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	ret.WatermarkColumn = watermark
 
 	ret.SyncMode = syncMode
+	ret.StagingPath = c.StagingPath
 
 	return ret, nil
 }
