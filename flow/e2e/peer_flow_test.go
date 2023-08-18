@@ -1039,7 +1039,7 @@ func (s *E2EPeerFlowTestSuite) Test_Simple_Flow_BQ_Avro_CDC() {
 	s.Error(err)
 	s.Contains(err.Error(), "continue as new")
 
-	count, err := s.sfHelper.CountRows("test_simple_flow_bq")
+	count, err := s.bqHelper.CountRows("test_simple_flow_bq")
 	s.NoError(err)
 	s.Equal(10, count)
 

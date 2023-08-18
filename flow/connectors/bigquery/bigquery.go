@@ -825,7 +825,8 @@ func (c *BigQueryConnector) SyncRecordsViaAvro(req *model.SyncRecordsRequest,
 		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
 	}
 
-	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName, lastCP, rawTableMetadata, syncBatchID, recordStream)
+	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName,
+		lastCP, rawTableMetadata, syncBatchID, recordStream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync records via avro : %v", err)
 	}
