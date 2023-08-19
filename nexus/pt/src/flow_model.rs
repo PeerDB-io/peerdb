@@ -71,6 +71,7 @@ pub struct FlowJob {
     pub snapshot_staging_path: Option<String>,
     pub cdc_sync_mode: Option<FlowSyncMode>,
     pub cdc_staging_path: Option<String>,
+    pub soft_delete: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

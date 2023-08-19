@@ -35,6 +35,9 @@ message FlowConnectionConfigs {
   QRepSyncMode cdc_sync_mode = 16;
   string snapshot_staging_path = 17;
   string cdc_staging_path = 18;
+
+  // currently only works for snowflake
+  bool soft_delete = 19;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }

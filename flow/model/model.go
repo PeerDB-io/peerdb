@@ -181,6 +181,7 @@ type SyncRecordsRequest struct {
 
 type NormalizeRecordsRequest struct {
 	FlowJobName string
+	SoftDelete  bool
 }
 
 type SyncResponse struct {

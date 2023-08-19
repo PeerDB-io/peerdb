@@ -218,6 +218,11 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let soft_delete = match raw_options.remove("soft_delete") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            _ => false,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -233,6 +238,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             snapshot_staging_path,
                             cdc_sync_mode,
                             cdc_staging_path,
+                            soft_delete,
                         };
 
                         // Error reporting
