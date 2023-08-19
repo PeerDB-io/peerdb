@@ -250,14 +250,6 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             ));
                         }
 
-                        if Some(FlowSyncMode::Avro) == flow_job.cdc_sync_mode
-                            && flow_job.cdc_staging_path.is_none()
-                        {
-                            return Err(anyhow::anyhow!(
-                                "cdc_staging_path must be set for AVRO CDC mode."
-                            ));
-                        }
-
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
                     }
                     Select(select) => {
