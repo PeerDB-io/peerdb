@@ -9,7 +9,10 @@ edition = "2021"
 anyhow = "1.0"
 async-trait = "0.1"
 catalog = { path = "../catalog" }
+clap = { version = "4.0", features = ["derive", "env"] }
+dotenvy = "0.15.7"
 flow-rs = { path = "../flow-rs" }
+futures = "0.3"
 lazy_static = "1.4"
 pem = "1.1.0"
 pt = { path = "../pt" }

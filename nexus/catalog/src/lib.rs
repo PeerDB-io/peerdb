@@ -197,6 +197,18 @@ impl Catalog {
             .context("Failed to get peer type")
     }
 
+    // get the database type for a given peer name
+    pub async fn get_peer_type_by_name(&self, peer_name: String) -> anyhow::Result<DbType> {
+        let stmt = self.pg
+            .prepare_typed("SELECT type FROM peers WHERE name = $1", &[types::Type::TEXT]).await?;
+
+        self.pg
+            .query_opt(&stmt, &[&peer_name]).await?
+            .map(|row| row.get(0))
+            .map(|r#type| DbType::from_i32(r#type).unwrap()) // if row was inserted properly, this should never fail
+            .context("Failed to get peer type")
+    }
+
     pub async fn get_peers(&self) -> anyhow::Result<HashMap<String, Peer>> {
         let stmt = self
             .pg
@@ -543,3 +555,4 @@ impl Catalog {
         Ok(())
     }
 }
+

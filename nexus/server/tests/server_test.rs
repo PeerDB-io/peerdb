@@ -224,6 +224,59 @@ fn query_unknown_peer_doesnt_crash_server() {
 }
 
 #[test]
+fn mirror_with_bad_staging_path_should_err() {
+    let server = PeerDBServer::new();
+    let mut client = server.connect_dying();
+    let cdc_query = "CREATE MIRROR fail_cdc
+    FROM pg_test TO bq_test
+    WITH TABLE MAPPING (
+      public.cats:cats
+    )
+    WITH (
+      cdc_sync_mode = 'avro'
+    );";
+    let res = client.simple_query(cdc_query);
+    assert!(res.is_err());
+    if let Err(e) = res {
+        assert!(e.to_string().contains("cdc_staging_path missing or invalid for your destination peer"));
+    }
+    let snapshot_query = "CREATE MIRROR fail_snapshot
+    FROM pg_test TO bq_test
+    WITH TABLE MAPPING (
+      public.cats:cats
+    )
+    WITH (
+      snapshot_sync_mode = 'avro'
+    );";
+    let res = client.simple_query(snapshot_query);
+    assert!(res.is_err());
+    if let Err(e) = res {
+        assert!(e.to_string().contains("snapshot_staging_path missing or invalid for your destination peer"));
+    }
+}
+
+#[test]
+fn snowflake_mirror_errs_for_bad_stage() {
+    let server = PeerDBServer::new();
+    let mut client = server.connect_dying();
+    let sf_query = "CREATE MIRROR fail_cdc
+    FROM pg_test TO sf_test
+    WITH TABLE MAPPING (
+      public.cats:cats
+    )
+    WITH (
+      snapshot_sync_mode = 'avro',
+      snapshot_staging_path = 'something'
+    );";
+    let res = client.simple_query(sf_query);
+    assert!(res.is_err());
+    if let Err(e) = res {
+        assert!(e.to_string()
+        .contains("Staging path for Snowflake must either be an S3 URL or an empty string"));
+    }
+}
+
+#[test]
 #[ignore = "requires some work for extended query prepares on bigquery."]
 fn extended_query_protocol_no_params_bq() {
     let server = PeerDBServer::new();

@@ -5,8 +5,9 @@ use std::{
     ops::ControlFlow,
     vec,
 };
-
 use anyhow::Context;
+use clap::Parser;
+use catalog::{CatalogConfig, Catalog};
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, FlowSyncMode, QRepFlowJob},
     peerdb_peers::{
@@ -19,6 +20,74 @@ use sqlparser::ast::CreateMirror::{Select, CDC};
 use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
 
 mod qrep;
+
+#[derive(Parser, Debug)]
+struct CatalogArgs {
+    #[clap(long, default_value = "localhost", env = "PEERDB_CATALOG_HOST")]
+    catalog_host: String,
+    #[clap(long, default_value_t = 5432, env = "PEERDB_CATALOG_PORT")]
+    catalog_port: u16,
+    #[clap(long, default_value = "postgres", env = "PEERDB_CATALOG_USER")]
+    catalog_user: String,
+    #[clap(long, default_value = "postgres", env = "PEERDB_CATALOG_PASSWORD")]
+    catalog_password: String,
+    #[clap(long, default_value = "postgres", env = "PEERDB_CATALOG_DATABASE")]
+    catalog_database: String,
+}
+
+fn stage_check(stage: String, peer_type: DbType)->Result<(), anyhow::Error>{
+    if stage.len() > 0 && !stage.starts_with("s3://") && peer_type == DbType::Snowflake {
+        return Err(anyhow::anyhow!(
+            "Staging path for Snowflake must either be an S3 URL or an empty string for staging inside PeerDB."
+        ));
+    }
+    Ok(())
+}
+
+fn mirror_input_checks(flow_job: &FlowJob) -> anyhow::Result<bool> {
+    dotenvy::dotenv().ok();
+    let catalog_args = CatalogArgs::parse();
+    let catalog_config = CatalogConfig {
+        host: catalog_args.catalog_host.clone(),
+        port: catalog_args.catalog_port,
+        user: catalog_args.catalog_user.clone(),
+        password: catalog_args.catalog_password.clone(),
+        database: catalog_args.catalog_database.clone(),
+    };
+   
+    let new_catalog = futures::executor::block_on(
+        Catalog::new(&catalog_config)
+    )?;
+    let destination_peer_type = futures::executor::block_on(
+        new_catalog.get_peer_type_by_name(flow_job.target_peer.clone()))?;
+
+    let path_missing_err = "missing or invalid for your destination peer";
+    
+    // Error reporting
+    if Some(FlowSyncMode::Avro) == flow_job.snapshot_sync_mode
+    {
+        if flow_job.snapshot_staging_path.is_none(){
+            return Err(anyhow::anyhow!(
+                format!("{} {}", "snapshot_staging_path", path_missing_err)
+            ));
+        } else if let Some(snapshot_stage) = flow_job.snapshot_staging_path.clone(){
+            stage_check(snapshot_stage, destination_peer_type)?;
+        }
+    }
+
+    if Some(FlowSyncMode::Avro) == flow_job.cdc_sync_mode
+    {
+        if flow_job.cdc_staging_path.is_none(){
+            return Err(anyhow::anyhow!(
+                format!("{} {}", "cdc_staging_path", path_missing_err)
+            ));
+        } else if let Some(cdc_stage) = flow_job.cdc_staging_path.clone(){
+            let _ = stage_check(cdc_stage, destination_peer_type)?;
+        }
+    }
+
+    Ok(true)
+}
 
 pub trait StatementAnalyzer {
     type Output;
@@ -241,14 +310,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             soft_delete,
                         };
 
-                        // Error reporting
-                        if Some(FlowSyncMode::Avro) == flow_job.snapshot_sync_mode
-                            && flow_job.snapshot_staging_path.is_none()
-                        {
-                            return Err(anyhow::anyhow!(
-                                "snapshot_staging_path must be set for AVRO snapshot mode."
-                            ));
-                        }
+                        mirror_input_checks(&flow_job)?;
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
                     }
