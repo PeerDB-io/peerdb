@@ -49,6 +49,8 @@ pub struct FlowConnectionConfigs {
     pub snapshot_staging_path: ::prost::alloc::string::String,
     #[prost(string, tag="18")]
     pub cdc_staging_path: ::prost::alloc::string::String,
+    #[prost(bool, tag="19")]
+    pub soft_delete: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
