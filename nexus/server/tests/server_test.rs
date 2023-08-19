@@ -238,7 +238,9 @@ fn mirror_with_bad_staging_path_should_err() {
     let res = client.simple_query(cdc_query);
     assert!(res.is_err());
     if let Err(e) = res {
-        assert!(e.to_string().contains("cdc_staging_path missing or invalid for your destination peer"));
+        assert!(e
+            .to_string()
+            .contains("cdc_staging_path missing or invalid for your destination peer"));
     }
     let snapshot_query = "CREATE MIRROR fail_snapshot
     FROM pg_test TO bq_test
@@ -251,7 +253,9 @@ fn mirror_with_bad_staging_path_should_err() {
     let res = client.simple_query(snapshot_query);
     assert!(res.is_err());
     if let Err(e) = res {
-        assert!(e.to_string().contains("snapshot_staging_path missing or invalid for your destination peer"));
+        assert!(e
+            .to_string()
+            .contains("snapshot_staging_path missing or invalid for your destination peer"));
     }
 }
 
@@ -271,8 +275,9 @@ fn snowflake_mirror_errs_for_bad_stage() {
     let res = client.simple_query(sf_query);
     assert!(res.is_err());
     if let Err(e) = res {
-        assert!(e.to_string()
-        .contains("Staging path for Snowflake must either be an S3 URL or an empty string"));
+        assert!(e
+            .to_string()
+            .contains("Staging path for Snowflake must either be an S3 URL or an empty string"));
     }
 }
 

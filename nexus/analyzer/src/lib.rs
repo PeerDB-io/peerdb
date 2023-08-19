@@ -1,13 +1,8 @@
 // multipass statement analyzer.
 
-use std::{
-    collections::{HashMap, HashSet},
-    ops::ControlFlow,
-    vec,
-};
 use anyhow::Context;
+use catalog::{Catalog, CatalogConfig};
 use clap::Parser;
-use catalog::{CatalogConfig, Catalog};
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, FlowSyncMode, QRepFlowJob},
     peerdb_peers::{
@@ -18,6 +13,11 @@ use pt::{
 use qrep::process_options;
 use sqlparser::ast::CreateMirror::{Select, CDC};
 use sqlparser::ast::{visit_relations, visit_statements, FetchDirection, SqlOption, Statement};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::ControlFlow,
+    vec,
+};
 
 mod qrep;
 
@@ -35,7 +35,7 @@ struct CatalogArgs {
     catalog_database: String,
 }
 
-fn stage_check(stage: String, peer_type: DbType)->Result<(), anyhow::Error>{
+fn stage_check(stage: String, peer_type: DbType) -> Result<(), anyhow::Error> {
     if stage.len() > 0 && !stage.starts_with("s3://") && peer_type == DbType::Snowflake {
         return Err(anyhow::anyhow!(
             "Staging path for Snowflake must either be an S3 URL or an empty string for staging inside PeerDB."
@@ -54,34 +54,33 @@ fn mirror_input_checks(flow_job: &FlowJob) -> anyhow::Result<bool> {
         password: catalog_args.catalog_password.clone(),
         database: catalog_args.catalog_database.clone(),
     };
-   
-    let new_catalog = futures::executor::block_on(
-        Catalog::new(&catalog_config)
-    )?;
+
+    let new_catalog = futures::executor::block_on(Catalog::new(&catalog_config))?;
     let destination_peer_type = futures::executor::block_on(
-        new_catalog.get_peer_type_by_name(flow_job.target_peer.clone()))?;
+        new_catalog.get_peer_type_by_name(flow_job.target_peer.clone()),
+    )?;
 
     let path_missing_err = "missing or invalid for your destination peer";
-    
+
     // Error reporting
-    if Some(FlowSyncMode::Avro) == flow_job.snapshot_sync_mode
-    {
-        if flow_job.snapshot_staging_path.is_none(){
-            return Err(anyhow::anyhow!(
-                format!("{} {}", "snapshot_staging_path", path_missing_err)
-            ));
-        } else if let Some(snapshot_stage) = flow_job.snapshot_staging_path.clone(){
+    if Some(FlowSyncMode::Avro) == flow_job.snapshot_sync_mode {
+        if flow_job.snapshot_staging_path.is_none() {
+            return Err(anyhow::anyhow!(format!(
+                "{} {}",
+                "snapshot_staging_path", path_missing_err
+            )));
+        } else if let Some(snapshot_stage) = flow_job.snapshot_staging_path.clone() {
             stage_check(snapshot_stage, destination_peer_type)?;
         }
     }
 
-    if Some(FlowSyncMode::Avro) == flow_job.cdc_sync_mode
-    {
-        if flow_job.cdc_staging_path.is_none(){
-            return Err(anyhow::anyhow!(
-                format!("{} {}", "cdc_staging_path", path_missing_err)
-            ));
-        } else if let Some(cdc_stage) = flow_job.cdc_staging_path.clone(){
+    if Some(FlowSyncMode::Avro) == flow_job.cdc_sync_mode {
+        if flow_job.cdc_staging_path.is_none() {
+            return Err(anyhow::anyhow!(format!(
+                "{} {}",
+                "cdc_staging_path", path_missing_err
+            )));
+        } else if let Some(cdc_stage) = flow_job.cdc_staging_path.clone() {
             let _ = stage_check(cdc_stage, destination_peer_type)?;
         }
     }
