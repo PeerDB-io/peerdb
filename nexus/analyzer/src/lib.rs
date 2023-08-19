@@ -36,7 +36,7 @@ struct CatalogArgs {
 }
 
 fn stage_check(stage: String, peer_type: DbType) -> Result<(), anyhow::Error> {
-    if stage.len() > 0 && !stage.starts_with("s3://") && peer_type == DbType::Snowflake {
+    if !stage.is_empty() && !stage.starts_with("s3://") && peer_type == DbType::Snowflake {
         return Err(anyhow::anyhow!(
             "Staging path for Snowflake must either be an S3 URL or an empty string for staging inside PeerDB."
         ));
@@ -81,7 +81,7 @@ fn mirror_input_checks(flow_job: &FlowJob) -> anyhow::Result<bool> {
                 "cdc_staging_path", path_missing_err
             )));
         } else if let Some(cdc_stage) = flow_job.cdc_staging_path.clone() {
-            let _ = stage_check(cdc_stage, destination_peer_type)?;
+            stage_check(cdc_stage, destination_peer_type)?;
         }
     }
 
