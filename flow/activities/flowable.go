@@ -405,9 +405,22 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 		}
 	}
 
+	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+		return fmt.Sprintf("syncing partition - %s", partition.PartitionId)
+	})
+
+	defer func() {
+		shutdown <- true
+	}()
+
 	res, err := destConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
 		return fmt.Errorf("failed to sync records: %w", err)
+	}
+
+	if res == 0 {
+		log.Printf("no records to push for partition %s\n", partition.PartitionId)
+		return nil
 	}
 
 	wg.Wait()
