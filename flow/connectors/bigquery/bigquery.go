@@ -1227,6 +1227,10 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS %s",
 				colName, colName)
+		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64, qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64:
+			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
+				"UNNEST(CAST(JSON_EXTRACT_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element) AS %s",
+				bqType, colName, colName)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
 		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
