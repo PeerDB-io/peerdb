@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 )
 
 type QRepAvroSyncMethod struct {
@@ -38,19 +39,17 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	syncBatchID int64,
 	stream *model.QRecordStream,
 ) (int, error) {
-
+	activity.RecordHeartbeat(s.connector.ctx, time.Minute,
+		fmt.Sprintf("Flow job %s: Obtaining Avro schema"+
+			" for destination table %s and sync batch ID %d",
+			flowJobName, dstTableName, syncBatchID),
+	)
 	// You will need to define your Avro schema as a string
 	avroSchema, nullable, err := DefineAvroSchema(dstTableName, dstTableMetadata)
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 
-	utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
-		func() string {
-			return fmt.Sprintf("Flow job %s: writing to avro stage for destination table %s and sync batch ID %d",
-				flowJobName, dstTableName, syncBatchID)
-		},
-	)
 	stagingTable := fmt.Sprintf("%s_%s_staging", dstTableName, fmt.Sprint(syncBatchID))
 	numRecords, err := s.writeToStage(fmt.Sprint(syncBatchID), dstTableName, avroSchema, stagingTable, stream, nullable)
 	if err != nil {
@@ -66,12 +65,10 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		return -1, fmt.Errorf("failed to update metadata: %v", err)
 	}
 
-	utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
-		func() string {
-			return fmt.Sprintf("Flow job %s: performing insert and update transaction"+
-				" for destination table %s and sync batch ID %d",
-				flowJobName, dstTableName, syncBatchID)
-		},
+	activity.RecordHeartbeat(s.connector.ctx, time.Minute,
+		fmt.Sprintf("Flow job %s: performing insert and update transaction"+
+			" for destination table %s and sync batch ID %d",
+			flowJobName, dstTableName, syncBatchID),
 	)
 
 	// execute the statements in a transaction
@@ -113,24 +110,16 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	}
 
 	fmt.Printf("Avro schema: %s\n", avroSchema)
-	utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
-		func() string {
-			return fmt.Sprintf("Flow job %s: writing to avro stage for destination table %s and partition ID %s",
-				flowJobName, dstTableName, partition.PartitionId)
-		},
-	)
 	// create a staging table name with partitionID replace hyphens with underscores
 	stagingTable := fmt.Sprintf("%s_%s_staging", dstTableName, strings.ReplaceAll(partition.PartitionId, "-", "_"))
 	numRecords, err := s.writeToStage(partition.PartitionId, flowJobName, avroSchema, stagingTable, stream, nullable)
 	if err != nil {
 		return -1, fmt.Errorf("failed to push to avro stage: %v", err)
 	}
-	utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
-		func() string {
-			return fmt.Sprintf("Flow job %s: running insert-into-select transaction for"+
-				" destination table %s and partition ID %s",
-				flowJobName, dstTableName, partition.PartitionId)
-		},
+	activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
+		"Flow job %s: running insert-into-select transaction for"+
+			" destination table %s and partition ID %s",
+		flowJobName, dstTableName, partition.PartitionId),
 	)
 	bqClient := s.connector.client
 	datasetID := s.connector.datasetID
@@ -309,6 +298,15 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stream *model.QRecordStream,
 	nullable map[string]bool,
 ) (int, error) {
+	shutdown := utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
+		func() string {
+			return fmt.Sprintf("writing to avro stage for objectFolder %s and staging table %s",
+				objectFolder, stagingTable)
+		},
+	)
+	defer func() {
+		shutdown <- true
+	}()
 	ctx := context.Background()
 	bucket := s.connector.storageClient.Bucket(s.gcsBucket)
 	gcsObjectName := fmt.Sprintf("%s/%s.avro", objectFolder, syncID)
@@ -333,11 +331,9 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	}
 	numRecords := 0
 
-	utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
-		func() string {
-			return fmt.Sprintf("Obtained staging bucket %s and schema of rows. Now writing records to OCF file.",
-				gcsObjectName)
-		},
+	activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
+		"Obtained staging bucket %s and schema of rows. Now writing records to OCF file.",
+		gcsObjectName),
 	)
 	// Write each QRecord to the OCF file
 	for qRecordOrErr := range stream.Records {
@@ -364,11 +360,9 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		}
 		numRecords++
 	}
-	utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
-		func() string {
-			return fmt.Sprintf("Writing OCF contents to BigQuery for partition/batch ID %s",
-				syncID)
-		},
+	activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
+		"Writing OCF contents to BigQuery for partition/batch ID %s",
+		syncID),
 	)
 	// Write OCF contents to GCS
 	if _, err = w.Write(ocfFileContents.Bytes()); err != nil {
