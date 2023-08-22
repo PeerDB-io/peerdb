@@ -329,13 +329,13 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) error {
+) (int, error) {
 	if partition.FullTablePartition {
 		log.Infof("pulling full table partition for flow job %s", config.FlowJobName)
 		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
 		query := config.Query
 		_, err := executor.ExecuteAndProcessQueryStream(stream, query)
-		return err
+		return 0, err
 	}
 
 	var rangeStart interface{}
@@ -361,29 +361,29 @@ func (c *PostgresConnector) PullQRepRecordStream(
 			Valid:        true,
 		}
 	default:
-		return fmt.Errorf("unknown range type: %v", x)
+		return 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
 	query, err := BuildQuery(config.Query)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
 	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query, rangeStart, rangeEnd)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	totalRecordsAtSource, err := c.getApproxTableCounts([]string{config.WatermarkTable})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, numRecords, totalRecordsAtSource)
 	log.Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
-	return nil
+	return numRecords, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(
