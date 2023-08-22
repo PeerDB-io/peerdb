@@ -916,7 +916,7 @@ func (s *E2EPeerFlowTestSuite) Test_Types_Avro_BQ() {
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
-		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[]);
+		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[]);
 	CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
 		RETURNS bytea AS $body$
 			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
@@ -962,7 +962,8 @@ func (s *E2EPeerFlowTestSuite) Test_Types_Avro_BQ() {
 		txid_current_snapshot(),
 		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello'),
 		ARRAY[9301,239827],
-		ARRAY[0.0003, 1039.0034];
+		ARRAY[0.0003, 1039.0034],
+		ARRAY['hello','bye'];
 		`)
 		s.NoError(err)
 		fmt.Println("Executed an insert with all types")
