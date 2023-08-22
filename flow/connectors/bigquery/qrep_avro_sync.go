@@ -329,14 +329,20 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		log.Errorf("failed to get schema from stream: %v", err)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
-	numRecords := 0
 
 	activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
 		"Obtained staging bucket %s and schema of rows. Now writing records to OCF file.",
 		gcsObjectName),
 	)
+	numRecords := 0
 	// Write each QRecord to the OCF file
 	for qRecordOrErr := range stream.Records {
+		if numRecords > 0 && numRecords%10000 == 0 {
+			activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
+				"Written %d records to OCF file for staging bucket %s.",
+				numRecords, gcsObjectName),
+			)
+		}
 		if qRecordOrErr.Err != nil {
 			log.Errorf("[bq_avro] failed to get record from stream: %v", qRecordOrErr.Err)
 			return 0, fmt.Errorf("[bq_avro] failed to get record from stream: %w", qRecordOrErr.Err)
@@ -359,6 +365,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			return 0, fmt.Errorf("failed to write record to OCF file: %w", err)
 		}
 		numRecords++
+
 	}
 	activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
 		"Writing OCF contents to BigQuery for partition/batch ID %s",
