@@ -127,7 +127,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	}
 	utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
 		func() string {
-			return fmt.Sprintf("Flow job %s: running insert-into-select transaction for destination table %s and partition ID %s",
+			return fmt.Sprintf("Flow job %s: running insert-into-select transaction for"+
+				" destination table %s and partition ID %s",
 				flowJobName, dstTableName, partition.PartitionId)
 		},
 	)
