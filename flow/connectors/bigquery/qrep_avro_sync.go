@@ -63,7 +63,8 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	activity.RecordHeartbeat(s.connector.ctx,
-		fmt.Sprintf("Flow job %s: performing insert and update transaction for destination table %s and sync batch ID %d",
+		fmt.Sprintf("Flow job %s: performing insert and update transaction"+
+			" for destination table %s and sync batch ID %d",
 			flowJobName, dstTableName, syncBatchID))
 	// execute the statements in a transaction
 	stmts := []string{}
