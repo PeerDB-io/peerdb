@@ -343,15 +343,17 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		shutdown <- true
 	}()
 
-	err = a.CatalogMirrorMonitor.InitializeQRepRun(ctx, config.FlowJobName,
-		runUUID)
-	if err != nil {
-		return nil, err
-	}
-
+	startTime := time.Now()
 	partitions, err := conn.GetQRepPartitions(config, last)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
+	}
+	if len(partitions) > 0 {
+		err = a.CatalogMirrorMonitor.InitializeQRepRun(ctx, config.FlowJobName,
+			runUUID, startTime)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &protos.QRepParitionResult{

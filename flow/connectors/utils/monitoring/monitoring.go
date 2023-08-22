@@ -152,14 +152,15 @@ func (c *CatalogMirrorMonitor) AddCDCBatchTablesForFlow(ctx context.Context, flo
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) InitializeQRepRun(ctx context.Context, flowJobName string, runUUID string) error {
+func (c *CatalogMirrorMonitor) InitializeQRepRun(ctx context.Context, flowJobName string, runUUID string,
+	startTime time.Time) error {
 	if c == nil || c.catalogConn == nil {
 		return nil
 	}
 
 	_, err := c.catalogConn.Exec(ctx,
 		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,start_time) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
-		flowJobName, runUUID, time.Now())
+		flowJobName, runUUID, startTime)
 	if err != nil {
 		return fmt.Errorf("error while inserting qrep run in qrep_runs: %w", err)
 	}
