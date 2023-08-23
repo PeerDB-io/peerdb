@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/api/iterator"
@@ -1192,15 +1193,15 @@ func (m *MergeStmtGenerator) GenerateMergeStmts() []string {
 	// return an empty array for now
 	flattenedCTE := m.generateFlattenedCTE()
 	deDupedCTE := m.generateDeDupedCTE()
-
+	tempTable := fmt.Sprintf("_peerdb_de_duplicated_data_%s", util.RandomString(5))
 	// create temp table stmt
 	createTempTableStmt := fmt.Sprintf(
-		"CREATE TEMP TABLE _peerdb_de_duplicated_data AS (%s, %s);",
-		flattenedCTE, deDupedCTE)
+		"CREATE TEMP TABLE %s AS (%s, %s);",
+		tempTable, flattenedCTE, deDupedCTE)
 
-	mergeStmt := m.generateMergeStmt()
+	mergeStmt := m.generateMergeStmt(tempTable)
 
-	dropTempTableStmt := "DROP TABLE _peerdb_de_duplicated_data;"
+	dropTempTableStmt := fmt.Sprintf("DROP TABLE %s;", tempTable)
 
 	return []string{createTempTableStmt, mergeStmt, dropTempTableStmt}
 }
@@ -1221,16 +1222,16 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 		switch qvalue.QValueKind(colType) {
 		case qvalue.QValueKindJSON:
 			//if the type is JSON, then just extract JSON
-			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS %s",
+			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				colName, bqType, colName)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
-			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS %s",
+			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS `%s`",
 				colName, colName)
 		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
 			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
-				"UNNEST(CAST(JSON_EXTRACT_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element) AS %s",
+				"UNNEST(CAST(JSON_EXTRACT_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element) AS `%s`",
 				bqType, colName, colName)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
@@ -1248,7 +1249,7 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 		// 		" AS int64))) AS %s",
 		// 		colName, colName)
 		default:
-			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
+			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				colName, bqType, colName)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
@@ -1282,28 +1283,30 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *MergeStmtGenerator) generateMergeStmt() string {
+func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
 
 	// comma separated list of column names
-	colNames := make([]string, 0)
+	backtickColNames := make([]string, 0)
+	pureColNames := make([]string, 0)
 	for colName := range m.NormalizedTableSchema.Columns {
-		colNames = append(colNames, colName)
+		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
+		pureColNames = append(pureColNames, colName)
 	}
-	csep := strings.Join(colNames, ", ")
+	csep := strings.Join(backtickColNames, ", ")
 
-	udateStatementsforToastCols := m.generateUpdateStatement(colNames, m.UnchangedToastColumns)
+	udateStatementsforToastCols := m.generateUpdateStatement(pureColNames, m.UnchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
 	return fmt.Sprintf(`
-	MERGE %s.%s _peerdb_target USING _peerdb_de_duplicated_data _peerdb_deduped
+	MERGE %s.%s _peerdb_target USING %s _peerdb_deduped
 	ON _peerdb_target.%s = _peerdb_deduped.%s
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	DELETE;
-	`, m.Dataset, m.NormalizedTable, pkey, pkey, csep, csep, updateStringToastCols)
+	`, m.Dataset, m.NormalizedTable, tempTable, pkey, pkey, csep, csep, updateStringToastCols)
 }
 
 /*
@@ -1329,7 +1332,7 @@ func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchanged
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
-			tmpArray = append(tmpArray, fmt.Sprintf("%s = _peerdb_deduped.%s", colName, colName))
+			tmpArray = append(tmpArray, fmt.Sprintf("`%s` = _peerdb_deduped.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ", ")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
