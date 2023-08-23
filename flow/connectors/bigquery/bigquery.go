@@ -1292,7 +1292,6 @@ func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	for colName := range m.NormalizedTableSchema.Columns {
 		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
 		pureColNames = append(pureColNames, colName)
-
 	}
 	csep := strings.Join(backtickColNames, ", ")
 

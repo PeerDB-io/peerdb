@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	mathRand "math/rand"
 )
 
 // RandomInt64 returns a random 64 bit integer.
@@ -28,12 +29,16 @@ func RandomUInt64() (uint64, error) {
 	return binary.LittleEndian.Uint64(b), nil
 }
 
-func RandomString(n int) string {
-	const alphanum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	var bytes = make([]byte, n)
-	rand.Read(bytes)
-	for i, b := range bytes {
-		bytes[i] = alphanum[b%byte(len(alphanum))]
+// RandomString generates a random alphanumeric string of given length.
+// NOTE: This function uses math/rand which is not cryptographically random;
+// this function is for non-security purposes.
+// crypto/rand's rand.Read could potentially error, which is not
+// desirable for this function's use case.
+func RandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	result := make([]byte, length)
+	for i := 0; i < length; i++ {
+		result[i] = charset[mathRand.Intn(len(charset))]
 	}
-	return string(bytes)
+	return string(result)
 }
