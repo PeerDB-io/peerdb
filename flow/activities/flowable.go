@@ -328,6 +328,7 @@ func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *
 func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
+	runUUID string,
 ) (*protos.QRepParitionResult, error) {
 	conn, err := connectors.GetConnector(ctx, config.SourcePeer)
 	if err != nil {
@@ -343,9 +344,17 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		shutdown <- true
 	}()
 
+	startTime := time.Now()
 	partitions, err := conn.GetQRepPartitions(config, last)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
+	}
+	if len(partitions) > 0 {
+		err = a.CatalogMirrorMonitor.InitializeQRepRun(ctx, config.FlowJobName,
+			runUUID, startTime)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &protos.QRepParitionResult{
@@ -357,6 +366,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
+	runUUID string,
 ) error {
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	srcConn, err := connectors.GetConnector(ctx, config.SourcePeer)
@@ -376,18 +386,30 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
 	var wg sync.WaitGroup
+	var numRecords int64
+
+	err = a.CatalogMirrorMonitor.AddPartitionToQRepRun(ctx, config.FlowJobName, runUUID, partition)
+	if err != nil {
+		return err
+	}
+	var goroutineErr error = nil
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
 		stream = model.NewQRecordStream(bufferSize)
 		wg.Add(1)
 
 		pullPgRecords := func() {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
-			err = pgConn.PullQRepRecordStream(config, partition, stream)
+			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
+			numRecords = int64(tmp)
 			if err != nil {
 				log.Errorf("failed to pull records: %v", err)
-				return
+				goroutineErr = err
 			}
-
+			err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
+			if err != nil {
+				log.Errorf("%v", err)
+				goroutineErr = err
+			}
 			wg.Done()
 		}
 
@@ -397,8 +419,13 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("failed to pull records: %w", err)
 		}
-
+		numRecords = int64(recordBatch.NumRecords)
 		log.Printf("pulled %d records\n", len(recordBatch.Records))
+
+		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
+		if err != nil {
+			return err
+		}
 
 		stream, err = recordBatch.ToQRecordStream(bufferSize)
 		if err != nil {
@@ -425,11 +452,20 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	}
 
 	wg.Wait()
+	if goroutineErr != nil {
+		return goroutineErr
+	}
 	log.Printf("pushed %d records\n", res)
+	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig) error {
+func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
+	runUUID string) error {
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	dst, err := connectors.GetConnector(ctx, config.DestinationPeer)
 	if err != nil {
@@ -445,6 +481,10 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	}()
 
 	err = dst.ConsolidateQRepPartitions(config)
+	if err != nil {
+		return err
+	}
+	err = a.CatalogMirrorMonitor.UpdateEndTimeForQRepRun(ctx, runUUID)
 	return err
 }
 
