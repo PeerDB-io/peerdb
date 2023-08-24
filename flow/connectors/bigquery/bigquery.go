@@ -1274,9 +1274,9 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 			FROM (
 				SELECT RANK() OVER (
 					PARTITION BY %s ORDER BY _peerdb_timestamp_nanos DESC
-				) as peerdb_rank, * FROM _peerdb_flattened
+				) as _peerdb_rank, * FROM _peerdb_flattened
 			) _peerdb_ranked
-			WHERE peerdb_rank = 1
+			WHERE _peerdb_rank = 1
 	) SELECT * FROM _peerdb_de_duplicated_data_res`
 	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
 	return fmt.Sprintf(cte, pkey)
