@@ -342,38 +342,37 @@ func PeerFlowWorkflowWithConfig(
 			}
 		})
 		selector.Select(ctx)
-	}
 
-	normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
-	if err != nil {
-		return state, err
-	}
-
-	// execute the normalize flow as a child workflow
-	childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        normalizeFlowID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-	}
-	ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
-	childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
-		ctx,
-		NormalizeFlowWorkflow,
-		cfg,
-	)
-
-	selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
-		var childNormalizeFlowRes *model.NormalizeResponse
-		if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
-			w.logger.Error("failed to execute normalize flow: ", err)
-			state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
-		} else {
-			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
+		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
+		if err != nil {
+			return state, err
 		}
-	})
-	selector.Select(ctx)
+
+		childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
+			WorkflowID:        normalizeFlowID,
+			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 20,
+			},
+		}
+		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
+		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
+			ctx,
+			NormalizeFlowWorkflow,
+			cfg,
+		)
+
+		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
+			var childNormalizeFlowRes *model.NormalizeResponse
+			if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
+				w.logger.Error("failed to execute normalize flow: ", err)
+				state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
+			} else {
+				state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
+			}
+		})
+		selector.Select(ctx)
+	}
 
 	state.TruncateProgress()
 	return nil, workflow.NewContinueAsNewError(ctx, PeerFlowWorkflowWithConfig, cfg, limits, state)
