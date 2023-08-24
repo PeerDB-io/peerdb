@@ -52,7 +52,9 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	if err != nil {
 		return 0, err
 	}
-	log.Infof("written %d records to Avro file", numRecords)
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+	}).Infof("written %d records to Avro file", numRecords)
 
 	stage := s.connector.getStageNameForJob(s.config.FlowJobName)
 	err = s.connector.createStage(stage, s.config)
@@ -69,13 +71,17 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	if err != nil {
 		return 0, err
 	}
-	log.Infof("pushed avro file to stage")
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+	}).Infof("pushed avro file to stage")
 
 	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, allCols)
 	if err != nil {
 		return 0, err
 	}
-	log.Infof("copying records into %s from stage %s", s.config.DestinationTableIdentifier, stage)
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+	}).Infof("copying records into %s from stage %s", s.config.DestinationTableIdentifier, stage)
 
 	return numRecords, nil
 }
@@ -109,7 +115,11 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 			log.Infof("removing temp file %s", localFilePath)
 			err := os.Remove(localFilePath)
 			if err != nil {
-				log.Errorf("failed to remove temp file %s: %v", localFilePath, err)
+				log.WithFields(log.Fields{
+					"flowName":         config.FlowJobName,
+					"partitionID":      partition.PartitionId,
+					"destinationTable": dstTableName,
+				}).Errorf("failed to remove temp file %s: %v", localFilePath, err)
 			}
 		}()
 	}
@@ -260,16 +270,25 @@ func (s *SnowflakeAvroSyncMethod) insertMetadata(
 ) error {
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {
-		log.Errorf("failed to create metadata insert statement: %v", err)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partition.PartitionId,
+		}).Errorf("failed to create metadata insert statement: %v", err)
 		return fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
 
 	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
-		log.Errorf("failed to execute metadata insert statement '%s': %v", insertMetadataStmt, err)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partition.PartitionId,
+		}).Errorf("failed to execute metadata insert statement '%s': %v", insertMetadataStmt, err)
 		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
 	}
 
-	log.Infof("inserted metadata for partition %s", partition)
+	log.WithFields(log.Fields{
+		"flowName":    flowJobName,
+		"partitionID": partition.PartitionId,
+	}).Infof("inserted metadata for partition %s", partition)
 	return nil
 }
 
@@ -393,7 +412,9 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	if _, err := s.connector.database.Exec(createTempTableCmd); err != nil {
 		return fmt.Errorf("failed to create temp table: %w", err)
 	}
-	log.Infof("created temp table %s", tempTableName)
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("created temp table %s", tempTableName)
 
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s FROM @%s %s",
@@ -423,10 +444,14 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 		metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rowCount, time.Since(startTime),
 			totalRowsAtTarget)
 	} else {
-		log.Errorf("failed to get rows affected: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": flowJobName,
+		}).Errorf("failed to get rows affected: %v", err)
 	}
 
-	log.Infof("merged data from temp table %s into destination table %s",
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("merged data from temp table %s into destination table %s",
 		tempTableName, s.dstTableName)
 	return nil
 }

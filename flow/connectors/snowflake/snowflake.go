@@ -396,7 +396,10 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	defer func() {
 		deferErr := syncRecordsTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for SyncRecords: %v", deferErr)
+			log.WithFields(log.Fields{
+				"flowName":    req.FlowJobName,
+				"syncBatchID": syncBatchID - 1,
+			}).Errorf("unexpected error while rolling back transaction for SyncRecords: %v", deferErr)
 		}
 	}()
 
@@ -789,7 +792,9 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	defer func() {
 		deferErr := normalizeRecordsTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for NormalizeRecords: %v", deferErr)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error while rolling back transaction for NormalizeRecords: %v", deferErr)
 		}
 	}()
 
@@ -890,7 +895,9 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
+			log.WithFields(log.Fields{
+				"flowName": jobName,
+			}).Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
 		}
 	}()
 

@@ -179,7 +179,9 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		stream.Records <- &model.QRecordOrError{
 			Err: err,
 		}
-		log.Errorf("[pg_query_executor] failed to execute query in tx: %v", err)
+		log.WithFields(log.Fields{
+			"query": query,
+		}).Errorf("[pg_query_executor] failed to execute query in tx: %v", err)
 		return 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
 	}
 
@@ -280,7 +282,9 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 			stream.Records <- &model.QRecordOrError{
 				Err: fmt.Errorf("failed to set snapshot: %w", err),
 			}
-			log.Errorf("[pg_query_executor] failed to set snapshot: %v", err)
+			log.WithFields(log.Fields{
+				"query": query,
+			}).Errorf("[pg_query_executor] failed to set snapshot: %v", err)
 			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}

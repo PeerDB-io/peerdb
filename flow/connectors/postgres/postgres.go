@@ -338,7 +338,9 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	defer func() {
 		deferErr := syncRecordsTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for syncing records: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for syncing records: %v", err)
 		}
 	}()
 
@@ -414,7 +416,9 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	defer func() {
 		deferErr := normalizeRecordsTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for normalizing records: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for normalizing records: %v", err)
 		}
 	}()
 
@@ -487,7 +491,9 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	defer func() {
 		deferErr := createRawTableTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
 		}
 	}()
 
@@ -579,10 +585,13 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
 	}
+
 	defer func() {
 		deferErr := createNormalizedTablesTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
+			log.WithFields(log.Fields{
+				"tableMapping": req.TableNameSchemaMapping,
+			}).Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
 		}
 	}()
 
@@ -707,7 +716,9 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := pullFlowCleanupTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": jobName,
+			}).Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
 		}
 	}()
 
@@ -737,7 +748,9 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback(c.ctx)
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
+			log.WithFields(log.Fields{
+				"flowName": jobName,
+			}).Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
 		}
 	}()
 

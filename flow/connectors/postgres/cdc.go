@@ -76,7 +76,9 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 	defer replicationConn.Release()
 
 	pgConn := replicationConn.Conn().PgConn()
-	log.Infof("created replication connection")
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Infof("created replication connection")
 
 	sysident, err := pglogrepl.IdentifySystem(p.ctx, pgConn)
 	if err != nil {
@@ -96,7 +98,9 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 	if err != nil {
 		return nil, fmt.Errorf("error starting replication at startLsn - %d: %w", p.startLSN, err)
 	}
-	log.Infof("started replication on slot %s at startLSN: %d", replicationSlot, p.startLSN)
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Infof("started replication on slot %s at startLSN: %d", p.slot, p.startLSN)
 
 	return p.consumeStream(pgConn, req, p.startLSN)
 }
@@ -119,7 +123,9 @@ func (p *PostgresCDCSource) consumeStream(
 	defer func() {
 		err := conn.Close(p.ctx)
 		if err != nil {
-			log.Errorf("unexpected error closing replication connection: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error closing replication connection: %v", err)
 		}
 	}()
 

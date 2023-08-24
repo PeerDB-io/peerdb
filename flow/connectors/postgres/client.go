@@ -562,7 +562,9 @@ func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error)
 				var count int64
 				err := row.Scan(&count)
 				if err != nil {
-					log.Errorf("error while scanning row: %v", err)
+					log.WithFields(log.Fields{
+						"table": table,
+					}).Errorf("error while scanning row: %v", err)
 					return fmt.Errorf("error while scanning row: %w", err)
 				}
 				totalCount += count

@@ -54,7 +54,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	)
 	_, err = pool.Exec(context.Background(), tmpTableStmt)
 	if err != nil {
-		log.Errorf(
+		log.WithFields(log.Fields{
+			"flowName":         flowJobName,
+			"partitionID":      partitionID,
+			"destinationTable": dstTableName,
+		}).Errorf(
 			"failed to create staging temporary table %s, statement: '%s'. Error: %v",
 			stagingTable,
 			tmpTableStmt,
@@ -65,7 +69,10 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 	schema, err := stream.Schema()
 	if err != nil {
-		log.Errorf("failed to get schema from stream: %v", err)
+		log.WithFields(log.Fields{
+			"flowName":         flowJobName,
+			"destinationTable": dstTableName,
+		}).Errorf("failed to get schema from stream: %v", err)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
@@ -94,7 +101,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	defer func() {
 		if err := tx2.Rollback(context.Background()); err != nil {
 			if err != pgx.ErrTxClosed {
-				log.Errorf("failed to rollback transaction tx2: %v", err)
+				log.WithFields(log.Fields{
+					"flowName":         flowJobName,
+					"partitionID":      partitionID,
+					"destinationTable": dstTableName,
+				}).Errorf("failed to rollback transaction tx2: %v", err)
 			}
 		}
 	}()
@@ -116,7 +127,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 	_, err = tx2.Exec(context.Background(), insertFromStagingStmt)
 	if err != nil {
-		log.Errorf("failed to execute statement '%s': %v", insertFromStagingStmt, err)
+		log.WithFields(log.Fields{
+			"flowName":         flowJobName,
+			"partitionID":      partitionID,
+			"destinationTable": dstTableName,
+		}).Errorf("failed to execute statement '%s': %v", insertFromStagingStmt, err)
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 

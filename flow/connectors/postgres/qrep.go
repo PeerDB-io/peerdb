@@ -44,7 +44,9 @@ func (c *PostgresConnector) GetQRepPartitions(
 	defer func() {
 		deferErr := tx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for get partitions: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for get partitions: %v", err)
 		}
 	}()
 
@@ -187,7 +189,9 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		rows, err = tx.Query(c.ctx, partitionsQuery)
 	}
 	if err != nil {
-		log.Errorf("failed to query for partitions: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Errorf("failed to query for partitions: %v", err)
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
@@ -246,7 +250,9 @@ func (c *PostgresConnector) getMinMaxValues(
 		minQuery := fmt.Sprintf("SELECT MIN(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
 		row := tx.QueryRow(c.ctx, minQuery)
 		if err := row.Scan(&minValue); err != nil {
-			log.Errorf("failed to query [%s] for min value: %v", minQuery, err)
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("failed to query [%s] for min value: %v", minQuery, err)
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)
 		}
 
@@ -331,7 +337,10 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	stream *model.QRecordStream,
 ) (int, error) {
 	if partition.FullTablePartition {
-		log.Infof("pulling full table partition for flow job %s", config.FlowJobName)
+		log.WithFields(log.Fields{
+			"flowName":    config.FlowJobName,
+			"partitionId": partition.PartitionId,
+		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
 		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
 		query := config.Query
 		_, err := executor.ExecuteAndProcessQueryStream(stream, query)
@@ -411,7 +420,9 @@ func (c *PostgresConnector) SyncQRepRecords(
 	}
 
 	if done {
-		log.Infof("partition %s already synced", partition.PartitionId)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Infof("partition %s already synced", partition.PartitionId)
 		return 0, nil
 	}
 

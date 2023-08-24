@@ -85,7 +85,11 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {
 		// just log the error this isn't fatal.
-		log.Errorf("failed to delete staging table %s: %v", stagingTable, err)
+		log.WithFields(log.Fields{
+			"flowName":         flowJobName,
+			"syncBatchID":      syncBatchID,
+			"destinationTable": dstTableName,
+		}).Errorf("failed to delete staging table %s: %v", stagingTable, err)
 	}
 
 	log.Printf("loaded stage into %s.%s",
@@ -150,7 +154,11 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {
 		// just log the error this isn't fatal.
-		log.Errorf("failed to delete staging table %s: %v", stagingTable, err)
+		log.WithFields(log.Fields{
+			"flowName":         flowJobName,
+			"partitionID":      partition.PartitionId,
+			"destinationTable": dstTableName,
+		}).Errorf("failed to delete staging table %s: %v", stagingTable, err)
 	}
 
 	log.Printf("loaded stage into %s.%s",
@@ -326,7 +334,9 @@ func (s *QRepAvroSyncMethod) writeToStage(
 
 	schema, err := stream.Schema()
 	if err != nil {
-		log.Errorf("failed to get schema from stream: %v", err)
+		log.WithFields(log.Fields{
+			"partitonOrBatchID": syncID,
+		}).Errorf("failed to get schema from stream: %v", err)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
@@ -344,7 +354,9 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			)
 		}
 		if qRecordOrErr.Err != nil {
-			log.Errorf("[bq_avro] failed to get record from stream: %v", qRecordOrErr.Err)
+			log.WithFields(log.Fields{
+				"batchOrPartitionID": syncID,
+			}).Errorf("[bq_avro] failed to get record from stream: %v", qRecordOrErr.Err)
 			return 0, fmt.Errorf("[bq_avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 

@@ -232,7 +232,10 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	for _, table := range tableMap {
 		err := c.ensureEventHub(c.ctx, table)
 		if err != nil {
-			log.Errorf("failed to get event hub properties: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+				"table":    table,
+			}).Errorf("failed to get event hub properties: %v", err)
 			return nil, err
 		}
 	}
