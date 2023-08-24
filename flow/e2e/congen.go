@@ -29,6 +29,7 @@ type FlowConnectionGenerationConfig struct {
 	PostgresPort     int
 	Destination      *protos.Peer
 	CDCSyncMode      protos.QRepSyncMode
+	CdcStagingPath   string
 }
 
 // GenerateSnowflakePeer generates a snowflake peer config for testing.
@@ -51,6 +52,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
 	ret.Destination = c.Destination
 	ret.CdcSyncMode = c.CDCSyncMode
+	ret.CdcStagingPath = c.CdcStagingPath
 	return ret, nil
 }
 
@@ -60,6 +62,7 @@ type QRepFlowConnectionGenerationConfig struct {
 	DestinationTableIdentifier string
 	PostgresPort               int
 	Destination                *protos.Peer
+	StagingPath                string
 }
 
 // GenerateQRepConfig generates a qrep config for testing.
@@ -79,6 +82,7 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	ret.WatermarkColumn = watermark
 
 	ret.SyncMode = syncMode
+	ret.StagingPath = c.StagingPath
 
 	return ret, nil
 }

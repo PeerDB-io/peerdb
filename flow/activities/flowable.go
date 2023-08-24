@@ -231,6 +231,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		Records:     records,
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
 		SyncMode:    input.FlowConnectionConfigs.CdcSyncMode,
+		StagingPath: input.FlowConnectionConfigs.CdcStagingPath,
 	})
 	if err != nil {
 		log.Warnf("failed to push records: %v", err)
@@ -291,6 +292,7 @@ func (a *FlowableActivity) StartNormalize(
 
 	res, err := dest.NormalizeRecords(&model.NormalizeRecordsRequest{
 		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
+		SoftDelete:  input.FlowConnectionConfigs.SoftDelete,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
@@ -403,9 +405,22 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 		}
 	}
 
+	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+		return fmt.Sprintf("syncing partition - %s", partition.PartitionId)
+	})
+
+	defer func() {
+		shutdown <- true
+	}()
+
 	res, err := destConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
 		return fmt.Errorf("failed to sync records: %w", err)
+	}
+
+	if res == 0 {
+		log.Printf("no records to push for partition %s\n", partition.PartitionId)
+		return nil
 	}
 
 	wg.Wait()

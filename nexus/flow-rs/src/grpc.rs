@@ -152,11 +152,14 @@ impl FlowGrpcClient {
                 .clone()
                 .map(|s| s.as_proto_sync_mode())
                 .unwrap_or(0),
+            snapshot_staging_path: job.snapshot_staging_path.clone().unwrap_or_default(),
             cdc_sync_mode: job
                 .cdc_sync_mode
                 .clone()
                 .map(|s| s.as_proto_sync_mode())
                 .unwrap_or(0),
+            cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
+            soft_delete: job.soft_delete,
             ..Default::default()
         };
 

@@ -44,6 +44,12 @@ func (r RecordItems) ToJSON() (string, error) {
 	for k, v := range r {
 		var err error
 		switch v.Kind {
+		case qvalue.QValueKindString, qvalue.QValueKindJSON:
+			if len(v.Value.(string)) > 15*1024*1024 {
+				jsonStruct[k] = ""
+			} else {
+				jsonStruct[k] = v.Value
+			}
 		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
 			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
 			jsonStruct[k], err = v.GoTimeConvert()
@@ -169,10 +175,13 @@ type SyncRecordsRequest struct {
 	FlowJobName string
 	// SyncMode to use for pushing raw records
 	SyncMode protos.QRepSyncMode
+	// Staging path for AVRO files in CDC
+	StagingPath string
 }
 
 type NormalizeRecordsRequest struct {
 	FlowJobName string
+	SoftDelete  bool
 }
 
 type SyncResponse struct {

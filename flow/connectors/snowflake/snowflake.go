@@ -46,13 +46,14 @@ const (
 		 _PEERDB_DESTINATION_TABLE_NAME = ? ), FLATTENED AS
 		 (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
 			_PEERDB_UNCHANGED_TOAST_COLUMNS,%s
-		 FROM VARIANT_CONVERTED), DEDUPLICATED_FLATTENED AS (SELECT RANKED.* FROM
-		 (SELECT RANK() OVER (PARTITION BY %s ORDER BY _PEERDB_TIMESTAMP DESC) AS RANK,* FROM FLATTENED)
-		 RANKED WHERE RANK=1)
+		 FROM VARIANT_CONVERTED), DEDUPLICATED_FLATTENED AS (SELECT _PEERDB_RANKED.* FROM
+		 (SELECT RANK() OVER
+		 (PARTITION BY %s ORDER BY _PEERDB_TIMESTAMP DESC) AS _PEERDB_RANK, * FROM FLATTENED)
+		 _PEERDB_RANKED WHERE _PEERDB_RANK = 1)
 		 SELECT * FROM DEDUPLICATED_FLATTENED) SOURCE ON %s
 		 WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE != 2) THEN INSERT (%s) VALUES(%s)
 		 %s
-		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN DELETE`
+		 WHEN MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN %s`
 	getDistinctDestinationTableNames = `SELECT DISTINCT _PEERDB_DESTINATION_TABLE_NAME FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d`
 	getTableNametoUnchangedColsSQL = `SELECT _PEERDB_DESTINATION_TABLE_NAME,
@@ -72,6 +73,7 @@ const (
 	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	isDeletedColumnName         = "_PEERDB_IS_DELETED"
 
 	syncRecordsChunkSize = 1024
 )
@@ -795,10 +797,13 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	startTime := time.Now()
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
 	for _, destinationTableName := range destinationTableNames {
-		rowsAffected, err := c.generateAndExecuteMergeStatement(destinationTableName,
+		rowsAffected, err := c.generateAndExecuteMergeStatement(
+			destinationTableName,
 			tableNametoUnchangedToastCols[destinationTableName],
 			getRawTableIdentifier(req.FlowJobName),
-			syncBatchID, normalizeBatchID, normalizeRecordsTx)
+			syncBatchID, normalizeBatchID,
+			req.SoftDelete,
+			normalizeRecordsTx)
 		if err != nil {
 			return nil, err
 		}
@@ -944,6 +949,12 @@ func generateCreateTableSQLForNormalizedTable(
 				qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
 		}
 	}
+
+	// add a _peerdb_is_deleted column to the normalized table
+	// this is boolean default false, and is used to mark records as deleted
+	createTableSQLArray = append(createTableSQLArray,
+		fmt.Sprintf(`"%s" BOOLEAN DEFAULT FALSE,`, isDeletedColumnName))
+
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
 }
@@ -953,7 +964,8 @@ func generateMultiValueInsertSQL(tableIdentifier string, chunkSize int) string {
 	rawTableWidth := strings.Count(createRawTableSQL, ",") + 1
 
 	return fmt.Sprintf(rawTableMultiValueInsertSQL, peerDBInternalSchema, tableIdentifier,
-		strings.TrimSuffix(strings.Repeat(fmt.Sprintf("(%s),", strings.TrimSuffix(strings.Repeat("?,", rawTableWidth), ",")), chunkSize), ","))
+		strings.TrimSuffix(strings.Repeat(fmt.Sprintf("(%s),",
+			strings.TrimSuffix(strings.Repeat("?,", rawTableWidth), ",")), chunkSize), ","))
 }
 
 func getRawTableIdentifier(jobName string) string {
@@ -977,10 +989,15 @@ func (c *SnowflakeConnector) insertRecordsInRawTable(rawTableIdentifier string,
 	return nil
 }
 
-func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableIdentifier string,
+func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
+	destinationTableIdentifier string,
 	unchangedToastColumns []string,
-	rawTableIdentifier string, syncBatchID int64, normalizeBatchID int64,
-	normalizeRecordsTx *sql.Tx) (int64, error) {
+	rawTableIdentifier string,
+	syncBatchID int64,
+	normalizeBatchID int64,
+	softDelete bool,
+	normalizeRecordsTx *sql.Tx,
+) (int64, error) {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := maps.Keys(normalizedTableSchema.Columns)
 
@@ -1024,10 +1041,15 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(destinationTableId
 	pkeyColStr := fmt.Sprintf("TARGET.%s = SOURCE.%s",
 		normalizedTableSchema.PrimaryKeyColumn, normalizedTableSchema.PrimaryKeyColumn)
 
+	deletePart := "DELETE"
+	if softDelete {
+		deletePart = fmt.Sprintf("UPDATE SET %s = TRUE", isDeletedColumnName)
+	}
+
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
 		normalizedTableSchema.PrimaryKeyColumn, pkeyColStr, insertColumnsSQL, insertValuesSQL,
-		updateStringToastCols)
+		updateStringToastCols, deletePart)
 
 	result, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {

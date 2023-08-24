@@ -68,7 +68,10 @@ pub struct FlowJob {
     pub snapshot_max_parallel_workers: Option<u32>,
     pub snapshot_num_tables_in_parallel: Option<u32>,
     pub snapshot_sync_mode: Option<FlowSyncMode>,
-    pub cdc_sync_mode: Option<FlowSyncMode>
+    pub snapshot_staging_path: Option<String>,
+    pub cdc_sync_mode: Option<FlowSyncMode>,
+    pub cdc_staging_path: Option<String>,
+    pub soft_delete: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

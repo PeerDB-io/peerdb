@@ -258,10 +258,7 @@ impl Catalog {
     pub async fn get_peer_by_id(&self, peer_id: i32) -> anyhow::Result<Peer> {
         let stmt = self
             .pg
-            .prepare_typed(
-                "SELECT name, type, options FROM peers WHERE id = $1",
-                &[],
-            )
+            .prepare_typed("SELECT name, type, options FROM peers WHERE id = $1", &[])
             .await?;
 
         let rows = self.pg.query(&stmt, &[&peer_id]).await?;

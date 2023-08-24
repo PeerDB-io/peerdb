@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/api/iterator"
@@ -406,20 +407,17 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 // currently only supports inserts,updates and deletes
 // more record types will be added in the future.
 func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	if len(req.Records.Records) == 0 {
+		return &model.SyncResponse{
+			FirstSyncedCheckPointID: 0,
+			LastSyncedCheckPointID:  0,
+			NumRecordsSynced:        0,
+		}, nil
+	}
+
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	log.Printf("pushing %d records to %s.%s", len(req.Records.Records), c.datasetID, rawTableName)
-
-	stagingTableName := c.getStagingTableName(req.FlowJobName)
-	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
-	err := c.truncateTable(stagingTableName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to truncate staging table: %v", err)
-	}
-	// separate staging batchID which is random/unique
-	// to handle the case where ingestion into staging passes but raw fails
-	// helps avoid duplicates in the raw table
-	stagingBatchID := rand.Int63()
 
 	// generate a sequential number for the last synced batch
 	// this sequence will be used to keep track of records that are normalized
@@ -430,13 +428,40 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 	syncBatchID = syncBatchID + 1
 
+	var res *model.SyncResponse
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
+		res, err = c.SyncRecordsViaAvro(req, rawTableName, syncBatchID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
+		res, err = c.SyncRecordsViaSQL(req, rawTableName, syncBatchID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return res, nil
+}
+
+func (c *BigQueryConnector) SyncRecordsViaSQL(req *model.SyncRecordsRequest,
+	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
+	stagingTableName := c.getStagingTableName(req.FlowJobName)
+	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
+	err := c.truncateTable(stagingTableName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to truncate staging table: %v", err)
+	}
+	// separate staging batchID which is random/unique
+	// to handle the case where ingestion into staging passes but raw fails
+	// helps avoid duplicates in the raw table
+	stagingBatchID := rand.Int63()
 	records := make([]StagingBQRecord, 0)
 	tableNameRowsMapping := make(map[string]uint32)
-
 	first := true
 	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
-
 	// loop over req.Records
 	for _, record := range req.Records.Records {
 		switch r := record.(type) {
@@ -523,6 +548,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				stagingBatchID:        stagingBatchID,
 				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
 			})
+
 			tableNameRowsMapping[r.DestinationTableName] += 1
 		default:
 			return nil, fmt.Errorf("record type %T not supported", r)
@@ -567,25 +593,245 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// 2. execute the update metadata query to store the last committed watermark.
 	// 2.(contd) keep track of the last batchID that is synced.
 	appendStmt := c.getAppendStagingToRawStmt(rawTableName, stagingTableName, stagingBatchID)
-
 	updateMetadataStmt, err := c.getUpdateMetadataStmt(req.FlowJobName, lastCP, syncBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get update metadata statement: %v", err)
 	}
 
-	// append all the statements to one list
+	// execute the statements in a transaction
 	stmts := []string{}
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 	stmts = append(stmts, appendStmt)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
-
-	// execute the statements in a transaction
 	startTime := time.Now()
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
+
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
+	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
+
+	return &model.SyncResponse{
+		FirstSyncedCheckPointID: firstCP,
+		LastSyncedCheckPointID:  lastCP,
+		NumRecordsSynced:        int64(numRecords),
+		CurrentSyncBatchID:      syncBatchID,
+		TableNameRowsMapping:    tableNameRowsMapping,
+	}, nil
+}
+
+func (c *BigQueryConnector) SyncRecordsViaAvro(req *model.SyncRecordsRequest,
+	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
+	tableNameRowsMapping := make(map[string]uint32)
+	first := true
+	var firstCP int64 = 0
+	lastCP := req.Records.LastCheckPointID
+	recordStream := model.NewQRecordStream(len(req.Records.Records))
+	err := recordStream.SetSchema(&model.QRecordSchema{
+		Fields: []*model.QField{
+			{
+				Name:     "_peerdb_uid",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_timestamp",
+				Type:     qvalue.QValueKindTimestamp,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_timestamp_nanos",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_destination_table_name",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_data",
+				Type:     qvalue.QValueKindString,
+				Nullable: false,
+			},
+			{
+				Name:     "_peerdb_record_type",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_match_data",
+				Type:     qvalue.QValueKindString,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_staging_batch_id",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_batch_id",
+				Type:     qvalue.QValueKindInt64,
+				Nullable: true,
+			},
+			{
+				Name:     "_peerdb_unchanged_toast_columns",
+				Type:     qvalue.QValueKindString,
+				Nullable: true,
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// loop over req.Records
+	for _, record := range req.Records.Records {
+		var entries [10]qvalue.QValue
+		switch r := record.(type) {
+		case *model.InsertRecord:
+
+			itemsJSON, err := r.Items.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create items to json: %v", err)
+			}
+
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: r.DestinationTableName,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 0,
+			}
+			entries[6] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: "",
+			}
+			entries[9] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(r.UnchangedToastColumns),
+			}
+
+			tableNameRowsMapping[r.DestinationTableName] += 1
+		case *model.UpdateRecord:
+			newItemsJSON, err := r.NewItems.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create new items to json: %v", err)
+			}
+
+			oldItemsJSON, err := r.OldItems.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create old items to json: %v", err)
+			}
+
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: r.DestinationTableName,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: newItemsJSON,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 1,
+			}
+			entries[6] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: oldItemsJSON,
+			}
+			entries[9] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(r.UnchangedToastColumns),
+			}
+
+			tableNameRowsMapping[r.DestinationTableName] += 1
+		case *model.DeleteRecord:
+			itemsJSON, err := r.Items.ToJSON()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create items to json: %v", err)
+			}
+
+			entries[3] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: r.DestinationTableName,
+			}
+			entries[4] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[5] = qvalue.QValue{
+				Kind:  qvalue.QValueKindInt64,
+				Value: 2,
+			}
+			entries[6] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: itemsJSON,
+			}
+			entries[9] = qvalue.QValue{
+				Kind:  qvalue.QValueKindString,
+				Value: utils.KeysToString(r.UnchangedToastColumns),
+			}
+
+			tableNameRowsMapping[r.DestinationTableName] += 1
+		default:
+			return nil, fmt.Errorf("record type %T not supported", r)
+		}
+
+		if first {
+			firstCP = record.GetCheckPointID()
+			first = false
+		}
+
+		entries[0] = qvalue.QValue{
+			Kind:  qvalue.QValueKindString,
+			Value: uuid.New().String(),
+		}
+		entries[1] = qvalue.QValue{
+			Kind:  qvalue.QValueKindTimestamp,
+			Value: time.Now(),
+		}
+		entries[2] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: time.Now().UnixNano(),
+		}
+		entries[7] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: syncBatchID,
+		}
+		entries[8] = qvalue.QValue{
+			Kind:  qvalue.QValueKindInt64,
+			Value: syncBatchID,
+		}
+		recordStream.Records <- &model.QRecordOrError{
+			Record: &model.QRecord{
+				NumEntries: 10,
+				Entries:    entries[:],
+			},
+		}
+	}
+
+	startTime := time.Now()
+	close(recordStream.Records)
+	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath)
+	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
+	}
+
+	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName,
+		lastCP, rawTableMetadata, syncBatchID, recordStream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync records via avro : %v", err)
+	}
+
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
@@ -947,15 +1193,15 @@ func (m *MergeStmtGenerator) GenerateMergeStmts() []string {
 	// return an empty array for now
 	flattenedCTE := m.generateFlattenedCTE()
 	deDupedCTE := m.generateDeDupedCTE()
-
+	tempTable := fmt.Sprintf("_peerdb_de_duplicated_data_%s", util.RandomString(5))
 	// create temp table stmt
 	createTempTableStmt := fmt.Sprintf(
-		"CREATE TEMP TABLE _peerdb_de_duplicated_data AS (%s, %s);",
-		flattenedCTE, deDupedCTE)
+		"CREATE TEMP TABLE %s AS (%s, %s);",
+		tempTable, flattenedCTE, deDupedCTE)
 
-	mergeStmt := m.generateMergeStmt()
+	mergeStmt := m.generateMergeStmt(tempTable)
 
-	dropTempTableStmt := "DROP TABLE _peerdb_de_duplicated_data;"
+	dropTempTableStmt := fmt.Sprintf("DROP TABLE %s;", tempTable)
 
 	return []string{createTempTableStmt, mergeStmt, dropTempTableStmt}
 }
@@ -976,12 +1222,17 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 		switch qvalue.QValueKind(colType) {
 		case qvalue.QValueKindJSON:
 			//if the type is JSON, then just extract JSON
-			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS %s",
+			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				colName, bqType, colName)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
-			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS %s",
+			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS `%s`",
 				colName, colName)
+		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
+			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString:
+			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
+				"UNNEST(CAST(JSON_EXTRACT_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element) AS `%s`",
+				bqType, colName, colName)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
 		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
@@ -998,7 +1249,7 @@ func (m *MergeStmtGenerator) generateFlattenedCTE() string {
 		// 		" AS int64))) AS %s",
 		// 		colName, colName)
 		default:
-			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS %s",
+			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				colName, bqType, colName)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
@@ -1032,28 +1283,30 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *MergeStmtGenerator) generateMergeStmt() string {
+func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
 
 	// comma separated list of column names
-	colNames := make([]string, 0)
+	backtickColNames := make([]string, 0)
+	pureColNames := make([]string, 0)
 	for colName := range m.NormalizedTableSchema.Columns {
-		colNames = append(colNames, colName)
+		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
+		pureColNames = append(pureColNames, colName)
 	}
-	csep := strings.Join(colNames, ", ")
+	csep := strings.Join(backtickColNames, ", ")
 
-	udateStatementsforToastCols := m.generateUpdateStatement(colNames, m.UnchangedToastColumns)
+	udateStatementsforToastCols := m.generateUpdateStatement(pureColNames, m.UnchangedToastColumns)
 	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
 
 	return fmt.Sprintf(`
-	MERGE %s.%s _peerdb_target USING _peerdb_de_duplicated_data _peerdb_deduped
+	MERGE %s.%s _peerdb_target USING %s _peerdb_deduped
 	ON _peerdb_target.%s = _peerdb_deduped.%s
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	DELETE;
-	`, m.Dataset, m.NormalizedTable, pkey, pkey, csep, csep, updateStringToastCols)
+	`, m.Dataset, m.NormalizedTable, tempTable, pkey, pkey, csep, csep, updateStringToastCols)
 }
 
 /*
@@ -1079,7 +1332,7 @@ func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchanged
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
-			tmpArray = append(tmpArray, fmt.Sprintf("%s = _peerdb_deduped.%s", colName, colName))
+			tmpArray = append(tmpArray, fmt.Sprintf("`%s` = _peerdb_deduped.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ", ")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
