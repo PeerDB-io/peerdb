@@ -174,7 +174,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		snapshotName := slotInfo.SnapshotName
 		logrus.WithFields(logrus.Fields{
 			"snapshotName": snapshotName,
-		}).Debugf("Cloning table with source table %s and destination table name %s",
+		}).Infof("Cloning table with source table %s and destination table name %s",
 			source, destination)
 		future, err := s.cloneTable(ctx, snapshotName, source, destination)
 		if err != nil {
@@ -182,8 +182,8 @@ func (s *SnapshotFlowExecution) cloneTables(
 			continue
 		}
 		boundSelector.AddFuture(future, func(f workflow.Future) error {
-			logrus.Debugf("Adding future for clone table for source name %s",
-				source)
+			logrus.Infof("Adding future for clone table for source name %s and destination %s",
+				source, destination)
 			if err := f.Get(ctx, nil); err != nil {
 				s.logger.Error("failed to clone table", "table", source, "error", err)
 				return err
