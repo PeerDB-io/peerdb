@@ -121,6 +121,16 @@ func qValueKindToPostgresType(qvalueKind string) string {
 		return "NUMERIC"
 	case qvalue.QValueKindBit:
 		return "BIT"
+	case qvalue.QValueKindArrayInt32:
+		return "INTEGER[]"
+	case qvalue.QValueKindArrayInt64:
+		return "BIGINT[]"
+	case qvalue.QValueKindArrayFloat32:
+		return "REAL[]"
+	case qvalue.QValueKindArrayFloat64:
+		return "DOUBLE PRECISION[]"
+	case qvalue.QValueKindArrayString:
+		return "TEXT[]"
 	default:
 		return "TEXT"
 	}
