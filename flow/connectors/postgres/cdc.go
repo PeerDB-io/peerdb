@@ -68,6 +68,12 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 	}
 
 	replicationOpts := pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}
+	var replicationSlot string
+	if p.slot != "" && req.OverrideReplicationSlotName == "" {
+		replicationSlot = p.slot
+	} else {
+		replicationSlot = req.OverrideReplicationSlotName
+	}
 
 	// create replication connection
 	replicationConn, err := p.replPool.Acquire(p.ctx)
@@ -94,11 +100,11 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 		p.startLSN = pglogrepl.LSN(req.LastSyncState.Checkpoint + 1)
 	}
 
-	err = pglogrepl.StartReplication(p.ctx, pgConn, p.slot, p.startLSN, replicationOpts)
+	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, p.startLSN, replicationOpts)
 	if err != nil {
 		return nil, fmt.Errorf("error starting replication at startLsn - %d: %w", p.startLSN, err)
 	}
-	log.Infof("started replication on slot %s at startLSN: %d", p.slot, p.startLSN)
+	log.Infof("started replication on slot %s at startLSN: %d", replicationSlot, p.startLSN)
 
 	return p.consumeStream(pgConn, req, p.startLSN)
 }

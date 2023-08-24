@@ -133,6 +133,7 @@ impl FlowGrpcClient {
 
         let do_initial_copy = job.do_initial_copy;
         let publication_name = job.publication_name.clone();
+        let replication_slot_name = job.replication_slot_name.clone();
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
         let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
         let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
@@ -160,6 +161,7 @@ impl FlowGrpcClient {
                 .unwrap_or(0),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             soft_delete: job.soft_delete,
+            replication_slot_name: replication_slot_name.unwrap_or_default(),
             ..Default::default()
         };
 

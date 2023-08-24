@@ -49,8 +49,11 @@ pub struct FlowConnectionConfigs {
     pub snapshot_staging_path: ::prost::alloc::string::String,
     #[prost(string, tag="18")]
     pub cdc_staging_path: ::prost::alloc::string::String,
+    /// currently only works for snowflake
     #[prost(bool, tag="19")]
     pub soft_delete: bool,
+    #[prost(string, tag="20")]
+    pub replication_slot_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

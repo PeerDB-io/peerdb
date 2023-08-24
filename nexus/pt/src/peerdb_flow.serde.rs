@@ -868,6 +868,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.soft_delete {
             len += 1;
         }
+        if !self.replication_slot_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.FlowConnectionConfigs", len)?;
         if let Some(v) = self.source.as_ref() {
             struct_ser.serialize_field("source", v)?;
@@ -930,6 +933,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.soft_delete {
             struct_ser.serialize_field("softDelete", &self.soft_delete)?;
         }
+        if !self.replication_slot_name.is_empty() {
+            struct_ser.serialize_field("replicationSlotName", &self.replication_slot_name)?;
+        }
         struct_ser.end()
     }
 }
@@ -976,6 +982,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             "cdcStagingPath",
             "soft_delete",
             "softDelete",
+            "replication_slot_name",
+            "replicationSlotName",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -999,6 +1007,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             SnapshotStagingPath,
             CdcStagingPath,
             SoftDelete,
+            ReplicationSlotName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1040,6 +1049,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             "snapshotStagingPath" | "snapshot_staging_path" => Ok(GeneratedField::SnapshotStagingPath),
                             "cdcStagingPath" | "cdc_staging_path" => Ok(GeneratedField::CdcStagingPath),
                             "softDelete" | "soft_delete" => Ok(GeneratedField::SoftDelete),
+                            "replicationSlotName" | "replication_slot_name" => Ok(GeneratedField::ReplicationSlotName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1078,6 +1088,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                 let mut snapshot_staging_path__ = None;
                 let mut cdc_staging_path__ = None;
                 let mut soft_delete__ = None;
+                let mut replication_slot_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -1209,6 +1220,12 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             }
                             soft_delete__ = Some(map.next_value()?);
                         }
+                        GeneratedField::ReplicationSlotName => {
+                            if replication_slot_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("replicationSlotName"));
+                            }
+                            replication_slot_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1234,6 +1251,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                     snapshot_staging_path: snapshot_staging_path__.unwrap_or_default(),
                     cdc_staging_path: cdc_staging_path__.unwrap_or_default(),
                     soft_delete: soft_delete__.unwrap_or_default(),
+                    replication_slot_name: replication_slot_name__.unwrap_or_default(),
                 })
             }
         }

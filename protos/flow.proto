@@ -38,6 +38,8 @@ message FlowConnectionConfigs {
 
   // currently only works for snowflake
   bool soft_delete = 19;
+
+  string replication_slot_name = 20;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
