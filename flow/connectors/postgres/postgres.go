@@ -512,7 +512,7 @@ func (c *PostgresConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		c.recordHeartbeatWithRecover(fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
@@ -603,7 +603,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 		tableExistsMapping[tableIdentifier] = false
 		log.Printf("created table %s", tableIdentifier)
-		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
+		c.recordHeartbeatWithRecover(fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	err = createNormalizedTablesTx.Commit(c.ctx)
@@ -645,7 +645,7 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 					RelId: relID},
 			},
 		}
-		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
+		c.recordHeartbeatWithRecover(fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
@@ -757,4 +757,16 @@ func parseSchemaTable(tableName string) (*SchemaTable, error) {
 		Schema: parts[0],
 		Table:  parts[1],
 	}, nil
+}
+
+// if the functions are being called outside the context of a Temporal workflow,
+// activity.RecordHeartbeat panics, this is a bandaid for that.
+func (c *PostgresConnector) recordHeartbeatWithRecover(details ...interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Warnln("ignoring panic from activity.RecordHeartbeat")
+			log.Warnln("this can happen when function is invoked outside of a Temporal workflow")
+		}
+	}()
+	activity.RecordHeartbeat(c.ctx, details...)
 }
