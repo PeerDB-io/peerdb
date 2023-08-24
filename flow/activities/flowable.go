@@ -448,8 +448,7 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 
 	if res == 0 {
 		log.WithFields(log.Fields{
-			"flowName":            config.FlowJobName,
-			"destinationPeerName": config.DestinationPeer.Name,
+			"flowName": config.FlowJobName,
 		}).Printf("no records to push for partition %s\n", partition.PartitionId)
 		return nil
 	}
