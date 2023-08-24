@@ -176,9 +176,15 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
+	if req.OverrideReplicationSlotName != "" {
+		slotName = req.OverrideReplicationSlotName
+	}
 
 	// Publication name would be the job name prefixed with "peerflow_pub_"
 	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	if req.OverridePublicationName != "" {
+		publicationName = req.OverridePublicationName
+	}
 
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(slotName, publicationName)

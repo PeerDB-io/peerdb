@@ -59,21 +59,13 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 		"proto_version '1'",
 	}
 
-	if p.publication != "" && req.OverridePublicationName == "" {
+	if p.publication != "" {
 		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
-		pluginArguments = append(pluginArguments, pubOpt)
-	} else {
-		pubOpt := fmt.Sprintf("publication_names '%s'", req.OverridePublicationName)
 		pluginArguments = append(pluginArguments, pubOpt)
 	}
 
 	replicationOpts := pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}
-	var replicationSlot string
-	if p.slot != "" && req.OverrideReplicationSlotName == "" {
-		replicationSlot = p.slot
-	} else {
-		replicationSlot = req.OverrideReplicationSlotName
-	}
+	replicationSlot := p.slot
 
 	// create replication connection
 	replicationConn, err := p.replPool.Acquire(p.ctx)
