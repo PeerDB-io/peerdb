@@ -170,6 +170,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let replication_slot_name: Option<String> = match raw_options
+                            .remove("replication_slot_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
                         let snapshot_num_rows_per_partition: Option<u32> = match raw_options
                             .remove("snapshot_num_rows_per_partition")
                         {
@@ -239,6 +246,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             cdc_sync_mode,
                             cdc_staging_path,
                             soft_delete,
+                            replication_slot_name
                         };
 
                         // Error reporting
