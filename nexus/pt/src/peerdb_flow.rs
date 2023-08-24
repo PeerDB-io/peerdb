@@ -166,6 +166,10 @@ pub struct SetupReplicationInput {
     pub destination_peer: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(bool, tag="5")]
     pub do_initial_copy: bool,
+    #[prost(string, tag="6")]
+    pub existing_publication_name: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub existing_replication_slot_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -34,10 +34,12 @@ func (s *SnapshotFlowExecution) setupReplication(
 	})
 
 	setupReplicationInput := &protos.SetupReplicationInput{
-		PeerConnectionConfig: s.config.Source,
-		FlowJobName:          flowName,
-		TableNameMapping:     s.config.TableNameMapping,
-		DoInitialCopy:        s.config.DoInitialCopy,
+		PeerConnectionConfig:        s.config.Source,
+		FlowJobName:                 flowName,
+		TableNameMapping:            s.config.TableNameMapping,
+		DoInitialCopy:               s.config.DoInitialCopy,
+		ExistingPublicationName:     s.config.PublicationName,
+		ExistingReplicationSlotName: s.config.ReplicationSlotName,
 	}
 
 	res := &protos.SetupReplicationOutput{}

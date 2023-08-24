@@ -661,9 +661,15 @@ func (c *PostgresConnector) SetupReplication(signal *SlotSignal, req *protos.Set
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
+	if req.ExistingReplicationSlotName != "" {
+		slotName = req.ExistingReplicationSlotName
+	}
 
 	// Publication name would be the job name prefixed with "peerflow_pub_"
 	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	if req.ExistingPublicationName != "" {
+		publicationName = req.ExistingPublicationName
+	}
 
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(slotName, publicationName)

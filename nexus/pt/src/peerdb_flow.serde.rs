@@ -3488,6 +3488,12 @@ impl serde::Serialize for SetupReplicationInput {
         if self.do_initial_copy {
             len += 1;
         }
+        if !self.existing_publication_name.is_empty() {
+            len += 1;
+        }
+        if !self.existing_replication_slot_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.SetupReplicationInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
@@ -3503,6 +3509,12 @@ impl serde::Serialize for SetupReplicationInput {
         }
         if self.do_initial_copy {
             struct_ser.serialize_field("doInitialCopy", &self.do_initial_copy)?;
+        }
+        if !self.existing_publication_name.is_empty() {
+            struct_ser.serialize_field("existingPublicationName", &self.existing_publication_name)?;
+        }
+        if !self.existing_replication_slot_name.is_empty() {
+            struct_ser.serialize_field("existingReplicationSlotName", &self.existing_replication_slot_name)?;
         }
         struct_ser.end()
     }
@@ -3524,6 +3536,10 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
             "destinationPeer",
             "do_initial_copy",
             "doInitialCopy",
+            "existing_publication_name",
+            "existingPublicationName",
+            "existing_replication_slot_name",
+            "existingReplicationSlotName",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3533,6 +3549,8 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
             TableNameMapping,
             DestinationPeer,
             DoInitialCopy,
+            ExistingPublicationName,
+            ExistingReplicationSlotName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3560,6 +3578,8 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
                             "tableNameMapping" | "table_name_mapping" => Ok(GeneratedField::TableNameMapping),
                             "destinationPeer" | "destination_peer" => Ok(GeneratedField::DestinationPeer),
                             "doInitialCopy" | "do_initial_copy" => Ok(GeneratedField::DoInitialCopy),
+                            "existingPublicationName" | "existing_publication_name" => Ok(GeneratedField::ExistingPublicationName),
+                            "existingReplicationSlotName" | "existing_replication_slot_name" => Ok(GeneratedField::ExistingReplicationSlotName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3584,6 +3604,8 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
                 let mut table_name_mapping__ = None;
                 let mut destination_peer__ = None;
                 let mut do_initial_copy__ = None;
+                let mut existing_publication_name__ = None;
+                let mut existing_replication_slot_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -3618,6 +3640,18 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
                             }
                             do_initial_copy__ = Some(map.next_value()?);
                         }
+                        GeneratedField::ExistingPublicationName => {
+                            if existing_publication_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("existingPublicationName"));
+                            }
+                            existing_publication_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::ExistingReplicationSlotName => {
+                            if existing_replication_slot_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("existingReplicationSlotName"));
+                            }
+                            existing_replication_slot_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3629,6 +3663,8 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationInput {
                     table_name_mapping: table_name_mapping__.unwrap_or_default(),
                     destination_peer: destination_peer__,
                     do_initial_copy: do_initial_copy__.unwrap_or_default(),
+                    existing_publication_name: existing_publication_name__.unwrap_or_default(),
+                    existing_replication_slot_name: existing_replication_slot_name__.unwrap_or_default(),
                 })
             }
         }
