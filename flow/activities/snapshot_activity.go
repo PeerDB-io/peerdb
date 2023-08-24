@@ -55,8 +55,7 @@ func (a *SnapshotActivity) SetupReplication(
 		err = pgConn.SetupReplication(slotSignal, config)
 		if err != nil {
 			log.WithFields(log.Fields{
-				"flowName":            config.FlowJobName,
-				"destinationPeerName": config.DestinationPeer.Name,
+				"flowName": config.FlowJobName,
 			}).Errorf("failed to setup replication: %v", err)
 			replicationErr <- err
 			return
@@ -64,15 +63,13 @@ func (a *SnapshotActivity) SetupReplication(
 	}()
 
 	log.WithFields(log.Fields{
-		"flowName":            config.FlowJobName,
-		"destinationPeerName": config.DestinationPeer.Name,
+		"flowName": config.FlowJobName,
 	}).Info("waiting for slot to be created...")
 	var slotInfo *connpostgres.SlotCreationResult
 	select {
 	case slotInfo = <-slotSignal.SlotCreated:
 		log.WithFields(log.Fields{
-			"flowName":            config.FlowJobName,
-			"destinationPeerName": config.DestinationPeer.Name,
+			"flowName": config.FlowJobName,
 		}).Infof("slot '%s' created", slotInfo.SlotName)
 	case err := <-replicationErr:
 		return nil, fmt.Errorf("failed to setup replication: %w", err)
