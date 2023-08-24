@@ -157,9 +157,10 @@ func (s *SnapshotFlowExecution) cloneTables(
 
 	for srcTbl, dstTbl := range s.config.TableNameMapping {
 		source := srcTbl
+		destination := dstTbl
 		snapshotName := slotInfo.SnapshotName
 
-		future, err := s.cloneTable(ctx, snapshotName, source, dstTbl)
+		future, err := s.cloneTable(ctx, snapshotName, source, destination)
 		if err != nil {
 			s.logger.Error("failed to start clone child workflow: ", err)
 			continue
