@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/concurrency"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -74,12 +75,19 @@ func (s *SnapshotFlowExecution) cloneTable(
 	snapshotName string,
 	sourceTable string,
 	destinationTableName string,
-) workflow.Future {
+) (workflow.Future, error) {
 	flowName := s.config.FlowJobName
 
-	childWorkflowID := fmt.Sprintf("clone_%s_%s", flowName, destinationTableName)
-	reg := regexp.MustCompile("[^a-zA-Z0-9]+")
-	childWorkflowID = reg.ReplaceAllString(childWorkflowID, "_")
+	childWorkflowIDSideEffect := workflow.SideEffect(childCtx, func(ctx workflow.Context) interface{} {
+		childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, destinationTableName, uuid.New().String())
+		reg := regexp.MustCompile("[^a-zA-Z0-9]+")
+		return reg.ReplaceAllString(childWorkflowID, "_")
+	})
+
+	var childWorkflowID string
+	if err := childWorkflowIDSideEffect.Get(&childWorkflowID); err != nil {
+		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
+	}
 
 	childCtx = workflow.WithChildOptions(childCtx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
@@ -134,7 +142,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		numPartitionsProcessed,
 	)
 
-	return qrepFuture
+	return qrepFuture, nil
 }
 
 // startChildQrepWorkflow starts a child workflow for query based replication.
@@ -149,7 +157,11 @@ func (s *SnapshotFlowExecution) cloneTables(
 		source := srcTbl
 		snapshotName := slotInfo.SnapshotName
 
-		future := s.cloneTable(ctx, snapshotName, source, dstTbl)
+		future, err := s.cloneTable(ctx, snapshotName, source, dstTbl)
+		if err != nil {
+			s.logger.Error("failed to start clone child workflow: ", err)
+			continue
+		}
 		boundSelector.AddFuture(future, func(f workflow.Future) error {
 			if err := f.Get(ctx, nil); err != nil {
 				s.logger.Error("failed to clone table", "table", source, "error", err)
@@ -166,8 +178,6 @@ func (s *SnapshotFlowExecution) cloneTables(
 	}
 
 	s.logger.Info("finished cloning tables")
-
-	return
 }
 
 func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
