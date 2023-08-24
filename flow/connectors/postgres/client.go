@@ -504,13 +504,13 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 		if strings.Contains(genericColumnType, "array") {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS %s",
-					columnName, pgType, columnName))
+					strings.Trim(columnName, "\""), pgType, columnName))
 		} else {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
-				columnName, pgType, columnName))
+				strings.Trim(columnName, "\""), pgType, columnName))
 		}
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {
-			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", strings.Trim(columnName, "\""), pgType)
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
