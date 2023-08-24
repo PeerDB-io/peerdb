@@ -456,10 +456,6 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 	rawTableIdentifier string) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
-	for i, columnName := range columnNames {
-		columnNames[i] = fmt.Sprintf("\"%s\"", columnName)
-	}
-
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	var primaryKeyColumnCast string
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
@@ -468,7 +464,7 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
 			columnName, pgType, columnName))
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {
-			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", strings.Trim(columnName, "\""), pgType)
+			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
