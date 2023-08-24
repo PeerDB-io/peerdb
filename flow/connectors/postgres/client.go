@@ -529,15 +529,15 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 
 	for _, cols := range unchangedToastColsLists {
 		unchangedColsArray := strings.Split(cols, ",")
+		for i, col := range unchangedColsArray {
+			unchangedColsArray[i] = fmt.Sprintf("\"%s\"", col)
+		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ",")
-		for i, col := range unchangedColsArray {
-			unchangedColsArray[i] = fmt.Sprintf("\"%s\"", col)
-		}
 		quotedCols := strings.Join(unchangedColsArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 		src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
