@@ -38,7 +38,7 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
           file: stacks/nexus.Dockerfile
-          push: ${{ github.ref == 'refs/heads/test' }}
+          push: ${{ github.ref == 'refs/heads/testing' }}
           tags: |
             ghcr.io/peerdb-io/peerdb-server:test-${{ steps.vars.outputs.sha_short }}
 
@@ -48,7 +48,7 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
           file: stacks/flow-api.Dockerfile
-          push: ${{ github.ref == 'refs/heads/test' }}
+          push: ${{ github.ref == 'refs/heads/testing' }}
           tags: |
             ghcr.io/peerdb-io/flow-api:test-${{ steps.vars.outputs.sha_short }}
 
@@ -58,7 +58,7 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
           file: stacks/flow-worker.Dockerfile
-          push: ${{ github.ref == 'refs/heads/test' }}
+          push: ${{ github.ref == 'refs/heads/testing' }}
           tags: |
             ghcr.io/peerdb-io/flow-worker:test-${{ steps.vars.outputs.sha_short }}
 
@@ -68,6 +68,6 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
           file: stacks/flow-snapshot-worker.Dockerfile
-          push: ${{ github.ref == 'refs/heads/test' }}
+          push: ${{ github.ref == 'refs/heads/testing' }}
           tags: |
             ghcr.io/peerdb-io/flow-snapshot-worker:test-${{ steps.vars.outputs.sha_short }}
