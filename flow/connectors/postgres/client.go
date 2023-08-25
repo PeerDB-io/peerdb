@@ -456,13 +456,12 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 	rawTableIdentifier string) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
-
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	var primaryKeyColumnCast string
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		columnNames = append(columnNames, columnName)
+		columnNames = append(columnNames, fmt.Sprintf("\"%s\"", columnName))
 		pgType := qValueKindToPostgresType(genericColumnType)
-		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
 			columnName, pgType, columnName))
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {
 			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
@@ -490,6 +489,9 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	rawTableIdentifier string) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := maps.Keys(normalizedTableSchema.Columns)
+	for i, columnName := range columnNames {
+		columnNames[i] = fmt.Sprintf("\"%s\"", columnName)
+	}
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	var primaryKeyColumnCast string
@@ -497,14 +499,14 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if strings.Contains(genericColumnType, "array") {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS \"%s\"",
-					columnName, pgType, columnName))
+				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS %s",
+					strings.Trim(columnName, "\""), pgType, columnName))
 		} else {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
-				columnName, pgType, columnName))
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
+				strings.Trim(columnName, "\""), pgType, columnName))
 		}
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {
-			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", strings.Trim(columnName, "\""), pgType)
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
@@ -527,19 +529,24 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 
 	for _, cols := range unchangedToastColsLists {
 		unchangedColsArray := strings.Split(cols, ",")
+		for i, col := range unchangedColsArray {
+			unchangedColsArray[i] = fmt.Sprintf("\"%s\"", col)
+		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ",")
+		quotedCols := strings.Join(unchangedColsArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 		src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
-		THEN UPDATE SET %s `, cols, ssep)
+		THEN UPDATE SET %s `, quotedCols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return strings.Join(updateStmts, "\n")
 }
+
 func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error) {
 	countTablesBatch := &pgx.Batch{}
 	totalCount := int64(0)

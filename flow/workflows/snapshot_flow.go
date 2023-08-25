@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
+	logrus "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -88,8 +89,18 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	var childWorkflowID string
 	if err := childWorkflowIDSideEffect.Get(&childWorkflowID); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"flowName":     flowName,
+			"snapshotName": snapshotName,
+		}).Errorf("failed to get child id for source table %s and destination table %s",
+			sourceTable, destinationTableName)
 		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
 	}
+	logrus.WithFields(logrus.Fields{
+		"flowName":     flowName,
+		"snapshotName": snapshotName,
+	}).Infof("Obtained child id %s for source table %s and destination table %s",
+		childWorkflowID, sourceTable, destinationTableName)
 
 	childCtx = workflow.WithChildOptions(childCtx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
@@ -153,18 +164,26 @@ func (s *SnapshotFlowExecution) cloneTables(
 	slotInfo *protos.SetupReplicationOutput,
 	maxParallelClones int,
 ) {
+	logrus.Infof("cloning tables for slot name %s and snapshotName %s",
+		slotInfo.SlotName, slotInfo.SnapshotName)
 	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
 
 	for srcTbl, dstTbl := range s.config.TableNameMapping {
 		source := srcTbl
+		destination := dstTbl
 		snapshotName := slotInfo.SnapshotName
-
-		future, err := s.cloneTable(ctx, snapshotName, source, dstTbl)
+		logrus.WithFields(logrus.Fields{
+			"snapshotName": snapshotName,
+		}).Infof("Cloning table with source table %s and destination table name %s",
+			source, destination)
+		future, err := s.cloneTable(ctx, snapshotName, source, destination)
 		if err != nil {
 			s.logger.Error("failed to start clone child workflow: ", err)
 			continue
 		}
 		boundSelector.AddFuture(future, func(f workflow.Future) error {
+			logrus.Infof("Adding future for clone table for source name %s and destination %s",
+				source, destination)
 			if err := f.Get(ctx, nil); err != nil {
 				s.logger.Error("failed to clone table", "table", source, "error", err)
 				return err
