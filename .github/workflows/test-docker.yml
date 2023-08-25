@@ -2,9 +2,9 @@ name: Test Docker Images
 
 on:
   push:
-    branches: [main]
+    branches: [testing]
   pull_request:
-    branches: [main]
+    branches: [testing]
 
 jobs:
   docker-build:
