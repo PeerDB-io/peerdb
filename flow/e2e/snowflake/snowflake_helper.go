@@ -1,4 +1,4 @@
-package e2e
+package e2e_snowflake
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"os"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 )
@@ -28,7 +29,7 @@ func NewSnowflakeTestHelper(testSchemaName string) (*SnowflakeTestHelper, error)
 		return nil, fmt.Errorf("TEST_SF_CREDS env var not set")
 	}
 
-	content, err := readFileToBytes(jsonPath)
+	content, err := e2e.ReadFileToBytes(jsonPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}

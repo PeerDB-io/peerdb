@@ -1,8 +1,6 @@
 name: Flow build and test
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -12,7 +10,7 @@ jobs:
     timeout-minutes: 30
     services:
       pg_cdc:
-        image: debezium/postgres:14-alpine
+        image: postgres:15.4-alpine
         ports:
           - 7132:5432
         env:
@@ -55,18 +53,22 @@ jobs:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
-      - name: create hstore extension
+      - name: create hstore extension and increase logical replication limits.
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
           psql -h localhost -p 7132 -U postgres -c "CREATE EXTENSION hstore;"
+          psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET wal_level=logical;"          
+          psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET max_replication_slots=100;"
+          psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET max_wal_senders=100;"
+          psql -h localhost -p 7132 -U postgres -c "SELECT pg_reload_conf();"          
         working-directory: ./flow
         env:
           PGPASSWORD: postgres
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 1 ./... -timeout 1200s
+          gotestsum --format testname -- -p 4 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
