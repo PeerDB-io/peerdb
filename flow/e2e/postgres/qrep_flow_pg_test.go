@@ -54,8 +54,10 @@ func (s *PeerFlowE2ETestSuitePG) TearDownSuite() {
 }
 
 func (s *PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
-	e2e.CreateSourceTableQRep(s.pool, postgresSuffix, tableName)
-	e2e.PopulateSourceTable(s.pool, postgresSuffix, tableName, rowCount)
+	err := e2e.CreateSourceTableQRep(s.pool, postgresSuffix, tableName)
+	s.NoError(err)
+	err = e2e.PopulateSourceTable(s.pool, postgresSuffix, tableName, rowCount)
+	s.NoError(err)
 }
 
 func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified string) error {

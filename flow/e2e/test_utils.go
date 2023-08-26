@@ -212,8 +212,8 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		return err
 	}
 	_, err = pool.Exec(context.Background(), fmt.Sprintf(`
-		UPDATE e2e_test_%s.%s SET f5 = '%s' WHERE id = '%s';
-	`, suffix, tableName, v, ids[0]))
+		UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
+	`, suffix, tableName), v, ids[0])
 	if err != nil {
 		return err
 	}

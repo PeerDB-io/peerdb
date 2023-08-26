@@ -96,7 +96,8 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s3Suffix, jobName)
 
 	s.setupSourceTable(jobName, 10)
-	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}", schemaQualifiedName)
+	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
+		schemaQualifiedName)
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		jobName,
 		schemaQualifiedName,

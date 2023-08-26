@@ -61,7 +61,8 @@ jobs:
           psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET wal_level=logical;"          
           psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET max_replication_slots=100;"
           psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET max_wal_senders=100;"
-          psql -h localhost -p 7132 -U postgres -c "SELECT pg_reload_conf();"          
+          psql -h localhost -p 7132 -U postgres -c "SELECT pg_reload_conf();"
+          pg_ctl restart          
         working-directory: ./flow
         env:
           PGPASSWORD: postgres
