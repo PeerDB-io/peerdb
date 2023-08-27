@@ -55,14 +55,13 @@ jobs:
 
       - name: create hstore extension and increase logical replication limits.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          psql -h localhost -p 7132 -U postgres -c "CREATE EXTENSION hstore;"
-          psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET wal_level=logical;"          
-          psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET max_replication_slots=100;"
-          psql -h localhost -p 7132 -U postgres -c "ALTER SYSTEM SET max_wal_senders=100;"
-          psql -h localhost -p 7132 -U postgres -c "SELECT pg_reload_conf();"
-          pg_ctl restart          
+          docker ps
+          docker exec -it pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION hstore;"
+          docker exec -it pg_cmd psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET wal_level=logical;"          
+          docker exec -it pg_cmd psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_replication_slots=100;"
+          docker exec -it pg_cmd psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_wal_senders=100;"
+          docker exec -it pg_cmd psql -h localhost -p 5432 -U postgres -c "SELECT pg_reload_conf();"
+          docker exec -it pg_cmd pg_ctl restart          
         working-directory: ./flow
         env:
           PGPASSWORD: postgres
