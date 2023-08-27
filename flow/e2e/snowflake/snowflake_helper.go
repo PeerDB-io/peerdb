@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	util "github.com/PeerDB-io/peer-flow/utils"
 )
 
 type SnowflakeTestHelper struct {
@@ -17,13 +18,17 @@ type SnowflakeTestHelper struct {
 	Config *protos.SnowflakeConfig
 	// peer struct holder Snowflake
 	Peer *protos.Peer
-	// connection to Snowflake
-	client *connsnowflake.SnowflakeClient
+	// connection to another database, to manage the test database
+	adminClient *connsnowflake.SnowflakeClient
+	// connection to the test database
+	testClient *connsnowflake.SnowflakeClient
 	// testSchemaName is the schema to use for testing.
 	testSchemaName string
+	// dbName is the database used for testing.
+	testDatabaseName string
 }
 
-func NewSnowflakeTestHelper(testSchemaName string) (*SnowflakeTestHelper, error) {
+func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	jsonPath := os.Getenv("TEST_SF_CREDS")
 	if jsonPath == "" {
 		return nil, fmt.Errorf("TEST_SF_CREDS env var not set")
@@ -41,17 +46,35 @@ func NewSnowflakeTestHelper(testSchemaName string) (*SnowflakeTestHelper, error)
 	}
 
 	peer := generateSFPeer(&config)
+	runID, err := util.RandomUInt64()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
+	}
 
-	client, err := connsnowflake.NewSnowflakeClient(context.Background(), &config)
+	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
+
+	adminClient, err := connsnowflake.NewSnowflakeClient(context.Background(), &config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
+	}
+	err = adminClient.ExecuteQuery(fmt.Sprintf("CREATE DATABASE %s", testDatabaseName))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Snowflake test database: %w", err)
+	}
+
+	config.Database = testDatabaseName
+	testClient, err := connsnowflake.NewSnowflakeClient(context.Background(), &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
 
 	return &SnowflakeTestHelper{
-		Config:         &config,
-		Peer:           peer,
-		client:         client,
-		testSchemaName: testSchemaName,
+		Config:           &config,
+		Peer:             peer,
+		adminClient:      adminClient,
+		testClient:       testClient,
+		testSchemaName:   "PUBLIC",
+		testDatabaseName: testDatabaseName,
 	}, nil
 }
 
@@ -67,24 +90,27 @@ func generateSFPeer(snowflakeConfig *protos.SnowflakeConfig) *protos.Peer {
 	return ret
 }
 
-// RecreateSchema recreates the schema, i.e., drops it if exists and creates it again.
-func (s *SnowflakeTestHelper) RecreateSchema() error {
-	return s.client.RecreateSchema(s.testSchemaName)
-}
-
-// DropSchema drops the schema.
-func (s *SnowflakeTestHelper) DropSchema() error {
-	return s.client.DropSchema(s.testSchemaName)
+// Cleanup drops the database.
+func (s *SnowflakeTestHelper) Cleanup() error {
+	err := s.testClient.Close()
+	if err != nil {
+		return err
+	}
+	err = s.adminClient.ExecuteQuery(fmt.Sprintf("DROP DATABASE %s", s.testDatabaseName))
+	if err != nil {
+		return err
+	}
+	return s.adminClient.Close()
 }
 
 // RunCommand runs the given command.
 func (s *SnowflakeTestHelper) RunCommand(command string) error {
-	return s.client.ExecuteQuery(command)
+	return s.testClient.ExecuteQuery(command)
 }
 
 // CountRows(tableName) returns the number of rows in the given table.
 func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
-	res, err := s.client.CountRows(s.testSchemaName, tableName)
+	res, err := s.testClient.CountRows(s.testSchemaName, tableName)
 	if err != nil {
 		return 0, err
 	}
@@ -93,13 +119,13 @@ func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
 }
 
 func (s *SnowflakeTestHelper) CheckNull(tableName string, colNames []string) (bool, error) {
-	return s.client.CheckNull(s.testSchemaName, tableName, colNames)
+	return s.testClient.CheckNull(s.testSchemaName, tableName, colNames)
 }
 
 func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
-	return s.client.ExecuteAndProcessQuery(query)
+	return s.testClient.ExecuteAndProcessQuery(query)
 }
 
 func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
-	return s.client.CreateTable(schema, s.testSchemaName, tableName)
+	return s.testClient.CreateTable(schema, s.testSchemaName, tableName)
 }

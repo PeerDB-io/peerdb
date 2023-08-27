@@ -7,12 +7,10 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
 )
@@ -41,27 +39,12 @@ func (s *PeerFlowE2ETestSuiteSF) attachSuffix(input string) string {
 
 // setupSnowflake sets up the snowflake connection.
 func (s *PeerFlowE2ETestSuiteSF) setupSnowflake() error {
-	runID, err := util.RandomUInt64()
-	if err != nil {
-		return fmt.Errorf("failed to generate random uint64: %w", err)
-	}
-
-	testSchemaName := fmt.Sprintf("e2e_test_%d", runID)
-
-	sfHelper, err := NewSnowflakeTestHelper(testSchemaName)
+	sfHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
 		return fmt.Errorf("failed to create snowflake helper: %w", err)
 	}
 
-	err = sfHelper.RecreateSchema()
-	if err != nil {
-		return fmt.Errorf("failed to recreate snowflake schema: %w", err)
-	}
 	s.sfHelper = sfHelper
-
-	// for every test, drop the _PEERDB_INTERNAL schema
-	err = s.sfHelper.client.DropSchema("_PEERDB_INTERNAL")
-	require.NoError(s.T(), err)
 
 	return nil
 }
@@ -96,7 +79,7 @@ func (s *PeerFlowE2ETestSuiteSF) TearDownSuite() {
 	}
 
 	if s.sfHelper != nil {
-		err = s.sfHelper.DropSchema()
+		err = s.sfHelper.Cleanup()
 		if err != nil {
 			s.Fail("failed to clean up Snowflake", err)
 		}
