@@ -3,6 +3,7 @@ package peerflow
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/concurrency"
@@ -13,6 +14,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
 )
 
 type SnapshotFlowExecution struct {
@@ -74,11 +76,12 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 }
 
 func (s *SnapshotFlowExecution) cloneTable(
+	boundSelector *concurrency.BoundSelector,
 	childCtx workflow.Context,
 	snapshotName string,
 	sourceTableName string,
 	destinationTableName string,
-) (workflow.Future, error) {
+) error {
 	flowName := s.config.FlowJobName
 	srcName := sourceTableName
 	dstName := destinationTableName
@@ -95,8 +98,9 @@ func (s *SnapshotFlowExecution) cloneTable(
 			"snapshotName": snapshotName,
 		}).Errorf("failed to get child id for source table %s and destination table %s",
 			srcName, dstName)
-		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
+		return fmt.Errorf("failed to get child workflow ID: %w", err)
 	}
+
 	logrus.WithFields(logrus.Fields{
 		"flowName":     flowName,
 		"snapshotName": snapshotName,
@@ -148,15 +152,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	numPartitionsProcessed := 0
 
-	qrepFuture := workflow.ExecuteChildWorkflow(
-		childCtx,
-		QRepFlowWorkflow,
-		config,
-		lastPartition,
-		numPartitionsProcessed,
-	)
-
-	return qrepFuture, nil
+	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+	return nil
 }
 
 // startChildQrepWorkflow starts a child workflow for query based replication.
@@ -167,31 +164,27 @@ func (s *SnapshotFlowExecution) cloneTables(
 ) {
 	logrus.Infof("cloning tables for slot name %s and snapshotName %s",
 		slotInfo.SlotName, slotInfo.SnapshotName)
-	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
 
-	for srcTbl, dstTbl := range s.config.TableNameMapping {
+	srcTables := maps.Keys(s.config.TableNameMapping)
+	sort.Strings(srcTables)
+
+	boundSelector := concurrency.NewBoundSelector(maxParallelClones, len(srcTables), ctx)
+
+	for _, srcTbl := range srcTables {
 		source := srcTbl
-		destination := dstTbl
+		destination := s.config.TableNameMapping[source]
 		snapshotName := slotInfo.SnapshotName
 		logrus.WithFields(logrus.Fields{
 			"snapshotName": snapshotName,
-		}).Infof("Cloning table with source table %s and destination table name %s",
-			source, destination)
-		future, err := s.cloneTable(ctx, snapshotName, source, destination)
+		}).Infof(
+			"Cloning table with source table %s and destination table name %s",
+			source, destination,
+		)
+		err := s.cloneTable(boundSelector, ctx, snapshotName, source, destination)
 		if err != nil {
 			s.logger.Error("failed to start clone child workflow: ", err)
 			continue
 		}
-		boundSelector.AddFuture(future, func(f workflow.Future) error {
-			logrus.Infof("Adding future for clone table for source name %s and destination %s",
-				source, destination)
-			if err := f.Get(ctx, nil); err != nil {
-				s.logger.Error("failed to clone table", "table", source, "error", err)
-				return err
-			}
-
-			return nil
-		})
 	}
 
 	if err := boundSelector.Wait(); err != nil {

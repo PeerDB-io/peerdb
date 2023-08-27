@@ -107,11 +107,12 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
+	boundSelector *concurrency.BoundSelector,
 	ctx workflow.Context,
-	partition *protos.QRepPartition) (workflow.Future, error) {
+	partition *protos.QRepPartition) error {
 	wid, err := q.getPartitionWorkflowID(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
+		return fmt.Errorf("failed to get child workflow ID: %w", err)
 	}
 	partFlowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:        wid,
@@ -121,8 +122,15 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		},
 	})
 
-	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partition,
-		q.runUUID), nil
+	boundSelector.SpawnChild(
+		partFlowCtx,
+		QRepPartitionWorkflow,
+		q.config,
+		partition,
+		q.runUUID,
+	)
+
+	return nil
 }
 
 // processPartitions handles the logic for processing the partitions.
@@ -131,22 +139,13 @@ func (q *QRepFlowExecution) processPartitions(
 	maxParallelWorkers int,
 	partitions []*protos.QRepPartition,
 ) error {
-	boundSelector := concurrency.NewBoundSelector(maxParallelWorkers, ctx)
+	boundSelector := concurrency.NewBoundSelector(maxParallelWorkers, len(partitions), ctx)
 
 	for _, partition := range partitions {
-		future, err := q.startChildWorkflow(ctx, partition)
+		err := q.startChildWorkflow(boundSelector, ctx, partition)
 		if err != nil {
 			return err
 		}
-
-		boundSelector.AddFuture(future, func(f workflow.Future) error {
-			if err := f.Get(ctx, nil); err != nil {
-				q.logger.Error("failed to process partition", "error", err)
-				return err
-			}
-
-			return nil
-		})
 	}
 
 	err := boundSelector.Wait()
@@ -238,7 +237,17 @@ func QRepFlowWorkflow(
 		return fmt.Errorf("failed to register query handler: %w", err)
 	}
 
-	q := NewQRepFlowExecution(ctx, config, uuid.New().String())
+	// get qrep run uuid via side-effect
+	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		return uuid.New().String()
+	})
+
+	var runUUID string
+	if err := runUUIDSideEffect.Get(&runUUID); err != nil {
+		return fmt.Errorf("failed to get run uuid: %w", err)
+	}
+
+	q := NewQRepFlowExecution(ctx, config, runUUID)
 
 	err = q.SetupMetadataTables(ctx)
 	if err != nil {
@@ -307,8 +316,12 @@ func QRepFlowWorkflow(
 }
 
 // QRepPartitionWorkflow replicate a single partition.
-func QRepPartitionWorkflow(ctx workflow.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-	runUUID string) error {
+func QRepPartitionWorkflow(
+	ctx workflow.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	runUUID string,
+) error {
 	q := NewQRepFlowExecution(ctx, config, runUUID)
 	return q.ReplicatePartition(ctx, partition)
 }
