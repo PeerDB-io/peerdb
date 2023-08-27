@@ -61,8 +61,7 @@ jobs:
           docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET wal_level=logical;"          
           docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_replication_slots=100;"
           docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_wal_senders=100;"
-          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "SELECT pg_reload_conf();"
-          docker exec pg_cdc pg_ctl restart          
+          docker restart pg_cdc         
         working-directory: ./flow
         env:
           PG_CDC: 
