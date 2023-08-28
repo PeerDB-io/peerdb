@@ -82,7 +82,7 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	rows.Close()
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	batch, err := qe.ExecuteAndProcessQuery(query)
+	batch, err := qe.ExecuteAndProcessQuery(query, "test flow", "test partition", nil)
 	if err != nil {
 		t.Fatalf("error while executing and processing query: %v", err)
 	}

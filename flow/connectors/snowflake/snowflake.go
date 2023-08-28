@@ -729,7 +729,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, r
 
 	startTime := time.Now()
 	close(recordStream.Records)
-	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, recordStream)
+	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, recordStream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}

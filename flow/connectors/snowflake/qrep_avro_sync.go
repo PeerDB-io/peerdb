@@ -35,6 +35,7 @@ func NewSnowflakeAvroSyncMethod(
 func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
+	flowJobName string,
 ) (int, error) {
 	dstTableName := s.config.DestinationTableIdentifier
 
@@ -43,17 +44,23 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+		"flowName":         flowJobName,
+	}).Infof("sync function called and schema acquired")
+
+	avroSchema, err := s.getAvroSchema(dstTableName, schema, flowJobName)
 	if err != nil {
 		return 0, err
 	}
 
-	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, "17")
+	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, "17", flowJobName)
 	if err != nil {
 		return 0, err
 	}
 	log.WithFields(log.Fields{
 		"destinationTable": dstTableName,
+		"flowName":         flowJobName,
 	}).Infof("written %d records to Avro file", numRecords)
 
 	stage := s.connector.getStageNameForJob(s.config.FlowJobName)
@@ -61,6 +68,10 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	if err != nil {
 		return 0, err
 	}
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+		"flowName":         flowJobName,
+	}).Infof("Created stage %s", stage)
 
 	allCols, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
 	if err != nil {
@@ -99,13 +110,17 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
+	log.WithFields(log.Fields{
+		"flowName":    config.FlowJobName,
+		"partitionID": partition.PartitionId,
+	}).Infof("sync function called and schema acquired")
 
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(dstTableName, schema, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
 
-	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId)
+	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -131,6 +146,10 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, err
 	}
+	log.WithFields(log.Fields{
+		"flowName":    config.FlowJobName,
+		"partitionID": partition.PartitionId,
+	}).Infof("Put file to stage in Avro sync for snowflake")
 	metrics.LogQRepSyncMetrics(s.connector.ctx, config.FlowJobName, int64(numRecords),
 		time.Since(putFileStartTime))
 
@@ -147,13 +166,16 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 func (s *SnowflakeAvroSyncMethod) getAvroSchema(
 	dstTableName string,
 	schema *model.QRecordSchema,
+	flowJobName string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 
-	log.Infof("Avro schema: %v\n", avroSchema)
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("Avro schema: %v\n", avroSchema)
 	return avroSchema, nil
 }
 
@@ -161,6 +183,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
+	flowJobName string,
 ) (int, string, error) {
 	var numRecords int
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema)
@@ -171,6 +194,10 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 		}
 
 		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partitionID,
+		}).Infof("writing records to local file %s", localFilePath)
 		numRecords, err = ocfWriter.WriteRecordsToAvroFile(localFilePath)
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to write records to Avro file: %w", err)
@@ -184,6 +211,10 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 		}
 
 		s3Key := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partitionID,
+		}).Infof("OCF: Writing records to S3")
 		numRecords, err = ocfWriter.WriteRecordsToS3(s3o.Bucket, s3Key)
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to write records to S3: %w", err)
@@ -227,6 +258,9 @@ func CopyStageToDestination(
 	stage string,
 	allCols []string,
 ) error {
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Infof("Copying stage to destination %s", dstTableName)
 	copyOpts := []string{
 		"FILE_FORMAT = (TYPE = AVRO)",
 		"MATCH_BY_COLUMN_NAME='CASE_INSENSITIVE'",

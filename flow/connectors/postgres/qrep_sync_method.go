@@ -72,6 +72,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		log.WithFields(log.Fields{
 			"flowName":         flowJobName,
 			"destinationTable": dstTableName,
+			"partitionID":      partitionID,
 		}).Errorf("failed to get schema from stream: %v", err)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
@@ -116,7 +117,10 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		colNames[i] = fmt.Sprintf("\"%s\"", colName)
 	}
 	colNamesStr := strings.Join(colNames, ", ")
-
+	log.WithFields(log.Fields{
+		"flowName":    flowJobName,
+		"partitionID": partitionID,
+	}).Infof("Obtained column names and quoted them in QRep sync")
 	insertFromStagingStmt := fmt.Sprintf(
 		"INSERT INTO %s (%s) SELECT %s FROM %s",
 		dstTableName.String(),
@@ -146,6 +150,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
 		qRepMetadataTableName,
 	)
+	log.WithFields(log.Fields{
+		"flowName":         flowJobName,
+		"partitionID":      partitionID,
+		"destinationTable": dstTableName,
+	}).Infof("Executing transaction inside Qrep sync")
 	rows, err := tx2.Exec(
 		context.Background(),
 		insertMetadataStmt,
@@ -171,6 +180,9 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	}
 
 	numRowsInserted := copySource.NumRecords()
-	log.Printf("pushed %d records to %s", numRowsInserted, dstTableName)
+	log.WithFields(log.Fields{
+		"flowName":    flowJobName,
+		"partitionID": partitionID,
+	}).Infof("pushed %d records to %s", numRowsInserted, dstTableName)
 	return numRowsInserted, nil
 }

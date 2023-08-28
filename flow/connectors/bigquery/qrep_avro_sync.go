@@ -112,7 +112,10 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
-
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("Obtained Avro schema for destination table %s and partition ID %s",
+		dstTableName, partition.PartitionId)
 	fmt.Printf("Avro schema: %s\n", avroSchema)
 	// create a staging table name with partitionID replace hyphens with underscores
 	stagingTable := fmt.Sprintf("%s_%s_staging", dstTableName, strings.ReplaceAll(partition.PartitionId, "-", "_"))
@@ -140,6 +143,10 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("Performing transaction inside QRep sync function for partition ID %s",
+		partition.PartitionId)
 	stmts = append(stmts, insertMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 	// Execute the statements in a transaction
@@ -161,7 +168,10 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		}).Errorf("failed to delete staging table %s: %v", stagingTable, err)
 	}
 
-	log.Printf("loaded stage into %s.%s",
+	log.WithFields(log.Fields{
+		"flowName":    flowJobName,
+		"partitionID": partition.PartitionId,
+	}).Infof("loaded stage into %s.%s",
 		datasetID, dstTableName)
 	return numRecords, nil
 }

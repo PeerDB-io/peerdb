@@ -42,6 +42,12 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
+	log.WithFields(log.Fields{
+		"flowName":  config.FlowJobName,
+		"partition": partition.PartitionId,
+	}).Infof("Called QRep sync function and "+
+		"obtained table schema for destination table %s",
+		destTable)
 
 	done, err := c.isPartitionSynced(partition.PartitionId)
 	if err != nil {
@@ -49,7 +55,9 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 
 	if done {
-		log.Infof("Partition %s has already been synced", partition.PartitionId)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Infof("Partition %s has already been synced", partition.PartitionId)
 		return 0, nil
 	}
 
@@ -365,7 +373,9 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		log.Infof("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job)
 	}
 
-	log.Infof("Dropped stage %s", stageName)
+	log.WithFields(log.Fields{
+		"flowName": job,
+	}).Infof("Dropped stage %s", stageName)
 	return nil
 }
 

@@ -251,6 +251,7 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string, colsStri
 
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", colsString, tableName),
+		"test_flow", "test part",
 	)
 	s.NoError(err)
 
@@ -270,6 +271,7 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector
 	pgQueryExecutor.SetTestEnv(true)
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", selector, tableName),
+		"test_flow", "test part",
 	)
 	require.NoError(s.T(), err)
 
