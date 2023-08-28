@@ -281,7 +281,8 @@ func (c *PostgresConnector) PullQRepRecords(
 		log.WithFields(log.Fields{
 			"partitionId": partition.PartitionId,
 		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+			config.FlowJobName, partition.PartitionId)
 		query := config.Query
 		return executor.ExecuteAndProcessQuery(query, config.FlowJobName, partition.PartitionId)
 	}
@@ -323,7 +324,8 @@ func (c *PostgresConnector) PullQRepRecords(
 		return nil, err
 	}
 
-	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		config.FlowJobName, partition.PartitionId)
 	records, err := executor.ExecuteAndProcessQuery(query, config.FlowJobName, partition.PartitionId,
 		rangeStart, rangeEnd)
 	if err != nil {
@@ -348,7 +350,8 @@ func (c *PostgresConnector) PullQRepRecordStream(
 			"flowName":    config.FlowJobName,
 			"partitionId": partition.PartitionId,
 		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+			config.FlowJobName, partition.PartitionId)
 		query := config.Query
 		_, err := executor.ExecuteAndProcessQueryStream(stream, query,
 			config.FlowJobName, partition.PartitionId)
@@ -392,7 +395,8 @@ func (c *PostgresConnector) PullQRepRecordStream(
 		return 0, err
 	}
 
-	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		config.FlowJobName, partition.PartitionId)
 	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query,
 		config.FlowJobName, partition.PartitionId, rangeStart, rangeEnd)
 	if err != nil {

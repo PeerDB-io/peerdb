@@ -246,7 +246,7 @@ func (s *E2EPeerFlowTestSuite) createQRepWorkflowConfig(
 
 func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string, colsString string) {
 	// read rows from source table
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
@@ -267,7 +267,7 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string, colsStri
 
 func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
 	// read rows from source table
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", selector, tableName),

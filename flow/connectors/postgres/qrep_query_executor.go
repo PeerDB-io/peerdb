@@ -17,25 +17,37 @@ import (
 )
 
 type QRepQueryExecutor struct {
-	pool     *pgxpool.Pool
-	ctx      context.Context
-	snapshot string
-	testEnv  bool
+	pool        *pgxpool.Pool
+	ctx         context.Context
+	snapshot    string
+	testEnv     bool
+	flowJobName string
+	partitionID string
 }
 
-func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context) *QRepQueryExecutor {
+func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
+	flowJobName string, partitionID string) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
-		pool:     pool,
-		ctx:      ctx,
-		snapshot: "",
+		pool:        pool,
+		ctx:         ctx,
+		snapshot:    "",
+		flowJobName: flowJobName,
+		partitionID: partitionID,
 	}
 }
 
-func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string) *QRepQueryExecutor {
+func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string,
+	flowJobName string, partitionID string) *QRepQueryExecutor {
+	log.WithFields(log.Fields{
+		"flowName":    flowJobName,
+		"partitionID": partitionID,
+	}).Info("Declared new qrep executor for snapshot")
 	return &QRepQueryExecutor{
-		pool:     pool,
-		ctx:      ctx,
-		snapshot: snapshot,
+		pool:        pool,
+		ctx:         ctx,
+		snapshot:    snapshot,
+		flowJobName: flowJobName,
+		partitionID: partitionID,
 	}
 }
 
