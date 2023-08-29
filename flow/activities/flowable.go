@@ -176,13 +176,17 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	log.Info("initializing table schema...")
+	log.WithFields(log.Fields{
+		"flowName": input.FlowConnectionConfigs.FlowJobName,
+	}).Infof("initializing table schema...")
 	err = dest.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
 	}
 
-	log.Info("pulling records...")
+	log.WithFields(log.Fields{
+		"flowName": input.FlowConnectionConfigs.FlowJobName,
+	}).Info("pulling records...")
 
 	startTime := time.Now()
 	records, err := src.PullRecords(&model.PullRecordsRequest{
@@ -220,11 +224,15 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 
 	// log the number of records
 	numRecords := len(records.Records)
-	log.Printf("pulled %d records", numRecords)
+	log.WithFields(log.Fields{
+		"flowName": input.FlowConnectionConfigs.FlowJobName,
+	}).Printf("pulled %d records", numRecords)
 	activity.RecordHeartbeat(ctx, fmt.Sprintf("pulled %d records", numRecords))
 
 	if numRecords == 0 {
-		log.Info("no records to push")
+		log.WithFields(log.Fields{
+			"flowName": input.FlowConnectionConfigs.FlowJobName,
+		}).Info("no records to push")
 		return nil, nil
 	}
 
@@ -238,7 +246,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		log.Warnf("failed to push records: %v", err)
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
-	log.Info("pushed records")
+	log.WithFields(log.Fields{
+		"flowName": input.FlowConnectionConfigs.FlowJobName,
+	}).Infof("pushed %d records", res.NumRecordsSynced)
 
 	err = a.CatalogMirrorMonitor.
 		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
@@ -402,7 +412,9 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
 			numRecords = int64(tmp)
 			if err != nil {
-				log.Errorf("failed to pull records: %v", err)
+				log.WithFields(log.Fields{
+					"flowName": config.FlowJobName,
+				}).Errorf("failed to pull records: %v", err)
 				goroutineErr = err
 			}
 			err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
@@ -420,7 +432,9 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 			return fmt.Errorf("failed to pull records: %w", err)
 		}
 		numRecords = int64(recordBatch.NumRecords)
-		log.Printf("pulled %d records\n", len(recordBatch.Records))
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Printf("pulled %d records\n", len(recordBatch.Records))
 
 		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
 		if err != nil {
@@ -447,7 +461,9 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	}
 
 	if res == 0 {
-		log.Printf("no records to push for partition %s\n", partition.PartitionId)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Printf("no records to push for partition %s\n", partition.PartitionId)
 		return nil
 	}
 
@@ -455,7 +471,9 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	if goroutineErr != nil {
 		return goroutineErr
 	}
-	log.Printf("pushed %d records\n", res)
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Printf("pushed %d records\n", res)
 	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
 	if err != nil {
 		return err

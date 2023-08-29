@@ -246,7 +246,7 @@ func (s *E2EPeerFlowTestSuite) createQRepWorkflowConfig(
 
 func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string, colsString string) {
 	// read rows from source table
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
@@ -266,7 +266,7 @@ func (s *E2EPeerFlowTestSuite) compareTableContentsBQ(tableName string, colsStri
 
 func (s *E2EPeerFlowTestSuite) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
 	// read rows from source table
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background())
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test.%s ORDER BY id", selector, tableName),
@@ -382,7 +382,8 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Avro() {
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", tblName)
 
-	qrepConfig := s.createQRepWorkflowConfig("test_qrep_flow_avro",
+	qrepConfig := s.createQRepWorkflowConfig(
+		"test_qrep_flow_avro",
 		"e2e_test."+tblName,
 		tblName,
 		query,
