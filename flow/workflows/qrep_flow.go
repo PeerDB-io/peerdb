@@ -69,7 +69,7 @@ func (q *QRepFlowExecution) GetPartitions(
 }
 
 // ReplicateParititon replicates the given partition.
-func (q *QRepFlowExecution) ReplicatePartitions(ctx workflow.Context, partitions []*protos.QRepPartition) error {
+func (q *QRepFlowExecution) ReplicatePartitions(ctx workflow.Context, partitions *protos.QRepPartitionBatch) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -78,6 +78,7 @@ func (q *QRepFlowExecution) ReplicatePartitions(ctx workflow.Context, partitions
 		HeartbeatTimeout: 1 * time.Hour,
 	})
 
+	q.logger.Info("replicating partition", "partition", partitions.BatchId)
 	if err := workflow.ExecuteActivity(ctx,
 		flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to replicate partition: %w", err)
@@ -103,7 +104,7 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
 	ctx workflow.Context,
-	partitions []*protos.QRepPartition) (workflow.Future, error) {
+	partitions *protos.QRepPartitionBatch) (workflow.Future, error) {
 	wid, err := q.getPartitionWorkflowID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
@@ -146,7 +147,11 @@ func (q *QRepFlowExecution) processPartitions(
 	q.logger.Info("processing partitions in batches", "num batches", len(batches))
 
 	futures := make([]workflow.Future, 0)
-	for _, batch := range batches {
+	for i, parts := range batches {
+		batch := &protos.QRepPartitionBatch{
+			Partitions: parts,
+			BatchId:    int32(i),
+		}
 		future, err := q.startChildWorkflow(ctx, batch)
 		if err != nil {
 			return fmt.Errorf("failed to start child workflow: %w", err)
@@ -318,7 +323,7 @@ func QRepFlowWorkflow(
 func QRepPartitionWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
-	partitions []*protos.QRepPartition,
+	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
 	q := NewQRepFlowExecution(ctx, config, runUUID)
