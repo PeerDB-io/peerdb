@@ -242,7 +242,6 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	args ...interface{},
 ) (*model.QRecordBatch, error) {
 	stream := model.NewQRecordStream(1024)
-
 	errors := make(chan error, 1)
 	defer close(errors)
 	log.WithFields(log.Fields{
@@ -336,9 +335,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
 	fetchSize := shared.FetchAndChannelSize
-
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
-	log.Infoln("Args for cursor declaration: ", args)
 	_, err = tx.Exec(qe.ctx, cursorQuery, args...)
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{

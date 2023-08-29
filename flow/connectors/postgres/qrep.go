@@ -284,7 +284,7 @@ func (c *PostgresConnector) PullQRepRecords(
 		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		query := config.Query
-		return executor.ExecuteAndProcessQuery(query, config.FlowJobName, partition.PartitionId)
+		return executor.ExecuteAndProcessQuery(query)
 	}
 
 	var rangeStart interface{}
@@ -326,7 +326,7 @@ func (c *PostgresConnector) PullQRepRecords(
 
 	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
-	records, err := executor.ExecuteAndProcessQuery(query, config.FlowJobName, partition.PartitionId,
+	records, err := executor.ExecuteAndProcessQuery(query,
 		rangeStart, rangeEnd)
 	if err != nil {
 		return nil, err
@@ -396,8 +396,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 
 	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
-	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query,
-		config.FlowJobName, partition.PartitionId, rangeStart, rangeEnd)
+	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query, rangeStart, rangeEnd)
 	if err != nil {
 		return 0, err
 	}
