@@ -2289,6 +2289,61 @@ func (x *QRepPartition) GetFullTablePartition() bool {
 	return false
 }
 
+type QRepPartitionBatch struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	BatchId    int32            `protobuf:"varint,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
+	Partitions []*QRepPartition `protobuf:"bytes,2,rep,name=partitions,proto3" json:"partitions,omitempty"`
+}
+
+func (x *QRepPartitionBatch) Reset() {
+	*x = QRepPartitionBatch{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[33]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *QRepPartitionBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QRepPartitionBatch) ProtoMessage() {}
+
+func (x *QRepPartitionBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[33]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QRepPartitionBatch.ProtoReflect.Descriptor instead.
+func (*QRepPartitionBatch) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *QRepPartitionBatch) GetBatchId() int32 {
+	if x != nil {
+		return x.BatchId
+	}
+	return 0
+}
+
+func (x *QRepPartitionBatch) GetPartitions() []*QRepPartition {
+	if x != nil {
+		return x.Partitions
+	}
+	return nil
+}
+
 type QRepParitionResult struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -2300,7 +2355,7 @@ type QRepParitionResult struct {
 func (x *QRepParitionResult) Reset() {
 	*x = QRepParitionResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[33]
+		mi := &file_flow_proto_msgTypes[34]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2313,7 +2368,7 @@ func (x *QRepParitionResult) String() string {
 func (*QRepParitionResult) ProtoMessage() {}
 
 func (x *QRepParitionResult) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[33]
+	mi := &file_flow_proto_msgTypes[34]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2326,7 +2381,7 @@ func (x *QRepParitionResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QRepParitionResult.ProtoReflect.Descriptor instead.
 func (*QRepParitionResult) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{33}
+	return file_flow_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *QRepParitionResult) GetPartitions() []*QRepPartition {
@@ -2347,7 +2402,7 @@ type DropFlowInput struct {
 func (x *DropFlowInput) Reset() {
 	*x = DropFlowInput{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_flow_proto_msgTypes[34]
+		mi := &file_flow_proto_msgTypes[35]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2360,7 +2415,7 @@ func (x *DropFlowInput) String() string {
 func (*DropFlowInput) ProtoMessage() {}
 
 func (x *DropFlowInput) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_proto_msgTypes[34]
+	mi := &file_flow_proto_msgTypes[35]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2373,7 +2428,7 @@ func (x *DropFlowInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropFlowInput.ProtoReflect.Descriptor instead.
 func (*DropFlowInput) Descriptor() ([]byte, []int) {
-	return file_flow_proto_rawDescGZIP(), []int{34}
+	return file_flow_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *DropFlowInput) GetFlowName() string {
@@ -2863,33 +2918,40 @@ var file_flow_proto_rawDesc = []byte{
 	0x52, 0x61, 0x6e, 0x67, 0x65, 0x52, 0x05, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x12, 0x30, 0x0a, 0x14,
 	0x66, 0x75, 0x6c, 0x6c, 0x5f, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x5f, 0x70, 0x61, 0x72, 0x74, 0x69,
 	0x74, 0x69, 0x6f, 0x6e, 0x18, 0x04, 0x20, 0x01, 0x28, 0x08, 0x52, 0x12, 0x66, 0x75, 0x6c, 0x6c,
-	0x54, 0x61, 0x62, 0x6c, 0x65, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x22, 0x50,
-	0x0a, 0x12, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65,
-	0x73, 0x75, 0x6c, 0x74, 0x12, 0x3a, 0x0a, 0x0a, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f,
-	0x6e, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64,
-	0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x74, 0x69,
-	0x74, 0x69, 0x6f, 0x6e, 0x52, 0x0a, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x73,
-	0x22, 0x2c, 0x0a, 0x0d, 0x44, 0x72, 0x6f, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x49, 0x6e, 0x70, 0x75,
-	0x74, 0x12, 0x1b, 0x0a, 0x09, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x66, 0x6c, 0x6f, 0x77, 0x4e, 0x61, 0x6d, 0x65, 0x2a, 0x50,
-	0x0a, 0x0c, 0x51, 0x52, 0x65, 0x70, 0x53, 0x79, 0x6e, 0x63, 0x4d, 0x6f, 0x64, 0x65, 0x12, 0x1f,
-	0x0a, 0x1b, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f, 0x4d, 0x4f, 0x44, 0x45,
-	0x5f, 0x4d, 0x55, 0x4c, 0x54, 0x49, 0x5f, 0x49, 0x4e, 0x53, 0x45, 0x52, 0x54, 0x10, 0x00, 0x12,
-	0x1f, 0x0a, 0x1b, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f, 0x4d, 0x4f, 0x44,
-	0x45, 0x5f, 0x53, 0x54, 0x4f, 0x52, 0x41, 0x47, 0x45, 0x5f, 0x41, 0x56, 0x52, 0x4f, 0x10, 0x01,
-	0x2a, 0x47, 0x0a, 0x0d, 0x51, 0x52, 0x65, 0x70, 0x57, 0x72, 0x69, 0x74, 0x65, 0x54, 0x79, 0x70,
-	0x65, 0x12, 0x1a, 0x0a, 0x16, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f,
-	0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x41, 0x50, 0x50, 0x45, 0x4e, 0x44, 0x10, 0x00, 0x12, 0x1a, 0x0a,
-	0x16, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45,
-	0x5f, 0x55, 0x50, 0x53, 0x45, 0x52, 0x54, 0x10, 0x01, 0x42, 0x76, 0x0a, 0x0f, 0x63, 0x6f, 0x6d,
-	0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x42, 0x09, 0x46, 0x6c,
-	0x6f, 0x77, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x65, 0x72,
-	0x61, 0x74, 0x65, 0x64, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0xa2, 0x02, 0x03, 0x50, 0x58,
-	0x58, 0xaa, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xca, 0x02,
-	0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xe2, 0x02, 0x16, 0x50, 0x65,
-	0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61,
-	0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f,
-	0x77, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x54, 0x61, 0x62, 0x6c, 0x65, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x22, 0x6b,
+	0x0a, 0x12, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x42,
+	0x61, 0x74, 0x63, 0x68, 0x12, 0x19, 0x0a, 0x08, 0x62, 0x61, 0x74, 0x63, 0x68, 0x5f, 0x69, 0x64,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x07, 0x62, 0x61, 0x74, 0x63, 0x68, 0x49, 0x64, 0x12,
+	0x3a, 0x0a, 0x0a, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x02, 0x20,
+	0x03, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f,
+	0x77, 0x2e, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52,
+	0x0a, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0x50, 0x0a, 0x12, 0x51,
+	0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x73, 0x75, 0x6c,
+	0x74, 0x12, 0x3a, 0x0a, 0x0a, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18,
+	0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66,
+	0x6c, 0x6f, 0x77, 0x2e, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f,
+	0x6e, 0x52, 0x0a, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0x2c, 0x0a,
+	0x0d, 0x44, 0x72, 0x6f, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x49, 0x6e, 0x70, 0x75, 0x74, 0x12, 0x1b,
+	0x0a, 0x09, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x08, 0x66, 0x6c, 0x6f, 0x77, 0x4e, 0x61, 0x6d, 0x65, 0x2a, 0x50, 0x0a, 0x0c, 0x51,
+	0x52, 0x65, 0x70, 0x53, 0x79, 0x6e, 0x63, 0x4d, 0x6f, 0x64, 0x65, 0x12, 0x1f, 0x0a, 0x1b, 0x51,
+	0x52, 0x45, 0x50, 0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x4d, 0x55,
+	0x4c, 0x54, 0x49, 0x5f, 0x49, 0x4e, 0x53, 0x45, 0x52, 0x54, 0x10, 0x00, 0x12, 0x1f, 0x0a, 0x1b,
+	0x51, 0x52, 0x45, 0x50, 0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x53,
+	0x54, 0x4f, 0x52, 0x41, 0x47, 0x45, 0x5f, 0x41, 0x56, 0x52, 0x4f, 0x10, 0x01, 0x2a, 0x47, 0x0a,
+	0x0d, 0x51, 0x52, 0x65, 0x70, 0x57, 0x72, 0x69, 0x74, 0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x1a,
+	0x0a, 0x16, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44,
+	0x45, 0x5f, 0x41, 0x50, 0x50, 0x45, 0x4e, 0x44, 0x10, 0x00, 0x12, 0x1a, 0x0a, 0x16, 0x51, 0x52,
+	0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x55, 0x50,
+	0x53, 0x45, 0x52, 0x54, 0x10, 0x01, 0x42, 0x76, 0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x2e, 0x70, 0x65,
+	0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x42, 0x09, 0x46, 0x6c, 0x6f, 0x77, 0x50,
+	0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65,
+	0x64, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0xa2, 0x02, 0x03, 0x50, 0x58, 0x58, 0xaa, 0x02,
+	0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xca, 0x02, 0x0a, 0x50, 0x65,
+	0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xe2, 0x02, 0x16, 0x50, 0x65, 0x65, 0x72, 0x64,
+	0x62, 0x46, 0x6c, 0x6f, 0x77, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74,
+	0x61, 0xea, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0x62, 0x06,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -2905,7 +2967,7 @@ func file_flow_proto_rawDescGZIP() []byte {
 }
 
 var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
+var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
 var file_flow_proto_goTypes = []interface{}{
 	(QRepSyncMode)(0),                       // 0: peerdb_flow.QRepSyncMode
 	(QRepWriteType)(0),                      // 1: peerdb_flow.QRepWriteType
@@ -2942,79 +3004,81 @@ var file_flow_proto_goTypes = []interface{}{
 	(*QRepWriteMode)(nil),                   // 32: peerdb_flow.QRepWriteMode
 	(*QRepConfig)(nil),                      // 33: peerdb_flow.QRepConfig
 	(*QRepPartition)(nil),                   // 34: peerdb_flow.QRepPartition
-	(*QRepParitionResult)(nil),              // 35: peerdb_flow.QRepParitionResult
-	(*DropFlowInput)(nil),                   // 36: peerdb_flow.DropFlowInput
-	nil,                                     // 37: peerdb_flow.FlowConnectionConfigs.TableNameMappingEntry
-	nil,                                     // 38: peerdb_flow.FlowConnectionConfigs.SrcTableIdNameMappingEntry
-	nil,                                     // 39: peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry
-	nil,                                     // 40: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
-	nil,                                     // 41: peerdb_flow.SetupReplicationInput.TableNameMappingEntry
-	nil,                                     // 42: peerdb_flow.CreateRawTableInput.TableNameMappingEntry
-	nil,                                     // 43: peerdb_flow.TableSchema.ColumnsEntry
-	nil,                                     // 44: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
-	nil,                                     // 45: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
-	nil,                                     // 46: peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	(*Peer)(nil),                            // 47: peerdb_peers.Peer
-	(*timestamppb.Timestamp)(nil),           // 48: google.protobuf.Timestamp
+	(*QRepPartitionBatch)(nil),              // 35: peerdb_flow.QRepPartitionBatch
+	(*QRepParitionResult)(nil),              // 36: peerdb_flow.QRepParitionResult
+	(*DropFlowInput)(nil),                   // 37: peerdb_flow.DropFlowInput
+	nil,                                     // 38: peerdb_flow.FlowConnectionConfigs.TableNameMappingEntry
+	nil,                                     // 39: peerdb_flow.FlowConnectionConfigs.SrcTableIdNameMappingEntry
+	nil,                                     // 40: peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry
+	nil,                                     // 41: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
+	nil,                                     // 42: peerdb_flow.SetupReplicationInput.TableNameMappingEntry
+	nil,                                     // 43: peerdb_flow.CreateRawTableInput.TableNameMappingEntry
+	nil,                                     // 44: peerdb_flow.TableSchema.ColumnsEntry
+	nil,                                     // 45: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
+	nil,                                     // 46: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
+	nil,                                     // 47: peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
+	(*Peer)(nil),                            // 48: peerdb_peers.Peer
+	(*timestamppb.Timestamp)(nil),           // 49: google.protobuf.Timestamp
 }
 var file_flow_proto_depIdxs = []int32{
-	47, // 0: peerdb_flow.FlowConnectionConfigs.source:type_name -> peerdb_peers.Peer
-	47, // 1: peerdb_flow.FlowConnectionConfigs.destination:type_name -> peerdb_peers.Peer
+	48, // 0: peerdb_flow.FlowConnectionConfigs.source:type_name -> peerdb_peers.Peer
+	48, // 1: peerdb_flow.FlowConnectionConfigs.destination:type_name -> peerdb_peers.Peer
 	20, // 2: peerdb_flow.FlowConnectionConfigs.table_schema:type_name -> peerdb_flow.TableSchema
-	37, // 3: peerdb_flow.FlowConnectionConfigs.table_name_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.TableNameMappingEntry
-	38, // 4: peerdb_flow.FlowConnectionConfigs.src_table_id_name_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.SrcTableIdNameMappingEntry
-	39, // 5: peerdb_flow.FlowConnectionConfigs.table_name_schema_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry
-	47, // 6: peerdb_flow.FlowConnectionConfigs.metadata_peer:type_name -> peerdb_peers.Peer
+	38, // 3: peerdb_flow.FlowConnectionConfigs.table_name_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.TableNameMappingEntry
+	39, // 4: peerdb_flow.FlowConnectionConfigs.src_table_id_name_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.SrcTableIdNameMappingEntry
+	40, // 5: peerdb_flow.FlowConnectionConfigs.table_name_schema_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry
+	48, // 6: peerdb_flow.FlowConnectionConfigs.metadata_peer:type_name -> peerdb_peers.Peer
 	0,  // 7: peerdb_flow.FlowConnectionConfigs.snapshot_sync_mode:type_name -> peerdb_flow.QRepSyncMode
 	0,  // 8: peerdb_flow.FlowConnectionConfigs.cdc_sync_mode:type_name -> peerdb_flow.QRepSyncMode
-	48, // 9: peerdb_flow.LastSyncState.last_synced_at:type_name -> google.protobuf.Timestamp
+	49, // 9: peerdb_flow.LastSyncState.last_synced_at:type_name -> google.protobuf.Timestamp
 	6,  // 10: peerdb_flow.StartFlowInput.last_sync_state:type_name -> peerdb_flow.LastSyncState
 	3,  // 11: peerdb_flow.StartFlowInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
 	4,  // 12: peerdb_flow.StartFlowInput.sync_flow_options:type_name -> peerdb_flow.SyncFlowOptions
 	3,  // 13: peerdb_flow.StartNormalizeInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
-	47, // 14: peerdb_flow.GetLastSyncedIDInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	47, // 15: peerdb_flow.EnsurePullabilityInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	47, // 16: peerdb_flow.EnsurePullabilityBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	48, // 14: peerdb_flow.GetLastSyncedIDInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	48, // 15: peerdb_flow.EnsurePullabilityInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	48, // 16: peerdb_flow.EnsurePullabilityBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
 	12, // 17: peerdb_flow.TableIdentifier.postgres_table_identifier:type_name -> peerdb_flow.PostgresTableIdentifier
 	13, // 18: peerdb_flow.EnsurePullabilityOutput.table_identifier:type_name -> peerdb_flow.TableIdentifier
-	40, // 19: peerdb_flow.EnsurePullabilityBatchOutput.table_identifier_mapping:type_name -> peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
-	47, // 20: peerdb_flow.SetupReplicationInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	41, // 21: peerdb_flow.SetupReplicationInput.table_name_mapping:type_name -> peerdb_flow.SetupReplicationInput.TableNameMappingEntry
-	47, // 22: peerdb_flow.SetupReplicationInput.destination_peer:type_name -> peerdb_peers.Peer
-	47, // 23: peerdb_flow.CreateRawTableInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	42, // 24: peerdb_flow.CreateRawTableInput.table_name_mapping:type_name -> peerdb_flow.CreateRawTableInput.TableNameMappingEntry
+	41, // 19: peerdb_flow.EnsurePullabilityBatchOutput.table_identifier_mapping:type_name -> peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
+	48, // 20: peerdb_flow.SetupReplicationInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	42, // 21: peerdb_flow.SetupReplicationInput.table_name_mapping:type_name -> peerdb_flow.SetupReplicationInput.TableNameMappingEntry
+	48, // 22: peerdb_flow.SetupReplicationInput.destination_peer:type_name -> peerdb_peers.Peer
+	48, // 23: peerdb_flow.CreateRawTableInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	43, // 24: peerdb_flow.CreateRawTableInput.table_name_mapping:type_name -> peerdb_flow.CreateRawTableInput.TableNameMappingEntry
 	0,  // 25: peerdb_flow.CreateRawTableInput.cdc_sync_mode:type_name -> peerdb_flow.QRepSyncMode
-	43, // 26: peerdb_flow.TableSchema.columns:type_name -> peerdb_flow.TableSchema.ColumnsEntry
-	47, // 27: peerdb_flow.GetTableSchemaBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	44, // 28: peerdb_flow.GetTableSchemaBatchOutput.table_name_schema_mapping:type_name -> peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
-	47, // 29: peerdb_flow.SetupNormalizedTableInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	44, // 26: peerdb_flow.TableSchema.columns:type_name -> peerdb_flow.TableSchema.ColumnsEntry
+	48, // 27: peerdb_flow.GetTableSchemaBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	45, // 28: peerdb_flow.GetTableSchemaBatchOutput.table_name_schema_mapping:type_name -> peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
+	48, // 29: peerdb_flow.SetupNormalizedTableInput.peer_connection_config:type_name -> peerdb_peers.Peer
 	20, // 30: peerdb_flow.SetupNormalizedTableInput.source_table_schema:type_name -> peerdb_flow.TableSchema
-	47, // 31: peerdb_flow.SetupNormalizedTableBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	45, // 32: peerdb_flow.SetupNormalizedTableBatchInput.table_name_schema_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
-	46, // 33: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	48, // 34: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
-	48, // 35: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
+	48, // 31: peerdb_flow.SetupNormalizedTableBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	46, // 32: peerdb_flow.SetupNormalizedTableBatchInput.table_name_schema_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
+	47, // 33: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
+	49, // 34: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
+	49, // 35: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
 	29, // 36: peerdb_flow.TIDPartitionRange.start:type_name -> peerdb_flow.TID
 	29, // 37: peerdb_flow.TIDPartitionRange.end:type_name -> peerdb_flow.TID
 	27, // 38: peerdb_flow.PartitionRange.int_range:type_name -> peerdb_flow.IntPartitionRange
 	28, // 39: peerdb_flow.PartitionRange.timestamp_range:type_name -> peerdb_flow.TimestampPartitionRange
 	30, // 40: peerdb_flow.PartitionRange.tid_range:type_name -> peerdb_flow.TIDPartitionRange
 	1,  // 41: peerdb_flow.QRepWriteMode.write_type:type_name -> peerdb_flow.QRepWriteType
-	47, // 42: peerdb_flow.QRepConfig.source_peer:type_name -> peerdb_peers.Peer
-	47, // 43: peerdb_flow.QRepConfig.destination_peer:type_name -> peerdb_peers.Peer
+	48, // 42: peerdb_flow.QRepConfig.source_peer:type_name -> peerdb_peers.Peer
+	48, // 43: peerdb_flow.QRepConfig.destination_peer:type_name -> peerdb_peers.Peer
 	0,  // 44: peerdb_flow.QRepConfig.sync_mode:type_name -> peerdb_flow.QRepSyncMode
 	32, // 45: peerdb_flow.QRepConfig.write_mode:type_name -> peerdb_flow.QRepWriteMode
 	31, // 46: peerdb_flow.QRepPartition.range:type_name -> peerdb_flow.PartitionRange
-	34, // 47: peerdb_flow.QRepParitionResult.partitions:type_name -> peerdb_flow.QRepPartition
-	20, // 48: peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	13, // 49: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.TableIdentifier
-	20, // 50: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	20, // 51: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	52, // [52:52] is the sub-list for method output_type
-	52, // [52:52] is the sub-list for method input_type
-	52, // [52:52] is the sub-list for extension type_name
-	52, // [52:52] is the sub-list for extension extendee
-	0,  // [0:52] is the sub-list for field type_name
+	34, // 47: peerdb_flow.QRepPartitionBatch.partitions:type_name -> peerdb_flow.QRepPartition
+	34, // 48: peerdb_flow.QRepParitionResult.partitions:type_name -> peerdb_flow.QRepPartition
+	20, // 49: peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	13, // 50: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.TableIdentifier
+	20, // 51: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	20, // 52: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	53, // [53:53] is the sub-list for method output_type
+	53, // [53:53] is the sub-list for method input_type
+	53, // [53:53] is the sub-list for extension type_name
+	53, // [53:53] is the sub-list for extension extendee
+	0,  // [0:53] is the sub-list for field type_name
 }
 
 func init() { file_flow_proto_init() }
@@ -3421,7 +3485,7 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QRepParitionResult); i {
+			switch v := v.(*QRepPartitionBatch); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3433,6 +3497,18 @@ func file_flow_proto_init() {
 			}
 		}
 		file_flow_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*QRepParitionResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_flow_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*DropFlowInput); i {
 			case 0:
 				return &v.state
@@ -3459,7 +3535,7 @@ func file_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_flow_proto_rawDesc,
 			NumEnums:      2,
-			NumMessages:   45,
+			NumMessages:   46,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

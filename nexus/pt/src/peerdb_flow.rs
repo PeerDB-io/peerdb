@@ -375,6 +375,14 @@ pub struct QRepPartition {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QRepPartitionBatch {
+    #[prost(int32, tag="1")]
+    pub batch_id: i32,
+    #[prost(message, repeated, tag="2")]
+    pub partitions: ::prost::alloc::vec::Vec<QRepPartition>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QRepParitionResult {
     #[prost(message, repeated, tag="1")]
     pub partitions: ::prost::alloc::vec::Vec<QRepPartition>,

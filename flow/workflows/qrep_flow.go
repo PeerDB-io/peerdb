@@ -3,10 +3,8 @@ package peerflow
 
 import (
 	"fmt"
-	"math/rand"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/concurrency"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
@@ -70,10 +68,8 @@ func (q *QRepFlowExecution) GetPartitions(
 	return partitions, nil
 }
 
-// ReplicateParititon replicates the given partition.
-func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *protos.QRepPartition) error {
-	q.logger.Info("replicating partition - ", partition.PartitionId)
-
+// ReplicatePartitions replicates the partition batch.
+func (q *QRepFlowExecution) ReplicatePartitions(ctx workflow.Context, partitions *protos.QRepPartitionBatch) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -82,12 +78,12 @@ func (q *QRepFlowExecution) ReplicatePartition(ctx workflow.Context, partition *
 		HeartbeatTimeout: 1 * time.Hour,
 	})
 
+	q.logger.Info("replicating partition", "partition", partitions.BatchId)
 	if err := workflow.ExecuteActivity(ctx,
-		flowable.ReplicateQRepPartition, q.config, partition, q.runUUID).Get(ctx, nil); err != nil {
+		flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to replicate partition: %w", err)
 	}
 
-	q.logger.Info("replicated partition - ", partition.PartitionId)
 	return nil
 }
 
@@ -107,12 +103,11 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
-	boundSelector *concurrency.BoundSelector,
 	ctx workflow.Context,
-	partition *protos.QRepPartition) error {
+	partitions *protos.QRepPartitionBatch) (workflow.Future, error) {
 	wid, err := q.getPartitionWorkflowID(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get child workflow ID: %w", err)
+		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
 	}
 	partFlowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:        wid,
@@ -122,15 +117,10 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		},
 	})
 
-	boundSelector.SpawnChild(
-		partFlowCtx,
-		QRepPartitionWorkflow,
-		q.config,
-		partition,
-		q.runUUID,
-	)
+	future := workflow.ExecuteChildWorkflow(
+		partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
 
-	return nil
+	return future, nil
 }
 
 // processPartitions handles the logic for processing the partitions.
@@ -139,18 +129,42 @@ func (q *QRepFlowExecution) processPartitions(
 	maxParallelWorkers int,
 	partitions []*protos.QRepPartition,
 ) error {
-	boundSelector := concurrency.NewBoundSelector(maxParallelWorkers, len(partitions), ctx)
-
-	for _, partition := range partitions {
-		err := q.startChildWorkflow(boundSelector, ctx, partition)
-		if err != nil {
-			return err
-		}
+	chunkSize := len(partitions) / maxParallelWorkers
+	if chunkSize == 0 {
+		chunkSize = 1
 	}
 
-	err := boundSelector.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to process partitions: %w", err)
+	batches := make([][]*protos.QRepPartition, 0)
+	for i := 0; i < len(partitions); i += chunkSize {
+		end := i + chunkSize
+		if end > len(partitions) {
+			end = len(partitions)
+		}
+
+		batches = append(batches, partitions[i:end])
+	}
+
+	q.logger.Info("processing partitions in batches", "num batches", len(batches))
+
+	futures := make([]workflow.Future, 0)
+	for i, parts := range batches {
+		batch := &protos.QRepPartitionBatch{
+			Partitions: parts,
+			BatchId:    int32(i),
+		}
+		future, err := q.startChildWorkflow(ctx, batch)
+		if err != nil {
+			return fmt.Errorf("failed to start child workflow: %w", err)
+		}
+
+		futures = append(futures, future)
+	}
+
+	// wait for all the child workflows to complete
+	for _, future := range futures {
+		if err := future.Get(ctx, nil); err != nil {
+			return fmt.Errorf("failed to wait for child workflow: %w", err)
+		}
 	}
 
 	q.logger.Info("all partitions in batch processed")
@@ -261,16 +275,6 @@ func QRepFlowWorkflow(
 		return fmt.Errorf("failed to get partitions: %w", err)
 	}
 
-	workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		numPartitions := len(partitions.Partitions)
-		if numPartitions > 0 {
-			rand.Shuffle(len(partitions.Partitions), func(i, j int) {
-				partitions.Partitions[i], partitions.Partitions[j] = partitions.Partitions[j], partitions.Partitions[i]
-			})
-		}
-		return nil
-	})
-
 	logger.Info("partitions to replicate - ", len(partitions.Partitions))
 	if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
 		return err
@@ -315,13 +319,13 @@ func QRepFlowWorkflow(
 	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
 }
 
-// QRepPartitionWorkflow replicate a single partition.
+// QRepPartitionWorkflow replicate a partition batch
 func QRepPartitionWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
-	partition *protos.QRepPartition,
+	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
 	q := NewQRepFlowExecution(ctx, config, runUUID)
-	return q.ReplicatePartition(ctx, partition)
+	return q.ReplicatePartitions(ctx, partitions)
 }
