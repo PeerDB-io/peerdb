@@ -68,7 +68,7 @@ func (q *QRepFlowExecution) GetPartitions(
 	return partitions, nil
 }
 
-// ReplicateParititon replicates the given partition.
+// ReplicatePartitions replicates the partition batch.
 func (q *QRepFlowExecution) ReplicatePartitions(ctx workflow.Context, partitions *protos.QRepPartitionBatch) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
@@ -319,7 +319,7 @@ func QRepFlowWorkflow(
 	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
 }
 
-// QRepPartitionWorkflow replicate a single partition.
+// QRepPartitionWorkflow replicate a partition batch
 func QRepPartitionWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
