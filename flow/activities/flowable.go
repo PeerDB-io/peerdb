@@ -378,10 +378,12 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-	log.Infof("replicating partitions for job - %s - batch %d\n", config.FlowJobName, partitions.BatchId)
-	for _, p := range partitions.Partitions {
-		log.Infof("replicating partition - %s\n", p.PartitionId)
-		err := a.ReplicateQRepPartition(ctx, config, p, runUUID)
+	numPartitions := len(partitions.Partitions)
+	log.Infof("replicating partitions for job - %s - batch %d - size: %d\n",
+		config.FlowJobName, partitions.BatchId, numPartitions)
+	for i, p := range partitions.Partitions {
+		log.Infof("batch-%d - replicating partition - %s\n", partitions.BatchId, p.PartitionId)
+		err := a.replicateQRepPartition(ctx, config, i+1, numPartitions, p, runUUID)
 		if err != nil {
 			return err
 		}
@@ -391,8 +393,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 }
 
 // ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
-func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
+func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	config *protos.QRepConfig,
+	idx int,
+	total int,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
@@ -466,7 +470,7 @@ func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
-		return fmt.Sprintf("syncing partition - %s", partition.PartitionId)
+		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	})
 
 	defer func() {

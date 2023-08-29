@@ -78,7 +78,8 @@ func (q *QRepFlowExecution) ReplicatePartitions(ctx workflow.Context, partitions
 		HeartbeatTimeout: 1 * time.Hour,
 	})
 
-	q.logger.Info("replicating partition", "partition", partitions.BatchId)
+	msg := fmt.Sprintf("replicating partition batch - %d", partitions.BatchId)
+	q.logger.Info(msg)
 	if err := workflow.ExecuteActivity(ctx,
 		flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to replicate partition: %w", err)
@@ -150,7 +151,7 @@ func (q *QRepFlowExecution) processPartitions(
 	for i, parts := range batches {
 		batch := &protos.QRepPartitionBatch{
 			Partitions: parts,
-			BatchId:    int32(i),
+			BatchId:    int32(i + 1),
 		}
 		future, err := q.startChildWorkflow(ctx, batch)
 		if err != nil {
