@@ -286,7 +286,10 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	query string,
 	args ...interface{},
 ) (int, error) {
-
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("Executing and processing query stream '%s'", query)
 	defer close(stream.Records)
 
 	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
@@ -335,12 +338,16 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	fetchSize := shared.FetchAndChannelSize
 
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
+	log.Infoln("Args for cursor declaration: ", args)
 	_, err = tx.Exec(qe.ctx, cursorQuery, args...)
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{
 			Err: fmt.Errorf("failed to declare cursor: %w", err),
 		}
-		log.Errorf("[pg_query_executor] failed to declare cursor: %v", err)
+		log.WithFields(log.Fields{
+			"flowName":    qe.flowJobName,
+			"partitionID": qe.partitionID,
+		}).Infof("[pg_query_executor] failed to declare cursor with query %v: %v", cursorQuery, err)
 		return 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
 	}
 

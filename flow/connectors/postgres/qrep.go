@@ -353,8 +353,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		query := config.Query
-		_, err := executor.ExecuteAndProcessQueryStream(stream, query,
-			config.FlowJobName, partition.PartitionId)
+		_, err := executor.ExecuteAndProcessQueryStream(stream, query)
 		return 0, err
 	}
 	log.WithFields(log.Fields{
