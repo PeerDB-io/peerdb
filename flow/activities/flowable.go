@@ -373,6 +373,23 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 }
 
 // ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
+func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
+	config *protos.QRepConfig,
+	partition []*protos.QRepPartition,
+	runUUID string,
+) error {
+	for _, p := range partition {
+		log.Infof("replicating partition - %s\n", p.PartitionId)
+		err := a.ReplicateQRepPartition(ctx, config, p, runUUID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
 func (a *FlowableActivity) ReplicateQRepPartition(ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
