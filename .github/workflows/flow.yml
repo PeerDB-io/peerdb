@@ -3,6 +3,8 @@ name: Flow build and test
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 jobs:
   flow_test:
