@@ -72,10 +72,7 @@ func (q *QRepFlowExecution) GetPartitions(
 func (q *QRepFlowExecution) ReplicatePartitions(ctx workflow.Context, partitions *protos.QRepPartitionBatch) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-		HeartbeatTimeout: 1 * time.Hour,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 
 	msg := fmt.Sprintf("replicating partition batch - %d", partitions.BatchId)
