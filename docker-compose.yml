@@ -13,11 +13,11 @@ x-flow-worker-env: &flow-worker-env
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
   AWS_REGION: ${AWS_REGION:-""}
 # enables worker profiling using Go's pprof
-  ENABLE_PROFILING: true
+  ENABLE_PROFILING: "true"
 # enables exporting of mirror metrics to Prometheus for visualization using Grafana
-  ENABLE_METRICS: true
+  ENABLE_METRICS: "true"
 # enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
-  ENABLE_STATS: true
+  ENABLE_STATS: "true"
 
 services:
   catalog:
@@ -83,6 +83,7 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+      - TEMPORAL_CSRF_COOKIE_INSECURE=true
     image: temporalio/ui:2.17.2
     ports:
       - 8085:8080
