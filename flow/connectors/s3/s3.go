@@ -12,6 +12,7 @@ import (
 )
 
 type S3Connector struct {
+	ctx    context.Context
 	url    string
 	client s3.S3
 }
@@ -23,13 +24,14 @@ func NewS3Connector(ctx context.Context,
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 	return &S3Connector{
+		ctx:    ctx,
 		url:    s3ProtoConfig.Url,
 		client: *s3Client,
 	}, nil
 }
 
 func (c *S3Connector) Close() error {
-	log.Errorf("Close not supported for S3")
+	log.Debugf("Closing s3 connector is a noop")
 	return nil
 }
 
@@ -53,18 +55,24 @@ func (c *S3Connector) GetLastOffset(jobName string) (*protos.LastSyncState, erro
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
+func (c *S3Connector) GetLastSyncBatchID(jobName string) (int64, error) {
+	log.Errorf("GetLastSyncBatchID not supported for S3")
+	return 0, fmt.Errorf("cdc based replication is not currently supported for S3 target")
+}
+
 func (c *S3Connector) GetLastNormalizeBatchID() (int64, error) {
 	log.Errorf("GetLastNormalizeBatchID not supported for S3")
 	return 0, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
-func (c *S3Connector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *S3Connector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	log.Errorf("GetTableSchema not supported for S3 flow connector")
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
-func (c *S3Connector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
+	*protos.SetupNormalizedTableBatchOutput, error) {
 	log.Errorf("SetupNormalizedTable not supported for S3")
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
@@ -94,15 +102,10 @@ func (c *S3Connector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.C
 	return nil, fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
-func (c *S3Connector) EnsurePullability(req *protos.EnsurePullabilityInput,
-) (*protos.EnsurePullabilityOutput, error) {
+func (c *S3Connector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
+) (*protos.EnsurePullabilityBatchOutput, error) {
 	log.Errorf("panicking at call to EnsurePullability for S3 flow connector")
 	panic("EnsurePullability is not implemented for the S3 flow connector")
-}
-
-func (c *S3Connector) SetupReplication(req *protos.SetupReplicationInput) error {
-	log.Errorf("panicking at call to SetupReplication for S3 flow connector")
-	panic("SetupReplication is not implemented for the S3 flow connector")
 }
 
 func (c *S3Connector) PullFlowCleanup(jobName string) error {

@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package peerdb_peers;
 
-option go_package = "generated/protos";
-
 message SnowflakeConfig {
   string account_id = 1;
   string username = 2;
@@ -43,6 +41,9 @@ message PostgresConfig {
   string user = 3;
   string password = 4;
   string database = 5;
+
+  // this is used only in query replication mode right now.
+  string transaction_snapshot = 6;
 }
 
 message EventHubConfig {

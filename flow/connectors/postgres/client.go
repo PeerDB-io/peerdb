@@ -1,14 +1,17 @@
 package connpostgres
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 )
 
 //nolint:stylecheck
@@ -40,20 +43,33 @@ const (
 	srcTableName      = "src"
 	mergeStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
-		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS rank
-		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3 
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
+		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
 	)
 	MERGE INTO %s dst
-	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE rank=1) src
+	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1) src
 	ON dst.%s=src.%s
-	WHEN NOT MATCHED THEN
+	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
 	INSERT (%s) VALUES (%s)
 	%s
 	WHEN MATCHED AND src._peerdb_record_type=2 THEN
 	DELETE`
+	fallbackUpsertStatementSQL = `WITH src_rank AS (
+		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
+		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
+	)
+	INSERT INTO %s (%s) SELECT %s FROM src_rank WHERE _peerdb_rank=1 AND _peerdb_record_type!=2
+	ON CONFLICT (%s) DO UPDATE SET %s`
+	fallbackDeleteStatementSQL = `WITH src_rank AS (
+		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
+		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
+	)
+	DELETE FROM %s USING src_rank WHERE %s.%s=%s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
 
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
-	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
 )
 
 // getRelIDForTable returns the relation ID for a table.
@@ -164,10 +180,12 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
+	signal *SlotSignal,
 	s *SlotCheckResult,
 	slot string,
 	publication string,
 	tableNameMapping map[string]string,
+	doInitialCopy bool,
 ) error {
 	/*
 		iterating through source tables and creating a publication.
@@ -187,18 +205,62 @@ func (c *PostgresConnector) createSlotAndPublication(
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
 		_, err := c.pool.Exec(c.ctx, stmt)
 		if err != nil {
-			return fmt.Errorf("error creating publication: %w", err)
+			log.Warnf("Error creating publication '%s': %v", publication, err)
 		}
 	}
 
 	// create slot only after we succeeded in creating publication.
 	if !s.SlotExists {
-		// Create the logical replication slot
-		_, err := c.pool.Exec(c.ctx,
-			"SELECT * FROM pg_create_logical_replication_slot($1, 'pgoutput')",
-			slot)
+		conn, err := c.replPool.Acquire(c.ctx)
 		if err != nil {
-			return fmt.Errorf("error creating replication slot: %w", err)
+			return fmt.Errorf("[slot] error acquiring connection: %w", err)
+		}
+
+		defer conn.Release()
+
+		log.Infof("Creating replication slot '%s'", slot)
+
+		_, err = conn.Exec(c.ctx, "SET idle_in_transaction_session_timeout = 0")
+		if err != nil {
+			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
+		}
+
+		opts := pglogrepl.CreateReplicationSlotOptions{
+			Temporary: false,
+			Mode:      pglogrepl.LogicalReplication,
+		}
+		res, err := pglogrepl.CreateReplicationSlot(c.ctx, conn.Conn().PgConn(), slot, "pgoutput", opts)
+		if err != nil {
+			return fmt.Errorf("[slot] error creating replication slot: %w", err)
+		}
+
+		log.Infof("Created replication slot '%s'", slot)
+		if signal != nil {
+			slotDetails := &SlotCreationResult{
+				SlotName:     res.SlotName,
+				SnapshotName: res.SnapshotName,
+				Err:          nil,
+			}
+			signal.SlotCreated <- slotDetails
+			log.Infof("Waiting for clone to complete")
+			<-signal.CloneComplete
+			log.Infof("Clone complete")
+		}
+	} else {
+		log.Infof("Replication slot '%s' already exists", slot)
+		if signal != nil {
+			var e error
+			if doInitialCopy {
+				e = errors.New("slot already exists")
+			} else {
+				e = nil
+			}
+			slotDetails := &SlotCreationResult{
+				SlotName:     slot,
+				SnapshotName: "",
+				Err:          e,
+			}
+			signal.SlotCreated <- slotDetails
 		}
 	}
 
@@ -223,10 +285,10 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s PRIMARY KEY,",
+			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s PRIMARY KEY,",
 				columnName, qValueKindToPostgresType(genericColumnType)))
 		} else {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("%s %s,", columnName,
+			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
 				qValueKindToPostgresType(genericColumnType)))
 		}
 	}
@@ -234,9 +296,12 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
 }
 
-func (c *PostgresConnector) getLastSyncBatchID(jobName string) (int64, error) {
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, internalSchema,
-		mirrorJobsTableIdentifier), jobName)
+func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
+	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(
+		getLastSyncBatchID_SQL,
+		internalSchema,
+		mirrorJobsTableIdentifier,
+	), jobName)
 	if err != nil {
 		return 0, fmt.Errorf("error querying Postgres peer for last syncBatchId: %w", err)
 	}
@@ -376,23 +441,72 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	return resultMap, nil
 }
 
+func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifier string,
+	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool) []string {
+	if supportsMerge {
+		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns, rawTableIdentifier)}
+	} else {
+		log.Warnf("Postgres version is not high enough to support MERGE, falling back to UPSERT + DELETE")
+		log.Warnf("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
+		return c.generateFallbackStatements(destinationTableIdentifier, rawTableIdentifier)
+	}
+}
+
+func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string,
+	rawTableIdentifier string) []string {
+	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
+	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
+	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
+	var primaryKeyColumnCast string
+	for columnName, genericColumnType := range normalizedTableSchema.Columns {
+		columnNames = append(columnNames, fmt.Sprintf("\"%s\"", columnName))
+		pgType := qValueKindToPostgresType(genericColumnType)
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
+			columnName, pgType, columnName))
+		if normalizedTableSchema.PrimaryKeyColumn == columnName {
+			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+		}
+	}
+	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
+
+	insertColumnsSQL := strings.TrimSuffix(strings.Join(columnNames, ","), ",")
+	updateColumnsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
+	for columnName := range normalizedTableSchema.Columns {
+		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf("%s=EXCLUDED.%s", columnName, columnName))
+	}
+	updateColumnsSQL := strings.TrimSuffix(strings.Join(updateColumnsSQLArray, ","), ",")
+	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL, primaryKeyColumnCast, internalSchema,
+		rawTableIdentifier, destinationTableIdentifier, insertColumnsSQL, flattenedCastsSQL,
+		normalizedTableSchema.PrimaryKeyColumn, updateColumnsSQL)
+	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL, primaryKeyColumnCast, internalSchema,
+		rawTableIdentifier, destinationTableIdentifier, destinationTableIdentifier,
+		normalizedTableSchema.PrimaryKeyColumn, primaryKeyColumnCast)
+
+	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
+}
+
 func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier string, unchangedToastColumns []string,
 	rawTableIdentifier string) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
-	// TODO: switch this to function maps.Keys when it is moved into Go's stdlib
-	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
-	for columnName := range normalizedTableSchema.Columns {
-		columnNames = append(columnNames, columnName)
+	columnNames := maps.Keys(normalizedTableSchema.Columns)
+	for i, columnName := range columnNames {
+		columnNames[i] = fmt.Sprintf("\"%s\"", columnName)
 	}
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	var primaryKeyColumnCast string
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		pgType := qValueKindToPostgresType(genericColumnType)
-		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
-			columnName, pgType, columnName))
+		if strings.Contains(genericColumnType, "array") {
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS %s",
+					strings.Trim(columnName, "\""), pgType, columnName))
+		} else {
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
+				strings.Trim(columnName, "\""), pgType, columnName))
+		}
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {
-			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", strings.Trim(columnName, "\""), pgType)
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
@@ -415,16 +529,63 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 
 	for _, cols := range unchangedToastColsLists {
 		unchangedColsArray := strings.Split(cols, ",")
+		for i, col := range unchangedColsArray {
+			unchangedColsArray[i] = fmt.Sprintf("\"%s\"", col)
+		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ",")
+		quotedCols := strings.Join(unchangedColsArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 		src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
-		THEN UPDATE SET %s `, cols, ssep)
+		THEN UPDATE SET %s `, quotedCols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return strings.Join(updateStmts, "\n")
+}
+
+func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error) {
+	countTablesBatch := &pgx.Batch{}
+	totalCount := int64(0)
+	for _, table := range tables {
+		_, err := parseSchemaTable(table)
+		if err != nil {
+			log.Errorf("error while parsing table %s: %v", table, err)
+			return 0, fmt.Errorf("error while parsing table %s: %w", table, err)
+		}
+		countTablesBatch.Queue(
+			fmt.Sprintf("SELECT reltuples::bigint AS estimate FROM pg_class WHERE oid = '%s'::regclass;", table)).
+			QueryRow(func(row pgx.Row) error {
+				var count int64
+				err := row.Scan(&count)
+				if err != nil {
+					log.WithFields(log.Fields{
+						"table": table,
+					}).Errorf("error while scanning row: %v", err)
+					return fmt.Errorf("error while scanning row: %w", err)
+				}
+				totalCount += count
+				return nil
+			})
+	}
+	countTablesResults := c.pool.SendBatch(c.ctx, countTablesBatch)
+	err := countTablesResults.Close()
+	if err != nil {
+		log.Errorf("error while closing statement batch: %v", err)
+		return 0, fmt.Errorf("error while closing statement batch: %w", err)
+	}
+	return totalCount, nil
+}
+
+func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
+	row := c.pool.QueryRow(c.ctx, "SELECT pg_current_wal_lsn();")
+	var result string
+	err := row.Scan(&result)
+	if err != nil {
+		return 0, fmt.Errorf("error while running query: %w", err)
+	}
+	return pglogrepl.ParseLSN(result)
 }

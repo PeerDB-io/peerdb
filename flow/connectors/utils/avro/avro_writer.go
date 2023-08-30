@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"go.temporal.io/sdk/activity"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -15,70 +17,118 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func createOCFWriter(w io.Writer, avroSchema *model.QRecordAvroSchemaDefinition) (*goavro.OCFWriter, error) {
+type PeerDBOCFWriter struct {
+	ctx        context.Context
+	stream     *model.QRecordStream
+	avroSchema *model.QRecordAvroSchemaDefinition
+}
+
+func NewPeerDBOCFWriter(
+	ctx context.Context,
+	stream *model.QRecordStream,
+	avroSchema *model.QRecordAvroSchemaDefinition,
+) *PeerDBOCFWriter {
+	return &PeerDBOCFWriter{
+		ctx:        ctx,
+		stream:     stream,
+		avroSchema: avroSchema,
+	}
+}
+
+func (p *PeerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error) {
 	ocfWriter, err := goavro.NewOCFWriter(goavro.OCFConfig{
 		W:      w,
-		Schema: avroSchema.Schema,
+		Schema: p.avroSchema.Schema,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OCF writer: %w", err)
 	}
-
 	return ocfWriter, nil
 }
 
-func writeRecordsToOCFWriter(
-	ocfWriter *goavro.OCFWriter,
-	records *model.QRecordBatch,
-	avroSchema *model.QRecordAvroSchemaDefinition) error {
-	colNames := records.Schema.GetColumnNames()
+func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (int, error) {
+	schema, err := p.stream.Schema()
+	if err != nil {
+		log.Errorf("failed to get schema from stream: %v", err)
+		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
+	}
 
-	for _, qRecord := range records.Records {
+	colNames := schema.GetColumnNames()
+	numRows := 0
+	const heartBeatNumRows = 10000
+	for qRecordOrErr := range p.stream.Records {
+		if qRecordOrErr.Err != nil {
+			log.Errorf("[avro] failed to get record from stream: %v", qRecordOrErr.Err)
+			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
+		}
+
+		qRecord := qRecordOrErr.Record
 		avroConverter := model.NewQRecordAvroConverter(
 			qRecord,
 			qvalue.QDWHTypeSnowflake,
-			&avroSchema.NullableFields,
+			&p.avroSchema.NullableFields,
 			colNames,
 		)
+
 		avroMap, err := avroConverter.Convert()
 		if err != nil {
 			log.Errorf("failed to convert QRecord to Avro compatible map: %v", err)
-			return fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
+			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}
 
 		err = ocfWriter.Append([]interface{}{avroMap})
 		if err != nil {
 			log.Errorf("failed to write record to OCF: %v", err)
-			return fmt.Errorf("failed to write record to OCF: %w", err)
+			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
 		}
+
+		if numRows%heartBeatNumRows == 0 {
+			log.Infof("written %d rows to OCF", numRows)
+			msg := fmt.Sprintf("written %d rows to OCF", numRows)
+			if p.ctx != nil {
+				activity.RecordHeartbeat(p.ctx, msg)
+			}
+		}
+
+		numRows++
 	}
 
-	return nil
+	if p.ctx != nil {
+		msg := fmt.Sprintf("written all: %d rows to OCF", numRows)
+		activity.RecordHeartbeat(p.ctx, msg)
+	}
+
+	return numRows, nil
 }
 
-func WriteRecordsToS3(
-	records *model.QRecordBatch,
-	avroSchema *model.QRecordAvroSchemaDefinition,
-	bucketName, key string) error {
-	r, w := io.Pipe()
+func (p *PeerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
+	ocfWriter, err := p.createOCFWriter(w)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
+	}
+	numRows, err := p.writeRecordsToOCFWriter(ocfWriter)
+	if err != nil {
+		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
+	}
+	return numRows, nil
+}
 
+func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string) (int, error) {
+	r, w := io.Pipe()
+	numRowsWritten := make(chan int, 1)
 	go func() {
 		defer w.Close()
-
-		ocfWriter, err := createOCFWriter(w, avroSchema)
+		numRows, err := p.WriteOCF(w)
 		if err != nil {
-			log.Fatalf("failed to create OCF writer: %v", err)
+			log.Fatalf("%v", err)
 		}
-
-		if err := writeRecordsToOCFWriter(ocfWriter, records, avroSchema); err != nil {
-			log.Fatalf("failed to write records to OCF writer: %v", err)
-		}
+		numRowsWritten <- numRows
 	}()
 
 	s3svc, err := utils.CreateS3Client()
 	if err != nil {
 		log.Errorf("failed to create S3 client: %v", err)
-		return fmt.Errorf("failed to create S3 client: %w", err)
+		return 0, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
 	// Create an uploader with the session and default options
@@ -93,35 +143,19 @@ func WriteRecordsToS3(
 
 	if err != nil {
 		log.Errorf("failed to upload file: %v", err)
-		return fmt.Errorf("failed to upload file: %w", err)
+		return 0, fmt.Errorf("failed to upload file: %w", err)
 	}
 
 	log.Infof("file uploaded to, %s", result.Location)
 
-	return nil
+	return <-numRowsWritten, nil
 }
 
-func WriteRecordsToAvroFile(
-	records *model.QRecordBatch,
-	avroSchema *model.QRecordAvroSchemaDefinition,
-	filePath string) error {
+func (p *PeerDBOCFWriter) WriteRecordsToAvroFile(filePath string) (int, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
-		log.Errorf("failed to create file: %v", err)
-		return fmt.Errorf("failed to create file: %w", err)
+		return 0, fmt.Errorf("failed to create file: %w", err)
 	}
 	defer file.Close()
-
-	ocfWriter, err := createOCFWriter(file, avroSchema)
-	if err != nil {
-		log.Errorf("failed to create OCF writer: %v", err)
-		return err
-	}
-
-	if err := writeRecordsToOCFWriter(ocfWriter, records, avroSchema); err != nil {
-		log.Errorf("failed to write records to OCF writer: %v", err)
-		return err
-	}
-
-	return nil
+	return p.WriteOCF(file)
 }

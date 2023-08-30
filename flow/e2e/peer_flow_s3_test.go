@@ -52,6 +52,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_S3() {
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.s3Helper.GetPeer(),
+		"stage",
 	)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
@@ -86,6 +87,67 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_S3() {
 	require.NoError(s.T(), err)
 
 	require.Equal(s.T(), 1, len(files))
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_S3_CTID() {
+	if s.s3Helper == nil {
+		s.T().Skip("Skipping S3 test")
+	}
+
+	env := s.NewTestWorkflowEnvironment()
+	registerWorkflowsAndActivities(env)
+
+	ru, err := util.RandomUInt64()
+	s.NoError(err)
+
+	jobName := fmt.Sprintf("test_complete_flow_s3_ctid_%d", ru)
+	schemaQualifiedName := fmt.Sprintf("e2e_test.%s", jobName)
+	_, err = s.pool.Exec(context.Background(), `
+		CREATE TABLE `+schemaQualifiedName+` (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL
+		);
+	`)
+	s.NoError(err)
+
+	tblName := "test_qrep_flow_s3_ctid"
+	s.setupSourceTable(tblName, 20000)
+	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE ctid BETWEEN {{.start}} AND {{.end}}", tblName)
+	qrepConfig := s.createQRepWorkflowConfig(
+		jobName,
+		"e2e_test."+tblName,
+		"e2e_dest_ctid",
+		query,
+		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		s.s3Helper.GetPeer(),
+		"stage",
+	)
+	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
+	qrepConfig.NumRowsPerPartition = 2000
+	qrepConfig.InitialCopyOnly = true
+	qrepConfig.WatermarkColumn = "ctid"
+
+	runQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	s.NoError(err)
+
+	// Verify destination has 1 file
+	// make context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	files, err := s.s3Helper.ListAllFiles(ctx, jobName)
+
+	require.NoError(s.T(), err)
+
+	require.Equal(s.T(), 10, len(files))
 
 	env.AssertExpectations(s.T())
 }

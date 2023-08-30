@@ -54,7 +54,12 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 	}
 }
 
-func generateRecords(t *testing.T, nullable bool, numRows uint32) *model.QRecordBatch {
+func generateRecords(
+	t *testing.T,
+	nullable bool,
+	numRows uint32,
+	allnulls bool,
+) (*model.QRecordStream, *model.QRecordSchema) {
 	allQValueKinds := []qvalue.QValueKind{
 		qvalue.QValueKindFloat32,
 		qvalue.QValueKindFloat64,
@@ -104,6 +109,9 @@ func generateRecords(t *testing.T, nullable bool, numRows uint32) *model.QRecord
 		for i, kind := range allQValueKinds {
 			placeHolder := int(row) * i
 			entries[i] = createQValue(t, kind, placeHolder)
+			if allnulls {
+				entries[i].Value = nil
+			}
 		}
 
 		records.Records[row] = &model.QRecord{
@@ -111,7 +119,10 @@ func generateRecords(t *testing.T, nullable bool, numRows uint32) *model.QRecord
 		}
 	}
 
-	return records
+	stream, err := records.ToQRecordStream(1024)
+	require.NoError(t, err)
+
+	return stream, schema
 }
 
 func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
@@ -123,15 +134,16 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	defer tmpfile.Close()           // close file after test ends
 
 	// Define sample data
-	records := generateRecords(t, true, 10)
+	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", records.Schema)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
 	require.NoError(t, err)
 
 	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
 
 	// Call function
-	err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(nil, records, avroSchema)
+	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -148,15 +160,16 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 	defer os.Remove(tmpfile.Name()) // clean up
 	defer tmpfile.Close()           // close file after test ends
 
-	records := generateRecords(t, false, 10)
+	records, schema := generateRecords(t, false, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", records.Schema)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
 	require.NoError(t, err)
 
 	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
 
 	// Call function
-	err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(nil, records, avroSchema)
+	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -174,21 +187,16 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	defer tmpfile.Close()           // close file after test ends
 
 	// Define sample data
-	records := generateRecords(t, true, 10)
+	records, schema := generateRecords(t, true, 10, true)
 
-	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", records.Schema)
+	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
 	require.NoError(t, err)
 
 	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
 
-	for i, record := range records.Records {
-		for j := range record.Entries {
-			records.Records[i].Entries[j].Value = nil
-		}
-	}
-
 	// Call function
-	err = avro.WriteRecordsToAvroFile(records, avroSchema, tmpfile.Name())
+	writer := avro.NewPeerDBOCFWriter(nil, records, avroSchema)
+	_, err = writer.WriteRecordsToAvroFile(tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty

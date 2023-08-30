@@ -61,6 +61,15 @@ SELECT JSONB -> 'gender' FROM pg_test.test.test_table;
 
 SELECT INT8 FROM pg_test.test.test_table WHERE INT4=172;
 
+SELECT internet4 FROM pg_test.test.test_table;
+SELECT internet6 FROM pg_test.test.test_table;
+SELECT internet6::TEXT FROM pg_test.test.test_table;
+SELECT cidr4 FROM pg_test.test.test_table;
+SELECT cidr6 FROM pg_test.test.test_table;
+SELECT netmask(cidr4) FROM pg_test.test.test_table;
+SELECT network(cidr4)::TEXT FROM pg_test.test.test_table;
+SELECT * FROM pg_test.test.test_table WHERE cidr4 << '192.168.0.0/24'::CIDR;
+
 DROP TABLE pg_test.test.test_table;
 
 CREATE TABLE IF NOT EXISTS pg_test.test.temp_table(INT4 INT4, BOOL BOOL, INT8 INT8 PRIMARY KEY);

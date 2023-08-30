@@ -90,12 +90,8 @@ func (c *EventHubConnector) ConnectionActive() bool {
 }
 
 func (c *EventHubConnector) EnsurePullability(
-	req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error) {
+	req *protos.EnsurePullabilityBatchInput) (*protos.EnsurePullabilityBatchOutput, error) {
 	panic("ensure pullability not implemented for event hub")
-}
-
-func (c *EventHubConnector) SetupReplication(req *protos.SetupReplicationInput) error {
-	panic("setup replication not implemented for event hub")
 }
 
 func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
@@ -236,7 +232,10 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	for _, table := range tableMap {
 		err := c.ensureEventHub(c.ctx, table)
 		if err != nil {
-			log.Errorf("failed to get event hub properties: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+				"table":    table,
+			}).Errorf("failed to get event hub properties: %v", err)
 			return nil, err
 		}
 	}
@@ -244,7 +243,8 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	return nil, nil
 }
 
-func (c *EventHubConnector) GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error) {
+func (c *EventHubConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	panic("get table schema not implemented for event hub")
 }
 
@@ -301,8 +301,9 @@ func (c *EventHubConnector) getEventHubMgmtClient() (*armeventhub.EventHubsClien
 
 // Normalization
 
-func (c *EventHubConnector) SetupNormalizedTable(
-	req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error) {
+func (c *EventHubConnector) SetupNormalizedTables(
+	req *protos.SetupNormalizedTableBatchInput) (
+	*protos.SetupNormalizedTableBatchOutput, error) {
 	log.Infof("normalization for event hub is a no-op")
 	return nil, nil
 }

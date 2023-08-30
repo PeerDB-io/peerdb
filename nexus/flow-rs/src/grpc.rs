@@ -8,9 +8,11 @@ use pt::{
     peerdb_route,
 };
 use serde_json::Value;
+use tonic_health::pb::health_client;
 
 pub struct FlowGrpcClient {
     client: peerdb_route::flow_service_client::FlowServiceClient<tonic::transport::Channel>,
+    health_client: health_client::HealthClient<tonic::transport::Channel>,
 }
 
 async fn connect_with_retries(grpc_endpoint: String) -> anyhow::Result<tonic::transport::Channel> {
@@ -57,9 +59,15 @@ impl FlowGrpcClient {
         let channel = connect_with_retries(grpc_endpoint).await?;
 
         // construct a grpc client to the flow server
-        let client = peerdb_route::flow_service_client::FlowServiceClient::new(channel);
+        let client = peerdb_route::flow_service_client::FlowServiceClient::new(channel.clone());
 
-        Ok(Self { client })
+        // construct a health client to the flow server, use the grpc endpoint
+        let health_client = health_client::HealthClient::new(channel);
+
+        Ok(Self {
+            client,
+            health_client,
+        })
     }
 
     async fn start_query_replication_flow(
@@ -123,11 +131,37 @@ impl FlowGrpcClient {
             );
         });
 
+        let do_initial_copy = job.do_initial_copy;
+        let publication_name = job.publication_name.clone();
+        let replication_slot_name = job.replication_slot_name.clone();
+        let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
+        let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
+        let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
+
         let flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
             source: Some(src),
             destination: Some(dst),
             flow_job_name: job.name.clone(),
             table_name_mapping: src_dst_name_map,
+            do_initial_copy,
+            publication_name: publication_name.unwrap_or_default(),
+            snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
+            snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
+            snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
+            snapshot_sync_mode: job
+                .snapshot_sync_mode
+                .clone()
+                .map(|s| s.as_proto_sync_mode())
+                .unwrap_or(0),
+            snapshot_staging_path: job.snapshot_staging_path.clone().unwrap_or_default(),
+            cdc_sync_mode: job
+                .cdc_sync_mode
+                .clone()
+                .map(|s| s.as_proto_sync_mode())
+                .unwrap_or(0),
+            cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
+            soft_delete: job.soft_delete,
+            replication_slot_name: replication_slot_name.unwrap_or_default(),
             ..Default::default()
         };
 
@@ -214,6 +248,13 @@ impl FlowGrpcClient {
                     }
                     _ => return anyhow::Result::Err(anyhow::anyhow!("invalid num option {}", key)),
                 },
+                Value::Bool(v) => {
+                    if key == "initial_copy_only" {
+                        cfg.initial_copy_only = *v;
+                    } else {
+                        return anyhow::Result::Err(anyhow::anyhow!("invalid bool option {}", key));
+                    }
+                }
                 _ => {
                     tracing::info!("ignoring option {} with value {:?}", key, value);
                 }
@@ -224,18 +265,23 @@ impl FlowGrpcClient {
     }
 
     pub async fn is_healthy(&mut self) -> anyhow::Result<bool> {
-        let health_check_req = pt::peerdb_route::HealthCheckRequest {
-            // this is a dummy message, the flow server will respond with a health check response
-            message: "ping".to_string(),
+        let health_check_req = tonic_health::pb::HealthCheckRequest {
+            service: "".to_string(),
         };
 
-        let response = self
-            .client
-            .health_check(health_check_req)
+        self.health_client
+            .check(health_check_req)
             .await
-            .with_context(|| "failed to send health check request to flow server")?;
-        let health_check_response = response.into_inner();
-
-        Ok(health_check_response.ok)
+            .map_or_else(
+                |e| {
+                    tracing::error!("failed to check health of flow server: {}", e);
+                    Ok(false)
+                },
+                |response| {
+                    let status = response.into_inner().status;
+                    tracing::info!("flow server health status: {:?}", status);
+                    Ok(status == (tonic_health::ServingStatus::Serving as i32))
+                },
+            )
     }
 }

@@ -25,21 +25,29 @@ func (c *S3Connector) PullQRepRecords(config *protos.QRepConfig,
 func (c *S3Connector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	records *model.QRecordBatch,
+	stream *model.QRecordStream,
 ) (int, error) {
-	if len(records.Records) == 0 {
-		return 0, nil
+	schema, err := stream.Schema()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"flowName":    config.FlowJobName,
+			"partitionID": partition.PartitionId,
+		}).Errorf("failed to get schema from stream: %v", err)
+		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
+
 	dstTableName := config.DestinationTableIdentifier
-	avroSchema, err := getAvroSchema(dstTableName, records.Schema)
+	avroSchema, err := getAvroSchema(dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
-	err = c.writeToAvroFile(records, avroSchema, partition.PartitionId, config.FlowJobName)
+
+	numRecords, err := c.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
-	return len(records.Records), nil
+
+	return numRecords, nil
 }
 
 func getAvroSchema(
@@ -55,23 +63,24 @@ func getAvroSchema(
 }
 
 func (c *S3Connector) writeToAvroFile(
-	records *model.QRecordBatch,
+	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
 	jobName string,
-) error {
+) (int, error) {
 	s3o, err := utils.NewS3BucketAndPrefix(c.url)
 	if err != nil {
-		return fmt.Errorf("failed to parse bucket path: %w", err)
+		return 0, fmt.Errorf("failed to parse bucket path: %w", err)
 	}
 
 	s3Key := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
-	err = avro.WriteRecordsToS3(records, avroSchema, s3o.Bucket, s3Key)
+	writer := avro.NewPeerDBOCFWriter(c.ctx, stream, avroSchema)
+	numRecords, err := writer.WriteRecordsToS3(s3o.Bucket, s3Key)
 	if err != nil {
-		return fmt.Errorf("failed to write records to S3: %w", err)
+		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}
 
-	return nil
+	return numRecords, nil
 }
 
 // S3 just sets up destination, not metadata tables

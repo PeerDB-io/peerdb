@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	PeerFlowStatusQuery          = "q-peer-flow-status"
-	maxSyncFlowsPerPeerFlow      = 32
-	maxNormalizeFlowsPerPeerFlow = 32
+	PeerFlowStatusQuery     = "q-peer-flow-status"
+	maxSyncFlowsPerPeerFlow = 32
 )
 
 type PeerFlowLimits struct {
@@ -80,6 +79,19 @@ func NewStartedPeerFlowState() *PeerFlowState {
 		SetupComplete:         false,
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
+	}
+}
+
+// truncate the progress and other arrays to a max of 10 elements
+func (s *PeerFlowState) TruncateProgress() {
+	if len(s.Progress) > 10 {
+		s.Progress = s.Progress[len(s.Progress)-10:]
+	}
+	if len(s.SyncFlowStatuses) > 10 {
+		s.SyncFlowStatuses = s.SyncFlowStatuses[len(s.SyncFlowStatuses)-10:]
+	}
+	if len(s.NormalizeFlowStatuses) > 10 {
+		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:]
 	}
 }
 
@@ -170,7 +182,7 @@ func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*Peer
 		WorkflowID:        peerflowWithConfigID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 2,
+			MaximumAttempts: 20,
 		},
 	}
 
@@ -209,10 +221,6 @@ func PeerFlowWorkflowWithConfig(
 
 	w := NewPeerFlowWorkflowExecution(ctx)
 
-	if limits.TotalNormalizeFlows == 0 {
-		limits.TotalNormalizeFlows = maxNormalizeFlowsPerPeerFlow
-	}
-
 	if limits.TotalSyncFlows == 0 {
 		limits.TotalSyncFlows = maxSyncFlowsPerPeerFlow
 	}
@@ -250,7 +258,7 @@ func PeerFlowWorkflowWithConfig(
 			WorkflowID:        setupFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 2,
+				MaximumAttempts: 20,
 			},
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
@@ -259,8 +267,27 @@ func PeerFlowWorkflowWithConfig(
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
 
+		// next part of the setup is to snapshot-initial-copy and setup replication slots.
+		snapshotFlowID, err := GetChildWorkflowID(ctx, "snapshot-flow", cfg.FlowJobName)
+		if err != nil {
+			return state, err
+		}
+		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
+			WorkflowID:        snapshotFlowID,
+			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 20,
+			},
+			TaskQueue: shared.SnapshotFlowTaskQueue,
+		}
+		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
+		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
+		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
+			return state, fmt.Errorf("failed to execute child workflow: %w", err)
+		}
+
 		state.SetupComplete = true
-		state.Progress = append(state.Progress, "executed setup flow")
+		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{
@@ -268,13 +295,12 @@ func PeerFlowWorkflowWithConfig(
 	}
 
 	currentSyncFlowNum := 0
-	currentNormalizeFlowNum := 0
 
 	for {
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
 			w.logger.Info("peer flow has been shutdown")
-			break
+			return state, nil
 		}
 
 		// check if total sync flows have been completed
@@ -295,7 +321,7 @@ func PeerFlowWorkflowWithConfig(
 			WorkflowID:        syncFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 2,
+				MaximumAttempts: 20,
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
@@ -317,31 +343,16 @@ func PeerFlowWorkflowWithConfig(
 		})
 		selector.Select(ctx)
 
-		/*
-			NormalizeFlow - normalize raw changes on target to final table
-			SyncFlow and NormalizeFlow are independent.
-			TODO -
-			1. Currently NormalizeFlow runs right after SyncFlow. We need to make it asynchronous
-			NormalizeFlow will start only after Initial Load
-		*/
-		if limits.TotalNormalizeFlows != 0 && currentNormalizeFlowNum == limits.TotalNormalizeFlows {
-			w.logger.Info("All the normalizer flows have completed successfully, there was a"+
-				" limit on the number of normalizer to be executed: ", limits.TotalNormalizeFlows)
-			break
-		}
-		currentNormalizeFlowNum++
-
 		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
 		if err != nil {
 			return state, err
 		}
 
-		// execute the normalize flow as a child workflow
 		childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        normalizeFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 2,
+				MaximumAttempts: 20,
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
@@ -363,5 +374,6 @@ func PeerFlowWorkflowWithConfig(
 		selector.Select(ctx)
 	}
 
+	state.TruncateProgress()
 	return nil, workflow.NewContinueAsNewError(ctx, PeerFlowWorkflowWithConfig, cfg, limits, state)
 }

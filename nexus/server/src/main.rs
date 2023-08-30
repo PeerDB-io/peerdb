@@ -31,7 +31,10 @@ use pgwire::{
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
 };
-use pt::peerdb_peers::{peer::Config, Peer};
+use pt::{
+    flow_model::QRepFlowJob,
+    peerdb_peers::{peer::Config, Peer},
+};
 use rand::Rng;
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
@@ -146,6 +149,15 @@ impl NexusBackend {
         }
     }
 
+    fn is_peer_validity_supported(peer_type: i32) -> bool {
+        let unsupported_peer_types = vec![
+            4, // EVENTHUB
+            5, // S3
+            6, // SQLSERVER
+        ];
+        !unsupported_peer_types.contains(&peer_type)
+    }
+
     async fn handle_query<'a>(
         &self,
         nexus_stmt: NexusStatement,
@@ -157,20 +169,24 @@ impl NexusBackend {
                     peer,
                     if_not_exists: _,
                 } => {
-                    let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: format!("unable to get peer executor: {:?}", err),
-                        }))
-                    })?;
-                    peer_executor.is_connection_valid().await.map_err(|e| {
-                        self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
-                        PgWireError::UserError(Box::new(ErrorInfo::new(
-                            "ERROR".to_owned(),
-                            "internal_error".to_owned(),
-                            format!("[peer]: invalid configuration: {}", e.to_string()),
-                        )))
-                    })?;
-                    self.executors.remove(&peer.name);
+                    let peer_type = peer.r#type;
+                    if Self::is_peer_validity_supported(peer_type) {
+                        let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to get peer executor: {:?}", err),
+                            }))
+                        })?;
+                        peer_executor.is_connection_valid().await.map_err(|e| {
+                            self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
+                            PgWireError::UserError(Box::new(ErrorInfo::new(
+                                "ERROR".to_owned(),
+                                "internal_error".to_owned(),
+                                format!("[peer]: invalid configuration: {}", e),
+                            )))
+                        })?;
+                        self.executors.remove(&peer.name);
+                    }
+
                     let catalog = self.catalog.lock().await;
                     catalog.create_peer(peer.as_ref()).await.map_err(|e| {
                         PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -254,53 +270,67 @@ impl NexusBackend {
                         })));
                     }
 
-                    let catalog = self.catalog.lock().await;
-
-                    catalog
-                        .create_qrep_flow_job_entry(&qrep_flow_job)
-                        .await
-                        .map_err(|err| {
-                            PgWireError::ApiError(Box::new(PgError::Internal {
-                                err_msg: format!("unable to create mirror job entry: {:?}", err),
-                            }))
-                        })?;
-
-                    // get source and destination peers
-                    let src_peer =
+                    {
+                        let catalog = self.catalog.lock().await;
                         catalog
-                            .get_peer(&qrep_flow_job.source_peer)
+                            .create_qrep_flow_job_entry(&qrep_flow_job)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
-                                    err_msg: format!("unable to get source peer: {:?}", err),
+                                    err_msg: format!(
+                                        "unable to create mirror job entry: {:?}",
+                                        err
+                                    ),
                                 }))
                             })?;
+                    }
 
-                    let dst_peer =
-                        catalog
-                            .get_peer(&qrep_flow_job.target_peer)
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(Box::new(PgError::Internal {
-                                    err_msg: format!("unable to get destination peer: {:?}", err),
-                                }))
-                            })?;
+                    if qrep_flow_job.disabled {
+                        let create_mirror_success = format!("CREATE MIRROR {}", qrep_flow_job.name);
+                        return Ok(vec![Response::Execution(Tag::new_for_execution(
+                            &create_mirror_success,
+                            None,
+                        ))]);
+                    }
 
-                    // make a request to the flow service to start the job.
-                    let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-                    let _workflow_id = flow_handler
-                        .start_qrep_flow_job(&qrep_flow_job, src_peer, dst_peer)
-                        .await
-                        .map_err(|err| {
-                            PgWireError::ApiError(Box::new(PgError::Internal {
-                                err_msg: format!("unable to submit job: {:?}", err),
-                            }))
-                        })?;
+                    let _workflow_id = self.run_qrep_mirror(&qrep_flow_job).await?;
                     let create_mirror_success = format!("CREATE MIRROR {}", qrep_flow_job.name);
                     Ok(vec![Response::Execution(Tag::new_for_execution(
                         &create_mirror_success,
                         None,
                     ))])
+                }
+                PeerDDL::ExecuteMirrorForSelect { flow_job_name } => {
+                    if self.flow_handler.is_none() {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: "flow service is not configured".to_owned(),
+                        })));
+                    }
+
+                    if let Some(job) = {
+                        let catalog = self.catalog.lock().await;
+                        catalog
+                            .get_qrep_flow_job_by_name(&flow_job_name)
+                            .await
+                            .map_err(|err| {
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!("unable to get qrep flow job: {:?}", err),
+                                }))
+                            })?
+                    } {
+                        let workflow_id = self.run_qrep_mirror(&job).await?;
+                        let create_mirror_success = format!("STARTED WORKFLOW {}", workflow_id);
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            &create_mirror_success,
+                            None,
+                        ))])
+                    } else {
+                        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "error".to_owned(),
+                            format!("no such mirror: {:?}", flow_job_name),
+                        ))))
+                    }
                 }
                 PeerDDL::DropMirror {
                     if_exists,
@@ -356,7 +386,7 @@ impl NexusBackend {
                     } else if if_exists {
                         let no_mirror_success = "NO SUCH MIRROR";
                         Ok(vec![Response::Execution(Tag::new_for_execution(
-                            &no_mirror_success,
+                            no_mirror_success,
                             None,
                         ))])
                     } else {
@@ -421,6 +451,51 @@ impl NexusBackend {
 
             NexusStatement::Empty => Ok(vec![Response::EmptyQuery]),
         }
+    }
+
+    async fn run_qrep_mirror(&self, qrep_flow_job: &QRepFlowJob) -> PgWireResult<String> {
+        let catalog = self.catalog.lock().await;
+
+        // get source and destination peers
+        let src_peer = catalog
+            .get_peer(&qrep_flow_job.source_peer)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: format!("unable to get source peer: {:?}", err),
+                }))
+            })?;
+
+        let dst_peer = catalog
+            .get_peer(&qrep_flow_job.target_peer)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: format!("unable to get destination peer: {:?}", err),
+                }))
+            })?;
+
+        // make a request to the flow service to start the job.
+        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+        let workflow_id = flow_handler
+            .start_qrep_flow_job(qrep_flow_job, src_peer, dst_peer)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: format!("unable to submit job: {:?}", err),
+                }))
+            })?;
+
+        catalog
+            .update_workflow_id_for_flow_job(&qrep_flow_job.name, &workflow_id)
+            .await
+            .map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: format!("unable to update workflow for flow job: {:?}", err),
+                }))
+            })?;
+
+        Ok(workflow_id)
     }
 
     async fn get_peer_executor(&self, peer: &Peer) -> anyhow::Result<Arc<Box<dyn QueryExecutor>>> {
@@ -613,16 +688,7 @@ impl ExtendedQueryHandler for NexusBackend {
                                     })?;
                                 executor.describe(stmt).await?
                             }
-                            Some(Config::MongoConfig(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            Some(Config::EventhubConfig(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            Some(Config::S3Config(_)) => {
-                                panic!("peer type not supported: {:?}", peer)
-                            }
-                            Some(Config::SqlserverConfig(_)) => {
+                            Some(_peer) => {
                                 panic!("peer type not supported: {:?}", peer)
                             }
                             None => {
@@ -859,7 +925,7 @@ pub async fn main() -> anyhow::Result<()> {
     run_migrations(&catalog_config).await?;
 
     let peer_conns = {
-        let conn_str = catalog_config.get_connection_string();
+        let conn_str = catalog_config.to_pg_connection_string();
         let pconns = PeerConnections::new(&conn_str)?;
         Arc::new(pconns)
     };

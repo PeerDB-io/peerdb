@@ -20,18 +20,18 @@ type Connector interface {
 	NeedsSetupMetadataTables() bool
 	SetupMetadataTables() error
 	GetLastOffset(jobName string) (*protos.LastSyncState, error)
+	GetLastSyncBatchID(jobName string) (int64, error)
 
 	// GetTableSchema returns the schema of a table.
-	GetTableSchema(req *protos.GetTableSchemaInput) (*protos.TableSchema, error)
+	GetTableSchema(req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error)
 
-	// SetupNormalizedTable sets up the normalized table on the connector.
-	SetupNormalizedTable(req *protos.SetupNormalizedTableInput) (*protos.SetupNormalizedTableOutput, error)
+	// SetupNormalizedTables sets up the normalized table on the connector.
+	SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
+		*protos.SetupNormalizedTableBatchOutput, error)
 
 	// EnsurePullability ensures that the connector is pullable.
-	EnsurePullability(req *protos.EnsurePullabilityInput) (*protos.EnsurePullabilityOutput, error)
-
-	// SetupReplication sets up replication for the source connector
-	SetupReplication(req *protos.SetupReplicationInput) error
+	EnsurePullability(req *protos.EnsurePullabilityBatchInput) (
+		*protos.EnsurePullabilityBatchOutput, error)
 
 	// InitializeTableSchema initializes the table schema of all the destination tables for the connector.
 	InitializeTableSchema(req map[string]*protos.TableSchema) error
@@ -66,7 +66,11 @@ type Connector interface {
 
 	// SyncQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
-	SyncQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition, records *model.QRecordBatch) (int, error)
+	SyncQRepRecords(
+		config *protos.QRepConfig,
+		partition *protos.QRepPartition,
+		stream *model.QRecordStream,
+	) (int, error)
 
 	// ConsolidateQRepPartitions consolidates the partitions for a given table.
 	ConsolidateQRepPartitions(config *protos.QRepConfig) error

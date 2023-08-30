@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{anyhow, Context};
 use peer_cursor::QueryExecutor;
 use peer_postgres::PostgresQueryExecutor;
+use postgres_connection::{connect_postgres, get_pg_connection_string};
 use prost::Message;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
@@ -10,7 +11,6 @@ use pt::{
     peerdb_peers::{peer::Config, DbType, Peer},
 };
 use tokio_postgres::{types, Client};
-use urlencoding::encode;
 
 mod embedded {
     use refinery::embed_migrations;
@@ -72,48 +72,20 @@ impl CatalogConfig {
             user: self.user.clone(),
             password: self.password.clone(),
             database: self.database.clone(),
+            transaction_snapshot: "".to_string(),
         }
     }
 
-    // Get the connection string for this catalog configuration
-    pub fn get_connection_string(&self) -> String {
-        let mut connection_string = String::from("postgres://");
-
-        connection_string.push_str(&self.user);
-        if !self.password.is_empty() {
-            connection_string.push(':');
-            connection_string.push_str(&encode(&self.password));
-        }
-        connection_string.push('@');
-        connection_string.push_str(&self.host);
-        connection_string.push(':');
-        connection_string.push_str(&self.port.to_string());
-        connection_string.push('/');
-        connection_string.push_str(&self.database);
-
-        connection_string
+    pub fn to_pg_connection_string(&self) -> String {
+        get_pg_connection_string(&self.to_postgres_config())
     }
 }
 
 impl Catalog {
     pub async fn new(catalog_config: &CatalogConfig) -> anyhow::Result<Self> {
-        let connection_string = catalog_config.get_connection_string();
-
-        let (client, connection) =
-            tokio_postgres::connect(&connection_string, tokio_postgres::NoTls)
-                .await
-                .context("Failed to connect to catalog database")?;
-
-        tokio::task::Builder::new()
-            .name("Catalog connection")
-            .spawn(async move {
-                if let Err(e) = connection.await {
-                    tracing::error!("Connection error: {}", e);
-                }
-            })?;
-
-        let pg_config = catalog_config.to_postgres_config();
-        let executor = PostgresQueryExecutor::new(None, &pg_config).await?;
+        let pt_config = catalog_config.to_postgres_config();
+        let client = connect_postgres(&pt_config).await?;
+        let executor = PostgresQueryExecutor::new(None, &pt_config).await?;
         let boxed_trait = Box::new(executor) as Box<dyn QueryExecutor>;
 
         Ok(Self {
@@ -283,6 +255,33 @@ impl Catalog {
         }
     }
 
+    pub async fn get_peer_by_id(&self, peer_id: i32) -> anyhow::Result<Peer> {
+        let stmt = self
+            .pg
+            .prepare_typed("SELECT name, type, options FROM peers WHERE id = $1", &[])
+            .await?;
+
+        let rows = self.pg.query(&stmt, &[&peer_id]).await?;
+
+        if let Some(row) = rows.first() {
+            let name: String = row.get(0);
+            let peer_type: i32 = row.get(1);
+            let options: Vec<u8> = row.get(2);
+            let db_type = DbType::from_i32(peer_type);
+            let config = self.get_config(db_type, &name, options).await?;
+
+            let peer = Peer {
+                name: name.clone().to_lowercase(),
+                r#type: peer_type,
+                config,
+            };
+
+            Ok(peer)
+        } else {
+            Err(anyhow::anyhow!("No peer with id {} found", peer_id))
+        }
+    }
+
     pub async fn get_config(
         &self,
         db_type: Option<DbType>,
@@ -401,6 +400,36 @@ impl Catalog {
         Ok(())
     }
 
+    pub async fn get_qrep_flow_job_by_name(
+        &self,
+        job_name: &str,
+    ) -> anyhow::Result<Option<QRepFlowJob>> {
+        let stmt = self
+            .pg
+            .prepare_typed("SELECT f.*, sp.name as source_peer_name, dp.name as destination_peer_name FROM flows as f
+                            INNER JOIN peers as sp ON f.source_peer = sp.id
+                            INNER JOIN peers as dp ON f.destination_peer = dp.id
+                            WHERE f.name = $1", &[types::Type::TEXT])
+            .await?;
+
+        let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
+            QRepFlowJob {
+                name: row.get("name"),
+                source_peer: row.get("source_peer_name"),
+                target_peer: row.get("destination_peer_name"),
+                description: row.get("description"),
+                query_string: row.get("query_string"),
+                flow_options: serde_json::from_value(row.get("flow_metadata"))
+                    .context("unable to deserialize flow options")
+                    .unwrap_or_default(),
+                // we set the disabled flag to false by default
+                disabled: false,
+            }
+        });
+
+        Ok(job)
+    }
+
     pub async fn create_qrep_flow_job_entry(&self, job: &QRepFlowJob) -> anyhow::Result<()> {
         let source_peer_id = self
             .get_peer_id_i32(&job.source_peer)
@@ -488,11 +517,11 @@ impl Catalog {
         let destination_peer_id: i32 = first_row.get(2);
 
         let source_peer = self
-            .get_peer(&source_peer_id.to_string())
+            .get_peer_by_id(source_peer_id)
             .await
             .context("unable to get source peer")?;
         let destination_peer = self
-            .get_peer(&destination_peer_id.to_string())
+            .get_peer_by_id(destination_peer_id)
             .await
             .context("unable to get destination peer")?;
 
