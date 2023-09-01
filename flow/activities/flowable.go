@@ -205,7 +205,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	}
 	if a.CatalogMirrorMonitor.IsActive() && len(records.Records) > 0 {
 		syncBatchID, err := dest.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
-		if err != nil {
+		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
 			return nil, err
 		}
 
