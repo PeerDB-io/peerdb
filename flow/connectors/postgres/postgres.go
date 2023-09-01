@@ -591,7 +591,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
 
-	log.Warnf("tableSchema: %v", res)
 	return res, nil
 }
 

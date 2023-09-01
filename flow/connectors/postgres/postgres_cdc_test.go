@@ -344,6 +344,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	tableNameMapping := map[string]string{
 		nonExistentFlowSrcTableName: nonExistentFlowDstTableName,
 	}
+	relationMessageMapping := make(model.RelationMessageMapping)
 
 	getTblSchemaInput := &protos.GetTableSchemaBatchInput{
 		TableIdentifiers:     []string{nonExistentFlowSrcTableName},
@@ -397,6 +398,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
 		TableNameSchemaMapping: tableNameSchemaMapping,
+		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.Equal(0, len(recordsWithSchemaDelta.Records.Records))
 	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
@@ -430,6 +432,8 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	tableNameMapping := map[string]string{
 		simpleHappyFlowSrcTableName: simpleHappyFlowDstTableName,
 	}
+	relationMessageMapping := make(model.RelationMessageMapping)
+
 	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
 		FlowJobName:          simpleHappyFlowName,
 		TableNameMapping:     tableNameMapping,
@@ -468,12 +472,14 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
 		TableNameSchemaMapping: tableNameSchemaMapping,
+		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
 	suite.Equal(0, len(recordsWithSchemaDelta.Records.Records))
 	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
 	suite.Equal(int64(0), recordsWithSchemaDelta.Records.FirstCheckPointID)
 	suite.Equal(int64(0), recordsWithSchemaDelta.Records.LastCheckPointID)
+	relationMessageMapping = recordsWithSchemaDelta.RelationMessageMapping
 
 	// pulling after inserting records.
 	suite.insertSimpleRecords(simpleHappyFlowSrcTableName)
@@ -485,6 +491,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
 		TableNameSchemaMapping: tableNameSchemaMapping,
+		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
 	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
@@ -494,6 +501,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	suite.GreaterOrEqual(recordsWithSchemaDelta.Records.LastCheckPointID,
 		recordsWithSchemaDelta.Records.FirstCheckPointID)
 	currentCheckPointID := recordsWithSchemaDelta.Records.LastCheckPointID
+	relationMessageMapping = recordsWithSchemaDelta.RelationMessageMapping
 
 	// pulling after mutating records.
 	suite.mutateSimpleRecords(simpleHappyFlowSrcTableName)
@@ -508,6 +516,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
 		TableNameSchemaMapping: tableNameSchemaMapping,
+		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
 	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
@@ -546,6 +555,7 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 	suite.failTestError(err)
 	tableRelID := ensurePullabilityOutput.TableIdentifierMapping[allTypesHappyFlowSrcTableName].
 		GetPostgresTableIdentifier().RelId
+	relationMessageMapping := make(model.RelationMessageMapping)
 
 	relIDTableNameMapping := map[uint32]string{
 		tableRelID: allTypesHappyFlowSrcTableName,
@@ -635,6 +645,7 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
 		TableNameSchemaMapping: tableNameSchemaMapping,
+		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
 	suite.Equal(1, len(records.Records.Records))
@@ -671,6 +682,8 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	tableNameMapping := map[string]string{
 		toastHappyFlowSrcTableName: toastHappyFlowDstTableName,
 	}
+	relationMessageMapping := make(model.RelationMessageMapping)
+
 	err = suite.connector.SetupReplication(nil, &protos.SetupReplicationInput{
 		FlowJobName:          toastHappyFlowName,
 		TableNameMapping:     tableNameMapping,
@@ -711,6 +724,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
 		TableNameSchemaMapping: tableNameSchemaMapping,
+		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
 	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
@@ -719,6 +733,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	suite.Greater(recordsWithSchemaDelta.Records.FirstCheckPointID, int64(0))
 	suite.GreaterOrEqual(recordsWithSchemaDelta.Records.LastCheckPointID,
 		recordsWithSchemaDelta.Records.FirstCheckPointID)
+	relationMessageMapping = recordsWithSchemaDelta.RelationMessageMapping
 
 	suite.mutateToastRecords(toastHappyFlowSrcTableName)
 	recordsWithSchemaDelta, err = suite.connector.PullRecords(&model.PullRecordsRequest{
@@ -732,6 +747,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		SrcTableIDNameMapping:  relIDTableNameMapping,
 		TableNameMapping:       tableNameMapping,
 		TableNameSchemaMapping: tableNameSchemaMapping,
+		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
 	suite.validateMutatedToastRecords(recordsWithSchemaDelta.Records.Records, toastHappyFlowSrcTableName,
