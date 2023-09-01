@@ -310,7 +310,11 @@ func (c *EventHubConnector) SetupNormalizedTables(
 
 func (c *EventHubConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	log.Infof("normalization for event hub is a no-op")
-	return nil, nil
+	return &model.NormalizeResponse{
+		EndBatchID:   0,
+		StartBatchID: 0,
+		Done:         true,
+	}, nil
 }
 
 // cleanup
