@@ -408,12 +408,14 @@ func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDe
 		log.WithFields(log.Fields{
 			"flowName":  flowJobName,
 			"tableName": schemaDelta.SrcTableName,
-		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName, addedColumn.ColumnType)
+		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+			addedColumn.ColumnType)
 	}
 
 	err = tableSchemaModifyTx.Commit()
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction for table schema modification for table %s: %w", schemaDelta.SrcTableName, err)
+		return fmt.Errorf("failed to commit transaction for table schema modification for table %s: %w",
+			schemaDelta.SrcTableName, err)
 	}
 
 	return nil

@@ -235,7 +235,8 @@ func (c *BigQueryConnector) ReplayTableSchemaDelta(flowJobName string,
 		log.WithFields(log.Fields{
 			"flowName":  flowJobName,
 			"tableName": schemaDelta.SrcTableName,
-		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName, addedColumn.ColumnType)
+		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+			addedColumn.ColumnType)
 	}
 
 	return nil
