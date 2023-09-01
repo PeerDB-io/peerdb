@@ -144,7 +144,7 @@ func (p *PostgresCDCSource) consumeStream(
 			if err != nil {
 				return nil, fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
 			}
-			log.Debugf("Sent Standby status message")
+			log.Infof("Sent Standby status message")
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 
