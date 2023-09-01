@@ -131,8 +131,16 @@ func (p *PostgresCDCSource) consumeStream(
 
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) {
+			// update the WALWritePosition to be clientXLogPos - 1
+			// as the clientXLogPos is the last checkpoint id + 1
+			// and we want to send the last checkpoint id as the last
+			// checkpoint id that we have processed.
+			lastProcessedXLogPos := clientXLogPos
+			if clientXLogPos > 0 {
+				lastProcessedXLogPos = clientXLogPos - 1
+			}
 			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: clientXLogPos})
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: lastProcessedXLogPos})
 			if err != nil {
 				return nil, fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
 			}
@@ -239,8 +247,8 @@ func (p *PostgresCDCSource) consumeStream(
 				}
 			}
 
-			clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
-			result.LastCheckPointID = int64(clientXLogPos)
+			currentPos := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
+			result.LastCheckPointID = int64(currentPos)
 
 			if result.Records != nil && len(result.Records) == int(req.MaxBatchSize) {
 				return result, nil
