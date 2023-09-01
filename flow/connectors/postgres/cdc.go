@@ -247,7 +247,8 @@ func (p *PostgresCDCSource) consumeStream(
 				}
 			}
 
-			result.LastCheckPointID = int64(clientXLogPos)
+			currentPos := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
+			result.LastCheckPointID = int64(currentPos)
 
 			if result.Records != nil && len(result.Records) == int(req.MaxBatchSize) {
 				return result, nil
