@@ -99,7 +99,12 @@ func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
-func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *EventHubConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *model.TableSchemaDelta) error {
+	log.Errorf("panicking at call to ReplayTableSchemaDelta for EventHub flow connector")
+	panic("ReplayTableSchemaDelta is not implemented for the EventHub flow connector")
+}
+
+func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
 	panic("pull records not implemented for event hub")
 }
 

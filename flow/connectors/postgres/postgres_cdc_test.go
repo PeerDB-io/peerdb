@@ -389,7 +389,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	})
 	suite.failTestError(err)
 	suite.dropTable(nonExistentFlowSrcTableName)
-	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{
+	recordsWithSchemaDelta, err := suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            nonExistentFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            5 * time.Second,
@@ -398,7 +398,8 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		TableNameMapping:       tableNameMapping,
 		TableNameSchemaMapping: tableNameSchemaMapping,
 	})
-	suite.Equal(0, len(records.Records))
+	suite.Equal(0, len(recordsWithSchemaDelta.Records.Records))
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
 	suite.Nil(err)
 
 	err = suite.connector.PullFlowCleanup(nonExistentFlowName)
@@ -458,8 +459,8 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	tableNameSchemaMapping[simpleHappyFlowDstTableName] =
 		tableNameSchema.TableNameSchemaMapping[simpleHappyFlowSrcTableName]
 
-	// pulling with no records.
-	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{
+	// pulling with no recordsWithSchemaDelta.
+	recordsWithSchemaDelta, err := suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            simpleHappyFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            5 * time.Second,
@@ -469,13 +470,14 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		TableNameSchemaMapping: tableNameSchemaMapping,
 	})
 	suite.failTestError(err)
-	suite.Equal(0, len(records.Records))
-	suite.Equal(int64(0), records.FirstCheckPointID)
-	suite.Equal(int64(0), records.LastCheckPointID)
+	suite.Equal(0, len(recordsWithSchemaDelta.Records.Records))
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
+	suite.Equal(int64(0), recordsWithSchemaDelta.Records.FirstCheckPointID)
+	suite.Equal(int64(0), recordsWithSchemaDelta.Records.LastCheckPointID)
 
 	// pulling after inserting records.
 	suite.insertSimpleRecords(simpleHappyFlowSrcTableName)
-	records, err = suite.connector.PullRecords(&model.PullRecordsRequest{
+	recordsWithSchemaDelta, err = suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            simpleHappyFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            5 * time.Second,
@@ -485,17 +487,20 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		TableNameSchemaMapping: tableNameSchemaMapping,
 	})
 	suite.failTestError(err)
-	suite.validateInsertedSimpleRecords(records.Records, simpleHappyFlowSrcTableName, simpleHappyFlowDstTableName)
-	suite.Greater(records.FirstCheckPointID, int64(0))
-	suite.GreaterOrEqual(records.LastCheckPointID, records.FirstCheckPointID)
-	currentCheckPointID := records.LastCheckPointID
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
+	suite.validateInsertedSimpleRecords(recordsWithSchemaDelta.Records.Records,
+		simpleHappyFlowSrcTableName, simpleHappyFlowDstTableName)
+	suite.Greater(recordsWithSchemaDelta.Records.FirstCheckPointID, int64(0))
+	suite.GreaterOrEqual(recordsWithSchemaDelta.Records.LastCheckPointID,
+		recordsWithSchemaDelta.Records.FirstCheckPointID)
+	currentCheckPointID := recordsWithSchemaDelta.Records.LastCheckPointID
 
 	// pulling after mutating records.
 	suite.mutateSimpleRecords(simpleHappyFlowSrcTableName)
-	records, err = suite.connector.PullRecords(&model.PullRecordsRequest{
+	recordsWithSchemaDelta, err = suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName: simpleHappyFlowName,
 		LastSyncState: &protos.LastSyncState{
-			Checkpoint:   records.LastCheckPointID,
+			Checkpoint:   recordsWithSchemaDelta.Records.LastCheckPointID,
 			LastSyncedAt: nil,
 		},
 		IdleTimeout:            5 * time.Second,
@@ -505,9 +510,12 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		TableNameSchemaMapping: tableNameSchemaMapping,
 	})
 	suite.failTestError(err)
-	suite.validateSimpleMutatedRecords(records.Records, simpleHappyFlowSrcTableName, simpleHappyFlowDstTableName)
-	suite.GreaterOrEqual(records.FirstCheckPointID, currentCheckPointID)
-	suite.GreaterOrEqual(records.LastCheckPointID, records.FirstCheckPointID)
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
+	suite.validateSimpleMutatedRecords(recordsWithSchemaDelta.Records.Records,
+		simpleHappyFlowSrcTableName, simpleHappyFlowDstTableName)
+	suite.GreaterOrEqual(recordsWithSchemaDelta.Records.FirstCheckPointID, currentCheckPointID)
+	suite.GreaterOrEqual(recordsWithSchemaDelta.Records.LastCheckPointID,
+		recordsWithSchemaDelta.Records.FirstCheckPointID)
 
 	err = suite.connector.PullFlowCleanup(simpleHappyFlowName)
 	suite.failTestError(err)
@@ -629,8 +637,8 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 		TableNameSchemaMapping: tableNameSchemaMapping,
 	})
 	suite.failTestError(err)
-	suite.Equal(1, len(records.Records))
-	suite.Equal(35, len(records.Records[0].GetItems()))
+	suite.Equal(1, len(records.Records.Records))
+	suite.Equal(35, len(records.Records.Records[0].GetItems()))
 
 	err = suite.connector.PullFlowCleanup(allTypesHappyFlowName)
 	suite.failTestError(err)
@@ -695,7 +703,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		tableNameSchema.TableNameSchemaMapping[toastHappyFlowSrcTableName]
 
 	suite.insertToastRecords(toastHappyFlowSrcTableName)
-	records, err := suite.connector.PullRecords(&model.PullRecordsRequest{
+	recordsWithSchemaDelta, err := suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            toastHappyFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            10 * time.Second,
@@ -705,15 +713,18 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		TableNameSchemaMapping: tableNameSchemaMapping,
 	})
 	suite.failTestError(err)
-	suite.validateInsertedToastRecords(records.Records, toastHappyFlowSrcTableName, toastHappyFlowDstTableName)
-	suite.Greater(records.FirstCheckPointID, int64(0))
-	suite.GreaterOrEqual(records.LastCheckPointID, records.FirstCheckPointID)
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
+	suite.validateInsertedToastRecords(recordsWithSchemaDelta.Records.Records,
+		toastHappyFlowSrcTableName, toastHappyFlowDstTableName)
+	suite.Greater(recordsWithSchemaDelta.Records.FirstCheckPointID, int64(0))
+	suite.GreaterOrEqual(recordsWithSchemaDelta.Records.LastCheckPointID,
+		recordsWithSchemaDelta.Records.FirstCheckPointID)
 
 	suite.mutateToastRecords(toastHappyFlowSrcTableName)
-	records, err = suite.connector.PullRecords(&model.PullRecordsRequest{
+	recordsWithSchemaDelta, err = suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName: toastHappyFlowName,
 		LastSyncState: &protos.LastSyncState{
-			Checkpoint:   records.LastCheckPointID,
+			Checkpoint:   recordsWithSchemaDelta.Records.LastCheckPointID,
 			LastSyncedAt: nil,
 		},
 		IdleTimeout:            10 * time.Second,
@@ -723,7 +734,8 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		TableNameSchemaMapping: tableNameSchemaMapping,
 	})
 	suite.failTestError(err)
-	suite.validateMutatedToastRecords(records.Records, toastHappyFlowSrcTableName, toastHappyFlowDstTableName)
+	suite.validateMutatedToastRecords(recordsWithSchemaDelta.Records.Records, toastHappyFlowSrcTableName,
+		toastHappyFlowDstTableName)
 
 	err = suite.connector.PullFlowCleanup(toastHappyFlowName)
 	suite.failTestError(err)

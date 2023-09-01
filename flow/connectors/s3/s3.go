@@ -82,7 +82,12 @@ func (c *S3Connector) InitializeTableSchema(req map[string]*protos.TableSchema) 
 	return fmt.Errorf("cdc based replication is not currently supported for S3 target")
 }
 
-func (c *S3Connector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *S3Connector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *model.TableSchemaDelta) error {
+	log.Errorf("panicking at call to ReplayTableSchemaDelta for S3 flow connector")
+	panic("ReplayTableSchemaDelta is not implemented for the S3 flow connector")
+}
+
+func (c *S3Connector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
 	log.Errorf("panicking at call to PullRecords for S3 flow connector")
 	panic("PullRecords is not implemented for the S3 flow connector")
 }

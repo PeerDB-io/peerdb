@@ -173,7 +173,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 // PullRecords pulls records from the source.
-func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
@@ -211,27 +211,28 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	}).Infof("PullRecords: performed checks for slot and publication")
 
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
-		AppContext:            c.ctx,
-		Connection:            c.replPool,
-		SrcTableIDNameMapping: req.SrcTableIDNameMapping,
-		Slot:                  slotName,
-		Publication:           publicationName,
-		TableNameMapping:      req.TableNameMapping,
+		AppContext:             c.ctx,
+		Connection:             c.replPool,
+		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
+		Slot:                   slotName,
+		Publication:            publicationName,
+		TableNameMapping:       req.TableNameMapping,
+		RelationMessageMapping: req.RelationMessageMapping,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
 
-	recordBatch, err := cdc.PullRecords(req)
+	recordsWithSchemaDelta, err := cdc.PullRecords(req)
 	if err != nil {
 		return nil, err
 	}
-	if len(recordBatch.Records) > 0 {
+	if len(recordsWithSchemaDelta.Records.Records) > 0 {
 		totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
 		if err != nil {
 			return nil, err
 		}
-		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
+		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.Records, totalRecordsAtSource)
 		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
 		if ok {
 			latestLSN, err := c.getCurrentLSN()
@@ -245,7 +246,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		}
 	}
 
-	return recordBatch, nil
+	return recordsWithSchemaDelta, nil
 }
 
 // SyncRecords pushes records to the destination.
@@ -590,6 +591,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
 
+	log.Warnf("tableSchema: %v", res)
 	return res, nil
 }
 
@@ -651,6 +653,61 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 // InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
 func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
 	c.tableSchemaMapping = req
+	return nil
+}
+
+// ReplayTableSchemaDelta changes a destination table to match the schema at source
+// This could involve adding or dropping multiple columns.
+func (c *PostgresConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *model.TableSchemaDelta) error {
+	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
+		return nil
+	}
+
+	// Postgres is cool and supports transactional DDL. So we use a transaction.
+	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for schema modification for table %s: %w",
+			schemaDelta.SrcTableName, err)
+	}
+	defer func() {
+		deferErr := tableSchemaModifyTx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": flowJobName,
+			}).Errorf("unexpected error rolling back transaction for table schema modification: %v", err)
+		}
+	}()
+
+	for _, droppedColumn := range schemaDelta.DroppedColumns {
+		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", schemaDelta.DstTableName,
+			droppedColumn))
+		if err != nil {
+			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
+				schemaDelta.SrcTableName, err)
+		}
+		log.WithFields(log.Fields{
+			"flowName":  flowJobName,
+			"tableName": schemaDelta.SrcTableName,
+		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
+	}
+	for _, addedColumn := range schemaDelta.AddedColumns {
+		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", schemaDelta.DstTableName,
+			addedColumn.ColumnName, qValueKindToPostgresType(string(addedColumn.ColumnType))))
+		if err != nil {
+			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				schemaDelta.SrcTableName, err)
+		}
+		log.WithFields(log.Fields{
+			"flowName":  flowJobName,
+			"tableName": schemaDelta.SrcTableName,
+		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName, addedColumn.ColumnType)
+	}
+
+	err = tableSchemaModifyTx.Commit(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction for table schema modification for table %s: %w", schemaDelta.SrcTableName, err)
+	}
+
 	return nil
 }
 

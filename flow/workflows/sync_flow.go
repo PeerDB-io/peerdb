@@ -54,6 +54,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 	opts *protos.SyncFlowOptions,
+	relationMessageMapping model.RelationMessageMapping,
 ) (*model.SyncResponse, error) {
 	s.logger.Info("executing sync flow - ", s.PeerFlowName)
 
@@ -93,7 +94,8 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		LastSyncState:         dstSyncState,
 		SyncFlowOptions:       opts,
 	}
-	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
+	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput,
+		relationMessageMapping)
 
 	var syncRes *model.SyncResponse
 	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
@@ -109,29 +111,32 @@ func (s *SyncFlowExecution) executeSyncFlow(
 func SyncFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
+	relationMessageMapping model.RelationMessageMapping,
 ) (*model.SyncResponse, error) {
 	s := NewSyncFlowExecution(ctx, &SyncFlowState{
 		PeerFlowName: config.FlowJobName,
 		Progress:     []string{},
 	})
 
-	return s.executeSyncFlow(ctx, config, options)
+	return s.executeSyncFlow(ctx, config, options, relationMessageMapping)
 }
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
+	tableSchemaDelta *model.TableSchemaDelta,
 ) (*model.NormalizeResponse, error) {
 	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
 		PeerFlowName: config.FlowJobName,
 		Progress:     []string{},
 	})
 
-	return s.executeNormalizeFlow(ctx, config)
+	return s.executeNormalizeFlow(ctx, config, tableSchemaDelta)
 }
 
 func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
+	tableSchemaDelta *model.TableSchemaDelta,
 ) (*model.NormalizeResponse, error) {
 	s.logger.Info("executing normalize flow - ", s.PeerFlowName)
 
@@ -149,6 +154,12 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	var normalizeResponse *model.NormalizeResponse
 	if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
+	}
+
+	fReplayTableSchemaDelta := workflow.ExecuteActivity(normalizeFlowCtx, flowable.ReplayTableSchemaDelta,
+		config, tableSchemaDelta)
+	if err := fReplayTableSchemaDelta.Get(normalizeFlowCtx, nil); err != nil {
+		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
 	}
 
 	return normalizeResponse, nil

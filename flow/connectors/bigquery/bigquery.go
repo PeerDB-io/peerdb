@@ -205,6 +205,42 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
+// ReplayTableSchemaDelta changes a destination table to match the schema at source
+// This could involve adding or dropping multiple columns.
+func (c *BigQueryConnector) ReplayTableSchemaDelta(flowJobName string,
+	schemaDelta *model.TableSchemaDelta) error {
+	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
+		return nil
+	}
+
+	for _, droppedColumn := range schemaDelta.DroppedColumns {
+		_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s DROP COLUMN %s", c.datasetID,
+			schemaDelta.DstTableName, droppedColumn)).Read(c.ctx)
+		if err != nil {
+			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
+				schemaDelta.SrcTableName, err)
+		}
+		log.WithFields(log.Fields{
+			"flowName":  flowJobName,
+			"tableName": schemaDelta.SrcTableName,
+		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
+	}
+	for _, addedColumn := range schemaDelta.AddedColumns {
+		_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN %s %s", c.datasetID,
+			schemaDelta.DstTableName, addedColumn.ColumnName, addedColumn.ColumnType)).Read(c.ctx)
+		if err != nil {
+			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				schemaDelta.SrcTableName, err)
+		}
+		log.WithFields(log.Fields{
+			"flowName":  flowJobName,
+			"tableName": schemaDelta.SrcTableName,
+		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName, addedColumn.ColumnType)
+	}
+
+	return nil
+}
+
 // SetupMetadataTables sets up the metadata tables.
 func (c *BigQueryConnector) SetupMetadataTables() error {
 	// check if the dataset exists
@@ -383,7 +419,8 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 }
 
 // PullRecords pulls records from the source.
-func (c *BigQueryConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *BigQueryConnector) PullRecords(req *model.PullRecordsRequest) (
+	*model.RecordsWithTableSchemaDelta, error) {
 	panic("not implemented")
 }
 

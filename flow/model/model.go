@@ -7,6 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/jackc/pglogrepl"
 )
 
 type PullRecordsRequest struct {
@@ -28,6 +29,8 @@ type PullRecordsRequest struct {
 	OverridePublicationName string
 	// override replication slot name
 	OverrideReplicationSlotName string
+	// for supporting schema changes
+	RelationMessageMapping RelationMessageMapping
 }
 
 type Record interface {
@@ -201,6 +204,10 @@ type SyncResponse struct {
 	CurrentSyncBatchID int64
 	// TableNameRowsMapping tells how many records need to be synced to each destination table.
 	TableNameRowsMapping map[string]uint32
+	// to be carried to NormalizeFlow
+	TableSchemaDelta *TableSchemaDelta
+	// to be stored in state for future PullFlows
+	RelationMessageMapping RelationMessageMapping
 }
 
 type NormalizeResponse struct {
@@ -209,3 +216,43 @@ type NormalizeResponse struct {
 	StartBatchID int64
 	EndBatchID   int64
 }
+
+type DeltaAddedColumn struct {
+	ColumnName string
+	ColumnType qvalue.QValueKind
+}
+
+type TableSchemaDelta struct {
+	SrcTableName   string
+	DstTableName   string
+	AddedColumns   []DeltaAddedColumn
+	DroppedColumns []string
+}
+
+// sync all the records normally, then apply the schema delta after NormalizeFlow.
+type RecordsWithTableSchemaDelta struct {
+	Records                *RecordBatch
+	TableSchemaDelta       *TableSchemaDelta
+	RelationMessageMapping RelationMessageMapping
+}
+
+// being clever and passing the delta back as a regular record instead of heavy CDC refactoring.
+type RelationRecord struct {
+	CheckPointID     int64
+	TableSchemaDelta TableSchemaDelta
+}
+
+// Implement Record interface for RelationRecord.
+func (r *RelationRecord) GetCheckPointID() int64 {
+	return r.CheckPointID
+}
+
+func (r *RelationRecord) GetTableName() string {
+	return r.TableSchemaDelta.SrcTableName
+}
+
+func (r *RelationRecord) GetItems() RecordItems {
+	return nil
+}
+
+type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage
