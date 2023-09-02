@@ -252,6 +252,11 @@ message QRepPartition {
   bool full_table_partition = 4;
 }
 
+message QRepPartitionBatch {
+  int32 batch_id = 1;
+  repeated QRepPartition partitions = 2;
+}
+
 message QRepParitionResult {
   repeated QRepPartition partitions = 1;
 }

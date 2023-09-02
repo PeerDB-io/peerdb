@@ -73,7 +73,10 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 	schema, err := stream.Schema()
 	if err != nil {
-		log.Errorf("failed to get schema from stream: %v", err)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partitionID,
+		}).Errorf("failed to get schema from stream: %v", err)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
@@ -81,7 +84,10 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	valueSaverRecords := make([]bigquery.ValueSaver, 0)
 	for qRecordOrErr := range stream.Records {
 		if qRecordOrErr.Err != nil {
-			log.Errorf("[bq] failed to get record from stream: %v", qRecordOrErr.Err)
+			log.WithFields(log.Fields{
+				"flowName":    flowJobName,
+				"partitionID": partitionID,
+			}).Errorf("[bq] failed to get record from stream: %v", qRecordOrErr.Err)
 			return 0, fmt.Errorf("[bq] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 

@@ -42,6 +42,12 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
+	log.WithFields(log.Fields{
+		"flowName":  config.FlowJobName,
+		"partition": partition.PartitionId,
+	}).Infof("Called QRep sync function and "+
+		"obtained table schema for destination table %s",
+		destTable)
 
 	done, err := c.isPartitionSynced(partition.PartitionId)
 	if err != nil {
@@ -49,7 +55,9 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 
 	if done {
-		log.Infof("Partition %s has already been synced", partition.PartitionId)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Infof("Partition %s has already been synced", partition.PartitionId)
 		return 0, nil
 	}
 
@@ -187,24 +195,32 @@ func (c *SnowflakeConnector) createStage(stageName string, config *protos.QRepCo
 	// Execute the query
 	_, err := c.database.Exec(createStageStmt)
 	if err != nil {
-		log.Errorf("failed to create stage %s: %v", stageName, err)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Errorf("failed to create stage %s: %v", stageName, err)
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
 	}
 
-	log.Infof("Created stage %s", stageName)
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Infof("Created stage %s", stageName)
 	return nil
 }
 
 func (c *SnowflakeConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
 	awsCreds, err := utils.GetAWSSecrets()
 	if err != nil {
-		log.Errorf("failed to get AWS secrets: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Errorf("failed to get AWS secrets: %v", err)
 		return "", fmt.Errorf("failed to get AWS secrets: %w", err)
 	}
 
 	s3o, err := utils.NewS3BucketAndPrefix(config.StagingPath)
 	if err != nil {
-		log.Errorf("failed to extract S3 bucket and prefix: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Errorf("failed to extract S3 bucket and prefix: %v", err)
 		return "", fmt.Errorf("failed to extract S3 bucket and prefix: %w", err)
 	}
 
@@ -244,13 +260,17 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
 		allCols, err := c.getColsFromTable(destTable)
 		if err != nil {
-			log.Errorf("failed to get columns from table %s: %v", destTable, err)
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("failed to get columns from table %s: %v", destTable, err)
 			return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
 		}
 
 		err = CopyStageToDestination(c, config, destTable, stageName, allCols)
 		if err != nil {
-			log.Errorf("failed to copy stage to destination: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("failed to copy stage to destination: %v", err)
 			return fmt.Errorf("failed to copy stage to destination: %w", err)
 		}
 
@@ -262,7 +282,9 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 
 // CleanupQRepFlow function for snowflake connector
 func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	log.Infof("Cleaning up flow job %s", config.FlowJobName)
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Infof("Cleaning up flow job %s", config.FlowJobName)
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
@@ -316,7 +338,9 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 	if strings.HasPrefix(stagingPath, "s3://") {
 		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 		if err != nil {
-			log.Errorf("failed to create S3 bucket and prefix: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": job,
+			}).Errorf("failed to create S3 bucket and prefix: %v", err)
 			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 		}
 
@@ -325,7 +349,9 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		// deleting the contents of the bucket with prefix
 		s3svc, err := utils.CreateS3Client()
 		if err != nil {
-			log.Errorf("failed to create S3 client: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": job,
+			}).Errorf("failed to create S3 client: %v", err)
 			return fmt.Errorf("failed to create S3 client: %w", err)
 		}
 
@@ -338,14 +364,18 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		// Iterate through the objects in the bucket with the prefix and delete them
 		s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
 		if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
-			log.Errorf("failed to delete objects from bucket: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": job,
+			}).Errorf("failed to delete objects from bucket: %v", err)
 			return fmt.Errorf("failed to delete objects from bucket: %w", err)
 		}
 
 		log.Infof("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job)
 	}
 
-	log.Infof("Dropped stage %s", stageName)
+	log.WithFields(log.Fields{
+		"flowName": job,
+	}).Infof("Dropped stage %s", stageName)
 	return nil
 }
 

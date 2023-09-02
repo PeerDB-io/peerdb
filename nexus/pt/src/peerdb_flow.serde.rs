@@ -2743,6 +2743,121 @@ impl<'de> serde::Deserialize<'de> for QRepPartition {
         deserializer.deserialize_struct("peerdb_flow.QRepPartition", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for QRepPartitionBatch {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.batch_id != 0 {
+            len += 1;
+        }
+        if !self.partitions.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.QRepPartitionBatch", len)?;
+        if self.batch_id != 0 {
+            struct_ser.serialize_field("batchId", &self.batch_id)?;
+        }
+        if !self.partitions.is_empty() {
+            struct_ser.serialize_field("partitions", &self.partitions)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for QRepPartitionBatch {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "batch_id",
+            "batchId",
+            "partitions",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            BatchId,
+            Partitions,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "batchId" | "batch_id" => Ok(GeneratedField::BatchId),
+                            "partitions" => Ok(GeneratedField::Partitions),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = QRepPartitionBatch;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.QRepPartitionBatch")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<QRepPartitionBatch, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut batch_id__ = None;
+                let mut partitions__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::BatchId => {
+                            if batch_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("batchId"));
+                            }
+                            batch_id__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Partitions => {
+                            if partitions__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("partitions"));
+                            }
+                            partitions__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(QRepPartitionBatch {
+                    batch_id: batch_id__.unwrap_or_default(),
+                    partitions: partitions__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.QRepPartitionBatch", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for QRepSyncMode {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

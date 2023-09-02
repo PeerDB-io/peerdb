@@ -29,7 +29,10 @@ func (c *S3Connector) SyncQRepRecords(
 ) (int, error) {
 	schema, err := stream.Schema()
 	if err != nil {
-		log.Errorf("failed to get schema from stream: %v", err)
+		log.WithFields(log.Fields{
+			"flowName":    config.FlowJobName,
+			"partitionID": partition.PartitionId,
+		}).Errorf("failed to get schema from stream: %v", err)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
