@@ -44,7 +44,9 @@ func (c *PostgresConnector) GetQRepPartitions(
 	defer func() {
 		deferErr := tx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for get partitions: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for get partitions: %v", err)
 		}
 	}()
 
@@ -187,7 +189,9 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		rows, err = tx.Query(c.ctx, partitionsQuery)
 	}
 	if err != nil {
-		log.Errorf("failed to query for partitions: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Errorf("failed to query for partitions: %v", err)
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
@@ -246,7 +250,9 @@ func (c *PostgresConnector) getMinMaxValues(
 		minQuery := fmt.Sprintf("SELECT MIN(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
 		row := tx.QueryRow(c.ctx, minQuery)
 		if err := row.Scan(&minValue); err != nil {
-			log.Errorf("failed to query [%s] for min value: %v", minQuery, err)
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("failed to query [%s] for min value: %v", minQuery, err)
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)
 		}
 
@@ -272,8 +278,11 @@ func (c *PostgresConnector) PullQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
 	if partition.FullTablePartition {
-		log.Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+		log.WithFields(log.Fields{
+			"partitionId": partition.PartitionId,
+		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
+		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+			config.FlowJobName, partition.PartitionId)
 		query := config.Query
 		return executor.ExecuteAndProcessQuery(query)
 	}
@@ -303,16 +312,22 @@ func (c *PostgresConnector) PullQRepRecords(
 	default:
 		return nil, fmt.Errorf("unknown range type: %v", x)
 	}
+	log.WithFields(log.Fields{
+		"flowName":  config.FlowJobName,
+		"partition": partition.PartitionId,
+	}).Infof("Obtained ranges for partition for PullQRep")
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(config.Query)
+	query, err := BuildQuery(config.Query, config.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
-	records, err := executor.ExecuteAndProcessQuery(query, rangeStart, rangeEnd)
+	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		config.FlowJobName, partition.PartitionId)
+	records, err := executor.ExecuteAndProcessQuery(query,
+		rangeStart, rangeEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -329,14 +344,22 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) error {
+) (int, error) {
 	if partition.FullTablePartition {
-		log.Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+		log.WithFields(log.Fields{
+			"flowName":    config.FlowJobName,
+			"partitionId": partition.PartitionId,
+		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
+		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+			config.FlowJobName, partition.PartitionId)
 		query := config.Query
 		_, err := executor.ExecuteAndProcessQueryStream(stream, query)
-		return err
+		return 0, err
 	}
+	log.WithFields(log.Fields{
+		"flowName":  config.FlowJobName,
+		"partition": partition.PartitionId,
+	}).Infof("Obtained ranges for partition for PullQRepStream")
 
 	var rangeStart interface{}
 	var rangeEnd interface{}
@@ -361,29 +384,32 @@ func (c *PostgresConnector) PullQRepRecordStream(
 			Valid:        true,
 		}
 	default:
-		return fmt.Errorf("unknown range type: %v", x)
+		return 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(config.Query)
+	query, err := BuildQuery(config.Query, config.FlowJobName)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot)
+	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		config.FlowJobName, partition.PartitionId)
 	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query, rangeStart, rangeEnd)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	totalRecordsAtSource, err := c.getApproxTableCounts([]string{config.WatermarkTable})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, numRecords, totalRecordsAtSource)
-	log.Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
-	return nil
+	log.WithFields(log.Fields{
+		"partition": partition.PartitionId,
+	}).Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
+	return numRecords, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(
@@ -411,9 +437,15 @@ func (c *PostgresConnector) SyncQRepRecords(
 	}
 
 	if done {
-		log.Infof("partition %s already synced", partition.PartitionId)
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Infof("partition %s already synced", partition.PartitionId)
 		return 0, nil
 	}
+	log.WithFields(log.Fields{
+		"flowName":  config.FlowJobName,
+		"partition": partition.PartitionId,
+	}).Infof("SyncRecords called and initial checks complete.")
 
 	syncMode := config.SyncMode
 	switch syncMode {
@@ -445,11 +477,14 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 	if err != nil {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Infof("Setup metadata table.")
 
 	return nil
 }
 
-func BuildQuery(query string) (string, error) {
+func BuildQuery(query string, flowJobName string) (string, error) {
 	tmpl, err := template.New("query").Parse(query)
 	if err != nil {
 		return "", err
@@ -468,7 +503,9 @@ func BuildQuery(query string) (string, error) {
 	}
 	res := buf.String()
 
-	log.Infof("templated query: %s", res)
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("templated query: %s", res)
 	return res, nil
 }
 

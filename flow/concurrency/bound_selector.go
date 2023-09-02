@@ -7,42 +7,45 @@ import (
 )
 
 type BoundSelector struct {
-	ctx      workflow.Context
-	limit    int
-	selector workflow.Selector
-	futures  map[workflow.Future]struct{}
-	ferrors  []error
+	ctx     workflow.Context
+	limit   int
+	futures []workflow.Future
+	ferrors []error
 }
 
-func NewBoundSelector(limit int, ctx workflow.Context) *BoundSelector {
+func NewBoundSelector(limit int, total int, ctx workflow.Context) *BoundSelector {
 	return &BoundSelector{
-		ctx:      ctx,
-		limit:    limit,
-		selector: workflow.NewSelector(ctx),
-		futures:  make(map[workflow.Future]struct{}),
-		ferrors:  make([]error, 0),
+		ctx:   ctx,
+		limit: limit,
 	}
 }
 
-func (s *BoundSelector) AddFuture(future workflow.Future, f func(workflow.Future) error) {
+func (s *BoundSelector) SpawnChild(chCtx workflow.Context, w interface{}, args ...interface{}) {
 	if len(s.futures) >= s.limit {
-		s.selector.Select(s.ctx)
+		s.waitOne()
 	}
 
-	s.futures[future] = struct{}{}
-	s.selector.AddFuture(future, func(ready workflow.Future) {
-		delete(s.futures, ready)
+	future := workflow.ExecuteChildWorkflow(chCtx, w, args...)
+	s.futures = append(s.futures, future)
+}
 
-		err := f(ready)
-		if err != nil {
-			s.ferrors = append(s.ferrors, err)
-		}
-	})
+func (s *BoundSelector) waitOne() {
+	if len(s.futures) == 0 {
+		return
+	}
+
+	f := s.futures[0]
+	s.futures = s.futures[1:]
+
+	err := f.Get(s.ctx, nil)
+	if err != nil {
+		s.ferrors = append(s.ferrors, err)
+	}
 }
 
 func (s *BoundSelector) Wait() error {
 	for len(s.futures) > 0 {
-		s.selector.Select(s.ctx)
+		s.waitOne()
 	}
 
 	if len(s.ferrors) > 0 {

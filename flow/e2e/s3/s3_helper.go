@@ -1,4 +1,4 @@
-package e2e
+package e2e_s3
 
 import (
 	"context"

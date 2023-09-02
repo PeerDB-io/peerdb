@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
@@ -101,11 +102,14 @@ func (s *SetupFlowExecution) ensurePullability(
 	})
 	tmpMap := make(map[uint32]string)
 
+	srcTblIdentifiers := maps.Keys(config.TableNameMapping)
+	sort.Strings(srcTblIdentifiers)
+
 	// create EnsurePullabilityInput for the srcTableName
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
 		PeerConnectionConfig:   config.Source,
 		FlowJobName:            s.PeerFlowName,
-		SourceTableIdentifiers: maps.Keys(config.TableNameMapping),
+		SourceTableIdentifiers: srcTblIdentifiers,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
@@ -115,7 +119,11 @@ func (s *SetupFlowExecution) ensurePullability(
 		return fmt.Errorf("failed to ensure pullability for tables: %w", err)
 	}
 
-	for tableName, tableIdentifier := range ensurePullabilityOutput.TableIdentifierMapping {
+	sortedTableNames := maps.Keys(ensurePullabilityOutput.TableIdentifierMapping)
+	sort.Strings(sortedTableNames)
+
+	for _, tableName := range sortedTableNames {
+		tableIdentifier := ensurePullabilityOutput.TableIdentifierMapping[tableName]
 		switch typedTableIdentifier := tableIdentifier.TableIdentifier.(type) {
 		case *protos.TableIdentifier_PostgresTableIdentifier:
 			tmpMap[typedTableIdentifier.PostgresTableIdentifier.RelId] = tableName
@@ -160,12 +168,11 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 
-	sourceTables := make([]string, 0)
-	for srcTableName := range flowConnectionConfigs.TableNameMapping {
-		sourceTables = append(sourceTables, srcTableName)
-	}
+	sourceTables := maps.Keys(flowConnectionConfigs.TableNameMapping)
+	sort.Strings(sourceTables)
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
 		PeerConnectionConfig: flowConnectionConfigs.Source,
@@ -181,10 +188,13 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	}
 
 	tableNameSchemaMapping := tblSchemaOutput.TableNameSchemaMapping
+	sortedSourceTables := maps.Keys(tableNameSchemaMapping)
+	sort.Strings(sortedSourceTables)
 
 	s.logger.Info("setting up normalized tables for peer flow - ", s.PeerFlowName)
 	normalizedTableMapping := make(map[string]*protos.TableSchema)
-	for srcTableName, tableSchema := range tableNameSchemaMapping {
+	for _, srcTableName := range sortedSourceTables {
+		tableSchema := tableNameSchemaMapping[srcTableName]
 		normalizedTableName := flowConnectionConfigs.TableNameMapping[srcTableName]
 		normalizedTableMapping[normalizedTableName] = tableSchema
 		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)

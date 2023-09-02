@@ -49,8 +49,11 @@ pub struct FlowConnectionConfigs {
     pub snapshot_staging_path: ::prost::alloc::string::String,
     #[prost(string, tag="18")]
     pub cdc_staging_path: ::prost::alloc::string::String,
+    /// currently only works for snowflake
     #[prost(bool, tag="19")]
     pub soft_delete: bool,
+    #[prost(string, tag="20")]
+    pub replication_slot_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -163,6 +166,10 @@ pub struct SetupReplicationInput {
     pub destination_peer: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(bool, tag="5")]
     pub do_initial_copy: bool,
+    #[prost(string, tag="6")]
+    pub existing_publication_name: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub existing_replication_slot_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -365,6 +372,14 @@ pub struct QRepPartition {
     pub range: ::core::option::Option<PartitionRange>,
     #[prost(bool, tag="4")]
     pub full_table_partition: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QRepPartitionBatch {
+    #[prost(int32, tag="1")]
+    pub batch_id: i32,
+    #[prost(message, repeated, tag="2")]
+    pub partitions: ::prost::alloc::vec::Vec<QRepPartition>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -232,7 +232,10 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	for _, table := range tableMap {
 		err := c.ensureEventHub(c.ctx, table)
 		if err != nil {
-			log.Errorf("failed to get event hub properties: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+				"table":    table,
+			}).Errorf("failed to get event hub properties: %v", err)
 			return nil, err
 		}
 	}
@@ -307,7 +310,11 @@ func (c *EventHubConnector) SetupNormalizedTables(
 
 func (c *EventHubConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	log.Infof("normalization for event hub is a no-op")
-	return nil, nil
+	return &model.NormalizeResponse{
+		EndBatchID:   0,
+		StartBatchID: 0,
+		Done:         true,
+	}, nil
 }
 
 // cleanup

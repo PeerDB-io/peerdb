@@ -38,6 +38,8 @@ message FlowConnectionConfigs {
 
   // currently only works for snowflake
   bool soft_delete = 19;
+
+  string replication_slot_name = 20;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
@@ -103,6 +105,8 @@ message SetupReplicationInput {
   // replicate to destination using ctid
   peerdb_peers.Peer destination_peer = 4;
   bool do_initial_copy = 5;
+  string existing_publication_name = 6;
+  string existing_replication_slot_name = 7;
 }
 
 message SetupReplicationOutput {
@@ -246,6 +250,11 @@ message QRepPartition {
   string partition_id = 2;
   PartitionRange range = 3;
   bool full_table_partition = 4;
+}
+
+message QRepPartitionBatch {
+  int32 batch_id = 1;
+  repeated QRepPartition partitions = 2;
 }
 
 message QRepParitionResult {

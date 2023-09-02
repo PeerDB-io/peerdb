@@ -137,7 +137,9 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	log.Errorf("GetLastSyncBatchID not supported for EventHub")
+	log.WithFields(log.Fields{
+		"flowName": jobName,
+	}).Errorf("GetLastSyncBatchID not supported for EventHub")
 	return 0, fmt.Errorf("GetLastSyncBatchID not supported for EventHub connector")
 }
 
@@ -162,7 +164,9 @@ func (c *EventHubConnector) UpdateLastOffset(jobName string, offset int64) error
 	`, jobName, offset)
 
 	if err != nil {
-		log.Errorf("failed to update last offset: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": jobName,
+		}).Errorf("failed to update last offset: %v", err)
 		return err
 	}
 
