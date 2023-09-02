@@ -44,9 +44,17 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	}
 
 	if done {
-		log.Infof("Partition %s has already been synced", partition.PartitionId)
+		log.WithFields(log.Fields{
+			"flowName":    config.FlowJobName,
+			"partitionID": partition.PartitionId,
+		}).Infof("Partition %s has already been synced", partition.PartitionId)
 		return 0, nil
 	}
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Infof("QRep sync function called and partition existence checked for"+
+		" partition %s of destination table %s",
+		partition.PartitionId, destTable)
 
 	syncMode := config.SyncMode
 	switch syncMode {

@@ -1,23 +1,44 @@
-package e2e
+package e2e_eventhub
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"testing"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/e2e"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	"go.temporal.io/sdk/testsuite"
 )
 
-func (s *E2EPeerFlowTestSuite) setupEventHub() error {
+const eventhubSuffix = "eventhub"
+
+type PeerFlowE2ETestSuiteEH struct {
+	suite.Suite
+	testsuite.WorkflowTestSuite
+
+	pool     *pgxpool.Pool
+	ehHelper *EventHubTestHelper
+}
+
+func TestPeerFlowE2ETestSuiteEH(t *testing.T) {
+	suite.Run(t, new(PeerFlowE2ETestSuiteEH))
+}
+
+func (s *PeerFlowE2ETestSuiteEH) setupEventHub() error {
 	enableEHT := os.Getenv("ENABLE_EVENT_HUB_TESTS")
 	if enableEHT == "" {
 		return nil
 	}
 
-	pgConf := GetTestPostgresConf()
+	pgConf := e2e.GetTestPostgresConf()
 	helper, err := NewEventHubTestHelper(pgConf)
 	if err != nil {
 		return err
@@ -27,13 +48,50 @@ func (s *E2EPeerFlowTestSuite) setupEventHub() error {
 	return nil
 }
 
-func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_EH() {
+func (s *PeerFlowE2ETestSuiteEH) SetupSuite() {
+	err := godotenv.Load()
+	if err != nil {
+		// it's okay if the .env file is not present
+		// we will use the default values
+		log.Infof("Unable to load .env file, using default values from env")
+	}
+
+	log.SetReportCaller(true)
+
+	pool, err := e2e.SetupPostgres(eventhubSuffix)
+	if err != nil {
+		s.Fail("failed to setup postgres", err)
+	}
+	s.pool = pool
+
+	err = s.setupEventHub()
+	if err != nil {
+		s.Fail("failed to setup eventhub", err)
+	}
+}
+
+// Implement TearDownAllSuite interface to tear down the test suite
+func (s *PeerFlowE2ETestSuiteEH) TearDownSuite() {
+	err := e2e.TearDownPostgres(s.pool, eventhubSuffix)
+	if err != nil {
+		s.Fail("failed to drop Postgres schema", err)
+	}
+
+	if s.ehHelper != nil {
+		err = s.ehHelper.CleanUp()
+		if err != nil {
+			s.Fail("failed to clean up eventhub", err)
+		}
+	}
+}
+
+func (s *PeerFlowE2ETestSuiteEH) Test_Complete_Simple_Flow_EH() {
 	if s.ehHelper == nil {
 		s.T().Skip("Skipping EventHub test")
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	registerWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env)
 
 	ru, err := util.RandomUInt64()
 	s.NoError(err)
@@ -49,10 +107,10 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_EH() {
 	`)
 	s.NoError(err)
 
-	connectionGen := FlowConnectionGenerationConfig{
+	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      jobName,
 		TableNameMapping: map[string]string{schemaQualifiedName: jobName},
-		PostgresPort:     postgresPort,
+		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.ehHelper.GetPeer(),
 	}
 
@@ -67,7 +125,7 @@ func (s *E2EPeerFlowTestSuite) Test_Complete_Simple_Flow_EH() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	go func() {
-		s.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)

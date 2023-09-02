@@ -76,7 +76,9 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 	defer replicationConn.Release()
 
 	pgConn := replicationConn.Conn().PgConn()
-	log.Infof("created replication connection")
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Infof("created replication connection")
 
 	sysident, err := pglogrepl.IdentifySystem(p.ctx, pgConn)
 	if err != nil {
@@ -96,7 +98,9 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (*model.R
 	if err != nil {
 		return nil, fmt.Errorf("error starting replication at startLsn - %d: %w", p.startLSN, err)
 	}
-	log.Infof("started replication on slot %s at startLSN: %d", replicationSlot, p.startLSN)
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Infof("started replication on slot %s at startLSN: %d", p.slot, p.startLSN)
 
 	return p.consumeStream(pgConn, req, p.startLSN)
 }
@@ -119,18 +123,28 @@ func (p *PostgresCDCSource) consumeStream(
 	defer func() {
 		err := conn.Close(p.ctx)
 		if err != nil {
-			log.Errorf("unexpected error closing replication connection: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error closing replication connection: %v", err)
 		}
 	}()
 
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) {
+			// update the WALWritePosition to be clientXLogPos - 1
+			// as the clientXLogPos is the last checkpoint id + 1
+			// and we want to send the last checkpoint id as the last
+			// checkpoint id that we have processed.
+			lastProcessedXLogPos := clientXLogPos
+			if clientXLogPos > 0 {
+				lastProcessedXLogPos = clientXLogPos - 1
+			}
 			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: clientXLogPos})
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: lastProcessedXLogPos})
 			if err != nil {
 				return nil, fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
 			}
-			log.Debugf("Sent Standby status message")
+			log.Infof("Sent Standby status message")
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 
@@ -233,8 +247,8 @@ func (p *PostgresCDCSource) consumeStream(
 				}
 			}
 
-			clientXLogPos = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
-			result.LastCheckPointID = int64(clientXLogPos)
+			currentPos := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
+			result.LastCheckPointID = int64(currentPos)
 
 			if result.Records != nil && len(result.Records) == int(req.MaxBatchSize) {
 				return result, nil
