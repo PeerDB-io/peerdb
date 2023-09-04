@@ -230,6 +230,21 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => false,
                         };
 
+                        let push_parallelism: Option<i64> = match raw_options
+                            .remove("push_parallelism")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            _ => None,
+                        };
+
+                        let push_batch_size: Option<i64> = match raw_options
+                            .remove("push_batch_size")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            _ => None,
+                        };
+                        
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -246,7 +261,9 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             cdc_sync_mode,
                             cdc_staging_path,
                             soft_delete,
-                            replication_slot_name
+                            replication_slot_name,
+                            push_batch_size,
+                            push_parallelism,
                         };
 
                         // Error reporting

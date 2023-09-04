@@ -40,6 +40,10 @@ message FlowConnectionConfigs {
   bool soft_delete = 19;
 
   string replication_slot_name = 20;
+
+  // the below two are for eventhub only
+  int64 push_batch_size = 21;
+  int64 push_parallelism = 22;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }

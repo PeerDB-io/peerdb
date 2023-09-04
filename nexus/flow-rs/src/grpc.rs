@@ -162,6 +162,8 @@ impl FlowGrpcClient {
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
+            push_batch_size: job.push_batch_size.unwrap_or_default(),
+            push_parallelism: job.push_parallelism.unwrap_or_default(),
             ..Default::default()
         };
 
