@@ -107,7 +107,8 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	batch := req.Records
 
 	eventsPerHeartBeat := 1000
-	eventsPerBatch := 100000
+	eventsPerBatch := int(req.PushBatchSize)
+	maxParallelism := req.PushParallelism
 
 	batchPerTopic := make(map[string][]*eventhub.Event)
 	for i, record := range batch.Records {
@@ -131,7 +132,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 
 		if (i+1)%eventsPerBatch == 0 {
-			err := c.sendEventBatch(batchPerTopic)
+			err := c.sendEventBatch(batchPerTopic, maxParallelism)
 			if err != nil {
 				return nil, err
 			}
@@ -142,7 +143,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	// send the remaining events.
 	if len(batchPerTopic) > 0 {
-		err := c.sendEventBatch(batchPerTopic)
+		err := c.sendEventBatch(batchPerTopic, maxParallelism)
 		if err != nil {
 			return nil, err
 		}
@@ -163,7 +164,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}, nil
 }
 
-func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event) error {
+func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event, maxParallelism int64) error {
 	if len(events) == 0 {
 		log.Info("no events to send")
 		return nil
@@ -176,11 +177,17 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event) 
 	var wg sync.WaitGroup
 	var once sync.Once
 	var firstErr error
+	// Limiting concurrent sends
+	guard := make(chan struct{}, maxParallelism)
 
 	for tblName, eventBatch := range events {
+		guard <- struct{}{}
 		wg.Add(1)
 		go func(tblName string, eventBatch []*eventhub.Event) {
-			defer wg.Done()
+			defer func() {
+				<-guard
+				wg.Done()
+			}()
 
 			hub, err := c.getOrCreateHubConnection(tblName)
 			if err != nil {
