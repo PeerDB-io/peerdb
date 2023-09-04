@@ -49,6 +49,7 @@
     "autoprefixer": "^10.4.15",
     "copy-webpack-plugin": "^11.0.0",
     "eslint": "^8.48.0",
+    "eslint-config-next": "13.4.19",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-storybook": "^0.6.13",
     "gh-pages": "^6.0.0",

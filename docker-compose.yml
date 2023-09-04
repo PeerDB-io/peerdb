@@ -12,11 +12,11 @@ x-flow-worker-env: &flow-worker-env
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
   AWS_REGION: ${AWS_REGION:-""}
-# enables worker profiling using Go's pprof
+  # enables worker profiling using Go's pprof
   ENABLE_PROFILING: "true"
-# enables exporting of mirror metrics to Prometheus for visualization using Grafana
+  # enables exporting of mirror metrics to Prometheus for visualization using Grafana
   ENABLE_METRICS: "true"
-# enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
+  # enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
   ENABLE_STATS: "true"
 
 services:
@@ -210,6 +210,16 @@ services:
     profiles:
       - multi-metrics
       - metrics
+
+  peerdb_ui:
+    container_name: peerdb_ui
+    build:
+      context: .
+      dockerfile: stacks/ui.Dockerfile
+    ports:
+      - 3000:3000
+    environment:
+      <<: *catalog-config
 
 volumes:
   pgdata:

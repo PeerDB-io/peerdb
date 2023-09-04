@@ -17,34 +17,32 @@ type Story = StoryObj<typeof Layout>;
 export const Overview: Story = {
   render: () => (
     <Layout
-      sidebar={() => (
+      sidebar={
         <Sidebar
-          topTitle={() => <Label variant='headline'>PeerDB</Label>}
-          bottomRow={() => (
+          topTitle={<Label variant='headline'>PeerDB</Label>}
+          bottomRow={
             <>
               <Button>Help and Support</Button>
               <Button>Log out</Button>
             </>
-          )}
-          bottomLabel={() => <Label variant='footnote'>App. v0.7.0</Label>}
+          }
+          bottomLabel={<Label variant='footnote'>App. v0.7.0</Label>}
         >
-          <SidebarItem leadingIcon={() => <Icon name='widgets' />}>
+          <SidebarItem leadingIcon={<Icon name='widgets' />}>
             Dashboard
           </SidebarItem>
-          <SidebarItem leadingIcon={() => <Icon name='cable' />}>
+          <SidebarItem leadingIcon={<Icon name='cable' />}>
             Connectors
           </SidebarItem>
-          <SidebarItem leadingIcon={() => <Icon name='compare_arrows' />}>
+          <SidebarItem leadingIcon={<Icon name='compare_arrows' />}>
             Mirrors
           </SidebarItem>
-          <SidebarItem leadingIcon={() => <Icon name='cloud' />}>
-            Cloud
-          </SidebarItem>
-          <SidebarItem leadingIcon={() => <Icon name='settings' />}>
+          <SidebarItem leadingIcon={<Icon name='cloud' />}>Cloud</SidebarItem>
+          <SidebarItem leadingIcon={<Icon name='settings' />}>
             Settings
           </SidebarItem>
         </Sidebar>
-      )}
+      }
     >
       <Header variant='title2'>Dashboard</Header>
     </Layout>

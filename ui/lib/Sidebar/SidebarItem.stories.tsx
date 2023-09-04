@@ -9,8 +9,8 @@ export default {
   args: {
     selected: false,
     disabled: false,
-    leadingIcon: () => <Icon name='draft' />,
-    trailingIcon: () => <Icon name='star' />,
+    leadingIcon: <Icon name='draft' />,
+    trailingIcon: <Icon name='star' />,
     suffix: 'Suffix',
   },
 } as Meta<typeof SidebarItem>;

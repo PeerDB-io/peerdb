@@ -1,3 +1,5 @@
+'use client';
+
 import { Meta, StoryObj } from '@storybook/react';
 import { Icon } from '../Icon';
 import { Label } from '../Label';
@@ -8,8 +10,8 @@ export default {
   title: 'Components / Layout / RowWithToggleGroup',
   component: RowWithToggleGroup,
   args: {
-    label: () => <Label>Label</Label>,
-    action: () => (
+    label: <Label>Label</Label>,
+    action: (
       <ToggleGroup defaultValue='item1'>
         <ToggleGroupItem value='item1'>
           <Icon name='square' />

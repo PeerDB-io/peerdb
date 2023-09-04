@@ -7,12 +7,12 @@ export default {
   title: 'Components / Layout / RowWithSelect',
   component: RowWithSelect,
   args: {
-    label: () => (
+    label: (
       <Label as='label' htmlFor='storybook-select'>
         Label
       </Label>
     ),
-    action: () => (
+    action: (
       <Select
         placeholder='Select'
         name='storybook-select'
@@ -25,7 +25,7 @@ export default {
         <SelectItem value='pineapple'>Pineapple</SelectItem>
       </Select>
     ),
-    description: () => <Label>Description</Label>,
+    description: <Label>Description</Label>,
   },
 } satisfies Meta<typeof RowWithSelect>;
 

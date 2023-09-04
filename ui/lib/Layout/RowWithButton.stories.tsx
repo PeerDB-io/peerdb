@@ -1,15 +1,18 @@
+'use client';
+
 import { Meta, StoryObj } from '@storybook/react';
 import { Button } from '../Button';
 import { Label } from '../Label';
 import { RowWithButton } from './Layout';
+import { use } from 'react';
 
 export default {
   title: 'Components / Layout / RowWithButton',
   component: RowWithButton,
   args: {
-    label: () => <Label>Label</Label>,
-    action: () => <Button>Action</Button>,
-    description: () => <Label>Description</Label>,
+    label: <Label>Label</Label>,
+    action: <Button>Action</Button>,
+    description: <Label>Description</Label>,
   },
 } satisfies Meta<typeof RowWithButton>;
 

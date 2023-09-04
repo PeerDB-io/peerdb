@@ -17,9 +17,9 @@ export default {
   render: (props) => (
     <Table
       {...props}
-      title={() => <Label>Table title</Label>}
+      title={<Label>Table title</Label>}
       toolbar={{
-        left: () => (
+        left: (
           <>
             <Button variant='normalBorderless'>
               <Icon name='chevron_left' />
@@ -38,14 +38,14 @@ export default {
             </Button>
           </>
         ),
-        right: () => (
+        right: (
           <>
             <SearchField placeholder='Search' />
             <Button variant='normalSolid'>New item</Button>
           </>
         ),
       }}
-      header={() => (
+      header={
         <TableRow>
           <TableCell as='th' variant='button'>
             <Checkbox variant='mixed' defaultChecked />
@@ -74,7 +74,7 @@ export default {
             </Button>
           </TableCell>
         </TableRow>
-      )}
+      }
     >
       <TableRow>
         <TableCell variant='button'>

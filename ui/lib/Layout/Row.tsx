@@ -20,7 +20,7 @@ type RowProps = {
   leadingIcon?: RenderObject;
   thumbnail?: RenderObject;
   preTitle?: string;
-  title?: string;
+  title?: RenderObject;
   titleSuffix?: string;
   description?: RenderObject;
   descriptionSuffix?: RenderObject;

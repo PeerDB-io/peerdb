@@ -10,7 +10,7 @@ export default {
   args: {
     message: 'Message',
     actionText: 'Action',
-    icon: () => <Icon name='info' />,
+    icon: <Icon name='info' />,
     open: true,
   },
 } satisfies Meta<typeof Toast>;
@@ -26,6 +26,6 @@ export const DefaultNonInteractive: Story = {
 
 export const DefaultTimed: Story = {
   args: {
-    icon: () => <ProgressCircle variant='determinate_progress_circle' />,
+    icon: <ProgressCircle variant='determinate_progress_circle' />,
   },
 };

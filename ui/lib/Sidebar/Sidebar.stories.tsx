@@ -20,28 +20,22 @@ export const Default: Story = {
       <Color colorCategory='base' colorVariant='text' colorName='lowContrast'>
         <Label variant='subheadline'>Favourites</Label>
       </Color>
-      <SidebarItem leadingIcon={() => <Icon name='history' />}>
-        Recents
-      </SidebarItem>
-      <SidebarItem leadingIcon={() => <Icon name='computer' />} selected>
+      <SidebarItem leadingIcon={<Icon name='history' />}>Recents</SidebarItem>
+      <SidebarItem leadingIcon={<Icon name='computer' />} selected>
         Desktop
       </SidebarItem>
-      <SidebarItem leadingIcon={() => <Icon name='draft' />}>
-        Documents
-      </SidebarItem>
-      <SidebarItem leadingIcon={() => <Icon name='download' />}>
+      <SidebarItem leadingIcon={<Icon name='draft' />}>Documents</SidebarItem>
+      <SidebarItem leadingIcon={<Icon name='download' />}>
         Downloads
       </SidebarItem>
       <Separator variant='empty' height='thin' />
       <Color colorCategory='base' colorVariant='text' colorName='lowContrast'>
         <Label variant='subheadline'>Location</Label>
       </Color>
-      <SidebarItem leadingIcon={() => <Icon name='hard_drive' />}>
+      <SidebarItem leadingIcon={<Icon name='hard_drive' />}>
         Macintosh HD
       </SidebarItem>
-      <SidebarItem leadingIcon={() => <Icon name='public' />}>
-        Network
-      </SidebarItem>
+      <SidebarItem leadingIcon={<Icon name='public' />}>Network</SidebarItem>
     </Sidebar>
   ),
 };

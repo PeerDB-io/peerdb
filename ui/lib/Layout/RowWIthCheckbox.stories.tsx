@@ -1,3 +1,5 @@
+'use client';
+
 import { Meta, StoryObj } from '@storybook/react';
 import { Checkbox } from '../Checkbox';
 import { Label } from '../Label';
@@ -7,9 +9,9 @@ export default {
   title: 'Components / Layout / RowWithCheckbox',
   component: RowWithCheckbox,
   args: {
-    label: () => <Label>Label</Label>,
-    action: () => <Checkbox />,
-    description: () => <Label>Description</Label>,
+    label: <Label>Label</Label>,
+    action: <Checkbox />,
+    description: <Label>Description</Label>,
   },
 } satisfies Meta<typeof RowWithCheckbox>;
 

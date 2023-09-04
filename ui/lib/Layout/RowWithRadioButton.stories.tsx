@@ -1,3 +1,5 @@
+'use client';
+
 import { Meta, StoryObj } from '@storybook/react';
 import { Label } from '../Label';
 import { RadioButton, RadioButtonGroup } from '../RadioButtonGroup';
@@ -7,9 +9,9 @@ export default {
   title: 'Components / Layout / RowWithRadioButton',
   component: RowWithRadiobutton,
   args: {
-    label: () => <Label>Label</Label>,
-    action: () => <RadioButton value='storybook' />,
-    description: () => <Label>Description</Label>,
+    label: <Label>Label</Label>,
+    action: <RadioButton value='storybook' />,
+    description: <Label>Description</Label>,
   },
   render: (props) => (
     <RadioButtonGroup>

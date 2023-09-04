@@ -1,3 +1,5 @@
+'use client';
+
 import { Badge } from '@/lib/Badge';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';

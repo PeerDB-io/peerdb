@@ -3,6 +3,7 @@ import * as RadixDialog from '@radix-ui/react-dialog';
 import { PropsWithChildren } from 'react';
 import { RenderObject } from '../types';
 import { DialogContent, DialogContentProps } from './DialogContent';
+import { isDefined } from '../utils/isDefined';
 
 type DialogProps = RadixDialog.DialogProps & {
   triggerButton: RenderObject;
@@ -15,7 +16,7 @@ export function Dialog({
   children,
   ...rootProps
 }: DialogProps) {
-  const TriggerButton = triggerButton();
+  const TriggerButton = isDefined(triggerButton) && triggerButton;
 
   return (
     <RadixDialog.Root {...rootProps}>

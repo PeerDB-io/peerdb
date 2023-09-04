@@ -8,7 +8,7 @@ export default {
   component: Dialog,
   tags: ['autodocs'],
   args: {
-    triggerButton: () => <Button>Open Dialog</Button>,
+    triggerButton: <Button>Open Dialog</Button>,
     size: 'xxSmall',
   },
   render: (props) => (

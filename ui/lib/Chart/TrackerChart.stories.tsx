@@ -23,16 +23,16 @@ export default {
   tags: ['autodocs'],
   args: {
     data: weekData,
-    top: () => (
+    top: (
       <RowWithToggleGroup
-        label={() => <Label>Sync history</Label>}
-        action={() => (
+        label={<Label>Sync history</Label>}
+        action={
           <ToggleGroup defaultValue='item1'>
             <ToggleGroupItem value='item1'>Month</ToggleGroupItem>
             <ToggleGroupItem value='item2'>Week</ToggleGroupItem>
             <ToggleGroupItem value='item3'>Day</ToggleGroupItem>
           </ToggleGroup>
-        )}
+        }
       />
     ),
   },

@@ -1,3 +1,5 @@
+'use client';
+
 import { Meta, StoryObj } from '@storybook/react';
 import { Color } from '../Color';
 import { Icon } from '../Icon';
@@ -10,11 +12,11 @@ export default {
   component: Row,
   tags: ['autodocs'],
   args: {
-    leadingIcon: () => <Icon name='square' />,
-    thumbnail: () => <Thumbnail size='small' src={checkerImage.src} />,
-    trailingIcon: () => <Icon name='square' />,
-    preTitle: () => 'Pre-title',
-    title: () => (
+    leadingIcon: <Icon name='square' />,
+    thumbnail: <Thumbnail size='small' src={checkerImage.src} />,
+    trailingIcon: <Icon name='square' />,
+    preTitle: 'Pre-title',
+    title: (
       <>
         <Color
           colorCategory='positive'
@@ -26,10 +28,10 @@ export default {
         Title
       </>
     ),
-    description: () => 'Description',
-    titleSuffix: () => 'Suffix',
-    descriptionSuffix: () => 'Suffix',
-    footnote: () => 'Footnote',
+    description: 'Description',
+    titleSuffix: 'Suffix',
+    descriptionSuffix: 'Suffix',
+    footnote: 'Footnote',
   },
 } satisfies Meta<typeof Row>;
 
