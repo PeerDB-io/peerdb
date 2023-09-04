@@ -871,6 +871,12 @@ impl serde::Serialize for FlowConnectionConfigs {
         if !self.replication_slot_name.is_empty() {
             len += 1;
         }
+        if self.push_batch_size != 0 {
+            len += 1;
+        }
+        if self.push_parallelism != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.FlowConnectionConfigs", len)?;
         if let Some(v) = self.source.as_ref() {
             struct_ser.serialize_field("source", v)?;
@@ -936,6 +942,12 @@ impl serde::Serialize for FlowConnectionConfigs {
         if !self.replication_slot_name.is_empty() {
             struct_ser.serialize_field("replicationSlotName", &self.replication_slot_name)?;
         }
+        if self.push_batch_size != 0 {
+            struct_ser.serialize_field("pushBatchSize", ToString::to_string(&self.push_batch_size).as_str())?;
+        }
+        if self.push_parallelism != 0 {
+            struct_ser.serialize_field("pushParallelism", ToString::to_string(&self.push_parallelism).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -984,6 +996,10 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             "softDelete",
             "replication_slot_name",
             "replicationSlotName",
+            "push_batch_size",
+            "pushBatchSize",
+            "push_parallelism",
+            "pushParallelism",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1008,6 +1024,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             CdcStagingPath,
             SoftDelete,
             ReplicationSlotName,
+            PushBatchSize,
+            PushParallelism,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1050,6 +1068,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             "cdcStagingPath" | "cdc_staging_path" => Ok(GeneratedField::CdcStagingPath),
                             "softDelete" | "soft_delete" => Ok(GeneratedField::SoftDelete),
                             "replicationSlotName" | "replication_slot_name" => Ok(GeneratedField::ReplicationSlotName),
+                            "pushBatchSize" | "push_batch_size" => Ok(GeneratedField::PushBatchSize),
+                            "pushParallelism" | "push_parallelism" => Ok(GeneratedField::PushParallelism),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1089,6 +1109,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                 let mut cdc_staging_path__ = None;
                 let mut soft_delete__ = None;
                 let mut replication_slot_name__ = None;
+                let mut push_batch_size__ = None;
+                let mut push_parallelism__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -1226,6 +1248,22 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             }
                             replication_slot_name__ = Some(map.next_value()?);
                         }
+                        GeneratedField::PushBatchSize => {
+                            if push_batch_size__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pushBatchSize"));
+                            }
+                            push_batch_size__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::PushParallelism => {
+                            if push_parallelism__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pushParallelism"));
+                            }
+                            push_parallelism__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1252,6 +1290,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                     cdc_staging_path: cdc_staging_path__.unwrap_or_default(),
                     soft_delete: soft_delete__.unwrap_or_default(),
                     replication_slot_name: replication_slot_name__.unwrap_or_default(),
+                    push_batch_size: push_batch_size__.unwrap_or_default(),
+                    push_parallelism: push_parallelism__.unwrap_or_default(),
                 })
             }
         }

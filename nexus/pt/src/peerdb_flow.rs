@@ -54,6 +54,11 @@ pub struct FlowConnectionConfigs {
     pub soft_delete: bool,
     #[prost(string, tag="20")]
     pub replication_slot_name: ::prost::alloc::string::String,
+    /// the below two are for eventhub only
+    #[prost(int64, tag="21")]
+    pub push_batch_size: i64,
+    #[prost(int64, tag="22")]
+    pub push_parallelism: i64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
