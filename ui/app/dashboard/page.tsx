@@ -54,7 +54,7 @@ const ExampleTable = ({ title }: { title: string }) => (
       ),
       right: <SearchField placeholder='Search' />,
     }}
-    header={(
+    header={
       <TableRow>
         <TableCell as='th' variant='button'>
           <Checkbox variant='mixed' defaultChecked />
@@ -83,7 +83,7 @@ const ExampleTable = ({ title }: { title: string }) => (
           </Button>
         </TableCell>
       </TableRow>
-    )}
+    }
   >
     {Array(8)
       .fill(null)
@@ -135,7 +135,7 @@ export default function Dashboard() {
             className='flex-1'
             preTitle={'Total items'}
             title={'12 items'}
-            description={(
+            description={
               <>
                 <Color
                   colorCategory='warning'
@@ -146,13 +146,13 @@ export default function Dashboard() {
                 </Color>
                 {' from last month'}
               </>
-            )}
+            }
           />
           <Row
             className='flex-1'
             preTitle={'Total items'}
             title={'12 items'}
-            description={(
+            description={
               <>
                 <Color
                   colorCategory='warning'
@@ -163,13 +163,13 @@ export default function Dashboard() {
                 </Color>
                 {' from last month'}
               </>
-            )}
+            }
           />
           <Row
             className='flex-1'
             preTitle={'Total items'}
             title={'12 items'}
-            description={(
+            description={
               <>
                 <Color
                   colorCategory='warning'
@@ -180,7 +180,7 @@ export default function Dashboard() {
                 </Color>
                 {' from last month'}
               </>
-            )}
+            }
           />
         </div>
       </Panel>
