@@ -1,3 +1,4 @@
+'use client';
 import { ComponentProps } from 'react';
 import { Icon } from '../Icon';
 import { CheckboxIndicator, CheckboxRoot } from './Checkbox.styles';

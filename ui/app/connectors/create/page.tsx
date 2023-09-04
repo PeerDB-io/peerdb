@@ -1,5 +1,3 @@
-'use client';
-
 import { Action } from '@/lib/Action';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -17,21 +15,19 @@ export default function CreateConnector() {
         <Label colorName='lowContrast'>
           Start by selecting the data source for you new connector.
         </Label>
-        <Action icon={() => <Icon name='help' />}>
-          Learn about connectors
-        </Action>
+        <Action icon={<Icon name='help' />}>Learn about connectors</Action>
       </Panel>
       <Panel>
         <Label colorName='lowContrast' variant='subheadline'>
           Source
         </Label>
         <RowWithSelect
-          label={() => (
+          label={
             <Label as='label' htmlFor='source'>
               Data source
             </Label>
-          )}
-          action={() => <Select placeholder='Select' id='source' />}
+          }
+          action={<Select placeholder='Select' id='source' />}
         />
       </Panel>
       <Panel>

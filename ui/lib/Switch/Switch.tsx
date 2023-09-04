@@ -1,3 +1,4 @@
+'use client';
 import { ComponentProps } from 'react';
 import { SwitchRoot, SwitchThumb } from './Switch.styles';
 

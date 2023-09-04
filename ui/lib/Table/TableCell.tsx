@@ -1,3 +1,4 @@
+'use client';
 import { PolymorphicComponentProps } from '../types';
 import { BaseTableCell, TableCellVariant } from './TableCell.styles';
 

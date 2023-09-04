@@ -1,15 +1,16 @@
+'use client';
 import { PropsWithChildren } from 'react';
-import { PolymorphicComponentProps, RenderSlot } from '../types';
+import { PolymorphicComponentProps, RenderObject } from '../types';
 import { isDefined } from '../utils/isDefined';
-import { renderSlotWith } from '../utils/renderSlotWith';
+import { renderObjectWith } from '../utils/renderObjectWith';
 import { BaseItem, StyledLabel, StyledSuffix } from './SidebarItem.styles';
 
 type SidebarItemProps = PropsWithChildren<{
   selected?: boolean;
   disabled?: boolean;
-  leadingIcon?: RenderSlot;
+  leadingIcon?: RenderObject;
   suffix?: string;
-  trailingIcon?: RenderSlot;
+  trailingIcon?: RenderObject;
 }>;
 
 export function SidebarItem<AsTarget extends React.ElementType>({
@@ -21,11 +22,11 @@ export function SidebarItem<AsTarget extends React.ElementType>({
   disabled,
   ...baseItemProps
 }: PolymorphicComponentProps<AsTarget, SidebarItemProps>) {
-  const LeadingIcon = renderSlotWith(leadingIcon, {
+  const LeadingIcon = renderObjectWith(leadingIcon, {
     className: 'sidebar-item-icon--leading',
   });
 
-  const TrailingIcon = renderSlotWith(trailingIcon, {
+  const TrailingIcon = renderObjectWith(trailingIcon, {
     className: 'sidebar-item-icon--trailing',
   });
 

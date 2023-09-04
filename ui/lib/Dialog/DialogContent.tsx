@@ -1,3 +1,4 @@
+'use client';
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { PropsWithChildren } from 'react';
 import { BaseContent, DialogSize } from './DialogContent.styles';

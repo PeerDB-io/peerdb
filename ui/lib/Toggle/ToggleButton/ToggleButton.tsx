@@ -1,3 +1,4 @@
+'use client';
 import * as RadixToggle from '@radix-ui/react-toggle';
 import { PropsWithChildren } from 'react';
 import { BaseToggleRoot } from './ToggleButton.styles';

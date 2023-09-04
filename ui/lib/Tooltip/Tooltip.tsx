@@ -1,3 +1,4 @@
+'use client';
 import * as RadixTooltip from '@radix-ui/react-tooltip';
 import { PropsWithChildren } from 'react';
 import { TooltipContent, TriggerContent } from './Tooltip.styles';

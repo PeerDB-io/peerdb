@@ -1,6 +1,7 @@
-import { RenderSlot } from '../types';
+'use client';
+import { RenderObject } from '../types';
 import { isDefined } from '../utils/isDefined';
-import { renderSlotWith } from '../utils/renderSlotWith';
+import { renderObjectWith } from '../utils/renderObjectWith';
 import {
   RowContainer,
   RowVariant,
@@ -16,15 +17,15 @@ import {
 
 type RowProps = {
   variant?: RowVariant;
-  leadingIcon?: RenderSlot;
-  thumbnail?: RenderSlot;
-  preTitle?: RenderSlot;
-  title?: RenderSlot;
-  titleSuffix?: RenderSlot;
-  description?: RenderSlot;
-  descriptionSuffix?: RenderSlot;
-  footnote?: RenderSlot;
-  trailingIcon?: RenderSlot;
+  leadingIcon?: RenderObject;
+  thumbnail?: RenderObject;
+  preTitle?: string;
+  title?: string;
+  titleSuffix?: string;
+  description?: RenderObject;
+  descriptionSuffix?: RenderObject;
+  footnote?: RenderObject;
+  trailingIcon?: RenderObject;
   className?: string;
 };
 
@@ -46,32 +47,32 @@ export function Row({
   variant = 'default',
   ...wrapperProps
 }: RowProps) {
-  const Title = isDefined(title) && <StyledTitle>{title()}</StyledTitle>;
+  const Title = isDefined(title) && <StyledTitle>{title}</StyledTitle>;
   const PreTitle = isDefined(preTitle) && (
-    <StyledPreTitle>{preTitle()}</StyledPreTitle>
+    <StyledPreTitle>{preTitle}</StyledPreTitle>
   );
   const TitleSuffix = isDefined(titleSuffix) && (
-    <StyledTitleSuffix>{titleSuffix()}</StyledTitleSuffix>
+    <StyledTitleSuffix>{titleSuffix}</StyledTitleSuffix>
   );
   const Description = isDefined(description) && (
-    <StyledDescription>{description()}</StyledDescription>
+    <StyledDescription>{description}</StyledDescription>
   );
   const DescriptionSuffix = isDefined(descriptionSuffix) && (
-    <StyledDescriptionSuffix>{descriptionSuffix()}</StyledDescriptionSuffix>
+    <StyledDescriptionSuffix>{descriptionSuffix}</StyledDescriptionSuffix>
   );
   const Footnote = isDefined(footnote) && (
-    <StyledFootnote>{footnote()}</StyledFootnote>
+    <StyledFootnote>{footnote}</StyledFootnote>
   );
 
-  const LeadingIcon = renderSlotWith(leadingIcon, {
+  const LeadingIcon = renderObjectWith(leadingIcon, {
     style: { gridArea: 'leading-icon' },
   });
 
-  const TrailingIcon = renderSlotWith(trailingIcon, {
+  const TrailingIcon = renderObjectWith(trailingIcon, {
     style: { gridArea: 'trailing-icon' },
   });
 
-  const Thumbnail = renderSlotWith(thumbnail, {
+  const Thumbnail = renderObjectWith(thumbnail, {
     style: { gridArea: 'thumbnail' },
   });
 

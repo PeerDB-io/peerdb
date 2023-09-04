@@ -1,6 +1,7 @@
+'use client';
 import { PropsWithChildren } from 'react';
 import { Separator } from '../Separator';
-import { PolymorphicComponentProps, RenderSlot } from '../types';
+import { PolymorphicComponentProps, RenderObject } from '../types';
 import { isDefined } from '../utils/isDefined';
 import {
   BottomRowWrapper,
@@ -9,11 +10,11 @@ import {
 } from './Sidebar.styles';
 
 type SidebarProps = PropsWithChildren<{
-  topTitle?: RenderSlot;
-  avatar?: RenderSlot;
-  selectButton?: RenderSlot;
-  bottomRow?: RenderSlot;
-  bottomLabel?: RenderSlot;
+  topTitle?: RenderObject;
+  avatar?: RenderObject;
+  selectButton?: RenderObject;
+  bottomRow?: RenderObject;
+  bottomLabel?: RenderObject;
   className?: string;
 }>;
 
@@ -28,25 +29,25 @@ export function Sidebar({
 }: PolymorphicComponentProps<'div', SidebarProps>) {
   const TopTitle = isDefined(topTitle) && (
     <>
-      {topTitle()}
+      {topTitle}
       <Separator variant='empty' height='tall' />
     </>
   );
 
-  const Avatar = isDefined(avatar) && avatar();
+  const Avatar = isDefined(avatar) && avatar;
 
   const BottomRow = isDefined(bottomRow) && (
     <>
-      <BottomRowWrapper>{bottomRow()}</BottomRowWrapper>
+      <BottomRowWrapper>{bottomRow}</BottomRowWrapper>
       <Separator variant='empty' height='thin' />
     </>
   );
 
-  const BottomLabel = isDefined(bottomLabel) && bottomLabel();
+  const BottomLabel = isDefined(bottomLabel) && bottomLabel;
 
   const SelectButton = isDefined(selectButton) && (
     <>
-      {selectButton()}
+      {selectButton}
       <Separator variant='empty' height='tall' />
     </>
   );

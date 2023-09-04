@@ -1,10 +1,11 @@
+'use client';
 import { ComponentProps } from 'react';
-import { RenderSlot } from '../types';
-import { renderSlotWith } from '../utils/renderSlotWith';
+import { RenderObject } from '../types';
+import { renderObjectWith } from '../utils/renderObjectWith';
 import { BaseAction } from './Action.styles';
 
 type ActionProps = ComponentProps<'a'> & {
-  icon?: RenderSlot;
+  icon?: RenderObject;
   disabled?: boolean;
 };
 
@@ -14,7 +15,7 @@ export function Action({
   disabled,
   ...actionProps
 }: ActionProps) {
-  const Icon = renderSlotWith(icon);
+  const Icon = renderObjectWith(icon);
   return (
     <BaseAction {...actionProps} data-disabled={disabled || undefined}>
       {Icon}

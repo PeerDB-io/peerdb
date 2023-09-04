@@ -1,7 +1,8 @@
+'use client';
 import * as RadixToast from '@radix-ui/react-toast';
-import { RenderSlot } from '../types';
+import { RenderObject } from '../types';
 import { isDefined } from '../utils/isDefined';
-import { renderSlotWith } from '../utils/renderSlotWith';
+import { renderObjectWith } from '../utils/renderObjectWith';
 import {
   ToastAction,
   ToastContent,
@@ -12,7 +13,7 @@ import {
 
 type ToastProps = RadixToast.ToastProps & {
   message?: string;
-  icon?: RenderSlot;
+  icon?: RenderObject;
   actionText?: string;
   className?: string;
 };
@@ -31,7 +32,7 @@ export function Toast({
   children,
   ...rootProps
 }: ToastProps) {
-  const Icon = renderSlotWith(icon);
+  const Icon = renderObjectWith(icon);
   const Action = isDefined(action) && (
     <ToastAction altText={action}>{action}</ToastAction>
   );

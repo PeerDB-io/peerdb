@@ -1,11 +1,12 @@
-import { RenderSlot } from '../types';
-import { renderSlotWith } from '../utils/renderSlotWith';
+'use client';
+import { RenderObject } from '../types';
+import { renderObjectWith } from '../utils/renderObjectWith';
 import type { BaseLayoutProps } from './BaseLayout';
 import { LayoutWrapper, StyledFlexRow } from './BaseLayout.styles';
 
 export type BaseLayoutColumnProps = BaseLayoutProps & {
-  actionSlot?: RenderSlot;
-  suffix?: RenderSlot;
+  actionSlot?: RenderObject;
+  suffix?: RenderObject;
 };
 
 export function BaseLayoutColumn({
@@ -17,31 +18,31 @@ export function BaseLayoutColumn({
   suffix,
   ...wrapperProps
 }: BaseLayoutColumnProps) {
-  const Label = renderSlotWith(label, {
+  const Label = renderObjectWith(label, {
     variant: 'body',
     className: 'layout-label',
   });
 
-  const Description = renderSlotWith(description, {
+  const Description = renderObjectWith(description, {
     variant: 'subheadline',
     className: 'layout-description',
   });
 
-  const Suffix = renderSlotWith(suffix, {
+  const Suffix = renderObjectWith(suffix, {
     variant: 'subheadline',
     className: 'layout-suffix',
   });
 
-  const Instruction = renderSlotWith(instruction, {
+  const Instruction = renderObjectWith(instruction, {
     variant: 'subheadline',
     className: 'layout-instruction',
   });
 
-  const Action = renderSlotWith(action, {
+  const Action = renderObjectWith(action, {
     className: 'layout-action layout-action--flex-auto',
   });
 
-  const ActionSlot = renderSlotWith(actionSlot, {
+  const ActionSlot = renderObjectWith(actionSlot, {
     className: 'layout-action-slot',
   });
 

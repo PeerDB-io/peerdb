@@ -1,5 +1,3 @@
-'use client';
-
 import { Badge } from '@/lib/Badge';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
@@ -33,9 +31,9 @@ const Badges = [
 
 const ExampleTable = ({ title }: { title: string }) => (
   <Table
-    title={() => <Label variant='headline'>{title}</Label>}
+    title={<Label variant='headline'>{title}</Label>}
     toolbar={{
-      left: () => (
+      left: (
         <>
           <Button variant='normalBorderless'>
             <Icon name='chevron_left' />
@@ -54,9 +52,9 @@ const ExampleTable = ({ title }: { title: string }) => (
           </Button>
         </>
       ),
-      right: () => <SearchField placeholder='Search' />,
+      right: <SearchField placeholder='Search' />,
     }}
-    header={() => (
+    header={(
       <TableRow>
         <TableCell as='th' variant='button'>
           <Checkbox variant='mixed' defaultChecked />
@@ -135,9 +133,9 @@ export default function Dashboard() {
         <div className='flex flex-row flex-nowrap'>
           <Row
             className='flex-1'
-            preTitle={() => 'Total items'}
-            title={() => '12 items'}
-            description={() => (
+            preTitle={'Total items'}
+            title={'12 items'}
+            description={(
               <>
                 <Color
                   colorCategory='warning'
@@ -152,9 +150,9 @@ export default function Dashboard() {
           />
           <Row
             className='flex-1'
-            preTitle={() => 'Total items'}
-            title={() => '12 items'}
-            description={() => (
+            preTitle={'Total items'}
+            title={'12 items'}
+            description={(
               <>
                 <Color
                   colorCategory='warning'
@@ -169,9 +167,9 @@ export default function Dashboard() {
           />
           <Row
             className='flex-1'
-            preTitle={() => 'Total items'}
-            title={() => '12 items'}
-            description={() => (
+            preTitle={'Total items'}
+            title={'12 items'}
+            description={(
               <>
                 <Color
                   colorCategory='warning'

@@ -1,3 +1,4 @@
+'use client';
 import { PropsWithChildren } from 'react';
 import { BadgeType, BadgeVariant, BadgeWrapper } from './Badge.styles';
 

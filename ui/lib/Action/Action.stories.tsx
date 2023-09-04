@@ -9,7 +9,7 @@ export default {
   args: {
     disabled: false,
     children: 'Label',
-    icon: () => <Icon name='link' />,
+    icon: <Icon name='link' />,
     href: '/',
   },
 } as Meta<typeof Action>;

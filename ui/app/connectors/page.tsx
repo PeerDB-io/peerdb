@@ -1,5 +1,3 @@
-'use client';
-
 import { Badge } from '@/lib/Badge';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
@@ -34,9 +32,9 @@ const Badges = [
 
 const ExampleTable = ({ title }: { title: string }) => (
   <Table
-    title={() => <Label variant='headline'>{title}</Label>}
+    title={<Label variant='headline'>{title}</Label>}
     toolbar={{
-      left: () => (
+      left: (
         <>
           <Button variant='normalBorderless'>
             <Icon name='chevron_left' />
@@ -55,9 +53,9 @@ const ExampleTable = ({ title }: { title: string }) => (
           </Button>
         </>
       ),
-      right: () => <SearchField placeholder='Search' />,
+      right: <SearchField placeholder='Search' />,
     }}
-    header={() => (
+    header={
       <TableRow>
         <TableCell as='th' variant='button'>
           <Checkbox variant='mixed' defaultChecked />
@@ -86,7 +84,7 @@ const ExampleTable = ({ title }: { title: string }) => (
           </Button>
         </TableCell>
       </TableRow>
-    )}
+    }
   >
     {Array(8)
       .fill(null)
@@ -129,11 +127,11 @@ export default function Connectors() {
       <Panel>
         <Header
           variant='title2'
-          slot={() => (
+          slot={
             <Button as={Link} href={'/connectors/create'} variant='normalSolid'>
               New connector
             </Button>
-          )}
+          }
         >
           Connectors
         </Header>

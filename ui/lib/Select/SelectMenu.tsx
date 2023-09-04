@@ -1,3 +1,4 @@
+'use client';
 import * as RadixSelect from '@radix-ui/react-select';
 import { PropsWithChildren } from 'react';
 import { SelectContent } from './SelectMenu.styles';

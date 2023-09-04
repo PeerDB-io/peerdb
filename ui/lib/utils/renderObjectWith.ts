@@ -1,17 +1,17 @@
 import cn from 'classnames';
 import { Attributes, cloneElement, isValidElement } from 'react';
-import { RenderSlot } from '../types';
+import { RenderObject } from '../types';
 import { isDefined } from './isDefined';
 
-export const renderSlotWith = <
+export const renderObjectWith = <
   TProps extends Partial<TProps> & Attributes & { className?: string },
 >(
-  renderSlot?: RenderSlot,
+  renderObject?: RenderObject,
   injectedProps?: TProps
 ) => {
-  if (!isDefined(renderSlot)) return null;
+  if (!isDefined(renderObject)) return null;
 
-  const element = renderSlot();
+  const element = renderObject;
   if (!isValidElement<TProps>(element)) return null;
 
   const elementClassName =

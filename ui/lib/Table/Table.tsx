@@ -1,8 +1,9 @@
+'use client';
 import { Children, PropsWithChildren } from 'react';
 import { Separator } from '../Separator';
-import { RenderSlot } from '../types';
+import { RenderObject } from '../types';
 import { isDefined } from '../utils/isDefined';
-import { renderSlotWith } from '../utils/renderSlotWith';
+import { renderObjectWith } from '../utils/renderObjectWith';
 import {
   StyledTable,
   StyledTableBody,
@@ -14,12 +15,12 @@ import {
 } from './Table.styles';
 
 type TableProps = PropsWithChildren<{
-  title?: RenderSlot;
+  title?: RenderObject;
   toolbar?: {
-    left?: RenderSlot;
-    right?: RenderSlot;
+    left?: RenderObject;
+    right?: RenderObject;
   };
-  header?: RenderSlot;
+  header?: RenderObject;
 }>;
 
 export function Table({ title, toolbar, header, children }: TableProps) {
@@ -27,16 +28,16 @@ export function Table({ title, toolbar, header, children }: TableProps) {
 
   const Title = isDefined(title) && (
     <>
-      {renderSlotWith(title, { variant: 'headline' })}
+      {renderObjectWith(title, { variant: 'headline' })}
       <Separator height='thin' variant='empty' />
     </>
   );
 
   const ToolbarLeft = isDefined(toolbar?.left) && (
-    <ToolbarSlot>{renderSlotWith(toolbar?.left)}</ToolbarSlot>
+    <ToolbarSlot>{renderObjectWith(toolbar?.left)}</ToolbarSlot>
   );
   const ToolbarRight = isDefined(toolbar?.right) && (
-    <ToolbarSlot>{renderSlotWith(toolbar?.right)}</ToolbarSlot>
+    <ToolbarSlot>{renderObjectWith(toolbar?.right)}</ToolbarSlot>
   );
 
   const Toolbar = isDefined(toolbar) && (
@@ -50,7 +51,7 @@ export function Table({ title, toolbar, header, children }: TableProps) {
   );
 
   const Header = isDefined(header) && (
-    <StyledTableHeader>{renderSlotWith(header)}</StyledTableHeader>
+    <StyledTableHeader>{renderObjectWith(header)}</StyledTableHeader>
   );
 
   return (

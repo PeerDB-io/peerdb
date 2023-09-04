@@ -1,3 +1,4 @@
+'use client';
 import { BaseIcon, ProgressCircleVariant } from './ProgressCircle.styles';
 
 type ProgressCircleProps = {

@@ -1,3 +1,4 @@
+'use client';
 import * as RadixSelect from '@radix-ui/react-select';
 import type { PropsWithChildren } from 'react';
 import { Icon } from '../Icon';

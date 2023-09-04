@@ -1,5 +1,6 @@
+'use client';
 import { PropsWithChildren } from 'react';
-import { RenderSlot } from '../types';
+import { RenderObject } from '../types';
 import { isDefined } from '../utils/isDefined';
 import { BaseLayoutProps } from './BaseLayout';
 import { BaseLayoutColumn, BaseLayoutColumnProps } from './BaseLayoutColumn';
@@ -76,10 +77,10 @@ export function RowWithToggleGroup({
 }
 
 type LayoutProps = PropsWithChildren<{
-  sidebar?: RenderSlot;
+  sidebar?: RenderObject;
 }>;
 export function Layout({ sidebar, children }: LayoutProps) {
-  const Sidebar = isDefined(sidebar) && sidebar();
+  const Sidebar = isDefined(sidebar) && sidebar;
   const fullWidth = !isDefined(sidebar);
 
   return (

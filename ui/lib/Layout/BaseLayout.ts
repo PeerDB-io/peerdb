@@ -1,9 +1,9 @@
-import type { RenderSlot } from '../types';
+import type { RenderObject } from '../types';
 
 export type BaseLayoutProps = {
-  label: RenderSlot;
-  description?: RenderSlot;
-  instruction?: RenderSlot;
-  action?: RenderSlot;
+  label: RenderObject;
+  description?: RenderObject;
+  instruction?: RenderObject;
+  action?: RenderObject;
   className?: string;
 };

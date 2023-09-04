@@ -1,3 +1,4 @@
+'use client';
 import { ProgressCircle } from '../ProgressCircle';
 import { PolymorphicComponentProps } from '../types';
 import { BaseButton, ButtonVariant } from './Button.styles';

@@ -1,3 +1,4 @@
+'use client';
 import * as RadixToggleGroup from '@radix-ui/react-toggle-group';
 import { PropsWithChildren } from 'react';
 import { BaseToggleGroupRoot } from './ToggleGroup.styles';

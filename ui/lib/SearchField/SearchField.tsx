@@ -1,3 +1,4 @@
+'use client';
 import { ComponentProps } from 'react';
 import { Icon } from '../Icon';
 import { BaseInput, StyledWrapper } from './SearchField.styles';

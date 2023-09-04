@@ -1,3 +1,4 @@
+'use client';
 // your-select.jsx
 import * as RadixSelect from '@radix-ui/react-select';
 import { PropsWithChildren } from 'react';

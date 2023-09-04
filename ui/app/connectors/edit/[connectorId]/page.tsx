@@ -1,5 +1,3 @@
-'use client';
-
 import { Badge } from '@/lib/Badge';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -55,9 +53,9 @@ const Badges = [
 
 const ExampleTable = ({ title }: { title: string }) => (
   <Table
-    title={() => <Label variant='headline'>{title}</Label>}
+    title={<Label variant='headline'>{title}</Label>}
     toolbar={{
-      left: () => (
+      left: (
         <>
           <Button variant='normalBorderless'>
             <Icon name='chevron_left' />
@@ -76,9 +74,9 @@ const ExampleTable = ({ title }: { title: string }) => (
           </Button>
         </>
       ),
-      right: () => <SearchField placeholder='Search' />,
+      right: <SearchField placeholder='Search' />,
     }}
-    header={() => (
+    header={
       <TableRow>
         <TableCell as='th' variant='button'>
           <Checkbox variant='mixed' defaultChecked />
@@ -107,7 +105,7 @@ const ExampleTable = ({ title }: { title: string }) => (
           </Button>
         </TableCell>
       </TableRow>
-    )}
+    }
   >
     {Array(8)
       .fill(null)
@@ -155,14 +153,14 @@ export default function EditConnector({
         <Panel>
           <Header
             variant='title2'
-            slot={() => (
+            slot={
               <ButtonGroup>
                 <Button>Disable connector</Button>
                 <Button onClick={() => setLogsOpen(!logsOpen)}>See logs</Button>
                 <Button>Sync now</Button>
                 <Button variant='normalSolid'>Edit connector</Button>
               </ButtonGroup>
-            )}
+            }
           >
             {connectorId}
           </Header>
@@ -172,63 +170,39 @@ export default function EditConnector({
         </Panel>
         <Panel>
           <div className='flex flex-row flex-nowrap'>
-            <Row
-              className='flex-1'
-              preTitle={() => 'Status'}
-              title={() => 'Running'}
-            />
-            <Row
-              className='flex-1'
-              preTitle={() => 'Mirror'}
-              title={() => 'Label'}
-            />
-            <Row
-              className='flex-1'
-              preTitle={() => 'Source'}
-              title={() => 'Label'}
-            />
-            <Row
-              className='flex-1'
-              preTitle={() => 'Destination'}
-              title={() => 'Label'}
-            />
+            <Row className='flex-1' preTitle={'Status'} title={'Running'} />
+            <Row className='flex-1' preTitle={'Mirror'} title={'Label'} />
+            <Row className='flex-1' preTitle={'Source'} title={'Label'} />
+            <Row className='flex-1' preTitle={'Destination'} title={'Label'} />
           </div>
           <div className='flex flex-row flex-nowrap'>
+            <Row className='flex-1' preTitle={'Last sync'} title={'41 min'} />
             <Row
               className='flex-1'
-              preTitle={() => 'Last sync'}
-              title={() => '41 min'}
+              preTitle={'Next sync in'}
+              title={'19 min'}
             />
+            <Row className='flex-1' preTitle={'Rows synced'} title={'27%'} />
             <Row
               className='flex-1'
-              preTitle={() => 'Next sync in'}
-              title={() => '19 min'}
-            />
-            <Row
-              className='flex-1'
-              preTitle={() => 'Rows synced'}
-              title={() => '27%'}
-            />
-            <Row
-              className='flex-1'
-              preTitle={() => 'Avg. sync time'}
-              title={() => '8.2min'}
+              preTitle={'Avg. sync time'}
+              title={'8.2min'}
             />
           </div>
           <TrackerChart
             data={weekData}
-            top={() => (
+            top={
               <RowWithToggleGroup
-                label={() => <Label>Sync history</Label>}
-                action={() => (
+                label={<Label>Sync history</Label>}
+                action={
                   <ToggleGroup defaultValue='item1'>
                     <ToggleGroupItem value='item1'>Month</ToggleGroupItem>
                     <ToggleGroupItem value='item2'>Week</ToggleGroupItem>
                     <ToggleGroupItem value='item3'>Day</ToggleGroupItem>
                   </ToggleGroup>
-                )}
+                }
               />
-            )}
+            }
           />
         </Panel>
         <Panel>
@@ -239,7 +213,7 @@ export default function EditConnector({
         <Panel>
           <Header
             variant='title3'
-            slot={() => (
+            slot={
               <Button
                 variant='normalBorderless'
                 onClick={() => {
@@ -248,7 +222,7 @@ export default function EditConnector({
               >
                 <Icon name='close' />
               </Button>
-            )}
+            }
           >
             Logs
           </Header>
@@ -259,53 +233,53 @@ export default function EditConnector({
         </Panel>
         <Panel>
           <Row
-            title={() => 'Sync succeeded'}
-            titleSuffix={() => '18:19'}
-            description={() => '12KB'}
-            descriptionSuffix={() => '25/8/2023'}
-            footnote={() => 'Job id: 2133'}
+            title={'Sync succeeded'}
+            titleSuffix={'18:19'}
+            description={'12KB'}
+            descriptionSuffix={'25/8/2023'}
+            footnote={'Job id: 2133'}
           />
           <Row
-            title={() => 'Sync succeeded'}
-            titleSuffix={() => '18:19'}
-            description={() => '12KB'}
-            descriptionSuffix={() => '25/8/2023'}
-            footnote={() => 'Job id: 2133'}
+            title={'Sync succeeded'}
+            titleSuffix={'18:19'}
+            description={'12KB'}
+            descriptionSuffix={'25/8/2023'}
+            footnote={'Job id: 2133'}
           />
           <Row
-            title={() => 'Sync succeeded'}
-            titleSuffix={() => '18:19'}
-            description={() => '12KB'}
-            descriptionSuffix={() => '25/8/2023'}
-            footnote={() => 'Job id: 2133'}
+            title={'Sync succeeded'}
+            titleSuffix={'18:19'}
+            description={'12KB'}
+            descriptionSuffix={'25/8/2023'}
+            footnote={'Job id: 2133'}
           />
           <Row
-            title={() => 'Sync succeeded'}
-            titleSuffix={() => '18:19'}
-            description={() => '12KB'}
-            descriptionSuffix={() => '25/8/2023'}
-            footnote={() => 'Job id: 2133'}
+            title={'Sync succeeded'}
+            titleSuffix={'18:19'}
+            description={'12KB'}
+            descriptionSuffix={'25/8/2023'}
+            footnote={'Job id: 2133'}
           />
           <Row
-            title={() => 'Sync succeeded'}
-            titleSuffix={() => '18:19'}
-            description={() => '12KB'}
-            descriptionSuffix={() => '25/8/2023'}
-            footnote={() => 'Job id: 2133'}
+            title={'Sync succeeded'}
+            titleSuffix={'18:19'}
+            description={'12KB'}
+            descriptionSuffix={'25/8/2023'}
+            footnote={'Job id: 2133'}
           />
           <Row
-            title={() => 'Sync succeeded'}
-            titleSuffix={() => '18:19'}
-            description={() => '12KB'}
-            descriptionSuffix={() => '25/8/2023'}
-            footnote={() => 'Job id: 2133'}
+            title={'Sync succeeded'}
+            titleSuffix={'18:19'}
+            description={'12KB'}
+            descriptionSuffix={'25/8/2023'}
+            footnote={'Job id: 2133'}
           />
           <Row
-            title={() => 'Sync succeeded'}
-            titleSuffix={() => '18:19'}
-            description={() => '12KB'}
-            descriptionSuffix={() => '25/8/2023'}
-            footnote={() => 'Job id: 2133'}
+            title={'Sync succeeded'}
+            titleSuffix={'18:19'}
+            description={'12KB'}
+            descriptionSuffix={'25/8/2023'}
+            footnote={'Job id: 2133'}
           />
         </Panel>
       </LayoutRightSidebar>

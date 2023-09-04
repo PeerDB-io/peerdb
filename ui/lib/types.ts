@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react';
+import type { ReactElement } from 'react';
 
-export type RenderSlot<TProps = void> = (props: TProps) => ReactNode;
+export type RenderObject = ReactElement | string;
 
 type PropsOf<
   E extends keyof JSX.IntrinsicElements | React.JSXElementConstructor<any>,

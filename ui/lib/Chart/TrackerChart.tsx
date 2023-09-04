@@ -1,10 +1,11 @@
+'use client';
 import { TrackerProps as TremorTrackerChartProps } from '@tremor/react';
-import { RenderSlot } from '../types';
-import { renderSlotWith } from '../utils/renderSlotWith';
+import { RenderObject } from '../types';
+import { renderObjectWith } from '../utils/renderObjectWith';
 import { StyledTrackerChart, StyledWrapper } from './TrackerChart.styles';
 
 type TrackerChartProps = {
-  top?: RenderSlot;
+  top?: RenderObject;
 } & TremorTrackerChartProps;
 
 /**
@@ -13,7 +14,7 @@ type TrackerChartProps = {
  * Thin wrapper around the [Tremor TrackerChart component](https://www.tremor.so/docs/components/tracker-chart)
  */
 export function TrackerChart({ top, ...TrackerChartProps }: TrackerChartProps) {
-  const TopWrapper = renderSlotWith(top);
+  const TopWrapper = renderObjectWith(top);
   return (
     <StyledWrapper>
       {TopWrapper}

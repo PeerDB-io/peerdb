@@ -1,5 +1,6 @@
+'use client';
 import cn from 'classnames';
-import { renderSlotWith } from '../utils/renderSlotWith';
+import { renderObjectWith } from '../utils/renderObjectWith';
 import type { BaseLayoutProps } from './BaseLayout';
 import {
   LayoutWrapper,
@@ -23,22 +24,22 @@ export function BaseLayoutRow({
   actionFlexEnd = false,
   ...wrapperProps
 }: BaseLayoutRowProps) {
-  const Label = renderSlotWith(label, {
+  const Label = renderObjectWith(label, {
     variant: 'body',
     className: 'layout-label',
   });
 
-  const Description = renderSlotWith(description, {
+  const Description = renderObjectWith(description, {
     variant: 'subheadline',
     className: 'layout-description',
   });
 
-  const Instruction = renderSlotWith(instruction, {
+  const Instruction = renderObjectWith(instruction, {
     variant: 'subheadline',
     className: 'layout-instruction',
   });
 
-  const Action = renderSlotWith(action, {
+  const Action = renderObjectWith(action, {
     className: cn('layout-action', {
       'layout-action--flex': actionFlex,
       'justify-end': actionFlexEnd,

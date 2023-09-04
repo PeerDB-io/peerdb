@@ -1,3 +1,4 @@
+'use client';
 import { ComponentProps } from 'react';
 import { AspectRatio, BaseImage } from './Media.styles';
 
