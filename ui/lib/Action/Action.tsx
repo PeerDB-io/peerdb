@@ -1,4 +1,5 @@
 'use client';
+
 import { ComponentProps } from 'react';
 import { RenderObject } from '../types';
 import { renderObjectWith } from '../utils/renderObjectWith';

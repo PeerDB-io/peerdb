@@ -2,8 +2,8 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { PropsWithChildren } from 'react';
 import { RenderObject } from '../types';
-import { DialogContent, DialogContentProps } from './DialogContent';
 import { isDefined } from '../utils/isDefined';
+import { DialogContent, DialogContentProps } from './DialogContent';
 
 type DialogProps = RadixDialog.DialogProps & {
   triggerButton: RenderObject;
