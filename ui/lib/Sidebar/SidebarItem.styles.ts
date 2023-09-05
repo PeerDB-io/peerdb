@@ -1,4 +1,4 @@
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 import { Label } from '../Label';
 
 export const StyledLabel = styled(Label)`

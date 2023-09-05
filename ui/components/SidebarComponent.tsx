@@ -1,11 +1,9 @@
 'use client';
 
-import { Avatar } from '@/lib/Avatar';
 import { BrandLogo } from '@/lib/BrandLogo';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import { Row } from '@/lib/Layout';
 import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import Link from 'next/link';
 
@@ -16,12 +14,6 @@ export default function SidebarComponent() {
         <Label as={Link} href='/'>
           <BrandLogo />
         </Label>
-      }
-      avatar={
-        <Row
-          thumbnail={<Avatar variant='text' text='JD' size='small' />}
-          title={'John Doe'}
-        />
       }
       bottomRow={
         <>

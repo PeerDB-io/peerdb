@@ -1,4 +1,4 @@
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 import { baseStyles } from '../TextField/TextField.styles';
 
 export const BaseTextArea = styled.textarea`

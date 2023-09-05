@@ -1,5 +1,5 @@
 import * as RadixSelect from '@radix-ui/react-select';
-import { css, styled } from 'styled-components';
+import styled, { css } from 'styled-components';
 
 export const StyledSelectIcon = styled(RadixSelect.Icon)`
   color: ${({ theme }) => theme.colors.base.text.lowContrast};

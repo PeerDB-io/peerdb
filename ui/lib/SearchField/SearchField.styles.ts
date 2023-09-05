@@ -1,4 +1,4 @@
-import { css, styled } from 'styled-components';
+import styled, { css } from 'styled-components';
 
 export const StyledWrapper = styled.div`
   --border-color: ${({ theme }) => theme.colors.base.border.normal};

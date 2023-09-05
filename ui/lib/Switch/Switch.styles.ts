@@ -1,5 +1,5 @@
 import * as RadixSwitch from '@radix-ui/react-switch';
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 
 export const SwitchRoot = styled(RadixSwitch.Root)`
   --background-color: ${({ theme }) => theme.colors.base.fill.normal};

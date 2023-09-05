@@ -1,4 +1,5 @@
 'use client';
+
 import { Children, PropsWithChildren } from 'react';
 import { Separator } from '../Separator';
 import { RenderObject } from '../types';

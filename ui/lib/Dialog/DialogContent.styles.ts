@@ -1,5 +1,5 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
-import { css, styled } from 'styled-components';
+import styled, { css } from 'styled-components';
 
 const sizes = {
   xxSmall: css`

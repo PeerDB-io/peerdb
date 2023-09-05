@@ -1,7 +1,7 @@
 'use client';
 
 import * as RadixToggleGroup from '@radix-ui/react-toggle-group';
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 import { baseButtonStyle } from '../styles';
 
 export const BaseToggleGroupRoot = styled(RadixToggleGroup.Root)`

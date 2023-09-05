@@ -1,5 +1,5 @@
 import * as RadixProgress from '@radix-ui/react-progress';
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 
 export const ProgressWrapper = styled.div`
   display: flex;

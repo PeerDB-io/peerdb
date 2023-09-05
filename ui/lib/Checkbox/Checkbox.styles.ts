@@ -1,5 +1,5 @@
 import * as RadixCheckbox from '@radix-ui/react-checkbox';
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 
 export const CheckboxRoot = styled(RadixCheckbox.Root)`
   --background-color: ${({ theme }) => theme.colors.base.background.normal};

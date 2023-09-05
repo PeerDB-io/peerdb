@@ -1,4 +1,5 @@
 'use client';
+
 import { PropsWithChildren } from 'react';
 import { Separator } from '../Separator';
 import { PolymorphicComponentProps, RenderObject } from '../types';

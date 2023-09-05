@@ -1,5 +1,5 @@
 import * as RadixTooltip from '@radix-ui/react-tooltip';
-import { css, styled } from 'styled-components';
+import styled, { css } from 'styled-components';
 
 export const TooltipContent = styled(RadixTooltip.Content)`
   display: inline-flex;

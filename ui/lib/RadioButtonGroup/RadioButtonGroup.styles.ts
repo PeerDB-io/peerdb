@@ -1,5 +1,5 @@
 import * as RadixRadioGroup from '@radix-ui/react-radio-group';
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 
 export const RadioButtonGroupRoot = styled(RadixRadioGroup.Root)``;
 

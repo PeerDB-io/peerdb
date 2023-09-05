@@ -1,4 +1,4 @@
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 
 export const SlotWrapper = styled.div`
   padding: ${({ theme }) => `${theme.spacing.xSmall} ${theme.spacing.medium}`};

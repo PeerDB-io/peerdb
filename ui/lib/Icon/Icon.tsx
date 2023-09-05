@@ -2,7 +2,7 @@
 
 import type { MaterialSymbol } from 'material-symbols';
 import { ComponentProps, SVGProps } from 'react';
-import { styled } from 'styled-components';
+import styled from 'styled-components';
 import { primitives } from '../AppTheme/appTheme';
 import { DeterminateProgressCircle } from './DeterminateProgressCircle';
 import { IntermediateProgressCircle } from './IntermediateProgressCircle';

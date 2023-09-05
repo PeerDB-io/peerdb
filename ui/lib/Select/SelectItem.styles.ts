@@ -1,5 +1,5 @@
 import * as RadixSelect from '@radix-ui/react-select';
-import { css, styled } from 'styled-components';
+import styled, { css } from 'styled-components';
 
 export const StyledItem = styled(RadixSelect.Item)`
   position: relative;
