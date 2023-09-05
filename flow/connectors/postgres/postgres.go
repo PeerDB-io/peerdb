@@ -210,7 +210,6 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		"flowName": req.FlowJobName,
 	}).Infof("PullRecords: performed checks for slot and publication")
 
-	log.Errorf("lie2: %v\n", req.RelationMessageMapping == nil)
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:             c.ctx,
 		Connection:             c.replPool,
@@ -228,12 +227,12 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	if err != nil {
 		return nil, err
 	}
-	if len(recordsWithSchemaDelta.Records.Records) > 0 {
+	if len(recordsWithSchemaDelta.RecordBatch.Records) > 0 {
 		totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
 		if err != nil {
 			return nil, err
 		}
-		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.Records, totalRecordsAtSource)
+		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.RecordBatch, totalRecordsAtSource)
 		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
 		if ok {
 			latestLSN, err := c.getCurrentLSN()

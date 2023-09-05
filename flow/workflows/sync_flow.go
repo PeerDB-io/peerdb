@@ -95,7 +95,6 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		SyncFlowOptions:        opts,
 		RelationMessageMapping: relationMessageMapping,
 	}
-	fmt.Printf("lie4: %v\n", relationMessageMapping == nil)
 	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 
 	var syncRes *model.SyncResponse
@@ -118,8 +117,6 @@ func SyncFlowWorkflow(ctx workflow.Context,
 		Progress:     []string{},
 	})
 
-	fmt.Printf("wtaf: %v\n", options)
-	fmt.Printf("lie6: %v\n", options.RelationMessageMapping == nil)
 	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
 }
 

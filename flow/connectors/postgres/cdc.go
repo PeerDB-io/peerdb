@@ -121,7 +121,7 @@ func (p *PostgresCDCSource) consumeStream(
 		TablePKeyLastSeen: make(map[model.TableWithPkey]int),
 	}
 	result := &model.RecordsWithTableSchemaDelta{
-		Records:                records,
+		RecordBatch:            records,
 		TableSchemaDelta:       nil,
 		RelationMessageMapping: p.relationMessageMapping,
 	}
@@ -301,7 +301,6 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 		log.Infof("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
 			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns)
 		if p.relationMessageMapping[msg.RelationID] == nil {
-			log.Errorf("lie: %v\n", p.relationMessageMapping == nil)
 			p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)
 		} else {
 			return p.processRelationMessage(xld.WALStart, convertRelationMessageToProto(msg))

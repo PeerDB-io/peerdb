@@ -218,7 +218,7 @@ type NormalizeResponse struct {
 
 // sync all the records normally, then apply the schema delta after NormalizeFlow.
 type RecordsWithTableSchemaDelta struct {
-	Records                *RecordBatch
+	RecordBatch            *RecordBatch
 	TableSchemaDelta       *protos.TableSchemaDelta
 	RelationMessageMapping RelationMessageMapping
 }

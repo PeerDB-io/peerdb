@@ -190,7 +190,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}).Info("pulling records...")
 
 	startTime := time.Now()
-	log.Errorf("lie3: %v\n", input.RelationMessageMapping == nil)
 	recordsWithTableSchemaDelta, err := src.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
 		SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
@@ -206,7 +205,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull records: %w", err)
 	}
-	if a.CatalogMirrorMonitor.IsActive() && len(recordsWithTableSchemaDelta.Records.Records) > 0 {
+	recordBatch := recordsWithTableSchemaDelta.RecordBatch
+	if a.CatalogMirrorMonitor.IsActive() && len(recordBatch.Records) > 0 {
 		syncBatchID, err := dest.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
 		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
 			return nil, err
@@ -215,9 +215,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		err = a.CatalogMirrorMonitor.AddCDCBatchForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
 			monitoring.CDCBatchInfo{
 				BatchID:       syncBatchID + 1,
-				RowsInBatch:   uint32(len(recordsWithTableSchemaDelta.Records.Records)),
-				BatchStartLSN: pglogrepl.LSN(recordsWithTableSchemaDelta.Records.FirstCheckPointID),
-				BatchEndlSN:   pglogrepl.LSN(recordsWithTableSchemaDelta.Records.LastCheckPointID),
+				RowsInBatch:   uint32(len(recordBatch.Records)),
+				BatchStartLSN: pglogrepl.LSN(recordBatch.FirstCheckPointID),
+				BatchEndlSN:   pglogrepl.LSN(recordBatch.LastCheckPointID),
 				StartTime:     startTime,
 			})
 		if err != nil {
@@ -226,7 +226,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 
 	// log the number of records
-	numRecords := len(recordsWithTableSchemaDelta.Records.Records)
+	numRecords := len(recordBatch.Records)
 	log.WithFields(log.Fields{
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
 	}).Printf("pulled %d records", numRecords)
@@ -260,7 +260,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	err = a.CatalogMirrorMonitor.
 		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
-			pglogrepl.LSN(recordsWithTableSchemaDelta.Records.LastCheckPointID))
+			pglogrepl.LSN(recordBatch.LastCheckPointID))
 	if err != nil {
 		return nil, err
 	}

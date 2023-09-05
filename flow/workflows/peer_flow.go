@@ -336,7 +336,6 @@ func PeerFlowWorkflowWithConfig(
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
 		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
-		fmt.Printf("lie5: %v\n", syncFlowOptions.RelationMessageMapping == nil)
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			SyncFlowWorkflow,
