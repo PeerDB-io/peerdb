@@ -75,14 +75,20 @@ type PeerFlowState struct {
 // returns a new empty PeerFlowState
 func NewStartedPeerFlowState() *PeerFlowState {
 	return &PeerFlowState{
-		Progress:               []string{"started"},
-		SyncFlowStatuses:       nil,
-		NormalizeFlowStatuses:  nil,
-		ActiveSignal:           shared.NoopSignal,
-		SetupComplete:          false,
-		SyncFlowErrors:         nil,
-		NormalizeFlowErrors:    nil,
-		RelationMessageMapping: make(model.RelationMessageMapping),
+		Progress:              []string{"started"},
+		SyncFlowStatuses:      nil,
+		NormalizeFlowStatuses: nil,
+		ActiveSignal:          shared.NoopSignal,
+		SetupComplete:         false,
+		SyncFlowErrors:        nil,
+		NormalizeFlowErrors:   nil,
+		// WORKAROUND: empty maps are protobufed into nil maps for reasons beyond me
+		RelationMessageMapping: model.RelationMessageMapping{
+			0: &protos.RelationMessage{
+				RelationId:   0,
+				RelationName: "protobuf_workaround",
+			},
+		},
 	}
 }
 
@@ -329,12 +335,13 @@ func PeerFlowWorkflowWithConfig(
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
+		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
+		fmt.Printf("lie5: %v\n", syncFlowOptions.RelationMessageMapping == nil)
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			SyncFlowWorkflow,
 			cfg,
 			syncFlowOptions,
-			state.RelationMessageMapping,
 		)
 
 		var childSyncFlowRes *model.SyncResponse
@@ -362,7 +369,7 @@ func PeerFlowWorkflowWithConfig(
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 
-		var tableSchemaDelta *model.TableSchemaDelta = nil
+		var tableSchemaDelta *protos.TableSchemaDelta = nil
 		if childSyncFlowRes != nil {
 			tableSchemaDelta = childSyncFlowRes.TableSchemaDelta
 		}

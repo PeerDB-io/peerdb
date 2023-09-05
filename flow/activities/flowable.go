@@ -160,8 +160,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 // StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
-	input *protos.StartFlowInput,
-	relationMessageMapping model.RelationMessageMapping) (*model.SyncResponse, error) {
+	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	conn := input.FlowConnectionConfigs
 
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
@@ -191,6 +190,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}).Info("pulling records...")
 
 	startTime := time.Now()
+	log.Errorf("lie3: %v\n", input.RelationMessageMapping == nil)
 	recordsWithTableSchemaDelta, err := src.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
 		SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
@@ -201,7 +201,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
 		OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 		OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
-		RelationMessageMapping:      relationMessageMapping,
+		RelationMessageMapping:      input.RelationMessageMapping,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull records: %w", err)
@@ -334,17 +334,15 @@ func (a *FlowableActivity) StartNormalize(
 
 func (a *FlowableActivity) ReplayTableSchemaDelta(
 	ctx context.Context,
-	flowConnectionConfigs *protos.FlowConnectionConfigs,
-	tableSchemaDelta *model.TableSchemaDelta,
+	input *protos.ReplayTableSchemaDeltaInput,
 ) error {
-	dest, err := connectors.GetConnector(ctx, flowConnectionConfigs.Destination)
+	dest, err := connectors.GetConnector(ctx, input.FlowConnectionConfigs.Destination)
 	defer connectors.CloseConnector(dest)
 	if err != nil {
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
 
-	return dest.ReplayTableSchemaDelta(flowConnectionConfigs.FlowJobName,
-		tableSchemaDelta)
+	return dest.ReplayTableSchemaDelta(input.FlowConnectionConfigs.FlowJobName, input.TableSchemaDelta)
 }
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.

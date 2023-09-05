@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pglogrepl"
@@ -254,7 +255,7 @@ func (p *PostgresCDCSource) consumeStream(
 				case *model.DeleteRecord:
 					records.Records = append(records.Records, rec)
 				case *model.RelationRecord:
-					tableSchemaDelta := &rec.(*model.RelationRecord).TableSchemaDelta
+					tableSchemaDelta := rec.(*model.RelationRecord).TableSchemaDelta
 					if len(tableSchemaDelta.AddedColumns) > 0 || len(tableSchemaDelta.DroppedColumns) > 0 {
 						result.TableSchemaDelta = tableSchemaDelta
 						log.Infof("Detected schema change for table %s, returning currently accumulated records",
@@ -300,9 +301,10 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 		log.Infof("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
 			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns)
 		if p.relationMessageMapping[msg.RelationID] == nil {
-			p.relationMessageMapping[msg.RelationID] = msg
+			log.Errorf("lie: %v\n", p.relationMessageMapping == nil)
+			p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)
 		} else {
-			return p.processRelationMessage(xld.WALStart, msg)
+			return p.processRelationMessage(xld.WALStart, convertRelationMessageToProto(msg))
 		}
 
 	case *pglogrepl.TruncateMessage:
@@ -428,7 +430,7 @@ It takes a tuple and a relation message as input and returns
 */
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
-	rel *pglogrepl.RelationMessage,
+	rel *protos.RelationMessage,
 ) (model.RecordItems, map[string]bool, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -494,13 +496,29 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }
 
+func convertRelationMessageToProto(msg *pglogrepl.RelationMessage) *protos.RelationMessage {
+	protoColArray := make([]*protos.RelationMessageColumn, 0)
+	for _, column := range msg.Columns {
+		protoColArray = append(protoColArray, &protos.RelationMessageColumn{
+			Name:     column.Name,
+			Flags:    uint32(column.Flags),
+			DataType: column.DataType,
+		})
+	}
+	return &protos.RelationMessage{
+		RelationId:   msg.RelationID,
+		RelationName: msg.RelationName,
+		Columns:      protoColArray,
+	}
+}
+
 // processRelationMessage processes a delete message and returns a TableSchemaDelta
 func (p *PostgresCDCSource) processRelationMessage(
 	lsn pglogrepl.LSN,
-	currRel *pglogrepl.RelationMessage,
+	currRel *protos.RelationMessage,
 ) (model.Record, error) {
 	// retrieve initial RelationMessage for table changed.
-	prevRel := p.relationMessageMapping[currRel.RelationID]
+	prevRel := p.relationMessageMapping[currRel.RelationId]
 	// creating maps for lookup later
 	prevRelMap := make(map[string]bool)
 	currRelMap := make(map[string]bool)
@@ -511,20 +529,20 @@ func (p *PostgresCDCSource) processRelationMessage(
 		currRelMap[column.Name] = true
 	}
 
-	schemaDelta := model.TableSchemaDelta{
+	schemaDelta := &protos.TableSchemaDelta{
 		// set it to the source table for now, so we can update the schema on the source side
 		// then at the Workflow level we set it t
-		SrcTableName:   p.SrcTableIDNameMapping[currRel.RelationID],
-		DstTableName:   p.TableNameMapping[p.SrcTableIDNameMapping[currRel.RelationID]],
-		AddedColumns:   make([]model.DeltaAddedColumn, 0),
+		SrcTableName:   p.SrcTableIDNameMapping[currRel.RelationId],
+		DstTableName:   p.TableNameMapping[p.SrcTableIDNameMapping[currRel.RelationId]],
+		AddedColumns:   make([]*protos.DeltaAddedColumn, 0),
 		DroppedColumns: make([]string, 0),
 	}
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
 		if !prevRelMap[column.Name] {
-			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, model.DeltaAddedColumn{
+			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 				ColumnName: column.Name,
-				ColumnType: postgresOIDToQValueKind(column.DataType),
+				ColumnType: string(postgresOIDToQValueKind(column.DataType)),
 			})
 		}
 	}
@@ -535,7 +553,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 		}
 	}
 
-	p.relationMessageMapping[currRel.RelationID] = currRel
+	p.relationMessageMapping[currRel.RelationId] = currRel
 	return &model.RelationRecord{
 		TableSchemaDelta: schemaDelta,
 		CheckPointID:     int64(lsn),

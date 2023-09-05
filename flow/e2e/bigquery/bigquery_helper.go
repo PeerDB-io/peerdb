@@ -169,8 +169,8 @@ func (b *BigQueryTestHelper) RunCommand(command string) error {
 	return nil
 }
 
-// CountRows(tableName) returns the number of rows in the given table.
-func (b *BigQueryTestHelper) CountRows(tableName string) (int, error) {
+// countRows(tableName) returns the number of rows in the given table.
+func (b *BigQueryTestHelper) countRows(tableName string) (int, error) {
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", b.Config.DatasetId, tableName)
 	it, err := b.client.Query(command).Read(context.Background())
 	if err != nil {

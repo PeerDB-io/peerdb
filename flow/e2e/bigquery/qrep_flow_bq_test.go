@@ -3,6 +3,8 @@ package e2e_bigquery
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -25,6 +27,32 @@ func (s *PeerFlowE2ETestSuiteBQ) setupBQDestinationTable(dstTable string) {
 	require.NoError(s.T(), err)
 
 	fmt.Printf("created table on bigquery: %s.%s. %v\n", s.bqHelper.Config.DatasetId, dstTable, err)
+}
+
+func (s *PeerFlowE2ETestSuiteBQ) compareTableSchemasBQ(tableName string) {
+	// read rows from source table
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
+	pgQueryExecutor.SetTestEnv(true)
+
+	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT * FROM e2e_test_%s.%s ORDER BY id", bigquerySuffix, tableName),
+	)
+	s.NoError(err)
+	sort.Slice(pgRows.Schema.Fields, func(i int, j int) bool {
+		return strings.Compare(pgRows.Schema.Fields[i].Name, pgRows.Schema.Fields[j].Name) == -1
+	})
+
+	// read rows from destination table
+	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
+	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT * FROM %s ORDER BY id", qualifiedTableName),
+	)
+	s.NoError(err)
+	sort.Slice(bqRows.Schema.Fields, func(i int, j int) bool {
+		return strings.Compare(bqRows.Schema.Fields[i].Name, bqRows.Schema.Fields[j].Name) == -1
+	})
+
+	s.True(pgRows.Schema.EqualNames(bqRows.Schema), "schemas from source and destination tables are not equal")
 }
 
 func (s *PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsString string) {

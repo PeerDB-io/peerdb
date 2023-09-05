@@ -366,7 +366,7 @@ func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableS
 
 // ReplayTableSchemaDelta changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
-func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *model.TableSchemaDelta) error {
+func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error {
 	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
 		return nil
 	}
@@ -400,7 +400,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDe
 	}
 	for _, addedColumn := range schemaDelta.AddedColumns {
 		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", schemaDelta.DstTableName,
-			addedColumn.ColumnName, qValueKindToSnowflakeType(addedColumn.ColumnType)))
+			addedColumn.ColumnName, qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
 		if err != nil {
 			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 				schemaDelta.SrcTableName, err)

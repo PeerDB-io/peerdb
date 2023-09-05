@@ -37,7 +37,7 @@ type Connector interface {
 	InitializeTableSchema(req map[string]*protos.TableSchema) error
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
 	// This could involve adding or dropping multiple columns.
-	ReplayTableSchemaDelta(flowJobName string, schemaDelta *model.TableSchemaDelta) error
+	ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error
 
 	// Methods related to retrieving and pusing records for this connector as a source and destination.
 

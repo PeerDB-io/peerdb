@@ -208,7 +208,7 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 // ReplayTableSchemaDelta changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDelta(flowJobName string,
-	schemaDelta *model.TableSchemaDelta) error {
+	schemaDelta *protos.TableSchemaDelta) error {
 	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
 		return nil
 	}

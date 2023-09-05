@@ -210,6 +210,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		"flowName": req.FlowJobName,
 	}).Infof("PullRecords: performed checks for slot and publication")
 
+	log.Errorf("lie2: %v\n", req.RelationMessageMapping == nil)
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:             c.ctx,
 		Connection:             c.replPool,
@@ -657,7 +658,7 @@ func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSc
 
 // ReplayTableSchemaDelta changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
-func (c *PostgresConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *model.TableSchemaDelta) error {
+func (c *PostgresConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error {
 	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
 		return nil
 	}
