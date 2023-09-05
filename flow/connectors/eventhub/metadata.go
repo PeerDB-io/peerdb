@@ -125,7 +125,9 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 			}, nil
 		}
 
-		log.Errorf("failed to get last offset: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": jobName,
+		}).Errorf("failed to get last offset: %v", err)
 		return nil, err
 	}
 
@@ -155,7 +157,9 @@ func (c *EventHubConnector) UpdateLastOffset(jobName string, offset int64) error
 	}
 
 	// update the last offset
-	log.Infof("updating last offset for job `%s` to `%d`", jobName, offset)
+	log.WithFields(log.Fields{
+		"flowName": jobName,
+	}).Infof("updating last offset for job `%s` to `%d`", jobName, offset)
 	_, err = tx.Exec(c.ctx, `
 		INSERT INTO `+metadataSchema+`.`+lastSyncStateTableName+` (job_name, last_offset)
 		VALUES ($1, $2)
