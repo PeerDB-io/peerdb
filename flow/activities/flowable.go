@@ -243,7 +243,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 
 	res, err := dest.SyncRecords(&model.SyncRecordsRequest{
-		Records:         records,
+		Records:         recordBatch,
 		FlowJobName:     input.FlowConnectionConfigs.FlowJobName,
 		SyncMode:        input.FlowConnectionConfigs.CdcSyncMode,
 		StagingPath:     input.FlowConnectionConfigs.CdcStagingPath,
