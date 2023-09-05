@@ -24,6 +24,10 @@ type PullRecordsRequest struct {
 	TableNameMapping map[string]string
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
+	// override publication name
+	OverridePublicationName string
+	// override replication slot name
+	OverrideReplicationSlotName string
 }
 
 type Record interface {
@@ -42,6 +46,12 @@ func (r RecordItems) ToJSON() (string, error) {
 	for k, v := range r {
 		var err error
 		switch v.Kind {
+		case qvalue.QValueKindString, qvalue.QValueKindJSON:
+			if len(v.Value.(string)) > 15*1024*1024 {
+				jsonStruct[k] = ""
+			} else {
+				jsonStruct[k] = v.Value
+			}
 		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
 			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
 			jsonStruct[k], err = v.GoTimeConvert()
@@ -165,10 +175,15 @@ type SyncRecordsRequest struct {
 	Records *RecordBatch
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
+	// SyncMode to use for pushing raw records
+	SyncMode protos.QRepSyncMode
+	// Staging path for AVRO files in CDC
+	StagingPath string
 }
 
 type NormalizeRecordsRequest struct {
 	FlowJobName string
+	SoftDelete  bool
 }
 
 type SyncResponse struct {
@@ -178,6 +193,10 @@ type SyncResponse struct {
 	LastSyncedCheckPointID int64
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced int64
+	// CurrentSyncBatchID is the ID of the currently synced batch.
+	CurrentSyncBatchID int64
+	// TableNameRowsMapping tells how many records need to be synced to each destination table.
+	TableNameRowsMapping map[string]uint32
 }
 
 type NormalizeResponse struct {

@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "peers.proto";
+import "flow.proto";
+
+package peerdb_route;
+
+message CreatePeerFlowRequest {
+  peerdb_flow.FlowConnectionConfigs connection_configs = 1;
+}
+
+message CreatePeerFlowResponse {
+  string worflow_id = 1;
+}
+
+message CreateQRepFlowRequest {
+  peerdb_flow.QRepConfig qrep_config = 1;
+}
+
+message CreateQRepFlowResponse {
+  string worflow_id = 1;
+}
+
+message ShutdownRequest {
+  string workflow_id = 1;
+  string flow_job_name = 2;
+  peerdb_peers.Peer source_peer = 3;
+  peerdb_peers.Peer destination_peer = 4;
+}
+
+message ShutdownResponse {
+  bool ok = 1;
+  string error_message = 2;
+}
+
+service FlowService {
+  rpc CreatePeerFlow(CreatePeerFlowRequest) returns (CreatePeerFlowResponse) {}
+  rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
+  rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
+}

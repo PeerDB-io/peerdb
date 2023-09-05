@@ -1,6 +1,12 @@
 #!/bin/bash
 set -xeuo pipefail
 
-# This script generates the Go protobufs for the project.
-protoc --proto_path=protos --go_out=flow protos/peers.proto
-protoc --proto_path=protos --go_out=flow protos/flow.proto
+# check if buf is installed
+if ! command -v buf &> /dev/null
+then
+    echo "buf could not be found"
+    echo "Please install buf: https://buf.build/docs/installation"
+    exit
+fi
+
+buf generate protos

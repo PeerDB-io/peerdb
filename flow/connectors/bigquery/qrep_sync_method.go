@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
@@ -18,7 +19,8 @@ type QRepSyncMethod interface {
 		dstTableName string,
 		partition *protos.QRepPartition,
 		dstTableMetadata *bigquery.TableMetadata,
-		records *model.QRecordBatch) (int, error)
+		stream *model.QRecordStream,
+	) (int, error)
 }
 
 type QRepStagingTableSync struct {
@@ -30,7 +32,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	dstTableName string,
 	partition *protos.QRepPartition,
 	dstTableMetadata *bigquery.TableMetadata,
-	records *model.QRecordBatch) (int, error) {
+	stream *model.QRecordStream,
+) (int, error) {
 	partitionID := partition.PartitionId
 
 	startTime := time.Now()
@@ -68,24 +71,44 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	// get an inserter for the staging table and insert the records
 	inserter := stagingBQTable.Inserter()
 
+	schema, err := stream.Schema()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partitionID,
+		}).Errorf("failed to get schema from stream: %v", err)
+		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
+	}
+
 	// Step 2: Insert records into the staging table.
-	numRowsInserted := 0
-	for _, qRecord := range records.Records {
+	valueSaverRecords := make([]bigquery.ValueSaver, 0)
+	for qRecordOrErr := range stream.Records {
+		if qRecordOrErr.Err != nil {
+			log.WithFields(log.Fields{
+				"flowName":    flowJobName,
+				"partitionID": partitionID,
+			}).Errorf("[bq] failed to get record from stream: %v", qRecordOrErr.Err)
+			return 0, fmt.Errorf("[bq] failed to get record from stream: %w", qRecordOrErr.Err)
+		}
+
+		qRecord := qRecordOrErr.Record
 		toPut := QRecordValueSaver{
-			ColumnNames: records.Schema.GetColumnNames(),
+			ColumnNames: schema.GetColumnNames(),
 			Record:      qRecord,
 			PartitionID: partitionID,
 			RunID:       runID,
 		}
 
-		var vs bigquery.ValueSaver = toPut
-		err := inserter.Put(s.connector.ctx, vs)
-		if err != nil {
-			return -1, fmt.Errorf("failed to insert record into staging table: %v", err)
-		}
-
-		numRowsInserted++
+		valueSaverRecords = append(valueSaverRecords, toPut)
 	}
+
+	err = inserter.Put(s.connector.ctx, valueSaverRecords)
+	if err != nil {
+		return -1, fmt.Errorf("failed to insert records into staging table: %v", err)
+	}
+	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName, int64(len(valueSaverRecords)),
+		time.Since(startTime))
+
 	// Copy the records into the destination table in a transaction.
 	// append all the statements to one list
 	stmts := []string{}
@@ -94,11 +117,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	// col names for the destination table joined by comma
 	colNames := []string{}
 	for _, col := range dstTableMetadata.Schema {
-		if strings.ToLower(col.Name) == "from" {
-			colNames = append(colNames, "`from`")
-		} else {
-			colNames = append(colNames, col.Name)
-		}
+		colNames = append(colNames, fmt.Sprintf("`%s`", col.Name))
 	}
 	colNamesStr := strings.Join(colNames, ", ")
 
@@ -121,6 +140,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 
-	log.Printf("pushed %d records to %s.%s", numRowsInserted, s.connector.datasetID, dstTableName)
-	return numRowsInserted, nil
+	log.Printf("pushed %d records to %s.%s", len(valueSaverRecords), s.connector.datasetID, dstTableName)
+	return len(valueSaverRecords), nil
 }

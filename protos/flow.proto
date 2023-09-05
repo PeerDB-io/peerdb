@@ -3,9 +3,7 @@ syntax = "proto3";
 import "google/protobuf/timestamp.proto";
 import "peers.proto";
 
-option go_package = "generated/protos";
-
-package peerdb.flow;
+package peerdb_flow;
 
 message TableNameMapping {
   string source_table_name = 1;
@@ -13,13 +11,35 @@ message TableNameMapping {
 }
 
 message FlowConnectionConfigs {
-  peerdb.peers.Peer source = 1;
-  peerdb.peers.Peer destination = 2;
+  peerdb_peers.Peer source = 1;
+  peerdb_peers.Peer destination = 2;
   string flow_job_name = 3;
   TableSchema table_schema = 4;
   map<string, string> table_name_mapping = 5;
   map<uint32, string> src_table_id_name_mapping = 6;
   map<string, TableSchema> table_name_schema_mapping = 7;
+
+  // This is an optional peer that will be used to hold metadata in cases where
+  // the destination isn't ideal for holding metadata.
+  peerdb_peers.Peer metadata_peer = 8;
+  uint32 max_batch_size = 9;
+  bool do_initial_copy = 10;
+
+  string publication_name = 11;
+  uint32 snapshot_num_rows_per_partition = 12;
+
+  // max parallel workers is per table
+  uint32 snapshot_max_parallel_workers = 13;
+  uint32 snapshot_num_tables_in_parallel = 14;
+  QRepSyncMode snapshot_sync_mode = 15;
+  QRepSyncMode cdc_sync_mode = 16;
+  string snapshot_staging_path = 17;
+  string cdc_staging_path = 18;
+
+  // currently only works for snowflake
+  bool soft_delete = 19;
+
+  string replication_slot_name = 20;
 }
 
 message SyncFlowOptions { int32 batch_size = 1; }
@@ -44,14 +64,20 @@ message StartNormalizeInput {
 }
 
 message GetLastSyncedIDInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
 }
 
 message EnsurePullabilityInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   string source_table_identifier = 3;
+}
+
+message EnsurePullabilityBatchInput {
+  peerdb_peers.Peer peer_connection_config = 1;
+  string flow_job_name = 2;
+  repeated string source_table_identifiers = 3;
 }
 
 message PostgresTableIdentifier {
@@ -68,23 +94,34 @@ message EnsurePullabilityOutput {
   TableIdentifier table_identifier = 1;
 }
 
+message EnsurePullabilityBatchOutput {
+  map<string, TableIdentifier> table_identifier_mapping = 1;
+}
+
 message SetupReplicationInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
+  // replicate to destination using ctid
+  peerdb_peers.Peer destination_peer = 4;
+  bool do_initial_copy = 5;
+  string existing_publication_name = 6;
+  string existing_replication_slot_name = 7;
+}
+
+message SetupReplicationOutput {
+  string slot_name = 1;
+  string snapshot_name = 2;
 }
 
 message CreateRawTableInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
+  map<string, string> table_name_mapping = 3;
+  QRepSyncMode cdc_sync_mode = 4;
 }
 
 message CreateRawTableOutput { string table_identifier = 1; }
-
-message GetTableSchemaInput {
-  peerdb.peers.Peer peer_connection_config = 1;
-  string table_identifier = 2;
-}
 
 message TableSchema {
   string table_identifier = 1;
@@ -94,15 +131,33 @@ message TableSchema {
   string primary_key_column = 3;
 }
 
+message GetTableSchemaBatchInput {
+  peerdb_peers.Peer peer_connection_config = 1;
+  repeated string table_identifiers = 2;
+}
+
+message GetTableSchemaBatchOutput {
+  map<string, TableSchema> table_name_schema_mapping = 1;
+}
+
 message SetupNormalizedTableInput {
-  peerdb.peers.Peer peer_connection_config = 1;
+  peerdb_peers.Peer peer_connection_config = 1;
   string table_identifier = 2;
   TableSchema source_table_schema = 3;
+}
+
+message SetupNormalizedTableBatchInput {
+  peerdb_peers.Peer peer_connection_config = 1;
+  map<string, TableSchema> table_name_schema_mapping = 2;
 }
 
 message SetupNormalizedTableOutput {
   string table_identifier = 1;
   bool already_exists = 2;
+}
+
+message SetupNormalizedTableBatchOutput {
+  map<string, bool> table_exists_mapping = 1;
 }
 
 // partition ranges [start, end] inclusive
@@ -116,11 +171,22 @@ message TimestampPartitionRange {
   google.protobuf.Timestamp end = 2;
 }
 
+message TID {
+  uint32 block_number = 1;
+  uint32 offset_number = 2;
+}
+
+message TIDPartitionRange {
+  TID start = 1;
+  TID end = 2;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
     IntPartitionRange int_range = 1;
     TimestampPartitionRange timestamp_range = 2;
+    TIDPartitionRange tid_range = 3;
   }
 }
 
@@ -143,8 +209,8 @@ message QRepWriteMode {
 message QRepConfig {
   string flow_job_name = 1;
 
-  peerdb.peers.Peer source_peer = 2;
-  peerdb.peers.Peer destination_peer = 3;
+  peerdb_peers.Peer source_peer = 2;
+  peerdb_peers.Peer destination_peer = 3;
 
   string destination_table_identifier = 4;
 
@@ -173,11 +239,22 @@ message QRepConfig {
   // if nothing is specified then it will be written to local disk
   // if using GCS or S3 make sure your instance has the correct permissions.
   string staging_path = 15;
+
+  // This setting overrides batch_size_int and batch_duration_seconds
+  // and instead uses the number of rows per partition to determine
+  // how many rows to process per batch.
+  uint32 num_rows_per_partition = 16;
 }
 
 message QRepPartition {
   string partition_id = 2;
   PartitionRange range = 3;
+  bool full_table_partition = 4;
+}
+
+message QRepPartitionBatch {
+  int32 batch_id = 1;
+  repeated QRepPartition partitions = 2;
 }
 
 message QRepParitionResult {

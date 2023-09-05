@@ -43,6 +43,13 @@ deadbeef
 {"address":"947 Montana Place, Lacomb, Maine, 4927","age":36,"balance":"$1,331.54","company":"PROFLEX","email":"adrianfarley@proflex.com","eyeColor":"blue","gender":"female","guid":"bf8b20d9-c9d7-4d9e-b52d-f6e26dcb1d6e","index":0,"isActive":false,"latitude":-26.125532,"longitude":174.541577,"name":"Adrian Farley","phone":"+1 (815) 475-2975","picture":"http://placehold.it/32x32","registered":"2015-04-06T11:47:48 -06:-30"}
 36
 "female"
+192.168.1.100
+2001:db8:85a3::8a2e:370:7334
+2001:db8:85a3::8a2e:370:7334/128
+192.168.0.0/24
+2001:db8::/48
+255.255.255.0
+192.168.0.0/24
 17
 true
 26

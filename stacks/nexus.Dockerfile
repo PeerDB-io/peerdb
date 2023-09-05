@@ -12,8 +12,10 @@ FROM chef as builder
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive \
   apt-get install --assume-yes --no-install-recommends \
-  protobuf-compiler build-essential libssl-dev pkg-config
+  build-essential libssl-dev pkg-config wget unzip
 WORKDIR /root/nexus
+COPY scripts /root/scripts
+RUN /bin/bash -c /root/scripts/install-protobuf.sh
 COPY --from=planner /root/nexus/recipe.json recipe.json
 # Build dependencies - this is the caching Docker layer!
 RUN cargo chef cook --release --recipe-path recipe.json
@@ -21,11 +23,11 @@ WORKDIR /root
 COPY nexus nexus
 COPY protos protos
 WORKDIR /root/nexus
-RUN mkdir -p /var/log/peerdb
 RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerdb-server
 
-FROM gcr.io/distroless/cc-debian11
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y ca-certificates postgresql-client wget curl iputils-ping
+RUN mkdir -p /var/log/peerdb
+WORKDIR /root
 COPY --from=builder /root/nexus/target/release/peerdb-server .
-# distroless doesn't allow mkdir, so we have to copy the log directory
-COPY --from=builder /var/log/peerdb /var/log/peerdb
 CMD ["./peerdb-server"]

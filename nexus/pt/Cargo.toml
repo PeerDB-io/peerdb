@@ -9,7 +9,10 @@ edition = "2021"
 bytes = "1.1"
 prost = "0.11"
 prost-types = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 sqlparser = { path = "../sqlparser-rs" }
-
-[build-dependencies]
-prost-build = { version = "0.11" }
+tonic = "0.9"
+tonic-reflection = "0.9"
+pbjson = "0.5"
+pbjson-types = "0.5.1"

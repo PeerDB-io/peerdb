@@ -10,6 +10,7 @@ members = [
   "peer-postgres",
   "peer-snowflake",
   "pgerror",
+  "postgres-connection",
   "pt",
   "server",
   "value",

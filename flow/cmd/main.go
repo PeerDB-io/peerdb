@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/urfave/cli/v2"
+	_ "go.uber.org/automaxprocs"
 )
 
 func main() {
@@ -38,11 +37,32 @@ func main() {
 		EnvVars: []string{"ENABLE_PROFILING"},
 	}
 
+	metricsFlag := &cli.BoolFlag{
+		Name:    "enable-metrics",
+		Value:   false, // Default is off
+		Usage:   "Enable metrics collection for the application",
+		EnvVars: []string{"ENABLE_METRICS"},
+	}
+
+	monitoringFlag := &cli.BoolFlag{
+		Name:    "enable-monitoring",
+		Value:   false, // Default is off
+		Usage:   "Enable mirror monitoring for the application",
+		EnvVars: []string{"ENABLE_STATS"},
+	}
+
 	profilingServerFlag := &cli.StringFlag{
 		Name:    "profiling-server",
 		Value:   "localhost:6060", // Default is localhost:6060
 		Usage:   "HTTP server address for profiling",
 		EnvVars: []string{"PROFILING_SERVER"},
+	}
+
+	metricsServerFlag := &cli.StringFlag{
+		Name:    "metrics-server",
+		Value:   "localhost:6061", // Default is localhost:6061
+		Usage:   "HTTP server address for metrics collection",
+		EnvVars: []string{"METRICS_SERVER"},
 	}
 
 	app := &cli.App{
@@ -55,13 +75,31 @@ func main() {
 					return WorkerMain(&WorkerOptions{
 						TemporalHostPort: temporalHostPort,
 						EnableProfiling:  ctx.Bool("enable-profiling"),
+						EnableMetrics:    ctx.Bool("enable-metrics"),
+						EnableMonitoring: ctx.Bool("enable-monitoring"),
 						ProfilingServer:  ctx.String("profiling-server"),
+						MetricsServer:    ctx.String("metrics-server"),
 					})
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					profilingFlag,
+					metricsFlag,
+					monitoringFlag,
 					profilingServerFlag,
+					metricsServerFlag,
+				},
+			},
+			{
+				Name: "snapshot-worker",
+				Action: func(ctx *cli.Context) error {
+					temporalHostPort := ctx.String("temporal-host-port")
+					return SnapshotWorkerMain(&SnapshotWorkerOptions{
+						TemporalHostPort: temporalHostPort,
+					})
+				},
+				Flags: []cli.Flag{
+					temporalHostPortFlag,
 				},
 			},
 			{
@@ -72,50 +110,14 @@ func main() {
 						Aliases: []string{"p"},
 						Value:   8110,
 					},
-					&cli.StringFlag{
-						Name:    "catalog-host",
-						Value:   "localhost",
-						EnvVars: []string{"PEERDB_CATALOG_HOST"},
-					},
-					&cli.UintFlag{
-						Name:    "catalog-port",
-						Value:   5432,
-						EnvVars: []string{"PEERDB_CATALOG_PORT"},
-					},
-					&cli.StringFlag{
-						Name:    "catalog-user",
-						Value:   "postgres",
-						EnvVars: []string{"PEERDB_CATALOG_USER"},
-					},
-					&cli.StringFlag{
-						Name:    "catalog-password",
-						Value:   "postgres",
-						EnvVars: []string{"PEERDB_CATALOG_PASSWORD"},
-					},
-					&cli.StringFlag{
-						Name:    "catalog-db",
-						Value:   "postgres",
-						EnvVars: []string{"PEERDB_CATALOG_DATABASE"},
-					},
 					temporalHostPortFlag,
 				},
 				Action: func(ctx *cli.Context) error {
-					catalogHost := ctx.String("catalog-host")
-					catalogPort := ctx.String("catalog-port")
-					catalogUser := ctx.String("catalog-user")
-					catalogPassword := url.QueryEscape(ctx.String("catalog-password"))
-					catalogDB := ctx.String("catalog-db")
-
-					// create the catalogURL from the host, port, user, password, and db
-					catalogURL := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?sslmode=disable",
-						catalogUser, catalogPassword, catalogHost, catalogPort, catalogDB)
-
 					temporalHostPort := ctx.String("temporal-host-port")
 
 					return APIMain(&APIServerParams{
 						ctx:              appCtx,
 						Port:             ctx.Uint("port"),
-						CatalogJdbcURL:   catalogURL,
 						TemporalHostPort: temporalHostPort,
 					})
 				},

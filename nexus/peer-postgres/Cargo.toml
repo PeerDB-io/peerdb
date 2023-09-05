@@ -16,10 +16,12 @@ peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
 pgerror = { path = "../pgerror" }
 pgwire = "0.15"
+postgres-connection = { path = "../postgres-connection" }
 pt = { path = "../pt" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_bytes = "0.11"
+postgres-inet = "0.19.0"
 sqlparser = { path = "../sqlparser-rs" }
 tokio = { version = "1.0", features = ["full"] }
 tokio-postgres = { version = "0.7.6", features = [
@@ -28,6 +30,5 @@ tokio-postgres = { version = "0.7.6", features = [
   "with-uuid-0_8",
 ] }
 tracing = "0.1"
-urlencoding = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 value = { path = "../value" }

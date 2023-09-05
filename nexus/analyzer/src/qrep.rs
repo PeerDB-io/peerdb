@@ -16,6 +16,11 @@ enum QRepOptionType {
         default_value: u32,
         required: bool,
     },
+    Boolean {
+        name: &'static str,
+        default_value: bool,
+        required: bool,
+    },
     StringArray {
         name: &'static str,
     },
@@ -33,13 +38,13 @@ lazy_static::lazy_static! {
         QRepOptionType::String {
             name: "watermark_column",
             default_val: None,
-            required: true,
+            required: false,
             accepted_values: None,
         },
         QRepOptionType::String {
             name: "watermark_table_name",
             default_val: None,
-            required: true,
+            required: false,
             accepted_values: None,
         },
         QRepOptionType::String {
@@ -85,6 +90,17 @@ lazy_static::lazy_static! {
             name: "batch_duration_timestamp",
             min_value: Some(1),
             default_value: 60,
+            required: false,
+        },
+        QRepOptionType::Int {
+            name: "num_rows_per_partition",
+            min_value: Some(0),
+            default_value: 0,
+            required: false,
+        },
+        QRepOptionType::Boolean {
+            name: "initial_copy_only",
+            default_value: false,
             required: false,
         },
         ]
@@ -158,6 +174,24 @@ pub fn process_options(
                     } else {
                         anyhow::bail!("Invalid value for {}", name);
                     }
+                }
+            }
+            QRepOptionType::Boolean {
+                name,
+                default_value,
+                required,
+            } => {
+                if let Some(raw_value) = raw_opts.get(*name) {
+                    if let SqlValue::Boolean(b) = raw_value {
+                        opts.insert((*name).to_string(), Value::Bool(*b));
+                    } else {
+                        anyhow::bail!("Invalid value for {}", name);
+                    }
+                } else if *required {
+                    anyhow::bail!("{} is required", name);
+                } else {
+                    let v = *default_value;
+                    opts.insert((*name).to_string(), Value::Bool(v));
                 }
             }
         }

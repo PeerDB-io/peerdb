@@ -30,6 +30,7 @@ pub enum Value {
     Timestamp(DateTime<Utc>),
     PostgresTimestamp(NaiveDateTime),
     TimestampWithTimeZone(DateTime<Utc>),
+    IpAddr(postgres_inet::MaskedIpAddr),
     Interval(i64),
     Array(ArrayValue),
     Json(serde_json::Value),
@@ -120,6 +121,10 @@ impl Value {
 
     pub fn timestamp_with_time_zone(value: DateTime<Utc>) -> Self {
         Value::TimestampWithTimeZone(value)
+    }
+
+    pub fn ip_addr(value: postgres_inet::MaskedIpAddr) -> Self {
+        Value::IpAddr(value)
     }
 
     pub fn interval(value: i64) -> Self {
@@ -239,6 +244,7 @@ impl Value {
             Value::PostgresTimestamp(t) => serde_json::Value::String(t.to_string()),
             Value::Timestamp(ts) => serde_json::Value::String(ts.to_rfc3339()),
             Value::TimestampWithTimeZone(ts) => serde_json::Value::String(ts.to_rfc3339()),
+            Value::IpAddr(ip) => serde_json::Value::String(ip.to_string()),
             Value::Interval(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
             Value::Array(arr) => arr.to_serde_json_value(),
             Value::Json(s) => s.clone(),

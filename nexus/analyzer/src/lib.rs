@@ -7,9 +7,12 @@ use std::{
 };
 
 use anyhow::Context;
-use flow_rs::{FlowJob, FlowJobTableMapping, QRepFlowJob};
-use pt::peers::{
-    peer::Config, BigqueryConfig, DbType, MongoConfig, Peer, PostgresConfig, SnowflakeConfig,
+use pt::{
+    flow_model::{FlowJob, FlowJobTableMapping, FlowSyncMode, QRepFlowJob},
+    peerdb_peers::{
+        peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
+        S3Config, SnowflakeConfig, SqlServerConfig,
+    },
 };
 use qrep::process_options;
 use sqlparser::ast::CreateMirror::{Select, CDC};
@@ -91,7 +94,7 @@ pub struct PeerDDLAnalyzer;
 #[derive(Debug, Clone)]
 pub enum PeerDDL {
     CreatePeer {
-        peer: Box<pt::peers::Peer>,
+        peer: Box<pt::peerdb_peers::Peer>,
         if_not_exists: bool,
     },
     CreateMirrorForCDC {
@@ -99,6 +102,9 @@ pub enum PeerDDL {
     },
     CreateMirrorForSelect {
         qrep_flow_job: QRepFlowJob,
+    },
+    ExecuteMirrorForSelect {
+        flow_job_name: String,
     },
     DropMirror {
         if_exists: bool,
@@ -147,13 +153,110 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             });
                         }
 
+                        // get do_initial_copy from with_options
+                        let mut raw_options = HashMap::new();
+                        for option in &cdc.with_options {
+                            raw_options.insert(&option.name.value as &str, &option.value);
+                        }
+                        let do_initial_copy = match raw_options.remove("do_initial_copy") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            _ => false,
+                        };
+
+                        let publication_name: Option<String> = match raw_options
+                            .remove("publication_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
+                        let replication_slot_name: Option<String> = match raw_options
+                            .remove("replication_slot_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
+                        let snapshot_num_rows_per_partition: Option<u32> = match raw_options
+                            .remove("snapshot_num_rows_per_partition")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
+                        let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
+                            .remove("snapshot_num_tables_in_parallel")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+                        let snapshot_sync_mode: Option<FlowSyncMode> =
+                            match raw_options.remove("snapshot_sync_mode") {
+                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                    let s = s.to_lowercase();
+                                    FlowSyncMode::parse_string(&s).ok()
+                                }
+                                _ => None,
+                            };
+                        let snapshot_staging_path = match raw_options
+                            .remove("snapshot_staging_path")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+                        let cdc_sync_mode: Option<FlowSyncMode> =
+                            match raw_options.remove("cdc_sync_mode") {
+                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                    let s = s.to_lowercase();
+                                    FlowSyncMode::parse_string(&s).ok()
+                                }
+                                _ => None,
+                            };
+
+                        let snapshot_max_parallel_workers: Option<u32> = match raw_options
+                            .remove("snapshot_max_parallel_workers")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
+                        let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
+                        let soft_delete = match raw_options.remove("soft_delete") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            _ => false,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
                             target_peer: cdc.target_peer.to_string().to_lowercase(),
                             table_mappings: flow_job_table_mappings,
                             description: "".to_string(), // TODO: add description
+                            do_initial_copy,
+                            publication_name,
+                            snapshot_num_rows_per_partition,
+                            snapshot_max_parallel_workers,
+                            snapshot_num_tables_in_parallel,
+                            snapshot_sync_mode,
+                            snapshot_staging_path,
+                            cdc_sync_mode,
+                            cdc_staging_path,
+                            soft_delete,
+                            replication_slot_name
                         };
+
+                        // Error reporting
+                        if Some(FlowSyncMode::Avro) == flow_job.snapshot_sync_mode
+                            && flow_job.snapshot_staging_path.is_none()
+                        {
+                            return Err(anyhow::anyhow!(
+                                "snapshot_staging_path must be set for AVRO snapshot mode."
+                            ));
+                        }
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
                     }
@@ -163,7 +266,17 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
 
+                        // we treat disabled as a special option, and do not pass it to the
+                        // flow server, this is primarily used for external orchestration.
+                        let mut disabled = false;
+                        if let Some(sqlparser::ast::Value::Boolean(b)) =
+                            raw_options.remove("disabled")
+                        {
+                            disabled = *b;
+                        }
+
                         let processed_options = process_options(raw_options)?;
+
                         let qrep_flow_job = QRepFlowJob {
                             name: select.mirror_name.to_string().to_lowercase(),
                             source_peer: select.source_peer.to_string().to_lowercase(),
@@ -171,12 +284,16 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             query_string: select.query_string.to_string(),
                             flow_options: processed_options,
                             description: "".to_string(), // TODO: add description
+                            disabled,
                         };
 
                         Ok(Some(PeerDDL::CreateMirrorForSelect { qrep_flow_job }))
                     }
                 }
             }
+            Statement::ExecuteMirror { mirror_name } => Ok(Some(PeerDDL::ExecuteMirrorForSelect {
+                flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
             Statement::DropMirror {
                 if_exists,
                 mirror_name,
@@ -387,8 +504,87 @@ fn parse_db_options(
                     .get("database")
                     .context("no default database specified")?
                     .to_string(),
+                transaction_snapshot: "".to_string(),
             };
             let config = Config::PostgresConfig(postgres_config);
+            Some(config)
+        }
+        DbType::Eventhub => {
+            let mut metadata_db = PostgresConfig::default();
+            let conn_str = opts
+                .get("metadata_db")
+                .context("no metadata db specified")?;
+            let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
+            match param_pairs.len() {
+                5 => Ok(true),
+                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
+            }?;
+            for pair in param_pairs {
+                let key_value: Vec<&str> = pair.trim().split('=').collect();
+                match key_value.len() {
+                    2 => Ok(true),
+                    _ => Err(anyhow::Error::msg(
+                        "Invalid config setting for PG. Check the formatting",
+                    )),
+                }?;
+                let value = key_value[1].to_string();
+                match key_value[0] {
+                    "host" => metadata_db.host = value,
+                    "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
+                    "database" => metadata_db.database = value,
+                    "user" => metadata_db.user = value,
+                    "password" => metadata_db.password = value,
+                    _ => (),
+                };
+            }
+            let eventhub_config = EventHubConfig {
+                namespace: opts
+                    .get("namespace")
+                    .context("no namespace specified")?
+                    .to_string(),
+                resource_group: opts
+                    .get("resource_group")
+                    .context("no resource group specified")?
+                    .to_string(),
+                location: opts
+                    .get("location")
+                    .context("location not specified")?
+                    .to_string(),
+                metadata_db: Some(metadata_db),
+            };
+            let config = Config::EventhubConfig(eventhub_config);
+            Some(config)
+        }
+        DbType::S3 => {
+            let s3_config = S3Config {
+                url: opts
+                    .get("url")
+                    .context("S3 bucket url not specified")?
+                    .to_string(),
+            };
+            let config = Config::S3Config(s3_config);
+            Some(config)
+        }
+        DbType::Sqlserver => {
+            let port_str = opts.get("port").context("port not specified")?;
+            let port: u32 = port_str.parse().context("port is invalid")?;
+            let sqlserver_config = SqlServerConfig {
+                server: opts
+                    .get("server")
+                    .context("server not specified")?
+                    .to_string(),
+                port,
+                user: opts.get("user").context("user not specified")?.to_string(),
+                password: opts
+                    .get("password")
+                    .context("password not specified")?
+                    .to_string(),
+                database: opts
+                    .get("database")
+                    .context("database is not specified")?
+                    .to_string(),
+            };
+            let config = Config::SqlserverConfig(sqlserver_config);
             Some(config)
         }
     };

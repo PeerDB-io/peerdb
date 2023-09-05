@@ -6,7 +6,7 @@ use pgwire::{
     api::results::{FieldFormat, FieldInfo},
     error::{PgWireError, PgWireResult},
 };
-use pt::peers::PostgresConfig;
+use pt::peerdb_peers::PostgresConfig;
 use sqlparser::ast::Statement;
 use tokio_postgres::Client;
 
@@ -21,43 +21,9 @@ pub struct PostgresQueryExecutor {
     client: Box<Client>,
 }
 
-fn get_connection_string(config: &PostgresConfig) -> String {
-    let mut connection_string = String::new();
-    connection_string.push_str("host=");
-    connection_string.push_str(&config.host);
-    connection_string.push_str(" port=");
-    connection_string.push_str(&config.port.to_string());
-    connection_string.push_str(" user=");
-    connection_string.push_str(&config.user);
-    if !config.password.is_empty() {
-        connection_string.push_str(" password=");
-        let encoded_password = urlencoding::encode(&config.password);
-        connection_string.push_str(&encoded_password);
-    }
-    connection_string.push_str(" dbname=");
-    connection_string.push_str(&config.database);
-    connection_string
-}
-
 impl PostgresQueryExecutor {
     pub async fn new(peername: Option<String>, config: &PostgresConfig) -> anyhow::Result<Self> {
-        let connection_string = get_connection_string(config);
-
-        let (client, connection) =
-            tokio_postgres::connect(&connection_string, tokio_postgres::NoTls)
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!("error encountered while connecting to postgres {:?}", e)
-                })?;
-
-        tokio::task::Builder::new()
-            .name("PostgresQueryExecutor connection")
-            .spawn(async move {
-                if let Err(e) = connection.await {
-                    tracing::info!("connection error: {}", e)
-                }
-            })?;
-
+        let client = postgres_connection::connect_postgres(config).await?;
         Ok(Self {
             config: config.clone(),
             peername,

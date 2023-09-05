@@ -145,15 +145,17 @@ impl BqRecordStream {
                         result_set.get_string_by_name(field_name)?.map(Value::Text)
                     }
                     FieldType::Timestamp => {
-                        let timestamp = result_set
-                            .get_i64_by_name(field_name)?
-                            .ok_or(anyhow::Error::msg("Invalid timestamp"))?;
-                        let naive_datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
-                            .ok_or(anyhow::Error::msg("Invalid timestamp"))?;
-                        Some(Value::Timestamp(DateTime::<Utc>::from_utc(
-                            naive_datetime,
-                            Utc,
-                        )))
+                        let timestamp = result_set.get_i64_by_name(field_name)?;
+                        if let Some(ts) = timestamp {
+                            let naive_datetime = NaiveDateTime::from_timestamp_opt(ts, 0)
+                                .ok_or(anyhow::Error::msg("Invalid naive datetime"))?;
+                            Some(Value::Timestamp(DateTime::<Utc>::from_utc(
+                                naive_datetime,
+                                Utc,
+                            )))
+                        } else {
+                            None
+                        }
                     }
                     FieldType::Record => todo!(),
                     FieldType::Struct => todo!(),

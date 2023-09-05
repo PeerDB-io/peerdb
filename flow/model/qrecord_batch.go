@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	log "github.com/sirupsen/logrus"
 )
 
 // QRecordBatch holds a batch of QRecord objects.
@@ -26,20 +27,25 @@ func (q *QRecordBatch) Equals(other *QRecordBatch) bool {
 	// First check simple attributes
 	if q.NumRecords != other.NumRecords {
 		// print num records
-		fmt.Printf("q.NumRecords: %d\n", q.NumRecords)
-		fmt.Printf("other.NumRecords: %d\n", other.NumRecords)
-
+		log.Infof("q.NumRecords: %d\n", q.NumRecords)
+		log.Infof("other.NumRecords: %d\n", other.NumRecords)
 		return false
 	}
 
 	// Compare column names
 	if !q.Schema.EqualNames(other.Schema) {
+		log.Infof("Column names are not equal")
+		log.Infof("Schema 1: %v", q.Schema.GetColumnNames())
+		log.Infof("Schema 2: %v", other.Schema.GetColumnNames())
 		return false
 	}
 
 	// Compare records
 	for i, record := range q.Records {
 		if !record.equals(other.Records[i]) {
+			log.Infof("Record %d is not equal", i)
+			log.Infof("Record 1: %v", record)
+			log.Infof("Record 2: %v", other.Records[i])
 			return false
 		}
 	}
@@ -47,32 +53,73 @@ func (q *QRecordBatch) Equals(other *QRecordBatch) bool {
 	return true
 }
 
+func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
+	stream := NewQRecordStream(buffer)
+
+	log.Infof("Converting %d records to QRecordStream", q.NumRecords)
+
+	go func() {
+		err := stream.SetSchema(q.Schema)
+		if err != nil {
+			log.Warnf(err.Error())
+		}
+
+		for _, record := range q.Records {
+			stream.Records <- &QRecordOrError{
+				Record: record,
+			}
+		}
+		close(stream.Records)
+	}()
+
+	return stream, nil
+}
+
 type QRecordBatchCopyFromSource struct {
-	currentIndex int
-	records      *QRecordBatch
-	err          error
+	numRecords    int
+	stream        *QRecordStream
+	currentRecord *QRecordOrError
+	err           error
 }
 
 func NewQRecordBatchCopyFromSource(
-	records *QRecordBatch,
+	stream *QRecordStream,
 ) *QRecordBatchCopyFromSource {
 	return &QRecordBatchCopyFromSource{
-		records: records,
+		numRecords:    0,
+		stream:        stream,
+		currentRecord: nil,
+		err:           nil,
 	}
 }
 
 func (src *QRecordBatchCopyFromSource) Next() bool {
-	return src.currentIndex < len(src.records.Records)
+	rec, ok := <-src.stream.Records
+	if !ok {
+		return false
+	}
+
+	src.currentRecord = rec
+	src.numRecords++
+	return true
 }
 
 func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
-	record := src.records.Records[src.currentIndex]
-	src.currentIndex++
+	if src.currentRecord.Err != nil {
+		src.err = src.currentRecord.Err
+		return nil, src.err
+	}
 
+	record := src.currentRecord.Record
 	numEntries := len(record.Entries)
 
 	values := make([]interface{}, numEntries)
 	for i, qValue := range record.Entries {
+		if qValue.Value == nil {
+			values[i] = nil
+			continue
+		}
+
 		switch qValue.Kind {
 		case qvalue.QValueKindFloat32:
 			v, ok := qValue.Value.(float32)
@@ -107,10 +154,20 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = v
 
 		case qvalue.QValueKindBoolean:
-			values[i] = qValue.Value.(bool)
+			v, ok := qValue.Value.(bool)
+			if !ok {
+				src.err = fmt.Errorf("invalid boolean value")
+				return nil, src.err
+			}
+			values[i] = v
 
 		case qvalue.QValueKindString:
-			values[i] = qValue.Value.(string)
+			v, ok := qValue.Value.(string)
+			if !ok {
+				src.err = fmt.Errorf("invalid string value")
+				return nil, src.err
+			}
+			values[i] = v
 
 		case qvalue.QValueKindTimestamp:
 			t, ok := qValue.Value.(time.Time)
@@ -129,6 +186,7 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			timestampTZ := pgtype.Timestamptz{Time: t, Valid: true}
 			values[i] = timestampTZ
+
 		case qvalue.QValueKindUUID:
 			if qValue.Value == nil {
 				values[i] = nil
@@ -159,6 +217,83 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			}
 			values[i] = v
 
+		case qvalue.QValueKindDate:
+			t, ok := qValue.Value.(time.Time)
+			if !ok {
+				src.err = fmt.Errorf("invalid Date value")
+				return nil, src.err
+			}
+			date := pgtype.Date{Time: t, Valid: true}
+			values[i] = date
+
+		case qvalue.QValueKindArrayString:
+			v, ok := qValue.Value.([]string)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayString value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[string]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindArrayInt32:
+			v, ok := qValue.Value.([]int32)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayInt32 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[int32]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindArrayInt64:
+			v, ok := qValue.Value.([]int64)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayInt64 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[int64]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindArrayFloat32:
+			v, ok := qValue.Value.([]float32)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayFloat32 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[float32]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindArrayFloat64:
+			v, ok := qValue.Value.([]float64)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayFloat64 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[float64]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
+		case qvalue.QValueKindJSON:
+			v, ok := qValue.Value.(string)
+			if !ok {
+				src.err = fmt.Errorf("invalid JSON value")
+				return nil, src.err
+			}
+			values[i] = v
+
 		// And so on for the other types...
 		default:
 			src.err = fmt.Errorf("unsupported value type %s", qValue.Kind)
@@ -166,6 +301,10 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 		}
 	}
 	return values, nil
+}
+
+func (src *QRecordBatchCopyFromSource) NumRecords() int {
+	return src.numRecords
 }
 
 func (src *QRecordBatchCopyFromSource) Err() error {

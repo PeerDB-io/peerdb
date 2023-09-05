@@ -3,7 +3,7 @@ name: Stable Docker images
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
   docker-build:
@@ -56,3 +56,13 @@ jobs:
           push: true
           tags: |
             ghcr.io/peerdb-io/flow-worker:${{ github.ref_name }}
+
+      - name: Publish Flow Snapshot Worker Stable Image
+        uses: depot/build-push-action@v1
+        with:
+          token: ${{ secrets.DEPOT_TOKEN }}
+          context: .
+          file: stacks/flow-snapshot-worker.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/peerdb-io/flow-snapshot-worker:${{ github.ref_name }}
