@@ -1,13 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -15,12 +13,10 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uber-go/tally/v4"
 	"github.com/uber-go/tally/v4/prometheus"
 
@@ -88,15 +84,11 @@ func WorkerMain(opts *WorkerOptions) error {
 
 	catalogMirrorMonitor := monitoring.NewCatalogMirrorMonitor(nil)
 	if opts.EnableMonitoring {
-		catalogConnectionString, err := genCatalogConnectionString()
+		conn, err := utils.GetCatalogConnectionPoolFromEnv()
 		if err != nil {
-			log.Fatal(err)
+			return fmt.Errorf("unable to create catalog connection pool: %w", err)
 		}
-		catalogConn, err := pgxpool.New(context.Background(), catalogConnectionString)
-		if err != nil {
-			return fmt.Errorf("unable to establish connection with catalog: %w", err)
-		}
-		catalogMirrorMonitor = monitoring.NewCatalogMirrorMonitor(catalogConn)
+		catalogMirrorMonitor = monitoring.NewCatalogMirrorMonitor(conn)
 	}
 	defer catalogMirrorMonitor.Close()
 
@@ -152,39 +144,4 @@ func newPrometheusScope(c prometheus.Configuration) tally.Scope {
 
 	log.Println("prometheus metrics scope created")
 	return scope
-}
-
-func genCatalogConnectionString() (string, error) {
-	host, ok := os.LookupEnv("PEERDB_CATALOG_HOST")
-	if !ok {
-		return "", fmt.Errorf("PEERDB_CATALOG_HOST is not set")
-	}
-	portStr, ok := os.LookupEnv("PEERDB_CATALOG_PORT")
-	if !ok {
-		return "", fmt.Errorf("PEERDB_CATALOG_PORT is not set")
-	}
-	port, err := strconv.ParseUint(portStr, 10, 32)
-	if err != nil {
-		return "", fmt.Errorf("unable to parse PEERDB_CATALOG_PORT as unsigned integer")
-	}
-	user, ok := os.LookupEnv("PEERDB_CATALOG_USER")
-	if !ok {
-		return "", fmt.Errorf("PEERDB_CATALOG_USER is not set")
-	}
-	password, ok := os.LookupEnv("PEERDB_CATALOG_PASSWORD")
-	if !ok {
-		return "", fmt.Errorf("PEERDB_CATALOG_PASSWORD is not set")
-	}
-	database, ok := os.LookupEnv("PEERDB_CATALOG_DATABASE")
-	if !ok {
-		return "", fmt.Errorf("PEERDB_CATALOG_DATABASE is not set")
-	}
-
-	return utils.GetPGConnectionString(&protos.PostgresConfig{
-		Host:     host,
-		Port:     uint32(port),
-		User:     user,
-		Password: password,
-		Database: database,
-	}), nil
 }

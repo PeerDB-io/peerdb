@@ -96,6 +96,7 @@ services:
     ports:
       - 8112:8112
     environment:
+      <<: [*catalog-config]
       TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:

@@ -34,7 +34,15 @@ message ShutdownResponse {
   string error_message = 2;
 }
 
+message ListPeersRequest {
+}
+
+message ListPeersResponse {
+  repeated peerdb_peers.Peer peers = 1;
+}
+
 service FlowService {
+  rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {}
   rpc CreatePeerFlow(CreatePeerFlowRequest) returns (CreatePeerFlowResponse) {}
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
