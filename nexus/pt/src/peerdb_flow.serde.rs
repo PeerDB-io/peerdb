@@ -1426,12 +1426,20 @@ impl serde::Serialize for GetTableSchemaBatchInput {
         if !self.table_identifiers.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetTableSchemaBatchInput", len)?;
+        if self.destination_peer_type != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetTableSchemaInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
         }
-        if !self.table_identifiers.is_empty() {
-            struct_ser.serialize_field("tableIdentifiers", &self.table_identifiers)?;
+        if !self.table_identifier.is_empty() {
+            struct_ser.serialize_field("tableIdentifier", &self.table_identifier)?;
+        }
+        if self.destination_peer_type != 0 {
+            let v = super::peerdb_peers::DbType::from_i32(self.destination_peer_type)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.destination_peer_type)))?;
+            struct_ser.serialize_field("destinationPeerType", &v)?;
         }
         struct_ser.end()
     }
@@ -1445,14 +1453,17 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
         const FIELDS: &[&str] = &[
             "peer_connection_config",
             "peerConnectionConfig",
-            "table_identifiers",
-            "tableIdentifiers",
+            "table_identifier",
+            "tableIdentifier",
+            "destination_peer_type",
+            "destinationPeerType",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             PeerConnectionConfig,
-            TableIdentifiers,
+            TableIdentifier,
+            DestinationPeerType,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1476,7 +1487,8 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                     {
                         match value {
                             "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
-                            "tableIdentifiers" | "table_identifiers" => Ok(GeneratedField::TableIdentifiers),
+                            "tableIdentifier" | "table_identifier" => Ok(GeneratedField::TableIdentifier),
+                            "destinationPeerType" | "destination_peer_type" => Ok(GeneratedField::DestinationPeerType),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1497,7 +1509,8 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut peer_connection_config__ = None;
-                let mut table_identifiers__ = None;
+                let mut table_identifier__ = None;
+                let mut destination_peer_type__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -1510,7 +1523,13 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                             if table_identifiers__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("tableIdentifiers"));
                             }
-                            table_identifiers__ = Some(map.next_value()?);
+                            table_identifier__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::DestinationPeerType => {
+                            if destination_peer_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("destinationPeerType"));
+                            }
+                            destination_peer_type__ = Some(map.next_value::<super::peerdb_peers::DbType>()? as i32);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
@@ -1519,7 +1538,8 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                 }
                 Ok(GetTableSchemaBatchInput {
                     peer_connection_config: peer_connection_config__,
-                    table_identifiers: table_identifiers__.unwrap_or_default(),
+                    table_identifier: table_identifier__.unwrap_or_default(),
+                    destination_peer_type: destination_peer_type__.unwrap_or_default(),
                 })
             }
         }

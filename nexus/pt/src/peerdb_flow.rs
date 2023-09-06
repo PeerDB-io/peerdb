@@ -204,6 +204,16 @@ pub struct CreateRawTableOutput {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetTableSchemaInput {
+    #[prost(message, optional, tag="1")]
+    pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(string, tag="2")]
+    pub table_identifier: ::prost::alloc::string::String,
+    #[prost(enumeration="super::peerdb_peers::DbType", tag="3")]
+    pub destination_peer_type: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TableSchema {
     #[prost(string, tag="1")]
     pub table_identifier: ::prost::alloc::string::String,

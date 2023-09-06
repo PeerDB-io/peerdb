@@ -339,7 +339,10 @@ func (c *EventHubConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (
 	*protos.SetupNormalizedTableBatchOutput, error) {
 	log.Infof("normalization for event hub is a no-op")
-	return nil, nil
+	return &protos.SetupNormalizedTableOutput{
+		TableIdentifier: req.TableIdentifier,
+		AlreadyExists:   false,
+	}, nil
 }
 
 func (c *EventHubConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {

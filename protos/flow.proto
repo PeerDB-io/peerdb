@@ -127,6 +127,13 @@ message CreateRawTableInput {
 
 message CreateRawTableOutput { string table_identifier = 1; }
 
+message GetTableSchemaInput {
+  peerdb_peers.Peer peer_connection_config = 1;
+  string table_identifier = 2;
+  peerdb_peers.DBType destination_peer_type = 3;
+  
+}
+
 message TableSchema {
   string table_identifier = 1;
   // list of column names and types, types can be one of the following:
