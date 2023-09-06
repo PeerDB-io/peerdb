@@ -3,6 +3,8 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -30,6 +32,33 @@ func (s *PeerFlowE2ETestSuiteSF) setupSFDestinationTable(dstTable string) {
 	fmt.Printf("created table on snowflake: %s.%s. %v\n", s.sfHelper.testSchemaName, dstTable, err)
 }
 
+func (s *PeerFlowE2ETestSuiteSF) compareTableSchemasSF(tableName string) {
+	// read rows from source table
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
+	pgQueryExecutor.SetTestEnv(true)
+	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
+		fmt.Sprintf("SELECT * FROM e2e_test_%s.%s LIMIT 0", snowflakeSuffix, tableName),
+	)
+	require.NoError(s.T(), err)
+	sort.Slice(pgRows.Schema.Fields, func(i int, j int) bool {
+		return strings.Compare(pgRows.Schema.Fields[i].Name, pgRows.Schema.Fields[j].Name) == -1
+	})
+
+	// read rows from destination table
+	qualifiedTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
+	// excluding soft-delete column during schema conversion
+	sfSelQuery := fmt.Sprintf(`SELECT * EXCLUDE _PEERDB_IS_DELETED FROM %s LIMIT 0`, qualifiedTableName)
+	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
+
+	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
+	require.NoError(s.T(), err)
+	sort.Slice(sfRows.Schema.Fields, func(i int, j int) bool {
+		return strings.Compare(sfRows.Schema.Fields[i].Name, sfRows.Schema.Fields[j].Name) == -1
+	})
+
+	s.True(pgRows.Schema.EqualNames(sfRows.Schema), "schemas from source and destination tables are not equal")
+}
+
 func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
@@ -48,9 +77,6 @@ func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, select
 		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
 	}
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
-
-	// sleep for 1 min for debugging
-	// time.Sleep(1 * time.Minute)
 
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
 	require.NoError(s.T(), err)

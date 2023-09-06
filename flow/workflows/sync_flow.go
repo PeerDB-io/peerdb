@@ -54,6 +54,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 	opts *protos.SyncFlowOptions,
+	relationMessageMapping model.RelationMessageMapping,
 ) (*model.SyncResponse, error) {
 	s.logger.Info("executing sync flow - ", s.PeerFlowName)
 
@@ -89,9 +90,10 @@ func (s *SyncFlowExecution) executeSyncFlow(
 
 	// execute StartFlow on the peers to start the flow
 	startFlowInput := &protos.StartFlowInput{
-		FlowConnectionConfigs: config,
-		LastSyncState:         dstSyncState,
-		SyncFlowOptions:       opts,
+		FlowConnectionConfigs:  config,
+		LastSyncState:          dstSyncState,
+		SyncFlowOptions:        opts,
+		RelationMessageMapping: relationMessageMapping,
 	}
 	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 
@@ -115,23 +117,25 @@ func SyncFlowWorkflow(ctx workflow.Context,
 		Progress:     []string{},
 	})
 
-	return s.executeSyncFlow(ctx, config, options)
+	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
 }
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
+	tableSchemaDelta *protos.TableSchemaDelta,
 ) (*model.NormalizeResponse, error) {
 	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
 		PeerFlowName: config.FlowJobName,
 		Progress:     []string{},
 	})
 
-	return s.executeNormalizeFlow(ctx, config)
+	return s.executeNormalizeFlow(ctx, config, tableSchemaDelta)
 }
 
 func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
+	tableSchemaDelta *protos.TableSchemaDelta,
 ) (*model.NormalizeResponse, error) {
 	s.logger.Info("executing normalize flow - ", s.PeerFlowName)
 
@@ -149,6 +153,17 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	var normalizeResponse *model.NormalizeResponse
 	if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
+	}
+
+	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
+		FlowConnectionConfigs: config,
+		TableSchemaDelta:      tableSchemaDelta,
+	}
+
+	fReplayTableSchemaDelta := workflow.ExecuteActivity(normalizeFlowCtx, flowable.ReplayTableSchemaDelta,
+		replayTableSchemaInput)
+	if err := fReplayTableSchemaDelta.Get(normalizeFlowCtx, nil); err != nil {
+		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
 	}
 
 	return normalizeResponse, nil

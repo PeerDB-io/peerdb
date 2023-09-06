@@ -3,6 +3,7 @@ package e2e_postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -21,6 +22,7 @@ type PeerFlowE2ETestSuitePG struct {
 	testsuite.WorkflowTestSuite
 
 	pool *pgxpool.Pool
+	peer *protos.Peer
 }
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
@@ -43,6 +45,7 @@ func (s *PeerFlowE2ETestSuitePG) SetupSuite() {
 		s.Fail("failed to setup postgres", err)
 	}
 	s.pool = pool
+	s.peer = generatePGPeer(e2e.GetTestPostgresConf())
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -62,14 +65,28 @@ func (s *PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int
 
 func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified string) error {
 	// Execute the two EXCEPT queries
-	err := s.compareQuery(srcSchemaQualified, dstSchemaQualified)
-	if err != nil {
-		return err
+	for {
+		err := s.compareQuery(srcSchemaQualified, dstSchemaQualified)
+		// while testing, the prepared plan might break due to schema changes
+		// solution is to retry, prepared statement should be evicted upon the first error
+		if err != nil && !strings.Contains(err.Error(), "cached plan must not change result type") {
+			return err
+		}
+		if err == nil {
+			break
+		}
 	}
 
-	err = s.compareQuery(dstSchemaQualified, srcSchemaQualified)
-	if err != nil {
-		return err
+	for {
+		err := s.compareQuery(dstSchemaQualified, srcSchemaQualified)
+		// while testing, the prepared plan might break due to schema changes
+		// solution is to retry, prepared statement should be evicted upon the first error
+		if err != nil && !strings.Contains(err.Error(), "cached plan must not change result type") {
+			return err
+		}
+		if err == nil {
+			break
+		}
 	}
 
 	// If no error is returned, then the contents of the two tables are the same
@@ -79,9 +96,11 @@ func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQu
 func (s *PeerFlowE2ETestSuitePG) compareQuery(schema1, schema2 string) error {
 	query := fmt.Sprintf("SELECT * FROM %s EXCEPT SELECT * FROM %s", schema1, schema2)
 	rows, _ := s.pool.Query(context.Background(), query)
+	rowsPresent := false
 
 	defer rows.Close()
 	for rows.Next() {
+		rowsPresent = true
 		values, err := rows.Values()
 		if err != nil {
 			return err
@@ -95,7 +114,13 @@ func (s *PeerFlowE2ETestSuitePG) compareQuery(schema1, schema2 string) error {
 		fmt.Println("---")
 	}
 
-	return rows.Err()
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+	if rowsPresent {
+		return fmt.Errorf("comparison failed: rows are not equal")
+	}
+	return nil
 }
 
 func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {

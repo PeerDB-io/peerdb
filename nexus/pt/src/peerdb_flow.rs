@@ -9,6 +9,26 @@ pub struct TableNameMapping {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RelationMessageColumn {
+    #[prost(uint32, tag="1")]
+    pub flags: u32,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(uint32, tag="3")]
+    pub data_type: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RelationMessage {
+    #[prost(uint32, tag="1")]
+    pub relation_id: u32,
+    #[prost(string, tag="2")]
+    pub relation_name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="3")]
+    pub columns: ::prost::alloc::vec::Vec<RelationMessageColumn>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlowConnectionConfigs {
     #[prost(message, optional, tag="1")]
     pub source: ::core::option::Option<super::peerdb_peers::Peer>,
@@ -65,6 +85,8 @@ pub struct FlowConnectionConfigs {
 pub struct SyncFlowOptions {
     #[prost(int32, tag="1")]
     pub batch_size: i32,
+    #[prost(map="uint32, message", tag="2")]
+    pub relation_message_mapping: ::std::collections::HashMap<u32, RelationMessage>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -89,6 +111,8 @@ pub struct StartFlowInput {
     pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
     #[prost(message, optional, tag="3")]
     pub sync_flow_options: ::core::option::Option<SyncFlowOptions>,
+    #[prost(map="uint32, message", tag="4")]
+    pub relation_message_mapping: ::std::collections::HashMap<u32, RelationMessage>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -397,6 +421,34 @@ pub struct QRepParitionResult {
 pub struct DropFlowInput {
     #[prost(string, tag="1")]
     pub flow_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeltaAddedColumn {
+    #[prost(string, tag="1")]
+    pub column_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub column_type: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TableSchemaDelta {
+    #[prost(string, tag="1")]
+    pub src_table_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub dst_table_name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="3")]
+    pub added_columns: ::prost::alloc::vec::Vec<DeltaAddedColumn>,
+    #[prost(string, repeated, tag="4")]
+    pub dropped_columns: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReplayTableSchemaDeltaInput {
+    #[prost(message, optional, tag="1")]
+    pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
+    #[prost(message, optional, tag="2")]
+    pub table_schema_delta: ::core::option::Option<TableSchemaDelta>,
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

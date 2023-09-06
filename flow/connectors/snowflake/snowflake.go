@@ -364,7 +364,64 @@ func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableS
 	return nil
 }
 
-func (c *SnowflakeConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+// ReplayTableSchemaDelta changes a destination table to match the schema at source
+// This could involve adding or dropping multiple columns.
+func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error {
+	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
+		return nil
+	}
+
+	// Postgres is cool and supports transactional DDL. So we use a transaction.
+	tableSchemaModifyTx, err := c.database.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting transaction for schema modification for table %s: %w",
+			schemaDelta.SrcTableName, err)
+	}
+	defer func() {
+		deferErr := tableSchemaModifyTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": flowJobName,
+			}).Errorf("unexpected error rolling back transaction for table schema modification: %v", err)
+		}
+	}()
+
+	for _, droppedColumn := range schemaDelta.DroppedColumns {
+		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", schemaDelta.DstTableName,
+			droppedColumn))
+		if err != nil {
+			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
+				schemaDelta.SrcTableName, err)
+		}
+		log.WithFields(log.Fields{
+			"flowName":  flowJobName,
+			"tableName": schemaDelta.SrcTableName,
+		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
+	}
+	for _, addedColumn := range schemaDelta.AddedColumns {
+		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", schemaDelta.DstTableName,
+			addedColumn.ColumnName, qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
+		if err != nil {
+			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				schemaDelta.SrcTableName, err)
+		}
+		log.WithFields(log.Fields{
+			"flowName":  flowJobName,
+			"tableName": schemaDelta.SrcTableName,
+		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+			addedColumn.ColumnType)
+	}
+
+	err = tableSchemaModifyTx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction for table schema modification for table %s: %w",
+			schemaDelta.SrcTableName, err)
+	}
+
+	return nil
+}
+
+func (c *SnowflakeConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
 	log.Errorf("panicking at call to PullRecords for Snowflake flow connector")
 	panic("PullRecords is not implemented for the Snowflake flow connector")
 }

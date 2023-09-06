@@ -67,6 +67,9 @@ type PeerFlowState struct {
 	SyncFlowErrors error
 	// Errors encountered during child sync flow executions.
 	NormalizeFlowErrors error
+	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
+	// Needed to support schema changes.
+	RelationMessageMapping model.RelationMessageMapping
 }
 
 // returns a new empty PeerFlowState
@@ -79,6 +82,13 @@ func NewStartedPeerFlowState() *PeerFlowState {
 		SetupComplete:         false,
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
+		// WORKAROUND: empty maps are protobufed into nil maps for reasons beyond me
+		RelationMessageMapping: model.RelationMessageMapping{
+			0: &protos.RelationMessage{
+				RelationId:   0,
+				RelationName: "protobuf_workaround",
+			},
+		},
 	}
 }
 
@@ -325,6 +335,7 @@ func PeerFlowWorkflowWithConfig(
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
+		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			SyncFlowWorkflow,
@@ -332,16 +343,16 @@ func PeerFlowWorkflowWithConfig(
 			syncFlowOptions,
 		)
 
-		selector.AddFuture(childSyncFlowFuture, func(f workflow.Future) {
-			var childSyncFlowRes *model.SyncResponse
-			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
-				w.logger.Error("failed to execute sync flow: ", err)
-				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
-			} else {
-				state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
+		var childSyncFlowRes *model.SyncResponse
+		if err := childSyncFlowFuture.Get(ctx, &childSyncFlowRes); err != nil {
+			w.logger.Error("failed to execute sync flow: ", err)
+			state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+		} else {
+			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
+			if childSyncFlowRes != nil {
+				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
 			}
-		})
-		selector.Select(ctx)
+		}
 
 		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
 		if err != nil {
@@ -356,10 +367,17 @@ func PeerFlowWorkflowWithConfig(
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
+
+		var tableSchemaDelta *protos.TableSchemaDelta = nil
+		if childSyncFlowRes != nil {
+			tableSchemaDelta = childSyncFlowRes.TableSchemaDelta
+		}
+
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			NormalizeFlowWorkflow,
 			cfg,
+			tableSchemaDelta,
 		)
 
 		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
@@ -372,6 +390,27 @@ func PeerFlowWorkflowWithConfig(
 			}
 		})
 		selector.Select(ctx)
+
+		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+		if tableSchemaDelta != nil {
+			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 5 * time.Minute,
+			})
+			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
+				&protos.GetTableSchemaBatchInput{
+					PeerConnectionConfig: cfg.Source,
+					TableIdentifiers:     []string{tableSchemaDelta.SrcTableName},
+				})
+
+			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
+			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+				w.logger.Error("failed to execute schema update at source: ", err)
+				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+			} else {
+				cfg.TableNameSchemaMapping[tableSchemaDelta.DstTableName] =
+					getModifiedSchemaRes.TableNameSchemaMapping[tableSchemaDelta.SrcTableName]
+			}
+		}
 	}
 
 	state.TruncateProgress()

@@ -99,7 +99,12 @@ func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
-func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *EventHubConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error {
+	log.Warnf("ReplayTableSchemaDelta is a no-op for EventHub flow connector")
+	return nil
+}
+
+func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
 	panic("pull records not implemented for event hub")
 }
 

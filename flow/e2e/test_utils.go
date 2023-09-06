@@ -85,6 +85,36 @@ func SetupPeerFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 	}
 }
 
+func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
+	connectionGen FlowConnectionGenerationConfig,
+	minCount int) {
+	// wait for PeerFlowStatusQuery to finish setup
+	// sleep for 5 second to allow the workflow to start
+	time.Sleep(5 * time.Second)
+	for {
+		response, err := env.QueryWorkflow(
+			peerflow.PeerFlowStatusQuery,
+			connectionGen.FlowJobName,
+		)
+		if err == nil {
+			var state peerflow.PeerFlowState
+			err = response.Get(&state)
+			if err != nil {
+				log.Errorln(err)
+			}
+
+			if len(state.NormalizeFlowStatuses) >= minCount {
+				fmt.Println("query indicates setup is complete")
+				break
+			}
+		} else {
+			// log the error for informational purposes
+			log.Errorln(err)
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
 func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",

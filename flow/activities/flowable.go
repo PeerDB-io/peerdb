@@ -159,7 +159,8 @@ func (a *FlowableActivity) CreateNormalizedTable(
 }
 
 // StartFlow implements StartFlow.
-func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlowInput) (*model.SyncResponse, error) {
+func (a *FlowableActivity) StartFlow(ctx context.Context,
+	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	conn := input.FlowConnectionConfigs
 
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
@@ -189,7 +190,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	}).Info("pulling records...")
 
 	startTime := time.Now()
-	records, err := src.PullRecords(&model.PullRecordsRequest{
+	recordsWithTableSchemaDelta, err := src.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
 		SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
 		TableNameMapping:            input.FlowConnectionConfigs.TableNameMapping,
@@ -199,11 +200,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
 		OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 		OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
+		RelationMessageMapping:      input.RelationMessageMapping,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull records: %w", err)
 	}
-	if a.CatalogMirrorMonitor.IsActive() && len(records.Records) > 0 {
+	recordBatch := recordsWithTableSchemaDelta.RecordBatch
+	if a.CatalogMirrorMonitor.IsActive() && len(recordBatch.Records) > 0 {
 		syncBatchID, err := dest.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
 		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
 			return nil, err
@@ -212,9 +215,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		err = a.CatalogMirrorMonitor.AddCDCBatchForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
 			monitoring.CDCBatchInfo{
 				BatchID:       syncBatchID + 1,
-				RowsInBatch:   uint32(len(records.Records)),
-				BatchStartLSN: pglogrepl.LSN(records.FirstCheckPointID),
-				BatchEndlSN:   pglogrepl.LSN(records.LastCheckPointID),
+				RowsInBatch:   uint32(len(recordBatch.Records)),
+				BatchStartLSN: pglogrepl.LSN(recordBatch.FirstCheckPointID),
+				BatchEndlSN:   pglogrepl.LSN(recordBatch.LastCheckPointID),
 				StartTime:     startTime,
 			})
 		if err != nil {
@@ -223,7 +226,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 	}
 
 	// log the number of records
-	numRecords := len(records.Records)
+	numRecords := len(recordBatch.Records)
 	log.WithFields(log.Fields{
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
 	}).Printf("pulled %d records", numRecords)
@@ -233,11 +236,14 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		log.WithFields(log.Fields{
 			"flowName": input.FlowConnectionConfigs.FlowJobName,
 		}).Info("no records to push")
-		return nil, nil
+		return &model.SyncResponse{
+			RelationMessageMapping: recordsWithTableSchemaDelta.RelationMessageMapping,
+			TableSchemaDelta:       recordsWithTableSchemaDelta.TableSchemaDelta,
+		}, nil
 	}
 
 	res, err := dest.SyncRecords(&model.SyncRecordsRequest{
-		Records:         records,
+		Records:         recordBatch,
 		FlowJobName:     input.FlowConnectionConfigs.FlowJobName,
 		SyncMode:        input.FlowConnectionConfigs.CdcSyncMode,
 		StagingPath:     input.FlowConnectionConfigs.CdcStagingPath,
@@ -254,7 +260,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 
 	err = a.CatalogMirrorMonitor.
 		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
-			pglogrepl.LSN(records.LastCheckPointID))
+			pglogrepl.LSN(recordBatch.LastCheckPointID))
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +271,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 			return nil, err
 		}
 	}
-
+	res.TableSchemaDelta = recordsWithTableSchemaDelta.TableSchemaDelta
+	res.RelationMessageMapping = recordsWithTableSchemaDelta.RelationMessageMapping
 	activity.RecordHeartbeat(ctx, "pushed records")
 
 	return res, nil
@@ -323,6 +330,19 @@ func (a *FlowableActivity) StartNormalize(
 	}
 
 	return res, nil
+}
+
+func (a *FlowableActivity) ReplayTableSchemaDelta(
+	ctx context.Context,
+	input *protos.ReplayTableSchemaDeltaInput,
+) error {
+	dest, err := connectors.GetConnector(ctx, input.FlowConnectionConfigs.Destination)
+	defer connectors.CloseConnector(dest)
+	if err != nil {
+		return fmt.Errorf("failed to get destination connector: %w", err)
+	}
+
+	return dest.ReplayTableSchemaDelta(input.FlowConnectionConfigs.FlowJobName, input.TableSchemaDelta)
 }
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.
