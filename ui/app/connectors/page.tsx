@@ -30,6 +30,12 @@ const Badges = [
   </Badge>,
 ];
 
+
+async function fetchPeers() {
+
+}
+
+
 const ExampleTable = ({ title }: { title: string }) => (
   <Table
     title={<Label variant='headline'>{title}</Label>}
@@ -138,9 +144,6 @@ export default function Connectors() {
       </Panel>
       <Panel>
         <ExampleTable title='All connectors' />
-      </Panel>
-      <Panel>
-        <ExampleTable title='Past connectors' />
       </Panel>
     </LayoutMain>
   );
