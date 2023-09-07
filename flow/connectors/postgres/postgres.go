@@ -581,8 +581,10 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		replicaIdentity, replicaIdentityErr := c.getReplicaIdentityForTable(schemaTable)
 		log.Infof("replica identity: %s", replicaIdentity)
-		if req.DestinationPeerType != protos.DBType_EVENTHUB || replicaIdentityErr != nil || replicaIdentity != "f" {
-			return nil, fmt.Errorf("error getting primary key column or replica identity for table %s: %w", schemaTable, err)
+		if req.DestinationPeerType != protos.DBType_EVENTHUB ||
+			replicaIdentityErr != nil || replicaIdentity != "f" {
+			return nil, fmt.Errorf("error getting primary key or replica identity for table %s: %w",
+				schemaTable, err)
 		}
 	}
 
