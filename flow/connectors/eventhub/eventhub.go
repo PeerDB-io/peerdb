@@ -323,3 +323,15 @@ func (c *EventHubConnector) getEventHubMgmtClient() (*armeventhub.EventHubsClien
 
 	return hubClient, nil
 }
+
+func (c *EventHubConnector) SetupNormalizedTables(
+	req *protos.SetupNormalizedTableBatchInput) (
+	*protos.SetupNormalizedTableBatchOutput, error) {
+	log.Infof("setting up tables for Eventhub is a no-op")
+	return nil, nil
+}
+
+func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
+	// TODO (kaushik): this has to be implemented for DROP PEER support.
+	panic("sync flow cleanup not implemented for event hub")
+}

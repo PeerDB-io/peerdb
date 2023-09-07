@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
+	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
@@ -139,6 +140,8 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
+	case *protos.Peer_EventhubConfig:
+		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
