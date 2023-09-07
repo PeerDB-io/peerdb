@@ -1,4 +1,16 @@
 /* eslint-disable */
+import {
+  CallOptions,
+  ChannelCredentials,
+  Client,
+  ClientOptions,
+  ClientUnaryCall,
+  handleUnaryCall,
+  makeGenericClientConstructor,
+  Metadata,
+  ServiceError,
+  UntypedServiceImplementation,
+} from "@grpc/grpc-js";
 import _m0 from "protobufjs/minimal";
 import { FlowConnectionConfigs, QRepConfig } from "./flow";
 import { Peer } from "./peers";
@@ -558,53 +570,123 @@ export const ListPeersResponse = {
   },
 };
 
-export interface FlowService {
-  ListPeers(request: ListPeersRequest): Promise<ListPeersResponse>;
-  CreatePeerFlow(request: CreatePeerFlowRequest): Promise<CreatePeerFlowResponse>;
-  CreateQRepFlow(request: CreateQRepFlowRequest): Promise<CreateQRepFlowResponse>;
-  ShutdownFlow(request: ShutdownRequest): Promise<ShutdownResponse>;
+export type FlowServiceService = typeof FlowServiceService;
+export const FlowServiceService = {
+  listPeers: {
+    path: "/peerdb_route.FlowService/ListPeers",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: ListPeersRequest) => Buffer.from(ListPeersRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => ListPeersRequest.decode(value),
+    responseSerialize: (value: ListPeersResponse) => Buffer.from(ListPeersResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => ListPeersResponse.decode(value),
+  },
+  createPeerFlow: {
+    path: "/peerdb_route.FlowService/CreatePeerFlow",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: CreatePeerFlowRequest) => Buffer.from(CreatePeerFlowRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => CreatePeerFlowRequest.decode(value),
+    responseSerialize: (value: CreatePeerFlowResponse) => Buffer.from(CreatePeerFlowResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => CreatePeerFlowResponse.decode(value),
+  },
+  createQRepFlow: {
+    path: "/peerdb_route.FlowService/CreateQRepFlow",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: CreateQRepFlowRequest) => Buffer.from(CreateQRepFlowRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => CreateQRepFlowRequest.decode(value),
+    responseSerialize: (value: CreateQRepFlowResponse) => Buffer.from(CreateQRepFlowResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => CreateQRepFlowResponse.decode(value),
+  },
+  shutdownFlow: {
+    path: "/peerdb_route.FlowService/ShutdownFlow",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: ShutdownRequest) => Buffer.from(ShutdownRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => ShutdownRequest.decode(value),
+    responseSerialize: (value: ShutdownResponse) => Buffer.from(ShutdownResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => ShutdownResponse.decode(value),
+  },
+} as const;
+
+export interface FlowServiceServer extends UntypedServiceImplementation {
+  listPeers: handleUnaryCall<ListPeersRequest, ListPeersResponse>;
+  createPeerFlow: handleUnaryCall<CreatePeerFlowRequest, CreatePeerFlowResponse>;
+  createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
+  shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
 }
 
-export const FlowServiceServiceName = "peerdb_route.FlowService";
-export class FlowServiceClientImpl implements FlowService {
-  private readonly rpc: Rpc;
-  private readonly service: string;
-  constructor(rpc: Rpc, opts?: { service?: string }) {
-    this.service = opts?.service || FlowServiceServiceName;
-    this.rpc = rpc;
-    this.ListPeers = this.ListPeers.bind(this);
-    this.CreatePeerFlow = this.CreatePeerFlow.bind(this);
-    this.CreateQRepFlow = this.CreateQRepFlow.bind(this);
-    this.ShutdownFlow = this.ShutdownFlow.bind(this);
-  }
-  ListPeers(request: ListPeersRequest): Promise<ListPeersResponse> {
-    const data = ListPeersRequest.encode(request).finish();
-    const promise = this.rpc.request(this.service, "ListPeers", data);
-    return promise.then((data) => ListPeersResponse.decode(_m0.Reader.create(data)));
-  }
-
-  CreatePeerFlow(request: CreatePeerFlowRequest): Promise<CreatePeerFlowResponse> {
-    const data = CreatePeerFlowRequest.encode(request).finish();
-    const promise = this.rpc.request(this.service, "CreatePeerFlow", data);
-    return promise.then((data) => CreatePeerFlowResponse.decode(_m0.Reader.create(data)));
-  }
-
-  CreateQRepFlow(request: CreateQRepFlowRequest): Promise<CreateQRepFlowResponse> {
-    const data = CreateQRepFlowRequest.encode(request).finish();
-    const promise = this.rpc.request(this.service, "CreateQRepFlow", data);
-    return promise.then((data) => CreateQRepFlowResponse.decode(_m0.Reader.create(data)));
-  }
-
-  ShutdownFlow(request: ShutdownRequest): Promise<ShutdownResponse> {
-    const data = ShutdownRequest.encode(request).finish();
-    const promise = this.rpc.request(this.service, "ShutdownFlow", data);
-    return promise.then((data) => ShutdownResponse.decode(_m0.Reader.create(data)));
-  }
+export interface FlowServiceClient extends Client {
+  listPeers(
+    request: ListPeersRequest,
+    callback: (error: ServiceError | null, response: ListPeersResponse) => void,
+  ): ClientUnaryCall;
+  listPeers(
+    request: ListPeersRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ListPeersResponse) => void,
+  ): ClientUnaryCall;
+  listPeers(
+    request: ListPeersRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ListPeersResponse) => void,
+  ): ClientUnaryCall;
+  createPeerFlow(
+    request: CreatePeerFlowRequest,
+    callback: (error: ServiceError | null, response: CreatePeerFlowResponse) => void,
+  ): ClientUnaryCall;
+  createPeerFlow(
+    request: CreatePeerFlowRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: CreatePeerFlowResponse) => void,
+  ): ClientUnaryCall;
+  createPeerFlow(
+    request: CreatePeerFlowRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: CreatePeerFlowResponse) => void,
+  ): ClientUnaryCall;
+  createQRepFlow(
+    request: CreateQRepFlowRequest,
+    callback: (error: ServiceError | null, response: CreateQRepFlowResponse) => void,
+  ): ClientUnaryCall;
+  createQRepFlow(
+    request: CreateQRepFlowRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: CreateQRepFlowResponse) => void,
+  ): ClientUnaryCall;
+  createQRepFlow(
+    request: CreateQRepFlowRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: CreateQRepFlowResponse) => void,
+  ): ClientUnaryCall;
+  shutdownFlow(
+    request: ShutdownRequest,
+    callback: (error: ServiceError | null, response: ShutdownResponse) => void,
+  ): ClientUnaryCall;
+  shutdownFlow(
+    request: ShutdownRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ShutdownResponse) => void,
+  ): ClientUnaryCall;
+  shutdownFlow(
+    request: ShutdownRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ShutdownResponse) => void,
+  ): ClientUnaryCall;
 }
 
-interface Rpc {
-  request(service: string, method: string, data: Uint8Array): Promise<Uint8Array>;
-}
+export const FlowServiceClient = makeGenericClientConstructor(
+  FlowServiceService,
+  "peerdb_route.FlowService",
+) as unknown as {
+  new (address: string, credentials: ChannelCredentials, options?: Partial<ClientOptions>): FlowServiceClient;
+  service: typeof FlowServiceService;
+};
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 

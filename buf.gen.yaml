@@ -26,3 +26,4 @@ plugins:
     out: ui/grpc_generated
     opt:
       - esModuleInterop=true
+      - outputServices=grpc-js

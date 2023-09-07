@@ -167,23 +167,23 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  peerdb:
-    container_name: peerdb_server
-    build:
-      context: .
-      dockerfile: stacks/nexus.Dockerfile
-    environment:
-      <<: *catalog-config
-      PEERDB_LOG_DIR: /var/log/peerdb
-      PEERDB_PASSWORD: peerdb
-      PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
-      RUST_LOG: info
-      RUST_BACKTRACE: 1
-    ports:
-      - 9900:9900
-    depends_on:
-      catalog:
-        condition: service_healthy
+  # peerdb:
+  #   container_name: peerdb_server
+  #   build:
+  #     context: .
+  #     dockerfile: stacks/nexus.Dockerfile
+  #   environment:
+  #     <<: *catalog-config
+  #     PEERDB_LOG_DIR: /var/log/peerdb
+  #     PEERDB_PASSWORD: peerdb
+  #     PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
+  #     RUST_LOG: info
+  #     RUST_BACKTRACE: 1
+  #   ports:
+  #     - 9900:9900
+  #   depends_on:
+  #     catalog:
+  #       condition: service_healthy
 
   peerdb_prometheus:
     container_name: peerdb_prometheus
@@ -221,6 +221,7 @@ services:
       - 3000:3000
     environment:
       <<: *catalog-config
+      PEERDB_FLOW_SERVER_ADDRESS: flow_api:8112
 
 volumes:
   pgdata:

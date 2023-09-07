@@ -38,6 +38,10 @@ RUN chown nextjs:nodejs .next
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY stacks/ui-entrypoint.sh /app/entrypoint.sh
+
+# allow permissions for nextjs user to do anything in /app
+RUN chown -R nextjs:nodejs /app
 
 USER nextjs
 
@@ -47,4 +51,5 @@ ENV PORT 3000
 # set hostname to localhost
 ENV HOSTNAME "0.0.0.0"
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "server.js"]
