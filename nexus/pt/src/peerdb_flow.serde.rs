@@ -1429,12 +1429,12 @@ impl serde::Serialize for GetTableSchemaBatchInput {
         if self.destination_peer_type != 0 {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetTableSchemaInput", len)?;
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetTableSchemaBatchInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
         }
-        if !self.table_identifier.is_empty() {
-            struct_ser.serialize_field("tableIdentifier", &self.table_identifier)?;
+        if !self.table_identifiers.is_empty() {
+            struct_ser.serialize_field("tableIdentifiers", &self.table_identifiers)?;
         }
         if self.destination_peer_type != 0 {
             let v = super::peerdb_peers::DbType::from_i32(self.destination_peer_type)
@@ -1453,8 +1453,8 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
         const FIELDS: &[&str] = &[
             "peer_connection_config",
             "peerConnectionConfig",
-            "table_identifier",
-            "tableIdentifier",
+            "table_identifiers",
+            "tableIdentifiers",
             "destination_peer_type",
             "destinationPeerType",
         ];
@@ -1462,7 +1462,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             PeerConnectionConfig,
-            TableIdentifier,
+            TableIdentifiers,
             DestinationPeerType,
             __SkipField__,
         }
@@ -1487,7 +1487,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                     {
                         match value {
                             "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
-                            "tableIdentifier" | "table_identifier" => Ok(GeneratedField::TableIdentifier),
+                            "tableIdentifiers" | "table_identifiers" => Ok(GeneratedField::TableIdentifiers),
                             "destinationPeerType" | "destination_peer_type" => Ok(GeneratedField::DestinationPeerType),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -1509,7 +1509,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut peer_connection_config__ = None;
-                let mut table_identifier__ = None;
+                let mut table_identifiers__ = None;
                 let mut destination_peer_type__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -1523,7 +1523,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                             if table_identifiers__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("tableIdentifiers"));
                             }
-                            table_identifier__ = Some(map.next_value()?);
+                            table_identifiers__ = Some(map.next_value()?);
                         }
                         GeneratedField::DestinationPeerType => {
                             if destination_peer_type__.is_some() {
@@ -1538,7 +1538,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                 }
                 Ok(GetTableSchemaBatchInput {
                     peer_connection_config: peer_connection_config__,
-                    table_identifier: table_identifier__.unwrap_or_default(),
+                    table_identifiers: table_identifiers__.unwrap_or_default(),
                     destination_peer_type: destination_peer_type__.unwrap_or_default(),
                 })
             }
@@ -1642,6 +1642,120 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchOutput {
             }
         }
         deserializer.deserialize_struct("peerdb_flow.GetTableSchemaBatchOutput", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for GetTableSchemaInput {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.peer_connection_config.is_some() {
+            len += 1;
+        }
+        if !self.table_identifier.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetTableSchemaInput", len)?;
+        if let Some(v) = self.peer_connection_config.as_ref() {
+            struct_ser.serialize_field("peerConnectionConfig", v)?;
+        }
+        if !self.table_identifier.is_empty() {
+            struct_ser.serialize_field("tableIdentifier", &self.table_identifier)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetTableSchemaInput {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "peer_connection_config",
+            "peerConnectionConfig",
+            "table_identifier",
+            "tableIdentifier",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PeerConnectionConfig,
+            TableIdentifier,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
+                            "tableIdentifier" | "table_identifier" => Ok(GeneratedField::TableIdentifier),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetTableSchemaInput;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.GetTableSchemaInput")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<GetTableSchemaInput, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut peer_connection_config__ = None;
+                let mut table_identifier__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::PeerConnectionConfig => {
+                            if peer_connection_config__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peerConnectionConfig"));
+                            }
+                            peer_connection_config__ = map.next_value()?;
+                        }
+                        GeneratedField::TableIdentifier => {
+                            if table_identifier__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tableIdentifier"));
+                            }
+                            table_identifier__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(GetTableSchemaInput {
+                    peer_connection_config: peer_connection_config__,
+                    table_identifier: table_identifier__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.GetTableSchemaInput", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for IntPartitionRange {

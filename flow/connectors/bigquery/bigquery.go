@@ -1283,7 +1283,7 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *MergeStmtGenerator) generateMergeStmt() string {
+func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	pkey := m.NormalizedTableSchema.PrimaryKeyColumns[0]
 
 	// comma separated list of column names
@@ -1295,7 +1295,7 @@ func (m *MergeStmtGenerator) generateMergeStmt() string {
 	}
 	csep := strings.Join(backtickColNames, ", ")
 
-	updateStatementsforToastCols := m.generateUpdateStatement(colNames, m.UnchangedToastColumns)
+	updateStatementsforToastCols := m.generateUpdateStatement(pureColNames, m.UnchangedToastColumns)
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
 	return fmt.Sprintf(`

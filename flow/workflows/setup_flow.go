@@ -174,17 +174,11 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	sourceTables := maps.Keys(flowConnectionConfigs.TableNameMapping)
 	sort.Strings(sourceTables)
 
-	boundSelector := concurrency.NewBoundSelector(8, ctx)
-
-	for srcTableName := range flowConnectionConfigs.TableNameMapping {
-		source := srcTableName
-
-		// fetch source table schema for the normalized table setup.
-		tableSchemaInput := &protos.GetTableSchemaInput{
-			PeerConnectionConfig: flowConnectionConfigs.Source,
-			TableIdentifier:      source,
-			DestinationPeerType:  flowConnectionConfigs.Destination.Type,
-		}
+	tableSchemaInput := &protos.GetTableSchemaBatchInput{
+		PeerConnectionConfig: flowConnectionConfigs.Source,
+		TableIdentifiers:     sourceTables,
+		DestinationPeerType:  flowConnectionConfigs.Destination.Type,
+	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
 

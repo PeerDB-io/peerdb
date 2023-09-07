@@ -339,9 +339,8 @@ func (c *EventHubConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (
 	*protos.SetupNormalizedTableBatchOutput, error) {
 	log.Infof("normalization for event hub is a no-op")
-	return &protos.SetupNormalizedTableOutput{
-		TableIdentifier: req.TableIdentifier,
-		AlreadyExists:   false,
+	return &protos.SetupNormalizedTableBatchOutput{
+		TableExistsMapping: nil,
 	}, nil
 }
 

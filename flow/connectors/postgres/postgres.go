@@ -546,7 +546,7 @@ func (c *PostgresConnector) GetTableSchema(
 	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName)
+		tableSchema, err := c.getTableSchemaForTable(tableName, req)
 		if err != nil {
 			return nil, err
 		}
@@ -561,11 +561,13 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	tableName string,
+	req *protos.GetTableSchemaBatchInput,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := parseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
+	log.Infof("getting schema for table %s", tableName)
 
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
@@ -577,16 +579,17 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
 	if err != nil {
-		replicaIdentity, err := c.getReplicaIdentityForTable(schemaTable)
-		if req.DestinationPeerType != protos.DBType_EVENTHUB || err != nil || replicaIdentity != "f" {
-			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		replicaIdentity, replicaIdentityErr := c.getReplicaIdentityForTable(schemaTable)
+		log.Infof("replica identity: %s", replicaIdentity)
+		if req.DestinationPeerType != protos.DBType_EVENTHUB || replicaIdentityErr != nil || replicaIdentity != "f" {
+			return nil, fmt.Errorf("error getting primary key column or replica identity for table %s: %w", schemaTable, err)
 		}
 	}
 
 	res := &protos.TableSchema{
-		TableIdentifier:  tableName,
-		Columns:          make(map[string]string),
-		PrimaryKeyColumn: pkey,
+		TableIdentifier:   tableName,
+		Columns:           make(map[string]string),
+		PrimaryKeyColumns: pKeyCols,
 	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {

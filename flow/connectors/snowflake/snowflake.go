@@ -1056,7 +1056,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
 		normalizedTableSchema.PrimaryKeyColumns[0], pkeyColStr, insertColumnsSQL, insertValuesSQL,
-		updateStringToastCols)
+		updateStringToastCols, deletePart)
 
 	result, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
