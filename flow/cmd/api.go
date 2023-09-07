@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -32,7 +33,14 @@ func APIMain(args *APIServerParams) error {
 	}
 
 	grpcServer := grpc.NewServer()
-	flowHandler := NewFlowRequestHandler(tc)
+
+	catalogConn, err := utils.GetCatalogConnectionPoolFromEnv()
+	if err != nil {
+		return fmt.Errorf("unable to get catalog connection pool: %w", err)
+	}
+
+	flowHandler := NewFlowRequestHandler(tc, catalogConn)
+	defer flowHandler.Close()
 
 	protos.RegisterFlowServiceServer(grpcServer, flowHandler)
 	grpc_health_v1.RegisterHealthServer(grpcServer, health.NewServer())

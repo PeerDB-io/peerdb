@@ -22,3 +22,8 @@ plugins:
     out: nexus/pt/src
     opt:
       - ignore_unknown_fields=true
+  - plugin: buf.build/community/stephenh-ts-proto:v1.156.8
+    out: ui/grpc_generated
+    opt:
+      - esModuleInterop=true
+      - outputServices=grpc-js
