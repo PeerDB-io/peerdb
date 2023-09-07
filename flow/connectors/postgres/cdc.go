@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -220,15 +221,14 @@ func (p *PostgresCDCSource) consumeStream(
 					// tableName here is destination tableName.
 					// should be ideally sourceTableName as we are in pullRecrods.
 					// will change in future
-					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
-					if err != nil {
-						return nil, fmt.Errorf("error getting pkey column value: %w", err)
+					pkeyColsMerged := make([]string, 0)
+					for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
+						pkeyColVal := rec.GetItems()[pkeyCol]
+						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal))
 					}
-
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
-						PkeyColVal: *pkeyColVal,
+						PkeyColVal: strings.Join(pkeyColsMerged, " "),
 					}
 					_, ok := records.TablePKeyLastSeen[tablePkeyVal]
 					if !ok {
@@ -245,14 +245,14 @@ func (p *PostgresCDCSource) consumeStream(
 						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					}
 				case *model.InsertRecord:
-					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
-					if err != nil {
-						return nil, fmt.Errorf("error getting pkey column value: %w", err)
+					pkeyColsMerged := make([]string, 0)
+					for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
+						pkeyColVal := rec.GetItems()[pkeyCol]
+						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal))
 					}
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
-						PkeyColVal: *pkeyColVal,
+						PkeyColVal: strings.Join(pkeyColsMerged, " "),
 					}
 					records.Records = append(records.Records, rec)
 					// all columns will be set in insert record, so add it to the map

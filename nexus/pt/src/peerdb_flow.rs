@@ -228,6 +228,14 @@ pub struct CreateRawTableOutput {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetTableSchemaInput {
+    #[prost(message, optional, tag="1")]
+    pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(string, tag="2")]
+    pub table_identifier: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TableSchema {
     #[prost(string, tag="1")]
     pub table_identifier: ::prost::alloc::string::String,
@@ -235,8 +243,8 @@ pub struct TableSchema {
     /// "string", "int", "float", "bool", "timestamp".
     #[prost(map="string, string", tag="2")]
     pub columns: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-    #[prost(string, tag="3")]
-    pub primary_key_column: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="3")]
+    pub primary_key_columns: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -245,6 +253,8 @@ pub struct GetTableSchemaBatchInput {
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(string, repeated, tag="2")]
     pub table_identifiers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(enumeration="super::peerdb_peers::DbType", tag="3")]
+    pub destination_peer_type: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

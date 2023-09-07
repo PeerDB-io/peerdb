@@ -327,8 +327,10 @@ func (c *EventHubConnector) getEventHubMgmtClient() (*armeventhub.EventHubsClien
 func (c *EventHubConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (
 	*protos.SetupNormalizedTableBatchOutput, error) {
-	log.Infof("setting up tables for Eventhub is a no-op")
-	return nil, nil
+	log.Infof("normalization for event hub is a no-op")
+	return &protos.SetupNormalizedTableBatchOutput{
+		TableExistsMapping: nil,
+	}, nil
 }
 
 func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {

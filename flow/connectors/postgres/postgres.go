@@ -414,7 +414,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			"flowName": req.FlowJobName,
 		}).Printf("no records to normalize: syncBatchID %d, normalizeBatchID %d", syncBatchID, normalizeBatchID)
 		return &model.NormalizeResponse{
-			Done:         true,
+			Done:         false,
 			StartBatchID: normalizeBatchID,
 			EndBatchID:   syncBatchID,
 		}, nil
@@ -523,6 +523,16 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	if err != nil {
 		return nil, fmt.Errorf("error creating raw table: %w", err)
 	}
+	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableBatchIDIndexSQL, rawTableIdentifier,
+		internalSchema, rawTableIdentifier))
+	if err != nil {
+		return nil, fmt.Errorf("error creating batch ID index on raw table: %w", err)
+	}
+	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier,
+		internalSchema, rawTableIdentifier))
+	if err != nil {
+		return nil, fmt.Errorf("error creating batch ID index on raw table: %w", err)
+	}
 
 	err = createRawTableTx.Commit(c.ctx)
 	if err != nil {
@@ -537,7 +547,7 @@ func (c *PostgresConnector) GetTableSchema(
 	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName)
+		tableSchema, err := c.getTableSchemaForTable(tableName, req)
 		if err != nil {
 			return nil, err
 		}
@@ -552,11 +562,13 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	tableName string,
+	req *protos.GetTableSchemaBatchInput,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := parseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
+	log.Infof("getting schema for table %s", tableName)
 
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
@@ -566,15 +578,21 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 	defer rows.Close()
 
-	pkey, err := c.getPrimaryKeyColumn(schemaTable)
+	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
 	if err != nil {
-		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		replicaIdentity, replicaIdentityErr := c.getReplicaIdentityForTable(schemaTable)
+		log.Infof("replica identity: %s", replicaIdentity)
+		if req.DestinationPeerType != protos.DBType_EVENTHUB ||
+			replicaIdentityErr != nil || replicaIdentity != "f" {
+			return nil, fmt.Errorf("error getting primary key or replica identity for table %s: %w",
+				schemaTable, err)
+		}
 	}
 
 	res := &protos.TableSchema{
-		TableIdentifier:  tableName,
-		Columns:          make(map[string]string),
-		PrimaryKeyColumn: pkey,
+		TableIdentifier:   tableName,
+		Columns:           make(map[string]string),
+		PrimaryKeyColumns: pKeyCols,
 	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {

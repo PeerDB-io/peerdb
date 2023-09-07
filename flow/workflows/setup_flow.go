@@ -177,6 +177,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
 		PeerConnectionConfig: flowConnectionConfigs.Source,
 		TableIdentifiers:     sourceTables,
+		DestinationPeerType:  flowConnectionConfigs.Destination.Type,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)

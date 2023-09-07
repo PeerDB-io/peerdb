@@ -1452,6 +1452,61 @@ func (x *CreateRawTableOutput) GetTableIdentifier() string {
 	return ""
 }
 
+type GetTableSchemaInput struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	PeerConnectionConfig *Peer  `protobuf:"bytes,1,opt,name=peer_connection_config,json=peerConnectionConfig,proto3" json:"peer_connection_config,omitempty"`
+	TableIdentifier      string `protobuf:"bytes,2,opt,name=table_identifier,json=tableIdentifier,proto3" json:"table_identifier,omitempty"`
+}
+
+func (x *GetTableSchemaInput) Reset() {
+	*x = GetTableSchemaInput{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_flow_proto_msgTypes[18]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *GetTableSchemaInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTableSchemaInput) ProtoMessage() {}
+
+func (x *GetTableSchemaInput) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_proto_msgTypes[18]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTableSchemaInput.ProtoReflect.Descriptor instead.
+func (*GetTableSchemaInput) Descriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetTableSchemaInput) GetPeerConnectionConfig() *Peer {
+	if x != nil {
+		return x.PeerConnectionConfig
+	}
+	return nil
+}
+
+func (x *GetTableSchemaInput) GetTableIdentifier() string {
+	if x != nil {
+		return x.TableIdentifier
+	}
+	return ""
+}
+
 type TableSchema struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1460,8 +1515,8 @@ type TableSchema struct {
 	TableIdentifier string `protobuf:"bytes,1,opt,name=table_identifier,json=tableIdentifier,proto3" json:"table_identifier,omitempty"`
 	// list of column names and types, types can be one of the following:
 	// "string", "int", "float", "bool", "timestamp".
-	Columns          map[string]string `protobuf:"bytes,2,rep,name=columns,proto3" json:"columns,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	PrimaryKeyColumn string            `protobuf:"bytes,3,opt,name=primary_key_column,json=primaryKeyColumn,proto3" json:"primary_key_column,omitempty"`
+	Columns           map[string]string `protobuf:"bytes,2,rep,name=columns,proto3" json:"columns,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	PrimaryKeyColumns []string          `protobuf:"bytes,3,rep,name=primary_key_columns,json=primaryKeyColumns,proto3" json:"primary_key_columns,omitempty"`
 }
 
 func (x *TableSchema) Reset() {
@@ -1510,11 +1565,11 @@ func (x *TableSchema) GetColumns() map[string]string {
 	return nil
 }
 
-func (x *TableSchema) GetPrimaryKeyColumn() string {
+func (x *TableSchema) GetPrimaryKeyColumns() []string {
 	if x != nil {
-		return x.PrimaryKeyColumn
+		return x.PrimaryKeyColumns
 	}
-	return ""
+	return nil
 }
 
 type GetTableSchemaBatchInput struct {
@@ -1524,6 +1579,7 @@ type GetTableSchemaBatchInput struct {
 
 	PeerConnectionConfig *Peer    `protobuf:"bytes,1,opt,name=peer_connection_config,json=peerConnectionConfig,proto3" json:"peer_connection_config,omitempty"`
 	TableIdentifiers     []string `protobuf:"bytes,2,rep,name=table_identifiers,json=tableIdentifiers,proto3" json:"table_identifiers,omitempty"`
+	DestinationPeerType  DBType   `protobuf:"varint,3,opt,name=destination_peer_type,json=destinationPeerType,proto3,enum=peerdb_peers.DBType" json:"destination_peer_type,omitempty"`
 }
 
 func (x *GetTableSchemaBatchInput) Reset() {
@@ -1570,6 +1626,13 @@ func (x *GetTableSchemaBatchInput) GetTableIdentifiers() []string {
 		return x.TableIdentifiers
 	}
 	return nil
+}
+
+func (x *GetTableSchemaBatchInput) GetDestinationPeerType() DBType {
+	if x != nil {
+		return x.DestinationPeerType
+	}
+	return DBType_BIGQUERY
 }
 
 type GetTableSchemaBatchOutput struct {
