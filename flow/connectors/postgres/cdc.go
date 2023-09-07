@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
@@ -210,11 +211,14 @@ func (p *PostgresCDCSource) consumeStream(
 					// tableName here is destination tableName.
 					// should be ideally sourceTableName as we are in pullRecrods.
 					// will change in future
-					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal := rec.GetItems()[pkeyCol]
+					pkeyColsMerged := make([]string, 0)
+					for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
+						pkeyColVal := rec.GetItems()[pkeyCol]
+						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal))
+					}
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
-						PkeyColVal: pkeyColVal,
+						PkeyColVal: strings.Join(pkeyColsMerged, " "),
 					}
 					_, ok := result.TablePKeyLastSeen[tablePkeyVal]
 					if !ok {
@@ -233,11 +237,14 @@ func (p *PostgresCDCSource) consumeStream(
 						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
 					}
 				case *model.InsertRecord:
-					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal := rec.GetItems()[pkeyCol]
+					pkeyColsMerged := make([]string, 0)
+					for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
+						pkeyColVal := rec.GetItems()[pkeyCol]
+						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal))
+					}
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
-						PkeyColVal: pkeyColVal,
+						PkeyColVal: strings.Join(pkeyColsMerged, " "),
 					}
 					result.Records = append(result.Records, rec)
 					// all columns will be set in insert record, so add it to the map

@@ -34,7 +34,7 @@ func (h *FlowRequestHandler) CreatePeerFlow(
 
 	maxBatchSize := int(cfg.MaxBatchSize)
 	if maxBatchSize == 0 {
-		maxBatchSize = 100000
+		maxBatchSize = 200000
 		cfg.MaxBatchSize = uint32(maxBatchSize)
 	}
 
