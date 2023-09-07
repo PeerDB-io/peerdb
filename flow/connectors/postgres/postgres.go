@@ -577,7 +577,10 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
 	if err != nil {
-		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		replicaIdentity, err := c.getReplicaIdentityForTable(schemaTable)
+		if req.DestinationPeerType != protos.DBType_EVENTHUB || err != nil || replicaIdentity != "f" {
+			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		}
 	}
 
 	res := &protos.TableSchema{
