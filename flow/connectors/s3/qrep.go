@@ -10,18 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func (c *S3Connector) GetQRepPartitions(config *protos.QRepConfig,
-	last *protos.QRepPartition,
-) ([]*protos.QRepPartition, error) {
-	panic("not implemented for s3")
-}
-
-func (c *S3Connector) PullQRepRecords(config *protos.QRepConfig,
-	partition *protos.QRepPartition,
-) (*model.QRecordBatch, error) {
-	panic("not implemented for s3")
-}
-
 func (c *S3Connector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
@@ -86,15 +74,5 @@ func (c *S3Connector) writeToAvroFile(
 // S3 just sets up destination, not metadata tables
 func (c *S3Connector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
 	log.Infof("QRep metadata setup not needed for S3.")
-	return nil
-}
-
-func (c *S3Connector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	log.Infof("Consolidate partitions not needed for S3.")
-	return nil
-}
-
-func (c *S3Connector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	log.Infof("Cleanup QRep Flow not needed for S3.")
 	return nil
 }

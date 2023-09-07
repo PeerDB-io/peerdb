@@ -2,7 +2,6 @@ package conneventhub
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -88,7 +87,8 @@ func (c *EventHubConnector) SetupMetadataTables() error {
 		CREATE TABLE IF NOT EXISTS `+metadataSchema+`.`+lastSyncStateTableName+` (
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
-			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			sync_batch_id BIGINT NOT NULL
 		)
 	`)
 	if err != nil {
@@ -139,14 +139,35 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	log.WithFields(log.Fields{
-		"flowName": jobName,
-	}).Errorf("GetLastSyncBatchID not supported for EventHub")
-	return 0, fmt.Errorf("GetLastSyncBatchID not supported for EventHub connector")
+	ms := c.pgMetadata
+
+	rows := ms.pool.QueryRow(c.ctx, `
+		SELECT sync_batch_id
+		FROM `+metadataSchema+`.`+lastSyncStateTableName+`
+		WHERE job_name = $1
+	`, jobName)
+
+	var syncBatchID int64
+	err := rows.Scan(&syncBatchID)
+	if err != nil {
+		// if the job doesn't exist, return 0
+		if err.Error() == "no rows in result set" {
+			return 0, nil
+		}
+
+		log.WithFields(log.Fields{
+			"flowName": jobName,
+		}).Errorf("failed to get last offset: %v", err)
+		return 0, err
+	}
+
+	log.Infof("got last sync batch ID for job `%s`: %d", jobName, syncBatchID)
+
+	return syncBatchID, nil
 }
 
 // update offset for a job
-func (c *EventHubConnector) UpdateLastOffset(jobName string, offset int64) error {
+func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error {
 	ms := c.pgMetadata
 
 	// start a transaction
@@ -161,11 +182,11 @@ func (c *EventHubConnector) UpdateLastOffset(jobName string, offset int64) error
 		"flowName": jobName,
 	}).Infof("updating last offset for job `%s` to `%d`", jobName, offset)
 	_, err = tx.Exec(c.ctx, `
-		INSERT INTO `+metadataSchema+`.`+lastSyncStateTableName+` (job_name, last_offset)
-		VALUES ($1, $2)
+		INSERT INTO `+metadataSchema+`.`+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
 		DO UPDATE SET last_offset = $2, updated_at = NOW()
-	`, jobName, offset)
+	`, jobName, offset, 0)
 
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -178,6 +199,28 @@ func (c *EventHubConnector) UpdateLastOffset(jobName string, offset int64) error
 	err = tx.Commit(c.ctx)
 	if err != nil {
 		log.Errorf("failed to commit transaction: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// update offset for a job
+func (c *EventHubConnector) incrementSyncBatchID(jobName string) error {
+	ms := c.pgMetadata
+
+	log.WithFields(log.Fields{
+		"flowName": jobName,
+	}).Infof("incrementing sync batch id for job `%s`", jobName)
+	_, err := ms.pool.Exec(c.ctx, `
+		UPDATE `+metadataSchema+`.`+lastSyncStateTableName+`
+		 SET sync_batch_id=sync_batch_id+1 WHERE job_name=$1
+	`, jobName)
+
+	if err != nil {
+		log.WithFields(log.Fields{
+			"flowName": jobName,
+		}).Errorf("failed to increment sync batch id: %v", err)
 		return err
 	}
 

@@ -509,19 +509,6 @@ func BuildQuery(query string, flowJobName string) (string, error) {
 	return res, nil
 }
 
-func (c *PostgresConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	log.Infof("Consolidating partitions for flow job %s", config.FlowJobName)
-	log.Infof("This is a no-op for Postgres")
-	return nil
-}
-
-// CleanupQRepFlow function for postgres connector
-func (c *PostgresConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	log.Infof("Cleaning up QRep flow for flow job %s", config.FlowJobName)
-	log.Infof("This is a no-op for Postgres")
-	return nil
-}
-
 // isPartitionSynced checks whether a specific partition is synced
 func (c *PostgresConnector) isPartitionSynced(partitionID string) (bool, error) {
 	// setup the query string

@@ -39,7 +39,7 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, nil
 	}
 
-	conn, err := connectors.GetConnector(ctx, config.PeerConnectionConfig)
+	conn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
