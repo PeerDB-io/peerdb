@@ -107,7 +107,13 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	batch := req.Records
 	eventsPerHeartBeat := 1000
 	eventsPerBatch := int(req.PushBatchSize)
+	if eventsPerBatch <= 0 {
+		eventsPerBatch = 10000
+	}
 	maxParallelism := req.PushParallelism
+	if maxParallelism <= 0 {
+		maxParallelism = 10
+	}
 
 	batchPerTopic := make(map[string][]*eventhub.Event)
 	for i, record := range batch.Records {
