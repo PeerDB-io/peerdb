@@ -222,11 +222,11 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		}
 	}
 
-	// log the number of records
+	pullDuration := time.Since(startTime)
 	numRecords := len(records.Records)
 	log.WithFields(log.Fields{
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
-	}).Printf("pulled %d records", numRecords)
+	}).Infof("pulled %d records in %d seconds\n", numRecords, int(pullDuration.Seconds()))
 	activity.RecordHeartbeat(ctx, fmt.Sprintf("pulled %d records", numRecords))
 
 	if numRecords == 0 {
@@ -236,6 +236,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		return nil, nil
 	}
 
+	syncStartTime := time.Now()
 	res, err := dest.SyncRecords(&model.SyncRecordsRequest{
 		Records:         records,
 		FlowJobName:     input.FlowConnectionConfigs.FlowJobName,
@@ -248,9 +249,11 @@ func (a *FlowableActivity) StartFlow(ctx context.Context, input *protos.StartFlo
 		log.Warnf("failed to push records: %v", err)
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
+
+	syncDuration := time.Since(syncStartTime)
 	log.WithFields(log.Fields{
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
-	}).Infof("pushed %d records", res.NumRecordsSynced)
+	}).Infof("pushed %d records in %d seconds\n", numRecords, int(syncDuration.Seconds()))
 
 	err = a.CatalogMirrorMonitor.
 		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
@@ -321,7 +324,7 @@ func (a *FlowableActivity) StartNormalize(
 
 	// log the number of batches normalized
 	if res != nil {
-		log.Printf("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID)
+		log.Infof("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID)
 	}
 
 	return res, nil
@@ -417,7 +420,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 	defer connectors.CloseConnector(destConn)
 
-	log.Printf("replicating partition %s\n", partition.PartitionId)
+	log.Infof("replicating partition %s\n", partition.PartitionId)
 
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
@@ -460,7 +463,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		numRecords = int64(recordBatch.NumRecords)
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
-		}).Printf("pulled %d records\n", len(recordBatch.Records))
+		}).Infof("pulled %d records\n", len(recordBatch.Records))
 
 		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
 		if err != nil {
@@ -489,7 +492,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	if res == 0 {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
-		}).Printf("no records to push for partition %s\n", partition.PartitionId)
+		}).Infof("no records to push for partition %s\n", partition.PartitionId)
 		return nil
 	}
 
@@ -499,7 +502,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 	log.WithFields(log.Fields{
 		"flowName": config.FlowJobName,
-	}).Printf("pushed %d records\n", res)
+	}).Infof("pushed %d records\n", res)
 	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
 	if err != nil {
 		return err
