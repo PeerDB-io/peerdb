@@ -17,11 +17,11 @@ import { Peer } from "./peers";
 
 export const protobufPackage = "peerdb_route";
 
-export interface CreatePeerFlowRequest {
+export interface CreateCDCFlowRequest {
   connectionConfigs: FlowConnectionConfigs | undefined;
 }
 
-export interface CreatePeerFlowResponse {
+export interface CreateCDCFlowResponse {
   worflowId: string;
 }
 
@@ -52,22 +52,22 @@ export interface ListPeersResponse {
   peers: Peer[];
 }
 
-function createBaseCreatePeerFlowRequest(): CreatePeerFlowRequest {
+function createBaseCreateCDCFlowRequest(): CreateCDCFlowRequest {
   return { connectionConfigs: undefined };
 }
 
-export const CreatePeerFlowRequest = {
-  encode(message: CreatePeerFlowRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+export const CreateCDCFlowRequest = {
+  encode(message: CreateCDCFlowRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.connectionConfigs !== undefined) {
       FlowConnectionConfigs.encode(message.connectionConfigs, writer.uint32(10).fork()).ldelim();
     }
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): CreatePeerFlowRequest {
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreateCDCFlowRequest {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseCreatePeerFlowRequest();
+    const message = createBaseCreateCDCFlowRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -87,7 +87,7 @@ export const CreatePeerFlowRequest = {
     return message;
   },
 
-  fromJSON(object: any): CreatePeerFlowRequest {
+  fromJSON(object: any): CreateCDCFlowRequest {
     return {
       connectionConfigs: isSet(object.connectionConfigs)
         ? FlowConnectionConfigs.fromJSON(object.connectionConfigs)
@@ -95,7 +95,7 @@ export const CreatePeerFlowRequest = {
     };
   },
 
-  toJSON(message: CreatePeerFlowRequest): unknown {
+  toJSON(message: CreateCDCFlowRequest): unknown {
     const obj: any = {};
     if (message.connectionConfigs !== undefined) {
       obj.connectionConfigs = FlowConnectionConfigs.toJSON(message.connectionConfigs);
@@ -103,11 +103,11 @@ export const CreatePeerFlowRequest = {
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<CreatePeerFlowRequest>, I>>(base?: I): CreatePeerFlowRequest {
-    return CreatePeerFlowRequest.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<CreateCDCFlowRequest>, I>>(base?: I): CreateCDCFlowRequest {
+    return CreateCDCFlowRequest.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<CreatePeerFlowRequest>, I>>(object: I): CreatePeerFlowRequest {
-    const message = createBaseCreatePeerFlowRequest();
+  fromPartial<I extends Exact<DeepPartial<CreateCDCFlowRequest>, I>>(object: I): CreateCDCFlowRequest {
+    const message = createBaseCreateCDCFlowRequest();
     message.connectionConfigs = (object.connectionConfigs !== undefined && object.connectionConfigs !== null)
       ? FlowConnectionConfigs.fromPartial(object.connectionConfigs)
       : undefined;
@@ -115,22 +115,22 @@ export const CreatePeerFlowRequest = {
   },
 };
 
-function createBaseCreatePeerFlowResponse(): CreatePeerFlowResponse {
+function createBaseCreateCDCFlowResponse(): CreateCDCFlowResponse {
   return { worflowId: "" };
 }
 
-export const CreatePeerFlowResponse = {
-  encode(message: CreatePeerFlowResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+export const CreateCDCFlowResponse = {
+  encode(message: CreateCDCFlowResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.worflowId !== "") {
       writer.uint32(10).string(message.worflowId);
     }
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): CreatePeerFlowResponse {
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreateCDCFlowResponse {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseCreatePeerFlowResponse();
+    const message = createBaseCreateCDCFlowResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -150,11 +150,11 @@ export const CreatePeerFlowResponse = {
     return message;
   },
 
-  fromJSON(object: any): CreatePeerFlowResponse {
+  fromJSON(object: any): CreateCDCFlowResponse {
     return { worflowId: isSet(object.worflowId) ? String(object.worflowId) : "" };
   },
 
-  toJSON(message: CreatePeerFlowResponse): unknown {
+  toJSON(message: CreateCDCFlowResponse): unknown {
     const obj: any = {};
     if (message.worflowId !== "") {
       obj.worflowId = message.worflowId;
@@ -162,11 +162,11 @@ export const CreatePeerFlowResponse = {
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<CreatePeerFlowResponse>, I>>(base?: I): CreatePeerFlowResponse {
-    return CreatePeerFlowResponse.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<CreateCDCFlowResponse>, I>>(base?: I): CreateCDCFlowResponse {
+    return CreateCDCFlowResponse.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<CreatePeerFlowResponse>, I>>(object: I): CreatePeerFlowResponse {
-    const message = createBaseCreatePeerFlowResponse();
+  fromPartial<I extends Exact<DeepPartial<CreateCDCFlowResponse>, I>>(object: I): CreateCDCFlowResponse {
+    const message = createBaseCreateCDCFlowResponse();
     message.worflowId = object.worflowId ?? "";
     return message;
   },
@@ -581,14 +581,14 @@ export const FlowServiceService = {
     responseSerialize: (value: ListPeersResponse) => Buffer.from(ListPeersResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => ListPeersResponse.decode(value),
   },
-  createPeerFlow: {
-    path: "/peerdb_route.FlowService/CreatePeerFlow",
+  createCdcFlow: {
+    path: "/peerdb_route.FlowService/CreateCDCFlow",
     requestStream: false,
     responseStream: false,
-    requestSerialize: (value: CreatePeerFlowRequest) => Buffer.from(CreatePeerFlowRequest.encode(value).finish()),
-    requestDeserialize: (value: Buffer) => CreatePeerFlowRequest.decode(value),
-    responseSerialize: (value: CreatePeerFlowResponse) => Buffer.from(CreatePeerFlowResponse.encode(value).finish()),
-    responseDeserialize: (value: Buffer) => CreatePeerFlowResponse.decode(value),
+    requestSerialize: (value: CreateCDCFlowRequest) => Buffer.from(CreateCDCFlowRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => CreateCDCFlowRequest.decode(value),
+    responseSerialize: (value: CreateCDCFlowResponse) => Buffer.from(CreateCDCFlowResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => CreateCDCFlowResponse.decode(value),
   },
   createQRepFlow: {
     path: "/peerdb_route.FlowService/CreateQRepFlow",
@@ -612,7 +612,7 @@ export const FlowServiceService = {
 
 export interface FlowServiceServer extends UntypedServiceImplementation {
   listPeers: handleUnaryCall<ListPeersRequest, ListPeersResponse>;
-  createPeerFlow: handleUnaryCall<CreatePeerFlowRequest, CreatePeerFlowResponse>;
+  createCdcFlow: handleUnaryCall<CreateCDCFlowRequest, CreateCDCFlowResponse>;
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
 }
@@ -633,20 +633,20 @@ export interface FlowServiceClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ListPeersResponse) => void,
   ): ClientUnaryCall;
-  createPeerFlow(
-    request: CreatePeerFlowRequest,
-    callback: (error: ServiceError | null, response: CreatePeerFlowResponse) => void,
+  createCdcFlow(
+    request: CreateCDCFlowRequest,
+    callback: (error: ServiceError | null, response: CreateCDCFlowResponse) => void,
   ): ClientUnaryCall;
-  createPeerFlow(
-    request: CreatePeerFlowRequest,
+  createCdcFlow(
+    request: CreateCDCFlowRequest,
     metadata: Metadata,
-    callback: (error: ServiceError | null, response: CreatePeerFlowResponse) => void,
+    callback: (error: ServiceError | null, response: CreateCDCFlowResponse) => void,
   ): ClientUnaryCall;
-  createPeerFlow(
-    request: CreatePeerFlowRequest,
+  createCdcFlow(
+    request: CreateCDCFlowRequest,
     metadata: Metadata,
     options: Partial<CallOptions>,
-    callback: (error: ServiceError | null, response: CreatePeerFlowResponse) => void,
+    callback: (error: ServiceError | null, response: CreateCDCFlowResponse) => void,
   ): ClientUnaryCall;
   createQRepFlow(
     request: CreateQRepFlowRequest,

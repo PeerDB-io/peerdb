@@ -42,7 +42,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -50,7 +50,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
@@ -63,7 +63,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -104,7 +104,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 10,
 		MaxBatchSize:   100,
 	}
@@ -113,7 +113,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	// and then insert and mutate schema repeatedly.
 	go func() {
 		// insert first row.
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
 		s.NoError(err)
@@ -170,7 +170,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		s.NoError(err)
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -17,11 +16,11 @@ import (
 )
 
 const (
-	PeerFlowStatusQuery     = "q-peer-flow-status"
-	maxSyncFlowsPerPeerFlow = 32
+	CDCFlowStatusQuery     = "q-cdc-flow-status"
+	maxSyncFlowsPerCDCFlow = 32
 )
 
-type PeerFlowLimits struct {
+type CDCFlowLimits struct {
 	// Number of sync flows to execute in total.
 	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
 	// This is typically non-zero for testing purposes.
@@ -34,8 +33,8 @@ type PeerFlowLimits struct {
 	MaxBatchSize int
 }
 
-type PeerFlowWorkflowInput struct {
-	PeerFlowLimits
+type CDCFlowWorkflowInput struct {
+	CDCFlowLimits
 	// The JDBC URL for the catalog database.
 	CatalogJdbcURL string
 	// The name of the peer flow to execute.
@@ -52,7 +51,7 @@ type PeerFlowWorkflowInput struct {
 	MaxBatchSize int
 }
 
-type PeerFlowState struct {
+type CDCFlowState struct {
 	// Progress events for the peer flow.
 	Progress []string
 	// Accumulates status for sync flows spawned.
@@ -60,7 +59,7 @@ type PeerFlowState struct {
 	// Accumulates status for sync flows spawned.
 	NormalizeFlowStatuses []*model.NormalizeResponse
 	// Current signalled state of the peer flow.
-	ActiveSignal shared.PeerFlowSignal
+	ActiveSignal shared.CDCFlowSignal
 	// SetupComplete indicates whether the peer flow setup has completed.
 	SetupComplete bool
 	// Errors encountered during child sync flow executions.
@@ -73,8 +72,8 @@ type PeerFlowState struct {
 }
 
 // returns a new empty PeerFlowState
-func NewStartedPeerFlowState() *PeerFlowState {
-	return &PeerFlowState{
+func NewCDCFlowState() *CDCFlowState {
+	return &CDCFlowState{
 		Progress:              []string{"started"},
 		SyncFlowStatuses:      nil,
 		NormalizeFlowStatuses: nil,
@@ -93,7 +92,7 @@ func NewStartedPeerFlowState() *PeerFlowState {
 }
 
 // truncate the progress and other arrays to a max of 10 elements
-func (s *PeerFlowState) TruncateProgress(log log.Logger) {
+func (s *CDCFlowState) TruncateProgress() {
 	if len(s.Progress) > 10 {
 		s.Progress = s.Progress[len(s.Progress)-10:]
 	}
@@ -103,66 +102,20 @@ func (s *PeerFlowState) TruncateProgress(log log.Logger) {
 	if len(s.NormalizeFlowStatuses) > 10 {
 		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:]
 	}
-
-	if s.SyncFlowErrors != nil {
-		// log and clear the error
-		log.Error("sync flow error: ", s.SyncFlowErrors)
-		s.SyncFlowErrors = nil
-	}
-
-	if s.NormalizeFlowErrors != nil {
-		// log and clear the error
-		log.Error("normalize flow error: ", s.NormalizeFlowErrors)
-		s.NormalizeFlowErrors = nil
-	}
 }
 
-// PeerFlowWorkflowExecution represents the state for execution of a peer flow.
-type PeerFlowWorkflowExecution struct {
+// CDCFlowWorkflowExecution represents the state for execution of a peer flow.
+type CDCFlowWorkflowExecution struct {
 	flowExecutionID string
 	logger          log.Logger
 }
 
-// NewPeerFlowWorkflowExecution creates a new instance of PeerFlowWorkflowExecution.
-func NewPeerFlowWorkflowExecution(ctx workflow.Context) *PeerFlowWorkflowExecution {
-	return &PeerFlowWorkflowExecution{
+// NewCDCFlowWorkflowExecution creates a new instance of PeerFlowWorkflowExecution.
+func NewCDCFlowWorkflowExecution(ctx workflow.Context) *CDCFlowWorkflowExecution {
+	return &CDCFlowWorkflowExecution{
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
 		logger:          workflow.GetLogger(ctx),
 	}
-}
-
-// fetchConnectionConfigs fetches the connection configs for source and destination peers.
-func fetchConnectionConfigs(
-	ctx workflow.Context,
-	logger log.Logger,
-	input *PeerFlowWorkflowInput,
-) (*protos.FlowConnectionConfigs, error) {
-	logger.Info("fetching connection configs for peer flow - ", input.PeerFlowName)
-
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
-	})
-
-	fetchConfigActivityInput := &activities.FetchConfigActivityInput{
-		CatalogJdbcURL: input.CatalogJdbcURL,
-		PeerFlowName:   input.PeerFlowName,
-	}
-
-	configsFuture := workflow.ExecuteActivity(ctx, fetchConfig.FetchConfig, fetchConfigActivityInput)
-
-	flowConnectionConfigs := &protos.FlowConnectionConfigs{}
-	if err := configsFuture.Get(ctx, &flowConnectionConfigs); err != nil {
-		return nil, fmt.Errorf("failed to fetch connection configs: %w", err)
-	}
-
-	if flowConnectionConfigs == nil ||
-		flowConnectionConfigs.Source == nil ||
-		flowConnectionConfigs.Destination == nil {
-		return nil, fmt.Errorf("invalid connection configs")
-	}
-
-	logger.Info("fetched connection configs for peer flow - ", input.PeerFlowName)
-	return flowConnectionConfigs, nil
 }
 
 func GetChildWorkflowID(
@@ -182,81 +135,39 @@ func GetChildWorkflowID(
 	return childWorkflowID, nil
 }
 
-// PeerFlowWorkflowResult is the result of the PeerFlowWorkflow.
-type PeerFlowWorkflowResult = PeerFlowState
+// CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
+type CDCFlowWorkflowResult = CDCFlowState
 
-// PeerFlowWorkflow is the workflow that executes the specified peer flow.
-// This is the main entry point for the application.
-func PeerFlowWorkflow(ctx workflow.Context, input *PeerFlowWorkflowInput) (*PeerFlowWorkflowResult, error) {
-	fconn, err := fetchConnectionConfigs(ctx, workflow.GetLogger(ctx), input)
-	if err != nil {
-		return nil, err
-	}
-
-	fconn.FlowJobName = input.PeerFlowName
-
-	peerflowWithConfigID, err := GetChildWorkflowID(ctx, "peer-flow-with-config", input.PeerFlowName)
-	if err != nil {
-		return nil, err
-	}
-
-	peerflowWithConfigOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        peerflowWithConfigID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-	}
-
-	limits := &PeerFlowLimits{
-		TotalSyncFlows:      input.TotalSyncFlows,
-		TotalNormalizeFlows: input.TotalNormalizeFlows,
-		MaxBatchSize:        input.MaxBatchSize,
-	}
-
-	state := NewStartedPeerFlowState()
-	peerflowWithConfigCtx := workflow.WithChildOptions(ctx, peerflowWithConfigOpts)
-	peerFlowWithConfigFuture := workflow.ExecuteChildWorkflow(
-		peerflowWithConfigCtx, PeerFlowWorkflowWithConfig, fconn, &limits, state)
-
-	var res PeerFlowWorkflowResult
-	if err := peerFlowWithConfigFuture.Get(peerflowWithConfigCtx, &res); err != nil {
-		return nil, fmt.Errorf("failed to execute child workflow: %w", err)
-	}
-
-	return &res, nil
-}
-
-func PeerFlowWorkflowWithConfig(
+func CDCFlowWorkflowWithConfig(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
-	limits *PeerFlowLimits,
-	state *PeerFlowState,
-) (*PeerFlowWorkflowResult, error) {
+	limits *CDCFlowLimits,
+	state *CDCFlowState,
+) (*CDCFlowWorkflowResult, error) {
 	if state == nil {
-		state = NewStartedPeerFlowState()
+		state = NewCDCFlowState()
 	}
 
 	if cfg == nil {
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 
-	w := NewPeerFlowWorkflowExecution(ctx)
+	w := NewCDCFlowWorkflowExecution(ctx)
 
 	if limits.TotalSyncFlows == 0 {
-		limits.TotalSyncFlows = maxSyncFlowsPerPeerFlow
+		limits.TotalSyncFlows = maxSyncFlowsPerCDCFlow
 	}
 
 	// Support a Query for the current state of the peer flow.
-	err := workflow.SetQueryHandler(ctx, PeerFlowStatusQuery, func(jobName string) (PeerFlowState, error) {
+	err := workflow.SetQueryHandler(ctx, CDCFlowStatusQuery, func(jobName string) (CDCFlowState, error) {
 		return *state, nil
 	})
 	if err != nil {
-		return state, fmt.Errorf("failed to set `%s` query handler: %w", PeerFlowStatusQuery, err)
+		return state, fmt.Errorf("failed to set `%s` query handler: %w", CDCFlowStatusQuery, err)
 	}
 
-	signalChan := workflow.GetSignalChannel(ctx, shared.PeerFlowSignalName)
-	signalHandler := func(_ workflow.Context, v shared.PeerFlowSignal) {
+	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+	signalHandler := func(_ workflow.Context, v shared.CDCFlowSignal) {
 		w.logger.Info("received signal - ", v)
 		state.ActiveSignal = v
 	}
@@ -264,7 +175,7 @@ func PeerFlowWorkflowWithConfig(
 	// Support a signal to pause the peer flow.
 	selector := workflow.NewSelector(ctx)
 	selector.AddReceive(signalChan, func(c workflow.ReceiveChannel, more bool) {
-		var signalVal shared.PeerFlowSignal
+		var signalVal shared.CDCFlowSignal
 		c.Receive(ctx, &signalVal)
 		signalHandler(ctx, signalVal)
 	})
@@ -425,6 +336,6 @@ func PeerFlowWorkflowWithConfig(
 		}
 	}
 
-	state.TruncateProgress(w.logger)
-	return nil, workflow.NewContinueAsNewError(ctx, PeerFlowWorkflowWithConfig, cfg, limits, state)
+	state.TruncateProgress()
+	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
 }

@@ -35,8 +35,8 @@ func (h *FlowRequestHandler) Close() {
 	}
 }
 
-func (h *FlowRequestHandler) CreatePeerFlow(
-	ctx context.Context, req *protos.CreatePeerFlowRequest) (*protos.CreatePeerFlowResponse, error) {
+func (h *FlowRequestHandler) CreateCDCFlow(
+	ctx context.Context, req *protos.CreateCDCFlowRequest) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
@@ -50,26 +50,26 @@ func (h *FlowRequestHandler) CreatePeerFlow(
 		cfg.MaxBatchSize = uint32(maxBatchSize)
 	}
 
-	limits := &peerflow.PeerFlowLimits{
+	limits := &peerflow.CDCFlowLimits{
 		TotalSyncFlows:      0,
 		TotalNormalizeFlows: 0,
 		MaxBatchSize:        maxBatchSize,
 	}
 
-	state := peerflow.NewStartedPeerFlowState()
+	state := peerflow.NewCDCFlowState()
 	_, err := h.temporalClient.ExecuteWorkflow(
-		ctx,                                 // context
-		workflowOptions,                     // workflow start options
-		peerflow.PeerFlowWorkflowWithConfig, // workflow function
-		cfg,                                 // workflow input
-		limits,                              // workflow limits
-		state,                               // workflow state
+		ctx,                                // context
+		workflowOptions,                    // workflow start options
+		peerflow.CDCFlowWorkflowWithConfig, // workflow function
+		cfg,                                // workflow input
+		limits,                             // workflow limits
+		state,                              // workflow state
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
-	return &protos.CreatePeerFlowResponse{
+	return &protos.CreateCDCFlowResponse{
 		WorflowId: workflowID,
 	}, nil
 }
@@ -112,7 +112,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		ctx,
 		req.WorkflowId,
 		"",
-		shared.PeerFlowSignalName,
+		shared.CDCFlowSignalName,
 		shared.ShutdownSignal,
 	)
 	if err != nil {

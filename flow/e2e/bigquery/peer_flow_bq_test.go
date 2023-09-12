@@ -95,12 +95,12 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	// TODO (kaushikiska): ensure flow name can only be alpha numeric and underscores.
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, nil, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, nil, &limits, nil)
 
 	// Verify workflow completes
 	s.True(env.IsWorkflowCompleted())
@@ -139,12 +139,12 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -183,12 +183,12 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   1,
 	}
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -230,7 +230,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -238,7 +238,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
@@ -251,7 +251,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -301,7 +301,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -309,7 +309,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/*
 			Executing a transaction which
 			1. changes both toast column
@@ -328,7 +328,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -372,7 +372,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -380,7 +380,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* transaction updating no rows */
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
@@ -392,7 +392,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -436,7 +436,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -444,7 +444,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
@@ -469,7 +469,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -512,7 +512,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -520,7 +520,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
@@ -539,7 +539,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -583,7 +583,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -591,7 +591,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/*
 			transaction updating a single row
 			multiple times with changed/unchanged toast columns
@@ -609,7 +609,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -658,7 +658,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
@@ -667,7 +667,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* test inserting various types*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 2,2,b'1',b'101',
@@ -687,7 +687,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -747,7 +747,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_Avro_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
@@ -756,7 +756,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_Avro_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* test inserting various types*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 2,2,b'1',b'101',
@@ -776,7 +776,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_Avro_BQ() {
 		fmt.Println("Executed an insert with all types")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -826,13 +826,13 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Flow_BQ_Avro_CDC() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		for i := 0; i < 10; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
@@ -844,7 +844,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Flow_BQ_Avro_CDC() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -889,7 +889,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 1,
 		MaxBatchSize:   100,
 	}
@@ -897,7 +897,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* inserting across multiple tables*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (c1,c2) VALUES (1,'dummy_1');
@@ -907,7 +907,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		fmt.Println("Executed an insert on two tables")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	require.True(s.T(), env.IsWorkflowCompleted())
@@ -949,7 +949,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	limits := peerflow.PeerFlowLimits{
+	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 10,
 		MaxBatchSize:   100,
 	}
@@ -958,7 +958,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	// and then insert and mutate schema repeatedly.
 	go func() {
 		// insert first row.
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
 		s.NoError(err)
@@ -1015,7 +1015,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		s.compareTableContentsBQ("test_simple_schema_changes", "id,c1")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

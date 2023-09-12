@@ -11,8 +11,8 @@ import (
 )
 
 type SyncFlowState struct {
-	PeerFlowName string
-	Progress     []string
+	CDCFlowName string
+	Progress    []string
 }
 
 type SyncFlowExecution struct {
@@ -22,8 +22,8 @@ type SyncFlowExecution struct {
 }
 
 type NormalizeFlowState struct {
-	PeerFlowName string
-	Progress     []string
+	CDCFlowName string
+	Progress    []string
 }
 
 type NormalizeFlowExecution struct {
@@ -56,7 +56,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	opts *protos.SyncFlowOptions,
 	relationMessageMapping model.RelationMessageMapping,
 ) (*model.SyncResponse, error) {
-	s.logger.Info("executing sync flow - ", s.PeerFlowName)
+	s.logger.Info("executing sync flow - ", s.CDCFlowName)
 
 	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
@@ -65,7 +65,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	// execute GetLastSyncedID on destination peer
 	lastSyncInput := &protos.GetLastSyncedIDInput{
 		PeerConnectionConfig: config.Destination,
-		FlowJobName:          s.PeerFlowName,
+		FlowJobName:          s.CDCFlowName,
 	}
 
 	lastSyncFuture := workflow.ExecuteActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
@@ -113,8 +113,8 @@ func SyncFlowWorkflow(ctx workflow.Context,
 	options *protos.SyncFlowOptions,
 ) (*model.SyncResponse, error) {
 	s := NewSyncFlowExecution(ctx, &SyncFlowState{
-		PeerFlowName: config.FlowJobName,
-		Progress:     []string{},
+		CDCFlowName: config.FlowJobName,
+		Progress:    []string{},
 	})
 
 	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
@@ -125,8 +125,8 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 	tableSchemaDelta *protos.TableSchemaDelta,
 ) (*model.NormalizeResponse, error) {
 	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
-		PeerFlowName: config.FlowJobName,
-		Progress:     []string{},
+		CDCFlowName: config.FlowJobName,
+		Progress:    []string{},
 	})
 
 	return s.executeNormalizeFlow(ctx, config, tableSchemaDelta)
@@ -137,7 +137,7 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	config *protos.FlowConnectionConfigs,
 	tableSchemaDelta *protos.TableSchemaDelta,
 ) (*model.NormalizeResponse, error) {
-	s.logger.Info("executing normalize flow - ", s.PeerFlowName)
+	s.logger.Info("executing normalize flow - ", s.CDCFlowName)
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,

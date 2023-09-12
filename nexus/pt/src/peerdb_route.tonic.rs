@@ -112,11 +112,11 @@ pub mod flow_service_client {
             self.inner.unary(req, path, codec).await
         }
         ///
-        pub async fn create_peer_flow(
+        pub async fn create_cdc_flow(
             &mut self,
-            request: impl tonic::IntoRequest<super::CreatePeerFlowRequest>,
+            request: impl tonic::IntoRequest<super::CreateCdcFlowRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CreatePeerFlowResponse>,
+            tonic::Response<super::CreateCdcFlowResponse>,
             tonic::Status,
         > {
             self.inner
@@ -130,11 +130,11 @@ pub mod flow_service_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/peerdb_route.FlowService/CreatePeerFlow",
+                "/peerdb_route.FlowService/CreateCDCFlow",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("peerdb_route.FlowService", "CreatePeerFlow"));
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "CreateCDCFlow"));
             self.inner.unary(req, path, codec).await
         }
         ///
@@ -207,11 +207,11 @@ pub mod flow_service_server {
             tonic::Status,
         >;
         ///
-        async fn create_peer_flow(
+        async fn create_cdc_flow(
             &self,
-            request: tonic::Request<super::CreatePeerFlowRequest>,
+            request: tonic::Request<super::CreateCdcFlowRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CreatePeerFlowResponse>,
+            tonic::Response<super::CreateCdcFlowResponse>,
             tonic::Status,
         >;
         ///
@@ -355,25 +355,25 @@ pub mod flow_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/peerdb_route.FlowService/CreatePeerFlow" => {
+                "/peerdb_route.FlowService/CreateCDCFlow" => {
                     #[allow(non_camel_case_types)]
-                    struct CreatePeerFlowSvc<T: FlowService>(pub Arc<T>);
+                    struct CreateCDCFlowSvc<T: FlowService>(pub Arc<T>);
                     impl<
                         T: FlowService,
-                    > tonic::server::UnaryService<super::CreatePeerFlowRequest>
-                    for CreatePeerFlowSvc<T> {
-                        type Response = super::CreatePeerFlowResponse;
+                    > tonic::server::UnaryService<super::CreateCdcFlowRequest>
+                    for CreateCDCFlowSvc<T> {
+                        type Response = super::CreateCdcFlowResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::CreatePeerFlowRequest>,
+                            request: tonic::Request<super::CreateCdcFlowRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).create_peer_flow(request).await
+                                (*inner).create_cdc_flow(request).await
                             };
                             Box::pin(fut)
                         }
@@ -385,7 +385,7 @@ pub mod flow_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = CreatePeerFlowSvc(inner);
+                        let method = CreateCDCFlowSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

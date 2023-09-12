@@ -78,6 +78,18 @@ export interface TableNameMapping {
   destinationTableName: string;
 }
 
+export interface RelationMessageColumn {
+  flags: number;
+  name: string;
+  dataType: number;
+}
+
+export interface RelationMessage {
+  relationId: number;
+  relationName: string;
+  columns: RelationMessageColumn[];
+}
+
 export interface FlowConnectionConfigs {
   source: Peer | undefined;
   destination: Peer | undefined;
@@ -105,6 +117,9 @@ export interface FlowConnectionConfigs {
   /** currently only works for snowflake */
   softDelete: boolean;
   replicationSlotName: string;
+  /** the below two are for eventhub only */
+  pushBatchSize: number;
+  pushParallelism: number;
 }
 
 export interface FlowConnectionConfigs_TableNameMappingEntry {
@@ -124,6 +139,12 @@ export interface FlowConnectionConfigs_TableNameSchemaMappingEntry {
 
 export interface SyncFlowOptions {
   batchSize: number;
+  relationMessageMapping: { [key: number]: RelationMessage };
+}
+
+export interface SyncFlowOptions_RelationMessageMappingEntry {
+  key: number;
+  value: RelationMessage | undefined;
 }
 
 export interface NormalizeFlowOptions {
@@ -139,6 +160,12 @@ export interface StartFlowInput {
   lastSyncState: LastSyncState | undefined;
   flowConnectionConfigs: FlowConnectionConfigs | undefined;
   syncFlowOptions: SyncFlowOptions | undefined;
+  relationMessageMapping: { [key: number]: RelationMessage };
+}
+
+export interface StartFlowInput_RelationMessageMappingEntry {
+  key: number;
+  value: RelationMessage | undefined;
 }
 
 export interface StartNormalizeInput {
@@ -365,6 +392,23 @@ export interface DropFlowInput {
   flowName: string;
 }
 
+export interface DeltaAddedColumn {
+  columnName: string;
+  columnType: string;
+}
+
+export interface TableSchemaDelta {
+  srcTableName: string;
+  dstTableName: string;
+  addedColumns: DeltaAddedColumn[];
+  droppedColumns: string[];
+}
+
+export interface ReplayTableSchemaDeltaInput {
+  flowConnectionConfigs: FlowConnectionConfigs | undefined;
+  tableSchemaDelta: TableSchemaDelta | undefined;
+}
+
 function createBaseTableNameMapping(): TableNameMapping {
   return { sourceTableName: "", destinationTableName: "" };
 }
@@ -439,6 +483,184 @@ export const TableNameMapping = {
   },
 };
 
+function createBaseRelationMessageColumn(): RelationMessageColumn {
+  return { flags: 0, name: "", dataType: 0 };
+}
+
+export const RelationMessageColumn = {
+  encode(message: RelationMessageColumn, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flags !== 0) {
+      writer.uint32(8).uint32(message.flags);
+    }
+    if (message.name !== "") {
+      writer.uint32(18).string(message.name);
+    }
+    if (message.dataType !== 0) {
+      writer.uint32(24).uint32(message.dataType);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RelationMessageColumn {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRelationMessageColumn();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.flags = reader.uint32();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.dataType = reader.uint32();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RelationMessageColumn {
+    return {
+      flags: isSet(object.flags) ? Number(object.flags) : 0,
+      name: isSet(object.name) ? String(object.name) : "",
+      dataType: isSet(object.dataType) ? Number(object.dataType) : 0,
+    };
+  },
+
+  toJSON(message: RelationMessageColumn): unknown {
+    const obj: any = {};
+    if (message.flags !== 0) {
+      obj.flags = Math.round(message.flags);
+    }
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.dataType !== 0) {
+      obj.dataType = Math.round(message.dataType);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RelationMessageColumn>, I>>(base?: I): RelationMessageColumn {
+    return RelationMessageColumn.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RelationMessageColumn>, I>>(object: I): RelationMessageColumn {
+    const message = createBaseRelationMessageColumn();
+    message.flags = object.flags ?? 0;
+    message.name = object.name ?? "";
+    message.dataType = object.dataType ?? 0;
+    return message;
+  },
+};
+
+function createBaseRelationMessage(): RelationMessage {
+  return { relationId: 0, relationName: "", columns: [] };
+}
+
+export const RelationMessage = {
+  encode(message: RelationMessage, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.relationId !== 0) {
+      writer.uint32(8).uint32(message.relationId);
+    }
+    if (message.relationName !== "") {
+      writer.uint32(18).string(message.relationName);
+    }
+    for (const v of message.columns) {
+      RelationMessageColumn.encode(v!, writer.uint32(26).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RelationMessage {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRelationMessage();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.relationId = reader.uint32();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.relationName = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.columns.push(RelationMessageColumn.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RelationMessage {
+    return {
+      relationId: isSet(object.relationId) ? Number(object.relationId) : 0,
+      relationName: isSet(object.relationName) ? String(object.relationName) : "",
+      columns: Array.isArray(object?.columns) ? object.columns.map((e: any) => RelationMessageColumn.fromJSON(e)) : [],
+    };
+  },
+
+  toJSON(message: RelationMessage): unknown {
+    const obj: any = {};
+    if (message.relationId !== 0) {
+      obj.relationId = Math.round(message.relationId);
+    }
+    if (message.relationName !== "") {
+      obj.relationName = message.relationName;
+    }
+    if (message.columns?.length) {
+      obj.columns = message.columns.map((e) => RelationMessageColumn.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RelationMessage>, I>>(base?: I): RelationMessage {
+    return RelationMessage.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RelationMessage>, I>>(object: I): RelationMessage {
+    const message = createBaseRelationMessage();
+    message.relationId = object.relationId ?? 0;
+    message.relationName = object.relationName ?? "";
+    message.columns = object.columns?.map((e) => RelationMessageColumn.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 function createBaseFlowConnectionConfigs(): FlowConnectionConfigs {
   return {
     source: undefined,
@@ -461,6 +683,8 @@ function createBaseFlowConnectionConfigs(): FlowConnectionConfigs {
     cdcStagingPath: "",
     softDelete: false,
     replicationSlotName: "",
+    pushBatchSize: 0,
+    pushParallelism: 0,
   };
 }
 
@@ -527,6 +751,12 @@ export const FlowConnectionConfigs = {
     }
     if (message.replicationSlotName !== "") {
       writer.uint32(162).string(message.replicationSlotName);
+    }
+    if (message.pushBatchSize !== 0) {
+      writer.uint32(168).int64(message.pushBatchSize);
+    }
+    if (message.pushParallelism !== 0) {
+      writer.uint32(176).int64(message.pushParallelism);
     }
     return writer;
   },
@@ -687,6 +917,20 @@ export const FlowConnectionConfigs = {
 
           message.replicationSlotName = reader.string();
           continue;
+        case 21:
+          if (tag !== 168) {
+            break;
+          }
+
+          message.pushBatchSize = longToNumber(reader.int64() as Long);
+          continue;
+        case 22:
+          if (tag !== 176) {
+            break;
+          }
+
+          message.pushParallelism = longToNumber(reader.int64() as Long);
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -739,6 +983,8 @@ export const FlowConnectionConfigs = {
       cdcStagingPath: isSet(object.cdcStagingPath) ? String(object.cdcStagingPath) : "",
       softDelete: isSet(object.softDelete) ? Boolean(object.softDelete) : false,
       replicationSlotName: isSet(object.replicationSlotName) ? String(object.replicationSlotName) : "",
+      pushBatchSize: isSet(object.pushBatchSize) ? Number(object.pushBatchSize) : 0,
+      pushParallelism: isSet(object.pushParallelism) ? Number(object.pushParallelism) : 0,
     };
   },
 
@@ -822,6 +1068,12 @@ export const FlowConnectionConfigs = {
     if (message.replicationSlotName !== "") {
       obj.replicationSlotName = message.replicationSlotName;
     }
+    if (message.pushBatchSize !== 0) {
+      obj.pushBatchSize = Math.round(message.pushBatchSize);
+    }
+    if (message.pushParallelism !== 0) {
+      obj.pushParallelism = Math.round(message.pushParallelism);
+    }
     return obj;
   },
 
@@ -880,6 +1132,8 @@ export const FlowConnectionConfigs = {
     message.cdcStagingPath = object.cdcStagingPath ?? "";
     message.softDelete = object.softDelete ?? false;
     message.replicationSlotName = object.replicationSlotName ?? "";
+    message.pushBatchSize = object.pushBatchSize ?? 0;
+    message.pushParallelism = object.pushParallelism ?? 0;
     return message;
   },
 };
@@ -1121,7 +1375,7 @@ export const FlowConnectionConfigs_TableNameSchemaMappingEntry = {
 };
 
 function createBaseSyncFlowOptions(): SyncFlowOptions {
-  return { batchSize: 0 };
+  return { batchSize: 0, relationMessageMapping: {} };
 }
 
 export const SyncFlowOptions = {
@@ -1129,6 +1383,9 @@ export const SyncFlowOptions = {
     if (message.batchSize !== 0) {
       writer.uint32(8).int32(message.batchSize);
     }
+    Object.entries(message.relationMessageMapping).forEach(([key, value]) => {
+      SyncFlowOptions_RelationMessageMappingEntry.encode({ key: key as any, value }, writer.uint32(18).fork()).ldelim();
+    });
     return writer;
   },
 
@@ -1146,6 +1403,16 @@ export const SyncFlowOptions = {
 
           message.batchSize = reader.int32();
           continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          const entry2 = SyncFlowOptions_RelationMessageMappingEntry.decode(reader, reader.uint32());
+          if (entry2.value !== undefined) {
+            message.relationMessageMapping[entry2.key] = entry2.value;
+          }
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1156,13 +1423,33 @@ export const SyncFlowOptions = {
   },
 
   fromJSON(object: any): SyncFlowOptions {
-    return { batchSize: isSet(object.batchSize) ? Number(object.batchSize) : 0 };
+    return {
+      batchSize: isSet(object.batchSize) ? Number(object.batchSize) : 0,
+      relationMessageMapping: isObject(object.relationMessageMapping)
+        ? Object.entries(object.relationMessageMapping).reduce<{ [key: number]: RelationMessage }>(
+          (acc, [key, value]) => {
+            acc[Number(key)] = RelationMessage.fromJSON(value);
+            return acc;
+          },
+          {},
+        )
+        : {},
+    };
   },
 
   toJSON(message: SyncFlowOptions): unknown {
     const obj: any = {};
     if (message.batchSize !== 0) {
       obj.batchSize = Math.round(message.batchSize);
+    }
+    if (message.relationMessageMapping) {
+      const entries = Object.entries(message.relationMessageMapping);
+      if (entries.length > 0) {
+        obj.relationMessageMapping = {};
+        entries.forEach(([k, v]) => {
+          obj.relationMessageMapping[k] = RelationMessage.toJSON(v);
+        });
+      }
     }
     return obj;
   },
@@ -1173,6 +1460,94 @@ export const SyncFlowOptions = {
   fromPartial<I extends Exact<DeepPartial<SyncFlowOptions>, I>>(object: I): SyncFlowOptions {
     const message = createBaseSyncFlowOptions();
     message.batchSize = object.batchSize ?? 0;
+    message.relationMessageMapping = Object.entries(object.relationMessageMapping ?? {}).reduce<
+      { [key: number]: RelationMessage }
+    >((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[Number(key)] = RelationMessage.fromPartial(value);
+      }
+      return acc;
+    }, {});
+    return message;
+  },
+};
+
+function createBaseSyncFlowOptions_RelationMessageMappingEntry(): SyncFlowOptions_RelationMessageMappingEntry {
+  return { key: 0, value: undefined };
+}
+
+export const SyncFlowOptions_RelationMessageMappingEntry = {
+  encode(message: SyncFlowOptions_RelationMessageMappingEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== 0) {
+      writer.uint32(8).uint32(message.key);
+    }
+    if (message.value !== undefined) {
+      RelationMessage.encode(message.value, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SyncFlowOptions_RelationMessageMappingEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncFlowOptions_RelationMessageMappingEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.key = reader.uint32();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = RelationMessage.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SyncFlowOptions_RelationMessageMappingEntry {
+    return {
+      key: isSet(object.key) ? Number(object.key) : 0,
+      value: isSet(object.value) ? RelationMessage.fromJSON(object.value) : undefined,
+    };
+  },
+
+  toJSON(message: SyncFlowOptions_RelationMessageMappingEntry): unknown {
+    const obj: any = {};
+    if (message.key !== 0) {
+      obj.key = Math.round(message.key);
+    }
+    if (message.value !== undefined) {
+      obj.value = RelationMessage.toJSON(message.value);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SyncFlowOptions_RelationMessageMappingEntry>, I>>(
+    base?: I,
+  ): SyncFlowOptions_RelationMessageMappingEntry {
+    return SyncFlowOptions_RelationMessageMappingEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SyncFlowOptions_RelationMessageMappingEntry>, I>>(
+    object: I,
+  ): SyncFlowOptions_RelationMessageMappingEntry {
+    const message = createBaseSyncFlowOptions_RelationMessageMappingEntry();
+    message.key = object.key ?? 0;
+    message.value = (object.value !== undefined && object.value !== null)
+      ? RelationMessage.fromPartial(object.value)
+      : undefined;
     return message;
   },
 };
@@ -1309,7 +1684,12 @@ export const LastSyncState = {
 };
 
 function createBaseStartFlowInput(): StartFlowInput {
-  return { lastSyncState: undefined, flowConnectionConfigs: undefined, syncFlowOptions: undefined };
+  return {
+    lastSyncState: undefined,
+    flowConnectionConfigs: undefined,
+    syncFlowOptions: undefined,
+    relationMessageMapping: {},
+  };
 }
 
 export const StartFlowInput = {
@@ -1323,6 +1703,9 @@ export const StartFlowInput = {
     if (message.syncFlowOptions !== undefined) {
       SyncFlowOptions.encode(message.syncFlowOptions, writer.uint32(26).fork()).ldelim();
     }
+    Object.entries(message.relationMessageMapping).forEach(([key, value]) => {
+      StartFlowInput_RelationMessageMappingEntry.encode({ key: key as any, value }, writer.uint32(34).fork()).ldelim();
+    });
     return writer;
   },
 
@@ -1354,6 +1737,16 @@ export const StartFlowInput = {
 
           message.syncFlowOptions = SyncFlowOptions.decode(reader, reader.uint32());
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          const entry4 = StartFlowInput_RelationMessageMappingEntry.decode(reader, reader.uint32());
+          if (entry4.value !== undefined) {
+            message.relationMessageMapping[entry4.key] = entry4.value;
+          }
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1370,6 +1763,15 @@ export const StartFlowInput = {
         ? FlowConnectionConfigs.fromJSON(object.flowConnectionConfigs)
         : undefined,
       syncFlowOptions: isSet(object.syncFlowOptions) ? SyncFlowOptions.fromJSON(object.syncFlowOptions) : undefined,
+      relationMessageMapping: isObject(object.relationMessageMapping)
+        ? Object.entries(object.relationMessageMapping).reduce<{ [key: number]: RelationMessage }>(
+          (acc, [key, value]) => {
+            acc[Number(key)] = RelationMessage.fromJSON(value);
+            return acc;
+          },
+          {},
+        )
+        : {},
     };
   },
 
@@ -1383,6 +1785,15 @@ export const StartFlowInput = {
     }
     if (message.syncFlowOptions !== undefined) {
       obj.syncFlowOptions = SyncFlowOptions.toJSON(message.syncFlowOptions);
+    }
+    if (message.relationMessageMapping) {
+      const entries = Object.entries(message.relationMessageMapping);
+      if (entries.length > 0) {
+        obj.relationMessageMapping = {};
+        entries.forEach(([k, v]) => {
+          obj.relationMessageMapping[k] = RelationMessage.toJSON(v);
+        });
+      }
     }
     return obj;
   },
@@ -1401,6 +1812,94 @@ export const StartFlowInput = {
         : undefined;
     message.syncFlowOptions = (object.syncFlowOptions !== undefined && object.syncFlowOptions !== null)
       ? SyncFlowOptions.fromPartial(object.syncFlowOptions)
+      : undefined;
+    message.relationMessageMapping = Object.entries(object.relationMessageMapping ?? {}).reduce<
+      { [key: number]: RelationMessage }
+    >((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[Number(key)] = RelationMessage.fromPartial(value);
+      }
+      return acc;
+    }, {});
+    return message;
+  },
+};
+
+function createBaseStartFlowInput_RelationMessageMappingEntry(): StartFlowInput_RelationMessageMappingEntry {
+  return { key: 0, value: undefined };
+}
+
+export const StartFlowInput_RelationMessageMappingEntry = {
+  encode(message: StartFlowInput_RelationMessageMappingEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== 0) {
+      writer.uint32(8).uint32(message.key);
+    }
+    if (message.value !== undefined) {
+      RelationMessage.encode(message.value, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): StartFlowInput_RelationMessageMappingEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStartFlowInput_RelationMessageMappingEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.key = reader.uint32();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = RelationMessage.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): StartFlowInput_RelationMessageMappingEntry {
+    return {
+      key: isSet(object.key) ? Number(object.key) : 0,
+      value: isSet(object.value) ? RelationMessage.fromJSON(object.value) : undefined,
+    };
+  },
+
+  toJSON(message: StartFlowInput_RelationMessageMappingEntry): unknown {
+    const obj: any = {};
+    if (message.key !== 0) {
+      obj.key = Math.round(message.key);
+    }
+    if (message.value !== undefined) {
+      obj.value = RelationMessage.toJSON(message.value);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<StartFlowInput_RelationMessageMappingEntry>, I>>(
+    base?: I,
+  ): StartFlowInput_RelationMessageMappingEntry {
+    return StartFlowInput_RelationMessageMappingEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StartFlowInput_RelationMessageMappingEntry>, I>>(
+    object: I,
+  ): StartFlowInput_RelationMessageMappingEntry {
+    const message = createBaseStartFlowInput_RelationMessageMappingEntry();
+    message.key = object.key ?? 0;
+    message.value = (object.value !== undefined && object.value !== null)
+      ? RelationMessage.fromPartial(object.value)
       : undefined;
     return message;
   },
@@ -4667,6 +5166,267 @@ export const DropFlowInput = {
   fromPartial<I extends Exact<DeepPartial<DropFlowInput>, I>>(object: I): DropFlowInput {
     const message = createBaseDropFlowInput();
     message.flowName = object.flowName ?? "";
+    return message;
+  },
+};
+
+function createBaseDeltaAddedColumn(): DeltaAddedColumn {
+  return { columnName: "", columnType: "" };
+}
+
+export const DeltaAddedColumn = {
+  encode(message: DeltaAddedColumn, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.columnName !== "") {
+      writer.uint32(10).string(message.columnName);
+    }
+    if (message.columnType !== "") {
+      writer.uint32(18).string(message.columnType);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DeltaAddedColumn {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDeltaAddedColumn();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.columnName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.columnType = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DeltaAddedColumn {
+    return {
+      columnName: isSet(object.columnName) ? String(object.columnName) : "",
+      columnType: isSet(object.columnType) ? String(object.columnType) : "",
+    };
+  },
+
+  toJSON(message: DeltaAddedColumn): unknown {
+    const obj: any = {};
+    if (message.columnName !== "") {
+      obj.columnName = message.columnName;
+    }
+    if (message.columnType !== "") {
+      obj.columnType = message.columnType;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DeltaAddedColumn>, I>>(base?: I): DeltaAddedColumn {
+    return DeltaAddedColumn.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DeltaAddedColumn>, I>>(object: I): DeltaAddedColumn {
+    const message = createBaseDeltaAddedColumn();
+    message.columnName = object.columnName ?? "";
+    message.columnType = object.columnType ?? "";
+    return message;
+  },
+};
+
+function createBaseTableSchemaDelta(): TableSchemaDelta {
+  return { srcTableName: "", dstTableName: "", addedColumns: [], droppedColumns: [] };
+}
+
+export const TableSchemaDelta = {
+  encode(message: TableSchemaDelta, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.srcTableName !== "") {
+      writer.uint32(10).string(message.srcTableName);
+    }
+    if (message.dstTableName !== "") {
+      writer.uint32(18).string(message.dstTableName);
+    }
+    for (const v of message.addedColumns) {
+      DeltaAddedColumn.encode(v!, writer.uint32(26).fork()).ldelim();
+    }
+    for (const v of message.droppedColumns) {
+      writer.uint32(34).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TableSchemaDelta {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTableSchemaDelta();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.srcTableName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.dstTableName = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.addedColumns.push(DeltaAddedColumn.decode(reader, reader.uint32()));
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.droppedColumns.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TableSchemaDelta {
+    return {
+      srcTableName: isSet(object.srcTableName) ? String(object.srcTableName) : "",
+      dstTableName: isSet(object.dstTableName) ? String(object.dstTableName) : "",
+      addedColumns: Array.isArray(object?.addedColumns)
+        ? object.addedColumns.map((e: any) => DeltaAddedColumn.fromJSON(e))
+        : [],
+      droppedColumns: Array.isArray(object?.droppedColumns) ? object.droppedColumns.map((e: any) => String(e)) : [],
+    };
+  },
+
+  toJSON(message: TableSchemaDelta): unknown {
+    const obj: any = {};
+    if (message.srcTableName !== "") {
+      obj.srcTableName = message.srcTableName;
+    }
+    if (message.dstTableName !== "") {
+      obj.dstTableName = message.dstTableName;
+    }
+    if (message.addedColumns?.length) {
+      obj.addedColumns = message.addedColumns.map((e) => DeltaAddedColumn.toJSON(e));
+    }
+    if (message.droppedColumns?.length) {
+      obj.droppedColumns = message.droppedColumns;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TableSchemaDelta>, I>>(base?: I): TableSchemaDelta {
+    return TableSchemaDelta.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TableSchemaDelta>, I>>(object: I): TableSchemaDelta {
+    const message = createBaseTableSchemaDelta();
+    message.srcTableName = object.srcTableName ?? "";
+    message.dstTableName = object.dstTableName ?? "";
+    message.addedColumns = object.addedColumns?.map((e) => DeltaAddedColumn.fromPartial(e)) || [];
+    message.droppedColumns = object.droppedColumns?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseReplayTableSchemaDeltaInput(): ReplayTableSchemaDeltaInput {
+  return { flowConnectionConfigs: undefined, tableSchemaDelta: undefined };
+}
+
+export const ReplayTableSchemaDeltaInput = {
+  encode(message: ReplayTableSchemaDeltaInput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowConnectionConfigs !== undefined) {
+      FlowConnectionConfigs.encode(message.flowConnectionConfigs, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.tableSchemaDelta !== undefined) {
+      TableSchemaDelta.encode(message.tableSchemaDelta, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ReplayTableSchemaDeltaInput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseReplayTableSchemaDeltaInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowConnectionConfigs = FlowConnectionConfigs.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.tableSchemaDelta = TableSchemaDelta.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ReplayTableSchemaDeltaInput {
+    return {
+      flowConnectionConfigs: isSet(object.flowConnectionConfigs)
+        ? FlowConnectionConfigs.fromJSON(object.flowConnectionConfigs)
+        : undefined,
+      tableSchemaDelta: isSet(object.tableSchemaDelta) ? TableSchemaDelta.fromJSON(object.tableSchemaDelta) : undefined,
+    };
+  },
+
+  toJSON(message: ReplayTableSchemaDeltaInput): unknown {
+    const obj: any = {};
+    if (message.flowConnectionConfigs !== undefined) {
+      obj.flowConnectionConfigs = FlowConnectionConfigs.toJSON(message.flowConnectionConfigs);
+    }
+    if (message.tableSchemaDelta !== undefined) {
+      obj.tableSchemaDelta = TableSchemaDelta.toJSON(message.tableSchemaDelta);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ReplayTableSchemaDeltaInput>, I>>(base?: I): ReplayTableSchemaDeltaInput {
+    return ReplayTableSchemaDeltaInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ReplayTableSchemaDeltaInput>, I>>(object: I): ReplayTableSchemaDeltaInput {
+    const message = createBaseReplayTableSchemaDeltaInput();
+    message.flowConnectionConfigs =
+      (object.flowConnectionConfigs !== undefined && object.flowConnectionConfigs !== null)
+        ? FlowConnectionConfigs.fromPartial(object.flowConnectionConfigs)
+        : undefined;
+    message.tableSchemaDelta = (object.tableSchemaDelta !== undefined && object.tableSchemaDelta !== null)
+      ? TableSchemaDelta.fromPartial(object.tableSchemaDelta)
+      : undefined;
     return message;
   },
 };

@@ -1,13 +1,13 @@
 // @generated
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreatePeerFlowRequest {
+pub struct CreateCdcFlowRequest {
     #[prost(message, optional, tag="1")]
     pub connection_configs: ::core::option::Option<super::peerdb_flow::FlowConnectionConfigs>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreatePeerFlowResponse {
+pub struct CreateCdcFlowResponse {
     #[prost(string, tag="1")]
     pub worflow_id: ::prost::alloc::string::String,
 }

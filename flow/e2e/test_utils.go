@@ -43,31 +43,29 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	// set a 300 second timeout for the workflow to execute a few runs.
 	env.SetTestTimeout(300 * time.Second)
 
-	env.RegisterWorkflow(peerflow.PeerFlowWorkflow)
-	env.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
+	env.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	env.RegisterWorkflow(peerflow.SetupFlowWorkflow)
 	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	env.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
-	env.RegisterActivity(&activities.FetchConfigActivity{})
 	env.RegisterActivity(&activities.FlowableActivity{})
 	env.RegisterActivity(&activities.SnapshotActivity{})
 }
 
-func SetupPeerFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
+func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig) {
 	// wait for PeerFlowStatusQuery to finish setup
 	// sleep for 5 second to allow the workflow to start
 	time.Sleep(5 * time.Second)
 	for {
 		response, err := env.QueryWorkflow(
-			peerflow.PeerFlowStatusQuery,
+			peerflow.CDCFlowStatusQuery,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.PeerFlowState
+			var state peerflow.CDCFlowState
 			err = response.Get(&state)
 			if err != nil {
 				log.Errorln(err)
@@ -93,11 +91,11 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 	time.Sleep(5 * time.Second)
 	for {
 		response, err := env.QueryWorkflow(
-			peerflow.PeerFlowStatusQuery,
+			peerflow.CDCFlowStatusQuery,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.PeerFlowState
+			var state peerflow.CDCFlowState
 			err = response.Get(&state)
 			if err != nil {
 				log.Errorln(err)
