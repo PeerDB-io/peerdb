@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -20,6 +19,7 @@ import (
 	"github.com/uber-go/tally/v4"
 	"github.com/uber-go/tally/v4/prometheus"
 
+	"github.com/grafana/pyroscope-go"
 	prom "github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
@@ -32,26 +32,55 @@ type WorkerOptions struct {
 	EnableProfiling  bool
 	EnableMetrics    bool
 	EnableMonitoring bool
-	ProfilingServer  string
+	PyroscopeServer  string
 	MetricsServer    string
+}
+
+func setupPyroscope(opts *WorkerOptions) {
+	if opts.PyroscopeServer == "" {
+		log.Fatal("pyroscope server address is not set but profiling is enabled")
+	}
+
+	// measure contention
+	runtime.SetMutexProfileFraction(5)
+	runtime.SetBlockProfileRate(5)
+
+	_, err := pyroscope.Start(pyroscope.Config{
+		ApplicationName: "io.peerdb.flow_worker",
+
+		ServerAddress: opts.PyroscopeServer,
+
+		// you can disable logging by setting this to nil
+		Logger: log.StandardLogger(),
+
+		// you can provide static tags via a map:
+		Tags: map[string]string{"hostname": os.Getenv("HOSTNAME")},
+
+		ProfileTypes: []pyroscope.ProfileType{
+			// these profile types are enabled by default:
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileInuseObjects,
+			pyroscope.ProfileInuseSpace,
+
+			// these profile types are optional:
+			pyroscope.ProfileGoroutines,
+			pyroscope.ProfileMutexCount,
+			pyroscope.ProfileMutexDuration,
+			pyroscope.ProfileBlockCount,
+			pyroscope.ProfileBlockDuration,
+		},
+	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func WorkerMain(opts *WorkerOptions) error {
 	if opts.EnableProfiling {
-		// Start HTTP profiling server with timeouts
-		go func() {
-			server := http.Server{
-				Addr:         opts.ProfilingServer,
-				ReadTimeout:  5 * time.Minute,
-				WriteTimeout: 15 * time.Minute,
-			}
-
-			log.Infof("starting profiling server on %s", opts.ProfilingServer)
-
-			if err := server.ListenAndServe(); err != nil {
-				log.Errorf("unable to start profiling server: %v", err)
-			}
-		}()
+		setupPyroscope(opts)
 	}
 
 	go func() {

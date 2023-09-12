@@ -93,7 +93,7 @@ func NewStartedPeerFlowState() *PeerFlowState {
 }
 
 // truncate the progress and other arrays to a max of 10 elements
-func (s *PeerFlowState) TruncateProgress() {
+func (s *PeerFlowState) TruncateProgress(log log.Logger) {
 	if len(s.Progress) > 10 {
 		s.Progress = s.Progress[len(s.Progress)-10:]
 	}
@@ -103,6 +103,19 @@ func (s *PeerFlowState) TruncateProgress() {
 	if len(s.NormalizeFlowStatuses) > 10 {
 		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:]
 	}
+
+	if s.SyncFlowErrors != nil {
+		// log and clear the error
+		log.Error("sync flow error: ", s.SyncFlowErrors)
+		s.SyncFlowErrors = nil
+	}
+
+	if s.NormalizeFlowErrors != nil {
+		// log and clear the error
+		log.Error("normalize flow error: ", s.NormalizeFlowErrors)
+		s.NormalizeFlowErrors = nil
+	}
+
 }
 
 // PeerFlowWorkflowExecution represents the state for execution of a peer flow.
@@ -413,6 +426,6 @@ func PeerFlowWorkflowWithConfig(
 		}
 	}
 
-	state.TruncateProgress()
+	state.TruncateProgress(w.logger)
 	return nil, workflow.NewContinueAsNewError(ctx, PeerFlowWorkflowWithConfig, cfg, limits, state)
 }

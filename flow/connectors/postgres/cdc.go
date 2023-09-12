@@ -221,7 +221,7 @@ func (p *PostgresCDCSource) consumeStream(
 					// should be ideally sourceTableName as we are in pullRecrods.
 					// will change in future
 					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal := rec.GetItems()[pkeyCol]
+					pkeyColVal := rec.GetItems().GetColumnValue(pkeyCol)
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
 						PkeyColVal: pkeyColVal,
@@ -232,10 +232,10 @@ func (p *PostgresCDCSource) consumeStream(
 						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					} else {
 						oldRec := records.Records[records.TablePKeyLastSeen[tablePkeyVal]]
-						// iterate through unchanged toast cols and set them
-						for col, val := range oldRec.GetItems() {
-							if _, ok := r.NewItems[col]; !ok {
-								r.NewItems[col] = val
+						// iterate through unchanged toast cols and set them in new record
+						updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
+						for _, col := range updatedCols {
+							if _, ok := r.UnchangedToastColumns[col]; ok {
 								delete(r.UnchangedToastColumns, col)
 							}
 						}
@@ -244,7 +244,7 @@ func (p *PostgresCDCSource) consumeStream(
 					}
 				case *model.InsertRecord:
 					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal := rec.GetItems()[pkeyCol]
+					pkeyColVal := rec.GetItems().GetColumnValue(pkeyCol)
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
 						PkeyColVal: pkeyColVal,
@@ -430,34 +430,35 @@ It takes a tuple and a relation message as input and returns
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *protos.RelationMessage,
-) (model.RecordItems, map[string]bool, error) {
+) (*model.RecordItems, map[string]bool, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return make(model.RecordItems), make(map[string]bool), nil
+		return model.NewRecordItems(), make(map[string]bool), nil
 	}
 
 	// create empty map of string to interface{}
-	items := make(model.RecordItems)
+	items := model.NewRecordItems()
 	unchangedToastColumns := make(map[string]bool)
 
 	for idx, col := range tuple.Columns {
 		colName := rel.Columns[idx].Name
 		switch col.DataType {
 		case 'n': // null
-			items[colName] = qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
+			val := &qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
+			items.AddColumn(colName, val)
 		case 't': // text
 			/* bytea also appears here as a hex */
 			data, err := p.decodeColumnData(col.Data, rel.Columns[idx].DataType, pgtype.TextFormatCode)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error decoding text column data: %w", err)
 			}
-			items[colName] = *data
+			items.AddColumn(colName, data)
 		case 'b': // binary
 			data, err := p.decodeColumnData(col.Data, rel.Columns[idx].DataType, pgtype.BinaryFormatCode)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error decoding binary column data: %w", err)
 			}
-			items[colName] = *data
+			items.AddColumn(colName, data)
 		case 'u': // unchanged toast
 			unchangedToastColumns[colName] = true
 		default:
