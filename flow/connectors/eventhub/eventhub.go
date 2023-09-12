@@ -103,7 +103,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	defer func() {
 		shutdown <- true
 	}()
-
+	tableNameRowsMapping := make(map[string]uint32)
 	batch := req.Records
 	eventsPerHeartBeat := 1000
 	eventsPerBatch := int(req.PushBatchSize)
@@ -140,7 +140,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 		if (i+1)%eventsPerBatch == 0 {
 			err := c.sendEventBatch(batchPerTopic, maxParallelism,
-				req.FlowJobName)
+				req.FlowJobName, tableNameRowsMapping)
 			if err != nil {
 				return nil, err
 			}
@@ -152,7 +152,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// send the remaining events.
 	if len(batchPerTopic) > 0 {
 		err := c.sendEventBatch(batchPerTopic, maxParallelism,
-			req.FlowJobName)
+			req.FlowJobName, tableNameRowsMapping)
 		if err != nil {
 			return nil, err
 		}
@@ -182,7 +182,8 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 	maxParallelism int64,
-	flowName string) error {
+	flowName string,
+	tableNameRowsMapping map[string]uint32) error {
 	if len(events) == 0 {
 		log.WithFields(log.Fields{
 			"flowName": flowName,
@@ -229,6 +230,7 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 				"flowName": flowName,
 			}).Infof("pushed %d events to event hub: %s",
 				numEventsPushed, tblName)
+			tableNameRowsMapping[tblName] += uint32(len(eventBatch))
 		}(tblName, eventBatch)
 	}
 
