@@ -30,6 +30,7 @@ jobs:
       - name: Publish PeerDB Stable Image
         uses: depot/build-push-action@v1
         with:
+          build-platform: linux/amd64,linux/arm64
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
           file: stacks/nexus.Dockerfile
@@ -40,6 +41,7 @@ jobs:
       - name: Publish Flow API Image
         uses: depot/build-push-action@v1
         with:
+          build-platform: linux/amd64,linux/arm64
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
           file: stacks/flow-api.Dockerfile
@@ -50,6 +52,7 @@ jobs:
       - name: Publish Flow Worker Stable Image
         uses: depot/build-push-action@v1
         with:
+          build-platform: linux/amd64,linux/arm64
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
           file: stacks/flow-worker.Dockerfile
@@ -60,6 +63,7 @@ jobs:
       - name: Publish Flow Snapshot Worker Stable Image
         uses: depot/build-push-action@v1
         with:
+          build-platform: linux/amd64,linux/arm64
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
           file: stacks/flow-snapshot-worker.Dockerfile
