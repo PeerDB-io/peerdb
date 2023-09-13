@@ -8,7 +8,10 @@ on:
 
 jobs:
   docker-build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubicloud]
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
