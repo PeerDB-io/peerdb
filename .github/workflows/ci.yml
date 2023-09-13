@@ -8,7 +8,10 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubicloud]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       catalog_peer:
@@ -36,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler libssl-dev pkg-config build-essential
-      
+
       - name: setup gcp service account
         id: gcp-service-account
         uses: jsdaniell/create-json@v1.2.2

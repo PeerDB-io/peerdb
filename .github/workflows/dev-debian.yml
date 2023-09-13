@@ -9,7 +9,10 @@ on:
 jobs:
   release:
     name: build and release
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubicloud]
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout sources
         uses: actions/checkout@v3
