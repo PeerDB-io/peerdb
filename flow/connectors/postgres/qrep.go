@@ -481,6 +481,13 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 		"flowName": config.FlowJobName,
 	}).Infof("Setup metadata table.")
 
+	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		_, err = c.pool.Exec(c.ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		if err != nil {
+			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
+		}
+	}
+
 	return nil
 }
 

@@ -482,6 +482,8 @@ impl QRepSyncMode {
 pub enum QRepWriteType {
     QrepWriteModeAppend = 0,
     QrepWriteModeUpsert = 1,
+    /// only valid when initial_copy_true is set to true. TRUNCATES tables before reverting to APPEND.
+    QrepWriteModeOverwrite = 2,
 }
 impl QRepWriteType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -492,6 +494,7 @@ impl QRepWriteType {
         match self {
             QRepWriteType::QrepWriteModeAppend => "QREP_WRITE_MODE_APPEND",
             QRepWriteType::QrepWriteModeUpsert => "QREP_WRITE_MODE_UPSERT",
+            QRepWriteType::QrepWriteModeOverwrite => "QREP_WRITE_MODE_OVERWRITE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -499,6 +502,7 @@ impl QRepWriteType {
         match value {
             "QREP_WRITE_MODE_APPEND" => Some(Self::QrepWriteModeAppend),
             "QREP_WRITE_MODE_UPSERT" => Some(Self::QrepWriteModeUpsert),
+            "QREP_WRITE_MODE_OVERWRITE" => Some(Self::QrepWriteModeOverwrite),
             _ => None,
         }
     }

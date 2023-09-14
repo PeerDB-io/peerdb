@@ -3210,6 +3210,7 @@ impl serde::Serialize for QRepWriteType {
         let variant = match self {
             Self::QrepWriteModeAppend => "QREP_WRITE_MODE_APPEND",
             Self::QrepWriteModeUpsert => "QREP_WRITE_MODE_UPSERT",
+            Self::QrepWriteModeOverwrite => "QREP_WRITE_MODE_OVERWRITE",
         };
         serializer.serialize_str(variant)
     }
@@ -3223,6 +3224,7 @@ impl<'de> serde::Deserialize<'de> for QRepWriteType {
         const FIELDS: &[&str] = &[
             "QREP_WRITE_MODE_APPEND",
             "QREP_WRITE_MODE_UPSERT",
+            "QREP_WRITE_MODE_OVERWRITE",
         ];
 
         struct GeneratedVisitor;
@@ -3267,6 +3269,7 @@ impl<'de> serde::Deserialize<'de> for QRepWriteType {
                 match value {
                     "QREP_WRITE_MODE_APPEND" => Ok(QRepWriteType::QrepWriteModeAppend),
                     "QREP_WRITE_MODE_UPSERT" => Ok(QRepWriteType::QrepWriteModeUpsert),
+                    "QREP_WRITE_MODE_OVERWRITE" => Ok(QRepWriteType::QrepWriteModeOverwrite),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

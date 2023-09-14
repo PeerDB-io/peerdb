@@ -127,6 +127,13 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 		return fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, qRepMetadataTableName, err)
 	}
 
+	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		_, err = c.client.Query(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier)).Read(c.ctx)
+		if err != nil {
+			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
+		}
+	}
+
 	return nil
 }
 
