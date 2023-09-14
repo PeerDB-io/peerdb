@@ -53,7 +53,7 @@ func NewRecordItems() *RecordItems {
 		colToValIdx: make(map[string]int),
 		// create a slice of 64 qvalues so that we don't have to allocate memory
 		// for each record to reduce GC pressure
-		values: make([]*qvalue.QValue, 16),
+		values: make([]*qvalue.QValue, 0, 32),
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -690,8 +691,16 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
-	suite.Equal(1, len(records.RecordBatch.Records))
-	suite.Equal(35, records.RecordBatch.Records[0].GetItems().Len())
+	require.Equal(suite.T(), 1, len(records.RecordBatch.Records))
+
+	items := records.RecordBatch.Records[0].GetItems()
+	numCols := items.Len()
+	if numCols != 35 {
+		jsonStr, err := items.ToJSON()
+		suite.failTestError(err)
+		fmt.Printf("record batch json: %s\n", jsonStr)
+		suite.FailNow("expected 35 columns, got %d", numCols)
+	}
 
 	err = suite.connector.PullFlowCleanup(allTypesHappyFlowName)
 	suite.failTestError(err)
