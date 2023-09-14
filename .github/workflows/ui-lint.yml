@@ -1,0 +1,33 @@
+name: Lint UI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  checks: write
+  contents: write
+
+jobs:
+  run-linters:
+    name: Run linters
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - name: Install Node.js dependencies
+        working-directory: ui
+        run: yarn install --frozen-lockfile
+
+      - name: lint
+        working-directory: ui
+        uses: wearerequired/lint-action@v2
+        with:
+          eslint: true
+          prettier: true
