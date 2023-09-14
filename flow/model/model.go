@@ -145,6 +145,7 @@ func (r *RecordItems) ToJSON() (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return string(jsonBytes), nil
 }
 
@@ -233,7 +234,7 @@ func (r *DeleteRecord) GetItems() *RecordItems {
 
 type TableWithPkey struct {
 	TableName  string
-	PkeyColVal interface{}
+	PkeyColVal qvalue.QValue
 }
 
 type RecordBatch struct {

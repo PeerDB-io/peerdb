@@ -228,7 +228,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
-						PkeyColVal: pkeyColVal,
+						PkeyColVal: *pkeyColVal,
 					}
 					_, ok := records.TablePKeyLastSeen[tablePkeyVal]
 					if !ok {
@@ -252,7 +252,7 @@ func (p *PostgresCDCSource) consumeStream(
 					}
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
-						PkeyColVal: pkeyColVal,
+						PkeyColVal: *pkeyColVal,
 					}
 					records.Records = append(records.Records, rec)
 					// all columns will be set in insert record, so add it to the map
