@@ -223,9 +223,11 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
 	items := updateRecord.NewItems
 	suite.Equal(2, items.Len())
-	v := items.GetColumnValue("id")
+	v, err := items.GetValueByColName("id")
+	suite.NoError(err, "Error fetching id")
 	suite.Equal(int32(1), v.Value.(int32))
-	v = items.GetColumnValue("n_t")
+	v, err = items.GetValueByColName("n_t")
+	suite.NoError(err, "Error fetching n_t")
 	suite.Equal(qvalue.QValueKindString, v.Kind)
 	suite.Equal(65536, len(v.Value.(string)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))

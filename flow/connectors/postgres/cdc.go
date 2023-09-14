@@ -221,7 +221,11 @@ func (p *PostgresCDCSource) consumeStream(
 					// should be ideally sourceTableName as we are in pullRecrods.
 					// will change in future
 					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal := rec.GetItems().GetColumnValue(pkeyCol)
+					pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
+					if err != nil {
+						return nil, fmt.Errorf("error getting pkey column value: %w", err)
+					}
+
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
 						PkeyColVal: pkeyColVal,
@@ -242,7 +246,10 @@ func (p *PostgresCDCSource) consumeStream(
 					}
 				case *model.InsertRecord:
 					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal := rec.GetItems().GetColumnValue(pkeyCol)
+					pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
+					if err != nil {
+						return nil, fmt.Errorf("error getting pkey column value: %w", err)
+					}
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
 						PkeyColVal: pkeyColVal,

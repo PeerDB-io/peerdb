@@ -67,20 +67,19 @@ func NewRecordItemWithData(data map[string]*qvalue.QValue) *RecordItems {
 }
 
 func (r *RecordItems) AddColumn(col string, val *qvalue.QValue) {
-	if _, ok := r.colToValIdx[col]; ok {
-		return
+	if idx, ok := r.colToValIdx[col]; ok {
+		r.values[idx] = val
+	} else {
+		r.colToValIdx[col] = len(r.values)
+		r.values = append(r.values, val)
 	}
-
-	r.colToValIdx[col] = len(r.values)
-	r.values = append(r.values, val)
 }
 
 func (r *RecordItems) GetColumnValue(col string) *qvalue.QValue {
-	idx, ok := r.colToValIdx[col]
-	if !ok {
-		return nil
+	if idx, ok := r.colToValIdx[col]; ok {
+		return r.values[idx]
 	}
-	return r.values[idx]
+	return nil
 }
 
 // UpdateIfNotExists takes in a RecordItems as input and updates the values of the
@@ -88,7 +87,7 @@ func (r *RecordItems) GetColumnValue(col string) *qvalue.QValue {
 // that are present in the input RecordItems but not in the current RecordItems.
 // We return the slice of col names that were updated.
 func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
-	var updatedCols []string
+	updatedCols := make([]string, 0)
 	for col, idx := range input.colToValIdx {
 		if _, ok := r.colToValIdx[col]; !ok {
 			r.colToValIdx[col] = len(r.values)
