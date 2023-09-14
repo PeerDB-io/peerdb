@@ -115,7 +115,6 @@ func (s *PeerFlowState) TruncateProgress(log log.Logger) {
 		log.Error("normalize flow error: ", s.NormalizeFlowErrors)
 		s.NormalizeFlowErrors = nil
 	}
-
 }
 
 // PeerFlowWorkflowExecution represents the state for execution of a peer flow.

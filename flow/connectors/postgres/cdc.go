@@ -235,9 +235,7 @@ func (p *PostgresCDCSource) consumeStream(
 						// iterate through unchanged toast cols and set them in new record
 						updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
 						for _, col := range updatedCols {
-							if _, ok := r.UnchangedToastColumns[col]; ok {
-								delete(r.UnchangedToastColumns, col)
-							}
+							delete(r.UnchangedToastColumns, col)
 						}
 						records.Records = append(records.Records, rec)
 						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
