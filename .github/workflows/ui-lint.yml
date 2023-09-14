@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   run-linters:
-    name: Run linters
+    name: Run UI linters
     runs-on: ubuntu-latest
 
     steps:
@@ -26,7 +26,6 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: lint
-        working-directory: ui
         uses: wearerequired/lint-action@v2
         with:
           eslint: true
