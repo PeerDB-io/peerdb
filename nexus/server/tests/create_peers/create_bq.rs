@@ -16,7 +16,7 @@ pub fn create(nexus: &mut Client) {
 
     let create_stmt = format!(
         "
-    CREATE PEER bq_test FROM BIGQUERY WITH
+    CREATE PEER IF NOT EXISTS bq_test FROM BIGQUERY WITH
     (
         type = '{}',
         project_id = '{}',
@@ -44,18 +44,5 @@ pub fn create(nexus: &mut Client) {
         "test_dataset"
     );
 
-    let creation_status = nexus.simple_query(&create_stmt);
-    match creation_status {
-        Ok(_) => (),
-        Err(err) => {
-            let create_err = err
-                .as_db_error()
-                .expect("failed to unwrap create peer error");
-            let already_exists_case = create_err.message().contains("(bq_test) already exists");
-            if already_exists_case {
-                return ();
-            }
-            panic!("failed to create bigquery peer: {}", err)
-        }
-    }
+    let _ = nexus.simple_query(&create_stmt);
 }

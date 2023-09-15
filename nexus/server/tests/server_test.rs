@@ -224,6 +224,24 @@ fn query_unknown_peer_doesnt_crash_server() {
 }
 
 #[test]
+fn mirror_if_not_exists() {
+    let server = PeerDBServer::new();
+    let mut client = server.connect_dying();
+
+    create_peers::create_bq::create(&mut client);
+    create_peers::create_pg::create(&mut client);
+    // the server should not crash when a query is sent to an unknown peer.
+    let query = "SELECT * FROM unknown_peer.test_table;";
+    let res = client.simple_query(query);
+    assert!(res.is_err());
+
+    // assert that server is able to process a valid query after.
+    let query = "SELECT * FROM peers;";
+    let res = client.simple_query(query);
+    assert!(res.is_ok());
+}
+
+#[test]
 #[ignore = "requires some work for extended query prepares on bigquery."]
 fn extended_query_protocol_no_params_bq() {
     let server = PeerDBServer::new();
