@@ -18,6 +18,7 @@ x-flow-worker-env: &flow-worker-env
   ENABLE_METRICS: "true"
   # enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
   ENABLE_STATS: "true"
+  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
 
 services:
   catalog:
@@ -59,6 +60,12 @@ services:
       - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
+
+  pyroscope:
+    container_name: pyroscope
+    image: grafana/pyroscope:latest
+    ports:
+      - 4040:4040
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
@@ -120,7 +127,6 @@ services:
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6060
       METRICS_SERVER: 0.0.0.0:6061
     ports:
       - 6060:6060
@@ -136,7 +142,6 @@ services:
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6062
       METRICS_SERVER: 0.0.0.0:6063
     ports:
       - 6062:6062
@@ -155,7 +160,6 @@ services:
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6064
       METRICS_SERVER: 0.0.0.0:6065
     ports:
       - 6064:6064

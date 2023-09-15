@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -39,13 +40,19 @@ func (suite *PostgresCDCTestSuite) insertSimpleRecords(srcTableName string) {
 func (suite *PostgresCDCTestSuite) validateInsertedSimpleRecords(records []model.Record, srcTableName string,
 	dstTableName string) {
 	suite.Equal(3, len(records))
-	matchData := []model.RecordItems{
-		{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(2)},
-			"name": qvalue.QValue{Kind: qvalue.QValueKindString, Value: "quick"}},
-		{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(4)},
-			"name": qvalue.QValue{Kind: qvalue.QValueKindString, Value: "brown"}},
-		{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(8)},
-			"name": qvalue.QValue{Kind: qvalue.QValueKindString, Value: "fox"}},
+	matchData := []*model.RecordItems{
+		model.NewRecordItemWithData(map[string]*qvalue.QValue{
+			"id":   {Kind: qvalue.QValueKindInt32, Value: int32(2)},
+			"name": {Kind: qvalue.QValueKindString, Value: "quick"},
+		}),
+		model.NewRecordItemWithData(map[string]*qvalue.QValue{
+			"id":   {Kind: qvalue.QValueKindInt32, Value: int32(4)},
+			"name": {Kind: qvalue.QValueKindString, Value: "brown"},
+		}),
+		model.NewRecordItemWithData(map[string]*qvalue.QValue{
+			"id":   {Kind: qvalue.QValueKindInt32, Value: int32(8)},
+			"name": {Kind: qvalue.QValueKindString, Value: "fox"},
+		}),
 	}
 	for idx, record := range records {
 		suite.IsType(&model.InsertRecord{}, record)
@@ -84,15 +91,22 @@ func (suite *PostgresCDCTestSuite) validateSimpleMutatedRecords(records []model.
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
 	suite.Equal(model.RecordItems{}, updateRecord.OldItems)
-	suite.Equal(model.RecordItems{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(2)},
-		"name": qvalue.QValue{Kind: qvalue.QValueKindString, Value: "slow"}}, updateRecord.NewItems)
+
+	items := model.NewRecordItemWithData(map[string]*qvalue.QValue{
+		"id":   {Kind: qvalue.QValueKindInt32, Value: int32(2)},
+		"name": {Kind: qvalue.QValueKindString, Value: "slow"},
+	})
+	suite.Equal(items, updateRecord.NewItems)
 
 	suite.IsType(&model.DeleteRecord{}, records[1])
 	deleteRecord := records[1].(*model.DeleteRecord)
 	suite.Equal(srcTableName, deleteRecord.SourceTableName)
 	suite.Equal(dstTableName, deleteRecord.DestinationTableName)
-	suite.Equal(model.RecordItems{"id": qvalue.QValue{Kind: qvalue.QValueKindInt32, Value: int32(8)},
-		"name": qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}}, deleteRecord.Items)
+	items = model.NewRecordItemWithData(map[string]*qvalue.QValue{
+		"id":   {Kind: qvalue.QValueKindInt32, Value: int32(8)},
+		"name": {Kind: qvalue.QValueKindInvalid, Value: nil},
+	})
+	suite.Equal(items, deleteRecord.Items)
 }
 
 func (suite *PostgresCDCTestSuite) randBytea(n int) []byte {
@@ -143,13 +157,29 @@ func (suite *PostgresCDCTestSuite) validateInsertedToastRecords(records []model.
 		insertRecord := record.(*model.InsertRecord)
 		suite.Equal(srcTableName, insertRecord.SourceTableName)
 		suite.Equal(dstTableName, insertRecord.DestinationTableName)
-		suite.Equal(5, len(insertRecord.Items))
+		suite.Equal(5, insertRecord.Items.Len())
 
-		suite.Equal(int32(idx+1), insertRecord.Items["id"].Value.(int32))
-		suite.Equal(32768, len(insertRecord.Items["n_t"].Value.(string)))
-		suite.Equal(32768, len(insertRecord.Items["lz4_t"].Value.(string)))
-		suite.Equal(32768, len(insertRecord.Items["n_b"].Value.([]byte)))
-		suite.Equal(32768, len(insertRecord.Items["lz4_b"].Value.([]byte)))
+		idVal, err := insertRecord.Items.GetValueByColName("id")
+		suite.NoError(err, "Error fetching id")
+
+		n_tVal, err := insertRecord.Items.GetValueByColName("n_t")
+		suite.NoError(err, "Error fetching n_t")
+
+		lz4_tVal, err := insertRecord.Items.GetValueByColName("lz4_t")
+		suite.NoError(err, "Error fetching lz4_t")
+
+		n_bVal, err := insertRecord.Items.GetValueByColName("n_b")
+		suite.NoError(err, "Error fetching n_b")
+
+		lz4_bVal, err := insertRecord.Items.GetValueByColName("lz4_b")
+		suite.NoError(err, "Error fetching lz4_b")
+
+		// Perform the actual value checks
+		suite.Equal(int32(idx+1), idVal.Value.(int32))
+		suite.Equal(32768, len(n_tVal.Value.(string)))
+		suite.Equal(32768, len(lz4_tVal.Value.(string)))
+		suite.Equal(32768, len(n_bVal.Value.([]byte)))
+		suite.Equal(32768, len(lz4_bVal.Value.([]byte)))
 	}
 }
 
@@ -191,61 +221,76 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	updateRecord := records[0].(*model.UpdateRecord)
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
-	suite.Equal(2, len(updateRecord.NewItems))
-	suite.Equal(int32(1), updateRecord.NewItems["id"].Value.(int32))
-	suite.Equal(qvalue.QValueKindString, updateRecord.NewItems["n_t"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["n_t"].Value.(string)))
+	items := updateRecord.NewItems
+	suite.Equal(2, items.Len())
+	v, err := items.GetValueByColName("id")
+	suite.NoError(err, "Error fetching id")
+	suite.Equal(int32(1), v.Value.(int32))
+	v, err = items.GetValueByColName("n_t")
+	suite.NoError(err, "Error fetching n_t")
+	suite.Equal(qvalue.QValueKindString, v.Kind)
+	suite.Equal(65536, len(v.Value.(string)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
 	suite.True(updateRecord.UnchangedToastColumns["n_b"])
 	suite.True(updateRecord.UnchangedToastColumns["lz4_b"])
-
 	suite.IsType(&model.UpdateRecord{}, records[1])
 	updateRecord = records[1].(*model.UpdateRecord)
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
-	suite.Equal(4, len(updateRecord.NewItems))
-	suite.Equal(qvalue.QValueKindInt32, updateRecord.NewItems["id"].Kind)
-	suite.Equal(int32(3), updateRecord.NewItems["id"].Value.(int32))
-	suite.Equal(qvalue.QValueKindString, updateRecord.NewItems["lz4_t"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["lz4_t"].Value.(string)))
-	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["n_b"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["n_b"].Value.([]byte)))
-	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["lz4_b"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["lz4_b"].Value.([]byte)))
+
+	items = updateRecord.NewItems
+	suite.Equal(4, items.Len())
+	v = items.GetColumnValue("id")
+	suite.Equal(qvalue.QValueKindInt32, v.Kind)
+	suite.Equal(int32(3), v.Value.(int32))
+	v = items.GetColumnValue("lz4_t")
+	suite.Equal(qvalue.QValueKindString, v.Kind)
+	suite.Equal(65536, len(v.Value.(string)))
+	v = items.GetColumnValue("n_b")
+	suite.Equal(qvalue.QValueKindBytes, v.Kind)
+	suite.Equal(65536, len(v.Value.([]byte)))
+	v = items.GetColumnValue("lz4_b")
+	suite.Equal(qvalue.QValueKindBytes, v.Kind)
+	suite.Equal(65536, len(v.Value.([]byte)))
 	suite.Equal(1, len(updateRecord.UnchangedToastColumns))
 	suite.True(updateRecord.UnchangedToastColumns["n_t"])
-
+	// Test case for records[2]
 	suite.IsType(&model.UpdateRecord{}, records[2])
 	updateRecord = records[2].(*model.UpdateRecord)
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
 	suite.Equal(dstTableName, updateRecord.DestinationTableName)
-	suite.Equal(5, len(updateRecord.NewItems))
-	suite.Equal(int32(4), updateRecord.NewItems["id"].Value.(int32))
-	suite.Equal(qvalue.QValueKindString, updateRecord.NewItems["n_t"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["n_t"].Value.(string)))
-	suite.Equal(qvalue.QValueKindString, updateRecord.NewItems["lz4_t"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["lz4_t"].Value.(string)))
-	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["n_b"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["n_b"].Value.([]byte)))
-	suite.Equal(qvalue.QValueKindBytes, updateRecord.NewItems["lz4_b"].Kind)
-	suite.Equal(65536, len(updateRecord.NewItems["lz4_b"].Value.([]byte)))
+
+	items = updateRecord.NewItems
+	suite.Equal(5, items.Len())
+	v = items.GetColumnValue("id")
+	suite.Equal(int32(4), v.Value.(int32))
+	suite.Equal(qvalue.QValueKindString, items.GetColumnValue("n_t").Kind)
+	suite.Equal(65536, len(items.GetColumnValue("n_t").Value.(string)))
+	suite.Equal(qvalue.QValueKindString, items.GetColumnValue("lz4_t").Kind)
+	suite.Equal(65536, len(items.GetColumnValue("lz4_t").Value.(string)))
+	suite.Equal(qvalue.QValueKindBytes, items.GetColumnValue("n_b").Kind)
+	suite.Equal(65536, len(items.GetColumnValue("n_b").Value.([]byte)))
+	suite.Equal(qvalue.QValueKindBytes, items.GetColumnValue("lz4_b").Kind)
+	suite.Equal(65536, len(items.GetColumnValue("lz4_b").Value.([]byte)))
 	suite.Equal(0, len(updateRecord.UnchangedToastColumns))
 
+	// Test case for records[3]
 	suite.IsType(&model.DeleteRecord{}, records[3])
 	deleteRecord := records[3].(*model.DeleteRecord)
 	suite.Equal(srcTableName, deleteRecord.SourceTableName)
 	suite.Equal(dstTableName, deleteRecord.DestinationTableName)
-	suite.Equal(5, len(deleteRecord.Items))
-	suite.Equal(int32(3), deleteRecord.Items["id"].Value.(int32))
-	suite.Equal(qvalue.QValueKindInvalid, deleteRecord.Items["n_t"].Kind)
-	suite.Nil(deleteRecord.Items["n_t"].Value)
-	suite.Equal(qvalue.QValueKindInvalid, deleteRecord.Items["lz4_t"].Kind)
-	suite.Nil(deleteRecord.Items["lz4_t"].Value)
-	suite.Equal(qvalue.QValueKindInvalid, deleteRecord.Items["n_b"].Kind)
-	suite.Nil(deleteRecord.Items["n_b"].Value)
-	suite.Equal(qvalue.QValueKindInvalid, deleteRecord.Items["lz4_b"].Kind)
-	suite.Nil(deleteRecord.Items["lz4_b"].Value)
+	items = deleteRecord.Items
+	suite.Equal(5, items.Len())
+	suite.Equal(int32(3), items.GetColumnValue("id").Value.(int32))
+	suite.Equal(qvalue.QValueKindInvalid, items.GetColumnValue("n_t").Kind)
+	suite.Nil(items.GetColumnValue("n_t").Value)
+	suite.Equal(qvalue.QValueKindInvalid, items.GetColumnValue("lz4_t").Kind)
+	suite.Nil(items.GetColumnValue("lz4_t").Value)
+	suite.Equal(qvalue.QValueKindInvalid, items.GetColumnValue("n_b").Kind)
+	suite.Nil(items.GetColumnValue("n_b").Value)
+	suite.Equal(qvalue.QValueKindInvalid, items.GetColumnValue("lz4_b").Kind)
+	suite.Nil(items.GetColumnValue("lz4_b").Value)
 }
 
 func (suite *PostgresCDCTestSuite) SetupSuite() {
@@ -648,8 +693,16 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
-	suite.Equal(1, len(records.RecordBatch.Records))
-	suite.Equal(35, len(records.RecordBatch.Records[0].GetItems()))
+	require.Equal(suite.T(), 1, len(records.RecordBatch.Records))
+
+	items := records.RecordBatch.Records[0].GetItems()
+	numCols := items.Len()
+	if numCols != 35 {
+		jsonStr, err := items.ToJSON()
+		suite.failTestError(err)
+		fmt.Printf("record batch json: %s\n", jsonStr)
+		suite.FailNow("expected 35 columns, got %d", numCols)
+	}
 
 	err = suite.connector.PullFlowCleanup(allTypesHappyFlowName)
 	suite.failTestError(err)
