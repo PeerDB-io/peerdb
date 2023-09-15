@@ -230,15 +230,21 @@ fn mirror_if_not_exists() {
 
     create_peers::create_bq::create(&mut client);
     create_peers::create_pg::create(&mut client);
-    // the server should not crash when a query is sent to an unknown peer.
-    let query = "SELECT * FROM unknown_peer.test_table;";
-    let res = client.simple_query(query);
-    assert!(res.is_err());
-
-    // assert that server is able to process a valid query after.
-    let query = "SELECT * FROM peers;";
-    let res = client.simple_query(query);
+    // create a mirror
+    let create_query = "CREATE MIRROR test1 FROM pg_test TO bq_test WITH TABLE MAPPING(public.a:a);";
+    let res = client.simple_query(create_query);
     assert!(res.is_ok());
+
+    // test if not exists clause
+    let create_query_again_with_clause = "CREATE MIRROR IF NOT EXISTS test1 
+    FROM pg_test TO bq_test WITH TABLE MAPPING(public.a:a);";
+    let res = client.simple_query(create_query_again_with_clause);
+    assert!(res.is_ok());
+
+    let create_query_again_but_without_clause = "CREATE MIRROR test1 
+    FROM pg_test TO bq_test WITH TABLE MAPPING(public.a:a);";
+    let res = client.simple_query(create_query_again_but_without_clause);
+    assert!(res.is_err());
 }
 
 #[test]
