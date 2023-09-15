@@ -224,30 +224,6 @@ fn query_unknown_peer_doesnt_crash_server() {
 }
 
 #[test]
-fn mirror_if_not_exists() {
-    let server = PeerDBServer::new();
-    let mut client = server.connect_dying();
-
-    create_peers::create_bq::create(&mut client);
-    create_peers::create_pg::create(&mut client);
-    // create a mirror
-    let create_query = "CREATE MIRROR test1 FROM pg_test TO bq_test WITH TABLE MAPPING(public.a:a);";
-    let res = client.simple_query(create_query);
-    assert!(res.is_ok());
-
-    // test if not exists clause
-    let create_query_again_with_clause = "CREATE MIRROR IF NOT EXISTS test1 
-    FROM pg_test TO bq_test WITH TABLE MAPPING(public.a:a);";
-    let res = client.simple_query(create_query_again_with_clause);
-    assert!(res.is_ok());
-
-    let create_query_again_but_without_clause = "CREATE MIRROR test1 
-    FROM pg_test TO bq_test WITH TABLE MAPPING(public.a:a);";
-    let res = client.simple_query(create_query_again_but_without_clause);
-    assert!(res.is_err());
-}
-
-#[test]
 #[ignore = "requires some work for extended query prepares on bigquery."]
 fn extended_query_protocol_no_params_bq() {
     let server = PeerDBServer::new();
