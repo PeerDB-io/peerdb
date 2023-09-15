@@ -99,21 +99,37 @@ func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
-func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *EventHubConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error {
+	log.Warnf("ReplayTableSchemaDelta is a no-op for EventHub flow connector")
+	return nil
+}
+
+func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
 	panic("pull records not implemented for event hub")
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	batch := req.Records
+	shutdown := utils.HeartbeatRoutine(c.ctx, 1*time.Minute, func() string {
+		return fmt.Sprintf("syncing records to eventhub with"+
+			" push parallelism %d and push batch size %d",
+			req.PushParallelism, req.PushBatchSize)
+	})
+	defer func() {
+		shutdown <- true
+	}()
 
+	batch := req.Records
 	eventsPerHeartBeat := 1000
-	eventsPerBatch := 100000
+	eventsPerBatch := int(req.PushBatchSize)
+	maxParallelism := req.PushParallelism
 
 	batchPerTopic := make(map[string][]*eventhub.Event)
 	for i, record := range batch.Records {
 		json, err := record.GetItems().ToJSON()
 		if err != nil {
-			log.Errorf("failed to convert record to json: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Infof("failed to convert record to json: %v", err)
 			return nil, err
 		}
 
@@ -131,7 +147,8 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 
 		if (i+1)%eventsPerBatch == 0 {
-			err := c.sendEventBatch(batchPerTopic)
+			err := c.sendEventBatch(batchPerTopic, maxParallelism,
+				req.FlowJobName)
 			if err != nil {
 				return nil, err
 			}
@@ -142,13 +159,16 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	// send the remaining events.
 	if len(batchPerTopic) > 0 {
-		err := c.sendEventBatch(batchPerTopic)
+		err := c.sendEventBatch(batchPerTopic, maxParallelism,
+			req.FlowJobName)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	log.Infof("[total] successfully sent %d records to event hub", len(batch.Records))
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Infof("[total] successfully sent %d records to event hub", len(batch.Records))
 
 	err := c.UpdateLastOffset(req.FlowJobName, batch.LastCheckPointID)
 	if err != nil {
@@ -163,9 +183,13 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}, nil
 }
 
-func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event) error {
+func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
+	maxParallelism int64,
+	flowName string) error {
 	if len(events) == 0 {
-		log.Info("no events to send")
+		log.WithFields(log.Fields{
+			"flowName": flowName,
+		}).Infof("no events to send")
 		return nil
 	}
 
@@ -176,18 +200,27 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event) 
 	var wg sync.WaitGroup
 	var once sync.Once
 	var firstErr error
+	// Limiting concurrent sends
+	guard := make(chan struct{}, maxParallelism)
 
 	for tblName, eventBatch := range events {
+		guard <- struct{}{}
 		wg.Add(1)
 		go func(tblName string, eventBatch []*eventhub.Event) {
-			defer wg.Done()
+			defer func() {
+				<-guard
+				wg.Done()
+			}()
 
 			hub, err := c.getOrCreateHubConnection(tblName)
 			if err != nil {
 				once.Do(func() { firstErr = err })
 				return
 			}
-
+			log.WithFields(log.Fields{
+				"flowName": flowName,
+			}).Infof("obtained hub connection and now sending %d events to event hub: %s",
+				len(eventBatch), tblName)
 			err = hub.SendBatch(subCtx, eventhub.NewEventBatchIterator(eventBatch...))
 			if err != nil {
 				once.Do(func() { firstErr = err })
@@ -195,6 +228,10 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event) 
 			}
 
 			atomic.AddInt32(&numEventsPushed, int32(len(eventBatch)))
+			log.WithFields(log.Fields{
+				"flowName": flowName,
+			}).Infof("pushed %d events to event hub: %s",
+				numEventsPushed, tblName)
 		}(tblName, eventBatch)
 	}
 
@@ -230,9 +267,12 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	tableMap := req.GetTableNameMapping()
 
 	for _, table := range tableMap {
-		err := c.ensureEventHub(c.ctx, table)
+		err := c.ensureEventHub(c.ctx, table, req.FlowJobName)
 		if err != nil {
-			log.Errorf("failed to get event hub properties: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+				"table":    table,
+			}).Errorf("failed to get event hub properties: %v", err)
 			return nil, err
 		}
 	}
@@ -245,7 +285,7 @@ func (c *EventHubConnector) GetTableSchema(
 	panic("get table schema not implemented for event hub")
 }
 
-func (c *EventHubConnector) ensureEventHub(ctx context.Context, name string) error {
+func (c *EventHubConnector) ensureEventHub(ctx context.Context, name string, flowName string) error {
 	hubClient, err := c.getEventHubMgmtClient()
 	if err != nil {
 		return err
@@ -272,7 +312,9 @@ func (c *EventHubConnector) ensureEventHub(ctx context.Context, name string) err
 			return err
 		}
 
-		log.Infof("event hub %s created", name)
+		log.WithFields(log.Fields{
+			"flowName": flowName,
+		}).Infof("event hub %s created", name)
 	} else {
 		log.Infof("event hub %s already exists", name)
 	}
@@ -307,7 +349,11 @@ func (c *EventHubConnector) SetupNormalizedTables(
 
 func (c *EventHubConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	log.Infof("normalization for event hub is a no-op")
-	return nil, nil
+	return &model.NormalizeResponse{
+		EndBatchID:   0,
+		StartBatchID: 0,
+		Done:         true,
+	}, nil
 }
 
 // cleanup

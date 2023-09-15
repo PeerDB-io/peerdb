@@ -12,12 +12,13 @@ x-flow-worker-env: &flow-worker-env
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
   AWS_REGION: ${AWS_REGION:-""}
-# enables worker profiling using Go's pprof
-  ENABLE_PROFILING: true
-# enables exporting of mirror metrics to Prometheus for visualization using Grafana
-  ENABLE_METRICS: true
-# enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
-  ENABLE_STATS: true
+  # enables worker profiling using Go's pprof
+  ENABLE_PROFILING: "true"
+  # enables exporting of mirror metrics to Prometheus for visualization using Grafana
+  ENABLE_METRICS: "true"
+  # enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
+  ENABLE_STATS: "true"
+  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
 
 services:
   catalog:
@@ -60,6 +61,12 @@ services:
     labels:
       kompose.volume.type: configMap
 
+  pyroscope:
+    container_name: pyroscope
+    image: grafana/pyroscope:latest
+    ports:
+      - 4040:4040
+
   temporal-admin-tools:
     container_name: temporal-admin-tools
     depends_on:
@@ -83,6 +90,7 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+      - TEMPORAL_CSRF_COOKIE_INSECURE=true
     image: temporalio/ui:2.17.2
     ports:
       - 8085:8080
@@ -95,6 +103,7 @@ services:
     ports:
       - 8112:8112
     environment:
+      <<: [*catalog-config]
       TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:
@@ -118,7 +127,6 @@ services:
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6060
       METRICS_SERVER: 0.0.0.0:6061
     ports:
       - 6060:6060
@@ -134,7 +142,6 @@ services:
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6062
       METRICS_SERVER: 0.0.0.0:6063
     ports:
       - 6062:6062
@@ -153,7 +160,6 @@ services:
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6064
       METRICS_SERVER: 0.0.0.0:6065
     ports:
       - 6064:6064
@@ -209,6 +215,17 @@ services:
     profiles:
       - multi-metrics
       - metrics
+
+  peerdb_ui:
+    container_name: peerdb_ui
+    build:
+      context: .
+      dockerfile: stacks/ui.Dockerfile
+    ports:
+      - 3000:3000
+    environment:
+      <<: *catalog-config
+      PEERDB_FLOW_SERVER_ADDRESS: flow_api:8112
 
 volumes:
   pgdata:

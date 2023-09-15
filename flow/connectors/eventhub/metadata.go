@@ -125,7 +125,9 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 			}, nil
 		}
 
-		log.Errorf("failed to get last offset: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": jobName,
+		}).Errorf("failed to get last offset: %v", err)
 		return nil, err
 	}
 
@@ -137,7 +139,9 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	log.Errorf("GetLastSyncBatchID not supported for EventHub")
+	log.WithFields(log.Fields{
+		"flowName": jobName,
+	}).Errorf("GetLastSyncBatchID not supported for EventHub")
 	return 0, fmt.Errorf("GetLastSyncBatchID not supported for EventHub connector")
 }
 
@@ -153,7 +157,9 @@ func (c *EventHubConnector) UpdateLastOffset(jobName string, offset int64) error
 	}
 
 	// update the last offset
-	log.Infof("updating last offset for job `%s` to `%d`", jobName, offset)
+	log.WithFields(log.Fields{
+		"flowName": jobName,
+	}).Infof("updating last offset for job `%s` to `%d`", jobName, offset)
 	_, err = tx.Exec(c.ctx, `
 		INSERT INTO `+metadataSchema+`.`+lastSyncStateTableName+` (job_name, last_offset)
 		VALUES ($1, $2)
@@ -162,7 +168,9 @@ func (c *EventHubConnector) UpdateLastOffset(jobName string, offset int64) error
 	`, jobName, offset)
 
 	if err != nil {
-		log.Errorf("failed to update last offset: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": jobName,
+		}).Errorf("failed to update last offset: %v", err)
 		return err
 	}
 

@@ -8,7 +8,10 @@ on:
 
 jobs:
   docker-build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubicloud]
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -36,6 +39,7 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
+          platforms: linux/amd64,linux/arm64
           context: .
           file: stacks/nexus.Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
@@ -46,6 +50,7 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
+          platforms: linux/amd64,linux/arm64
           context: .
           file: stacks/flow-api.Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
@@ -56,6 +61,7 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
+          platforms: linux/amd64,linux/arm64
           context: .
           file: stacks/flow-worker.Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
@@ -66,6 +72,7 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
+          platforms: linux/amd64,linux/arm64
           context: .
           file: stacks/flow-snapshot-worker.Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}

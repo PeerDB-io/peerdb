@@ -10,6 +10,18 @@ message TableNameMapping {
   string destination_table_name = 2;
 }
 
+message RelationMessageColumn {
+  uint32 flags = 1;
+  string name = 2;
+  uint32 data_type = 3;
+}
+
+message RelationMessage {
+  uint32 relation_id = 1;
+  string relation_name = 2;
+  repeated RelationMessageColumn columns = 3;
+}
+
 message FlowConnectionConfigs {
   peerdb_peers.Peer source = 1;
   peerdb_peers.Peer destination = 2;
@@ -38,9 +50,18 @@ message FlowConnectionConfigs {
 
   // currently only works for snowflake
   bool soft_delete = 19;
+
+  string replication_slot_name = 20;
+
+  // the below two are for eventhub only
+  int64 push_batch_size = 21;
+  int64 push_parallelism = 22;
 }
 
-message SyncFlowOptions { int32 batch_size = 1; }
+message SyncFlowOptions { 
+  int32 batch_size = 1;
+  map<uint32, RelationMessage> relation_message_mapping = 2;
+}
 
 message NormalizeFlowOptions {
   int32 batch_size = 1;
@@ -55,6 +76,7 @@ message StartFlowInput {
   LastSyncState last_sync_state = 1;
   FlowConnectionConfigs flow_connection_configs = 2;
   SyncFlowOptions sync_flow_options = 3;
+  map<uint32, RelationMessage> relation_message_mapping = 4;
 }
 
 message StartNormalizeInput {
@@ -103,6 +125,8 @@ message SetupReplicationInput {
   // replicate to destination using ctid
   peerdb_peers.Peer destination_peer = 4;
   bool do_initial_copy = 5;
+  string existing_publication_name = 6;
+  string existing_replication_slot_name = 7;
 }
 
 message SetupReplicationOutput {
@@ -248,10 +272,32 @@ message QRepPartition {
   bool full_table_partition = 4;
 }
 
+message QRepPartitionBatch {
+  int32 batch_id = 1;
+  repeated QRepPartition partitions = 2;
+}
+
 message QRepParitionResult {
   repeated QRepPartition partitions = 1;
 }
 
 message DropFlowInput {
   string flow_name = 1;
+}
+
+message DeltaAddedColumn {
+  string column_name = 1;
+  string column_type = 2;
+}
+
+message TableSchemaDelta {
+  string src_table_name = 1;
+  string dst_table_name = 2;
+  repeated DeltaAddedColumn added_columns = 3;
+  repeated string dropped_columns = 4;
+}
+
+message ReplayTableSchemaDeltaInput {
+  FlowConnectionConfigs flow_connection_configs = 1;
+  TableSchemaDelta table_schema_delta = 2;
 }

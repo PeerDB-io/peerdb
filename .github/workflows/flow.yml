@@ -1,18 +1,21 @@
 name: Flow build and test
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
 
 jobs:
   flow_test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubicloud]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       pg_cdc:
-        image: debezium/postgres:14-alpine
+        image: postgres:15.4-alpine
         ports:
           - 7132:5432
         env:
@@ -20,6 +23,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
         options: >-
+          --name pg_cdc
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
@@ -55,18 +59,21 @@ jobs:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
-      - name: create hstore extension
+      - name: create hstore extension and increase logical replication limits
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          psql -h localhost -p 7132 -U postgres -c "CREATE EXTENSION hstore;"
+          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION hstore;"
+          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET wal_level=logical;"
+          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_replication_slots=100;"
+          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_wal_senders=100;"
+          docker restart pg_cdc
         working-directory: ./flow
         env:
+          PG_CDC: empty
           PGPASSWORD: postgres
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 1 ./... -timeout 1200s
+          gotestsum --format testname -- -p 4 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

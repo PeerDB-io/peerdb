@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
 )
 
@@ -153,7 +154,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	defer rows.Close()
 
 	if !rows.Next() {
-		log.Warnf("No row found for job %s, returning nil", jobName)
+		log.Infof("No row found for job %s, returning nil", jobName)
 		return nil, nil
 	}
 	var result int64
@@ -172,12 +173,18 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 // PullRecords pulls records from the source.
-func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
+	if req.OverrideReplicationSlotName != "" {
+		slotName = req.OverrideReplicationSlotName
+	}
 
 	// Publication name would be the job name prefixed with "peerflow_pub_"
 	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	if req.OverridePublicationName != "" {
+		publicationName = req.OverridePublicationName
+	}
 
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(slotName, publicationName)
@@ -186,36 +193,46 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	}
 
 	if !exists.PublicationExists {
-		log.Warnf("publication %s does not exist", publicationName)
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Warnf("publication %s does not exist", publicationName)
 		publicationName = ""
 	}
 
 	if !exists.SlotExists {
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Warnf("slot %s does not exist", slotName)
 		return nil, fmt.Errorf("replication slot %s does not exist", slotName)
 	}
 
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Infof("PullRecords: performed checks for slot and publication")
+
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
-		AppContext:            c.ctx,
-		Connection:            c.replPool,
-		SrcTableIDNameMapping: req.SrcTableIDNameMapping,
-		Slot:                  slotName,
-		Publication:           publicationName,
-		TableNameMapping:      req.TableNameMapping,
+		AppContext:             c.ctx,
+		Connection:             c.replPool,
+		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
+		Slot:                   slotName,
+		Publication:            publicationName,
+		TableNameMapping:       req.TableNameMapping,
+		RelationMessageMapping: req.RelationMessageMapping,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
 
-	recordBatch, err := cdc.PullRecords(req)
+	recordsWithSchemaDelta, err := cdc.PullRecords(req)
 	if err != nil {
 		return nil, err
 	}
-	if len(recordBatch.Records) > 0 {
+	if len(recordsWithSchemaDelta.RecordBatch.Records) > 0 {
 		totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
 		if err != nil {
 			return nil, err
 		}
-		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
+		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.RecordBatch, totalRecordsAtSource)
 		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
 		if ok {
 			latestLSN, err := c.getCurrentLSN()
@@ -229,13 +246,15 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		}
 	}
 
-	return recordBatch, nil
+	return recordsWithSchemaDelta, nil
 }
 
 // SyncRecords pushes records to the destination.
 func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	log.Printf("pushing %d records to Postgres table %s via COPY", len(req.Records.Records), rawTableIdentifier)
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Printf("pushing %d records to Postgres table %s via COPY", len(req.Records.Records), rawTableIdentifier)
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -331,7 +350,9 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	defer func() {
 		deferErr := syncRecordsTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for syncing records: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for syncing records: %v", err)
 		}
 	}()
 
@@ -349,7 +370,9 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, syncedRecordsCount, time.Since(startTime))
 
-	log.Printf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier)
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Printf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier)
 
 	// updating metadata with new offset and syncBatchID
 	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)
@@ -387,7 +410,9 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	// normalize has caught up with sync or no SyncFlow has run, chill until more records are loaded.
 	if syncBatchID == normalizeBatchID || !jobMetadataExists {
-		log.Printf("no records to normalize: syncBatchID %d, normalizeBatchID %d", syncBatchID, normalizeBatchID)
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Printf("no records to normalize: syncBatchID %d, normalizeBatchID %d", syncBatchID, normalizeBatchID)
 		return &model.NormalizeResponse{
 			Done:         true,
 			StartBatchID: normalizeBatchID,
@@ -407,7 +432,9 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	defer func() {
 		deferErr := normalizeRecordsTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for normalizing records: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for normalizing records: %v", err)
 		}
 	}()
 
@@ -436,7 +463,9 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			return nil, fmt.Errorf("error executing merge statements: %w", err)
 		}
 	}
-	log.Printf("normalized %d records", totalRowsAffected)
+	log.WithFields(log.Fields{
+		"flowName": req.FlowJobName,
+	}).Infof("normalized %d records", totalRowsAffected)
 	if totalRowsAffected > 0 {
 		totalRowsAtTarget, err := c.getApproxTableCounts(maps.Keys(unchangedToastColsMap))
 		if err != nil {
@@ -480,7 +509,9 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	defer func() {
 		deferErr := createRawTableTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
 		}
 	}()
 
@@ -511,6 +542,7 @@ func (c *PostgresConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
+		c.recordHeartbeatWithRecover(fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
@@ -571,10 +603,13 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
 	}
+
 	defer func() {
 		deferErr := createNormalizedTablesTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
+			log.WithFields(log.Fields{
+				"tableMapping": req.TableNameSchemaMapping,
+			}).Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
 		}
 	}()
 
@@ -601,6 +636,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 		tableExistsMapping[tableIdentifier] = false
 		log.Printf("created table %s", tableIdentifier)
+		c.recordHeartbeatWithRecover(fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	err = createNormalizedTablesTx.Commit(c.ctx)
@@ -616,6 +652,64 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 // InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
 func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
 	c.tableSchemaMapping = req
+	return nil
+}
+
+// ReplayTableSchemaDelta changes a destination table to match the schema at source
+// This could involve adding or dropping multiple columns.
+func (c *PostgresConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error {
+	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
+		return nil
+	}
+
+	// Postgres is cool and supports transactional DDL. So we use a transaction.
+	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for schema modification for table %s: %w",
+			schemaDelta.SrcTableName, err)
+	}
+	defer func() {
+		deferErr := tableSchemaModifyTx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": flowJobName,
+			}).Errorf("unexpected error rolling back transaction for table schema modification: %v", err)
+		}
+	}()
+
+	for _, droppedColumn := range schemaDelta.DroppedColumns {
+		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", schemaDelta.DstTableName,
+			droppedColumn))
+		if err != nil {
+			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
+				schemaDelta.SrcTableName, err)
+		}
+		log.WithFields(log.Fields{
+			"flowName":  flowJobName,
+			"tableName": schemaDelta.SrcTableName,
+		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
+	}
+	for _, addedColumn := range schemaDelta.AddedColumns {
+		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s",
+			schemaDelta.DstTableName, addedColumn.ColumnName,
+			qValueKindToPostgresType(addedColumn.ColumnType)))
+		if err != nil {
+			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+				schemaDelta.SrcTableName, err)
+		}
+		log.WithFields(log.Fields{
+			"flowName":  flowJobName,
+			"tableName": schemaDelta.SrcTableName,
+		}).Infof("[schema delta replay] added column %s with data type %s",
+			addedColumn.ColumnName, addedColumn.ColumnType)
+	}
+
+	err = tableSchemaModifyTx.Commit(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction for table schema modification for table %s: %w",
+			schemaDelta.SrcTableName, err)
+	}
+
 	return nil
 }
 
@@ -642,6 +736,7 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 					RelId: relID},
 			},
 		}
+		c.recordHeartbeatWithRecover(fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
@@ -657,9 +752,15 @@ func (c *PostgresConnector) SetupReplication(signal *SlotSignal, req *protos.Set
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
+	if req.ExistingReplicationSlotName != "" {
+		slotName = req.ExistingReplicationSlotName
+	}
 
 	// Publication name would be the job name prefixed with "peerflow_pub_"
 	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	if req.ExistingPublicationName != "" {
+		publicationName = req.ExistingPublicationName
+	}
 
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(slotName, publicationName)
@@ -691,7 +792,9 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := pullFlowCleanupTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
+			log.WithFields(log.Fields{
+				"flowName": jobName,
+			}).Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
 		}
 	}()
 
@@ -721,7 +824,9 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback(c.ctx)
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
+			log.WithFields(log.Fields{
+				"flowName": jobName,
+			}).Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
 		}
 	}()
 
@@ -753,4 +858,16 @@ func parseSchemaTable(tableName string) (*SchemaTable, error) {
 		Schema: parts[0],
 		Table:  parts[1],
 	}, nil
+}
+
+// if the functions are being called outside the context of a Temporal workflow,
+// activity.RecordHeartbeat panics, this is a bandaid for that.
+func (c *PostgresConnector) recordHeartbeatWithRecover(details ...interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Warnln("ignoring panic from activity.RecordHeartbeat")
+			log.Warnln("this can happen when function is invoked outside of a Temporal workflow")
+		}
+	}()
+	activity.RecordHeartbeat(c.ctx, details...)
 }

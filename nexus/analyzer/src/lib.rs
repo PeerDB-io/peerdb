@@ -238,6 +238,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let replication_slot_name: Option<String> = match raw_options
+                            .remove("replication_slot_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
                         let snapshot_num_rows_per_partition: Option<u32> = match raw_options
                             .remove("snapshot_num_rows_per_partition")
                         {
@@ -291,6 +298,21 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => false,
                         };
 
+                        let push_parallelism: Option<i64> = match raw_options
+                            .remove("push_parallelism")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            _ => None,
+                        };
+
+                        let push_batch_size: Option<i64> = match raw_options
+                            .remove("push_batch_size")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            _ => None,
+                        };
+                        
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -307,6 +329,9 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             cdc_sync_mode,
                             cdc_staging_path,
                             soft_delete,
+                            replication_slot_name,
+                            push_batch_size,
+                            push_parallelism,
                         };
 
                         mirror_input_checks(&flow_job)?;

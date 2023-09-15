@@ -8,18 +8,30 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
+	"google.golang.org/protobuf/proto"
 )
 
 // grpc server implementation
 type FlowRequestHandler struct {
 	temporalClient client.Client
+	pool           *pgxpool.Pool
 	protos.UnimplementedFlowServiceServer
 }
 
-func NewFlowRequestHandler(temporalClient client.Client) *FlowRequestHandler {
+func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool) *FlowRequestHandler {
 	return &FlowRequestHandler{
 		temporalClient: temporalClient,
+		pool:           pool,
+	}
+}
+
+// Close closes the connection pool
+func (h *FlowRequestHandler) Close() {
+	if h.pool != nil {
+		h.pool.Close()
 	}
 }
 
@@ -128,5 +140,95 @@ func (h *FlowRequestHandler) ShutdownFlow(
 
 	return &protos.ShutdownResponse{
 		Ok: true,
+	}, nil
+}
+
+func (h *FlowRequestHandler) ListPeers(
+	ctx context.Context,
+	req *protos.ListPeersRequest,
+) (*protos.ListPeersResponse, error) {
+	rows, err := h.pool.Query(ctx, "SELECT * FROM peers")
+	if err != nil {
+		return nil, fmt.Errorf("unable to query peers: %w", err)
+	}
+	defer rows.Close()
+
+	peers := []*protos.Peer{}
+	for rows.Next() {
+		var id int
+		var name string
+		var peerType int
+		var options []byte
+		if err := rows.Scan(&id, &name, &peerType, &options); err != nil {
+			return nil, fmt.Errorf("unable to scan peer row: %w", err)
+		}
+
+		dbtype := protos.DBType(peerType)
+		var peer *protos.Peer
+		switch dbtype {
+		case protos.DBType_POSTGRES:
+			var pgOptions protos.PostgresConfig
+			err := proto.Unmarshal(options, &pgOptions)
+			if err != nil {
+				return nil, fmt.Errorf("unable to unmarshal postgres options: %w", err)
+			}
+			peer = &protos.Peer{
+				Name:   name,
+				Type:   dbtype,
+				Config: &protos.Peer_PostgresConfig{PostgresConfig: &pgOptions},
+			}
+		case protos.DBType_BIGQUERY:
+			var bqOptions protos.BigqueryConfig
+			err := proto.Unmarshal(options, &bqOptions)
+			if err != nil {
+				return nil, fmt.Errorf("unable to unmarshal bigquery options: %w", err)
+			}
+			peer = &protos.Peer{
+				Name:   name,
+				Type:   dbtype,
+				Config: &protos.Peer_BigqueryConfig{BigqueryConfig: &bqOptions},
+			}
+		case protos.DBType_SNOWFLAKE:
+			var sfOptions protos.SnowflakeConfig
+			err := proto.Unmarshal(options, &sfOptions)
+			if err != nil {
+				return nil, fmt.Errorf("unable to unmarshal snowflake options: %w", err)
+			}
+			peer = &protos.Peer{
+				Name:   name,
+				Type:   dbtype,
+				Config: &protos.Peer_SnowflakeConfig{SnowflakeConfig: &sfOptions},
+			}
+		case protos.DBType_EVENTHUB:
+			var ehOptions protos.EventHubConfig
+			err := proto.Unmarshal(options, &ehOptions)
+			if err != nil {
+				return nil, fmt.Errorf("unable to unmarshal eventhub options: %w", err)
+			}
+			peer = &protos.Peer{
+				Name:   name,
+				Type:   dbtype,
+				Config: &protos.Peer_EventhubConfig{EventhubConfig: &ehOptions},
+			}
+		case protos.DBType_SQLSERVER:
+			var ssOptions protos.SqlServerConfig
+			err := proto.Unmarshal(options, &ssOptions)
+			if err != nil {
+				return nil, fmt.Errorf("unable to unmarshal sqlserver options: %w", err)
+			}
+			peer = &protos.Peer{
+				Name:   name,
+				Type:   dbtype,
+				Config: &protos.Peer_SqlserverConfig{SqlserverConfig: &ssOptions},
+			}
+		default:
+			log.Errorf("unsupported peer type for peer '%s': %v", name, dbtype)
+		}
+
+		peers = append(peers, peer)
+	}
+
+	return &protos.ListPeersResponse{
+		Peers: peers,
 	}, nil
 }

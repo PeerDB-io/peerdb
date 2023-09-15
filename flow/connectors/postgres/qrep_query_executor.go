@@ -17,25 +17,37 @@ import (
 )
 
 type QRepQueryExecutor struct {
-	pool     *pgxpool.Pool
-	ctx      context.Context
-	snapshot string
-	testEnv  bool
+	pool        *pgxpool.Pool
+	ctx         context.Context
+	snapshot    string
+	testEnv     bool
+	flowJobName string
+	partitionID string
 }
 
-func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context) *QRepQueryExecutor {
+func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
+	flowJobName string, partitionID string) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
-		pool:     pool,
-		ctx:      ctx,
-		snapshot: "",
+		pool:        pool,
+		ctx:         ctx,
+		snapshot:    "",
+		flowJobName: flowJobName,
+		partitionID: partitionID,
 	}
 }
 
-func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string) *QRepQueryExecutor {
+func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string,
+	flowJobName string, partitionID string) *QRepQueryExecutor {
+	log.WithFields(log.Fields{
+		"flowName":    flowJobName,
+		"partitionID": partitionID,
+	}).Info("Declared new qrep executor for snapshot")
 	return &QRepQueryExecutor{
-		pool:     pool,
-		ctx:      ctx,
-		snapshot: snapshot,
+		pool:        pool,
+		ctx:         ctx,
+		snapshot:    snapshot,
+		flowJobName: flowJobName,
+		partitionID: partitionID,
 	}
 }
 
@@ -52,6 +64,10 @@ func (qe *QRepQueryExecutor) ExecuteQuery(query string, args ...interface{}) (pg
 }
 
 func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Info("Executing query in transaction")
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
 
 	if !qe.testEnv {
@@ -96,7 +112,10 @@ func (qe *QRepQueryExecutor) ProcessRows(
 ) (*model.QRecordBatch, error) {
 	// Initialize the record slice
 	records := make([]*model.QRecord, 0)
-
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Info("Processing rows")
 	// Iterate over the rows
 	for rows.Next() {
 		record, err := mapRowToQRecord(rows, fieldDescriptions)
@@ -117,7 +136,10 @@ func (qe *QRepQueryExecutor) ProcessRows(
 		Schema:     fieldDescriptionsToSchema(fieldDescriptions),
 	}
 
-	log.Infof("[postgres] pulled %d records", batch.NumRecords)
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("[postgres] pulled %d records", batch.NumRecords)
 
 	return batch, nil
 }
@@ -154,7 +176,10 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	}
 
 	qe.recordHeartbeat("cursor %s - fetch completed - %d records", cursorName, numRows)
-
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("processed row stream")
 	return numRows, nil
 }
 
@@ -179,7 +204,9 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		stream.Records <- &model.QRecordOrError{
 			Err: err,
 		}
-		log.Errorf("[pg_query_executor] failed to execute query in tx: %v", err)
+		log.WithFields(log.Fields{
+			"query": query,
+		}).Errorf("[pg_query_executor] failed to execute query in tx: %v", err)
 		return 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
 	}
 
@@ -215,10 +242,12 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	args ...interface{},
 ) (*model.QRecordBatch, error) {
 	stream := model.NewQRecordStream(1024)
-
 	errors := make(chan error, 1)
 	defer close(errors)
-
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("Executing and processing query '%s'", query)
 	go func() {
 		_, err := qe.ExecuteAndProcessQueryStream(stream, query, args...)
 		if err != nil {
@@ -256,6 +285,10 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	query string,
 	args ...interface{},
 ) (int, error) {
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("Executing and processing query stream '%s'", query)
 	defer close(stream.Records)
 
 	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
@@ -263,7 +296,10 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		IsoLevel:   pgx.RepeatableRead,
 	})
 	if err != nil {
-		log.Errorf("[pg_query_executor] failed to begin transaction: %v", err)
+		log.WithFields(log.Fields{
+			"flowName":    qe.flowJobName,
+			"partitionID": qe.partitionID,
+		}).Errorf("[pg_query_executor] failed to begin transaction: %v", err)
 		return 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
@@ -280,7 +316,11 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 			stream.Records <- &model.QRecordOrError{
 				Err: fmt.Errorf("failed to set snapshot: %w", err),
 			}
-			log.Errorf("[pg_query_executor] failed to set snapshot: %v", err)
+			log.WithFields(log.Fields{
+				"flowName":    qe.flowJobName,
+				"partitionID": qe.partitionID,
+				"query":       query,
+			}).Errorf("[pg_query_executor] failed to set snapshot: %v", err)
 			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
@@ -295,18 +335,23 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
 	fetchSize := shared.FetchAndChannelSize
-
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
 	_, err = tx.Exec(qe.ctx, cursorQuery, args...)
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{
 			Err: fmt.Errorf("failed to declare cursor: %w", err),
 		}
-		log.Errorf("[pg_query_executor] failed to declare cursor: %v", err)
+		log.WithFields(log.Fields{
+			"flowName":    qe.flowJobName,
+			"partitionID": qe.partitionID,
+		}).Infof("[pg_query_executor] failed to declare cursor with query %v: %v", cursorQuery, err)
 		return 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
 	}
 
-	log.Infof("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query)
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query)
 
 	totalRecordsFetched := 0
 	numFetchOpsComplete := 0
@@ -316,7 +361,10 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 			return 0, err
 		}
 
-		log.Infof("[pg_query_executor] fetched %d rows for query '%s'", numRows, query)
+		log.WithFields(log.Fields{
+			"flowName":    qe.flowJobName,
+			"partitionID": qe.partitionID,
+		}).Infof("[pg_query_executor] fetched %d rows for query '%s'", numRows, query)
 		totalRecordsFetched += numRows
 
 		if numRows == 0 {
@@ -335,7 +383,10 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
-	log.Infof("[pg_query_executor] committed transaction for query '%s', rows = %d",
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("[pg_query_executor] committed transaction for query '%s', rows = %d",
 		query, totalRecordsFetched)
 	return totalRecordsFetched, nil
 }

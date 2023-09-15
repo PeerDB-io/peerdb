@@ -43,11 +43,11 @@ const (
 	srcTableName      = "src"
 	mergeStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
-		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS rank
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
 		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
 	)
 	MERGE INTO %s dst
-	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE rank=1) src
+	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1) src
 	ON dst.%s=src.%s
 	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
 	INSERT (%s) VALUES (%s)
@@ -56,17 +56,17 @@ const (
 	DELETE`
 	fallbackUpsertStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
-		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS rank
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
 		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
 	)
-	INSERT INTO %s (%s) SELECT %s FROM src_rank WHERE rank=1 AND _peerdb_record_type!=2
+	INSERT INTO %s (%s) SELECT %s FROM src_rank WHERE _peerdb_rank=1 AND _peerdb_record_type!=2
 	ON CONFLICT (%s) DO UPDATE SET %s`
 	fallbackDeleteStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
-		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS rank
+		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
 		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
 	)
-	DELETE FROM %s USING src_rank WHERE %s.%s=%s AND src_rank.rank=1 AND src_rank._peerdb_record_type=2`
+	DELETE FROM %s USING src_rank WHERE %s.%s=%s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
 
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
@@ -456,13 +456,12 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 	rawTableIdentifier string) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
-
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	var primaryKeyColumnCast string
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		columnNames = append(columnNames, columnName)
+		columnNames = append(columnNames, fmt.Sprintf("\"%s\"", columnName))
 		pgType := qValueKindToPostgresType(genericColumnType)
-		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
+		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
 			columnName, pgType, columnName))
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {
 			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
@@ -490,15 +489,24 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	rawTableIdentifier string) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := maps.Keys(normalizedTableSchema.Columns)
+	for i, columnName := range columnNames {
+		columnNames[i] = fmt.Sprintf("\"%s\"", columnName)
+	}
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	var primaryKeyColumnCast string
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		pgType := qValueKindToPostgresType(genericColumnType)
-		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
-			columnName, pgType, columnName))
+		if strings.Contains(genericColumnType, "array") {
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS %s",
+					strings.Trim(columnName, "\""), pgType, columnName))
+		} else {
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
+				strings.Trim(columnName, "\""), pgType, columnName))
+		}
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {
-			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", strings.Trim(columnName, "\""), pgType)
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
@@ -521,19 +529,24 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 
 	for _, cols := range unchangedToastColsLists {
 		unchangedColsArray := strings.Split(cols, ",")
+		for i, col := range unchangedColsArray {
+			unchangedColsArray[i] = fmt.Sprintf("\"%s\"", col)
+		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ",")
+		quotedCols := strings.Join(unchangedColsArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 		src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
-		THEN UPDATE SET %s `, cols, ssep)
+		THEN UPDATE SET %s `, quotedCols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return strings.Join(updateStmts, "\n")
 }
+
 func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error) {
 	countTablesBatch := &pgx.Batch{}
 	totalCount := int64(0)
@@ -549,7 +562,9 @@ func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error)
 				var count int64
 				err := row.Scan(&count)
 				if err != nil {
-					log.Errorf("error while scanning row: %v", err)
+					log.WithFields(log.Fields{
+						"table": table,
+					}).Errorf("error while scanning row: %v", err)
 					return fmt.Errorf("error while scanning row: %w", err)
 				}
 				totalCount += count

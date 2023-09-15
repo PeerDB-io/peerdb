@@ -35,12 +35,15 @@ type Connector interface {
 
 	// InitializeTableSchema initializes the table schema of all the destination tables for the connector.
 	InitializeTableSchema(req map[string]*protos.TableSchema) error
+	// ReplayTableSchemaDelta changes a destination table to match the schema at source
+	// This could involve adding or dropping multiple columns.
+	ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error
 
 	// Methods related to retrieving and pusing records for this connector as a source and destination.
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error)
+	PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error)
 
 	// SyncRecords pushes records to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.

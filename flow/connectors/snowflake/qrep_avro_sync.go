@@ -35,6 +35,7 @@ func NewSnowflakeAvroSyncMethod(
 func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
+	flowJobName string,
 ) (int, error) {
 	dstTableName := s.config.DestinationTableIdentifier
 
@@ -43,22 +44,34 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+		"flowName":         flowJobName,
+	}).Infof("sync function called and schema acquired")
+
+	avroSchema, err := s.getAvroSchema(dstTableName, schema, flowJobName)
 	if err != nil {
 		return 0, err
 	}
 
-	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, "17")
+	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, "17", flowJobName)
 	if err != nil {
 		return 0, err
 	}
-	log.Infof("written %d records to Avro file", numRecords)
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+		"flowName":         flowJobName,
+	}).Infof("written %d records to Avro file", numRecords)
 
 	stage := s.connector.getStageNameForJob(s.config.FlowJobName)
 	err = s.connector.createStage(stage, s.config)
 	if err != nil {
 		return 0, err
 	}
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+		"flowName":         flowJobName,
+	}).Infof("Created stage %s", stage)
 
 	allCols, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
 	if err != nil {
@@ -69,13 +82,17 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	if err != nil {
 		return 0, err
 	}
-	log.Infof("pushed avro file to stage")
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+	}).Infof("pushed avro file to stage")
 
 	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, allCols)
 	if err != nil {
 		return 0, err
 	}
-	log.Infof("copying records into %s from stage %s", s.config.DestinationTableIdentifier, stage)
+	log.WithFields(log.Fields{
+		"destinationTable": dstTableName,
+	}).Infof("copying records into %s from stage %s", s.config.DestinationTableIdentifier, stage)
 
 	return numRecords, nil
 }
@@ -93,13 +110,17 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
+	log.WithFields(log.Fields{
+		"flowName":    config.FlowJobName,
+		"partitionID": partition.PartitionId,
+	}).Infof("sync function called and schema acquired")
 
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(dstTableName, schema, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
 
-	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId)
+	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -109,7 +130,11 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 			log.Infof("removing temp file %s", localFilePath)
 			err := os.Remove(localFilePath)
 			if err != nil {
-				log.Errorf("failed to remove temp file %s: %v", localFilePath, err)
+				log.WithFields(log.Fields{
+					"flowName":         config.FlowJobName,
+					"partitionID":      partition.PartitionId,
+					"destinationTable": dstTableName,
+				}).Errorf("failed to remove temp file %s: %v", localFilePath, err)
 			}
 		}()
 	}
@@ -121,6 +146,10 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, err
 	}
+	log.WithFields(log.Fields{
+		"flowName":    config.FlowJobName,
+		"partitionID": partition.PartitionId,
+	}).Infof("Put file to stage in Avro sync for snowflake")
 	metrics.LogQRepSyncMetrics(s.connector.ctx, config.FlowJobName, int64(numRecords),
 		time.Since(putFileStartTime))
 
@@ -137,13 +166,16 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 func (s *SnowflakeAvroSyncMethod) getAvroSchema(
 	dstTableName string,
 	schema *model.QRecordSchema,
+	flowJobName string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 
-	log.Infof("Avro schema: %v\n", avroSchema)
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("Avro schema: %v\n", avroSchema)
 	return avroSchema, nil
 }
 
@@ -151,6 +183,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
+	flowJobName string,
 ) (int, string, error) {
 	var numRecords int
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema)
@@ -161,6 +194,10 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 		}
 
 		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partitionID,
+		}).Infof("writing records to local file %s", localFilePath)
 		numRecords, err = ocfWriter.WriteRecordsToAvroFile(localFilePath)
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to write records to Avro file: %w", err)
@@ -174,6 +211,10 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 		}
 
 		s3Key := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partitionID,
+		}).Infof("OCF: Writing records to S3")
 		numRecords, err = ocfWriter.WriteRecordsToS3(s3o.Bucket, s3Key)
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to write records to S3: %w", err)
@@ -217,6 +258,9 @@ func CopyStageToDestination(
 	stage string,
 	allCols []string,
 ) error {
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Infof("Copying stage to destination %s", dstTableName)
 	copyOpts := []string{
 		"FILE_FORMAT = (TYPE = AVRO)",
 		"MATCH_BY_COLUMN_NAME='CASE_INSENSITIVE'",
@@ -260,16 +304,25 @@ func (s *SnowflakeAvroSyncMethod) insertMetadata(
 ) error {
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {
-		log.Errorf("failed to create metadata insert statement: %v", err)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partition.PartitionId,
+		}).Errorf("failed to create metadata insert statement: %v", err)
 		return fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
 
 	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
-		log.Errorf("failed to execute metadata insert statement '%s': %v", insertMetadataStmt, err)
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partition.PartitionId,
+		}).Errorf("failed to execute metadata insert statement '%s': %v", insertMetadataStmt, err)
 		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
 	}
 
-	log.Infof("inserted metadata for partition %s", partition)
+	log.WithFields(log.Fields{
+		"flowName":    flowJobName,
+		"partitionID": partition.PartitionId,
+	}).Infof("inserted metadata for partition %s", partition)
 	return nil
 }
 
@@ -393,7 +446,9 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	if _, err := s.connector.database.Exec(createTempTableCmd); err != nil {
 		return fmt.Errorf("failed to create temp table: %w", err)
 	}
-	log.Infof("created temp table %s", tempTableName)
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("created temp table %s", tempTableName)
 
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s FROM @%s %s",
@@ -423,10 +478,14 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 		metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rowCount, time.Since(startTime),
 			totalRowsAtTarget)
 	} else {
-		log.Errorf("failed to get rows affected: %v", err)
+		log.WithFields(log.Fields{
+			"flowName": flowJobName,
+		}).Errorf("failed to get rows affected: %v", err)
 	}
 
-	log.Infof("merged data from temp table %s into destination table %s",
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("merged data from temp table %s into destination table %s",
 		tempTableName, s.dstTableName)
 	return nil
 }

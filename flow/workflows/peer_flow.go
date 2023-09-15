@@ -67,6 +67,9 @@ type PeerFlowState struct {
 	SyncFlowErrors error
 	// Errors encountered during child sync flow executions.
 	NormalizeFlowErrors error
+	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
+	// Needed to support schema changes.
+	RelationMessageMapping model.RelationMessageMapping
 }
 
 // returns a new empty PeerFlowState
@@ -79,6 +82,38 @@ func NewStartedPeerFlowState() *PeerFlowState {
 		SetupComplete:         false,
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
+		// WORKAROUND: empty maps are protobufed into nil maps for reasons beyond me
+		RelationMessageMapping: model.RelationMessageMapping{
+			0: &protos.RelationMessage{
+				RelationId:   0,
+				RelationName: "protobuf_workaround",
+			},
+		},
+	}
+}
+
+// truncate the progress and other arrays to a max of 10 elements
+func (s *PeerFlowState) TruncateProgress(log log.Logger) {
+	if len(s.Progress) > 10 {
+		s.Progress = s.Progress[len(s.Progress)-10:]
+	}
+	if len(s.SyncFlowStatuses) > 10 {
+		s.SyncFlowStatuses = s.SyncFlowStatuses[len(s.SyncFlowStatuses)-10:]
+	}
+	if len(s.NormalizeFlowStatuses) > 10 {
+		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:]
+	}
+
+	if s.SyncFlowErrors != nil {
+		// log and clear the error
+		log.Error("sync flow error: ", s.SyncFlowErrors)
+		s.SyncFlowErrors = nil
+	}
+
+	if s.NormalizeFlowErrors != nil {
+		// log and clear the error
+		log.Error("normalize flow error: ", s.NormalizeFlowErrors)
+		s.NormalizeFlowErrors = nil
 	}
 }
 
@@ -312,6 +347,7 @@ func PeerFlowWorkflowWithConfig(
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
+		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			SyncFlowWorkflow,
@@ -319,48 +355,76 @@ func PeerFlowWorkflowWithConfig(
 			syncFlowOptions,
 		)
 
-		selector.AddFuture(childSyncFlowFuture, func(f workflow.Future) {
-			var childSyncFlowRes *model.SyncResponse
-			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
-				w.logger.Error("failed to execute sync flow: ", err)
-				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+		var childSyncFlowRes *model.SyncResponse
+		if err := childSyncFlowFuture.Get(ctx, &childSyncFlowRes); err != nil {
+			w.logger.Error("failed to execute sync flow: ", err)
+			state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+		} else {
+			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
+			if childSyncFlowRes != nil {
+				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
+			}
+		}
+
+		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
+		if err != nil {
+			return state, err
+		}
+
+		childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
+			WorkflowID:        normalizeFlowID,
+			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 20,
+			},
+		}
+		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
+
+		var tableSchemaDelta *protos.TableSchemaDelta = nil
+		if childSyncFlowRes != nil {
+			tableSchemaDelta = childSyncFlowRes.TableSchemaDelta
+		}
+
+		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
+			ctx,
+			NormalizeFlowWorkflow,
+			cfg,
+			tableSchemaDelta,
+		)
+
+		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
+			var childNormalizeFlowRes *model.NormalizeResponse
+			if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
+				w.logger.Error("failed to execute normalize flow: ", err)
+				state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
 			} else {
-				state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
+				state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
 			}
 		})
 		selector.Select(ctx)
-	}
 
-	normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
-	if err != nil {
-		return state, err
-	}
+		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+		if tableSchemaDelta != nil {
+			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 5 * time.Minute,
+			})
+			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
+				&protos.GetTableSchemaBatchInput{
+					PeerConnectionConfig: cfg.Source,
+					TableIdentifiers:     []string{tableSchemaDelta.SrcTableName},
+				})
 
-	// execute the normalize flow as a child workflow
-	childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        normalizeFlowID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-	}
-	ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
-	childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
-		ctx,
-		NormalizeFlowWorkflow,
-		cfg,
-	)
-
-	selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
-		var childNormalizeFlowRes *model.NormalizeResponse
-		if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
-			w.logger.Error("failed to execute normalize flow: ", err)
-			state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
-		} else {
-			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
+			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
+			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+				w.logger.Error("failed to execute schema update at source: ", err)
+				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+			} else {
+				cfg.TableNameSchemaMapping[tableSchemaDelta.DstTableName] =
+					getModifiedSchemaRes.TableNameSchemaMapping[tableSchemaDelta.SrcTableName]
+			}
 		}
-	})
-	selector.Select(ctx)
+	}
 
+	state.TruncateProgress(w.logger)
 	return nil, workflow.NewContinueAsNewError(ctx, PeerFlowWorkflowWithConfig, cfg, limits, state)
 }
