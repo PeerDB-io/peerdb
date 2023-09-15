@@ -57,11 +57,11 @@ func NewRecordItems() *RecordItems {
 	}
 }
 
-func NewRecordItemWithData(data map[string]*qvalue.QValue) *RecordItems {
+func NewRecordItemWithData(cols []string, val []*qvalue.QValue) *RecordItems {
 	recordItem := NewRecordItems()
-	for col, val := range data {
+	for i, col := range cols {
 		recordItem.colToValIdx[col] = len(recordItem.values)
-		recordItem.values = append(recordItem.values, val)
+		recordItem.values = append(recordItem.values, val[i])
 	}
 	return recordItem
 }
