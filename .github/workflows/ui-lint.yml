@@ -15,8 +15,10 @@ permissions:
 jobs:
   run-linters:
     name: Run UI linters
-    runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubicloud]
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout
         uses: actions/checkout@v3
