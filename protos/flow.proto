@@ -219,6 +219,8 @@ enum QRepSyncMode {
 enum QRepWriteType {
   QREP_WRITE_MODE_APPEND = 0;
   QREP_WRITE_MODE_UPSERT = 1;
+  // only valid when initial_copy_true is set to true. TRUNCATES tables before reverting to APPEND.
+  QREP_WRITE_MODE_OVERWRITE = 2;
 }
 
 message QRepWriteMode {

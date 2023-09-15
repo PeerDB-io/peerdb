@@ -216,6 +216,17 @@ impl FlowGrpcClient {
                                 cfg.write_mode = Some(wm);
                             }
                             "append" => cfg.write_mode = Some(wm),
+                            "overwrite" => {
+                                if !cfg.initial_copy_only {
+                                    return anyhow::Result::Err(
+                                        anyhow::anyhow!(
+                                            "write mode overwrite can only be set with initial_copy_only = true"
+                                        )
+                                    );
+                                }
+                                wm.write_type = QRepWriteType::QrepWriteModeOverwrite as i32;
+                                cfg.write_mode = Some(wm);
+                            }
                             _ => return anyhow::Result::Err(anyhow::anyhow!("invalid mode {}", s)),
                         }
                     }
