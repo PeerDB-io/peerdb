@@ -182,6 +182,9 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 
 	ret.SyncMode = syncMode
 	ret.StagingPath = c.StagingPath
+	ret.WriteMode = &protos.QRepWriteMode{
+		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+	}
 
 	return ret, nil
 }

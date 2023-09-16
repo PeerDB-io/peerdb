@@ -138,6 +138,13 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 		return err
 	}
 
+	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		_, err = c.database.Exec(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		if err != nil {
+			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
+		}
+	}
+
 	return nil
 }
 

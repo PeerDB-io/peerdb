@@ -43,6 +43,8 @@ export function qRepSyncModeToJSON(object: QRepSyncMode): string {
 export enum QRepWriteType {
   QREP_WRITE_MODE_APPEND = 0,
   QREP_WRITE_MODE_UPSERT = 1,
+  /** QREP_WRITE_MODE_OVERWRITE - only valid when initial_copy_true is set to true. TRUNCATES tables before reverting to APPEND. */
+  QREP_WRITE_MODE_OVERWRITE = 2,
   UNRECOGNIZED = -1,
 }
 
@@ -54,6 +56,9 @@ export function qRepWriteTypeFromJSON(object: any): QRepWriteType {
     case 1:
     case "QREP_WRITE_MODE_UPSERT":
       return QRepWriteType.QREP_WRITE_MODE_UPSERT;
+    case 2:
+    case "QREP_WRITE_MODE_OVERWRITE":
+      return QRepWriteType.QREP_WRITE_MODE_OVERWRITE;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -67,6 +72,8 @@ export function qRepWriteTypeToJSON(object: QRepWriteType): string {
       return "QREP_WRITE_MODE_APPEND";
     case QRepWriteType.QREP_WRITE_MODE_UPSERT:
       return "QREP_WRITE_MODE_UPSERT";
+    case QRepWriteType.QREP_WRITE_MODE_OVERWRITE:
+      return "QREP_WRITE_MODE_OVERWRITE";
     case QRepWriteType.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
