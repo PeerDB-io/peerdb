@@ -237,8 +237,8 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 			}).Infof("pushed %d events to event hub: %s",
 				numEventsPushed, tblName)
 			mapLock.Lock()
-			tableNameRowsMapping[tblName] += uint32(len(eventBatch))
 			defer mapLock.Unlock()
+			tableNameRowsMapping[tblName] += uint32(len(eventBatch))
 		}(tblName, eventBatch)
 	}
 
