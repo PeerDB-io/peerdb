@@ -149,6 +149,7 @@ message TableSchema {
   // "string", "int", "float", "bool", "timestamp".
   map<string, string> columns = 2;
   string primary_key_column = 3;
+  bool is_replica_identity_full = 4;
 }
 
 message GetTableSchemaBatchInput {
