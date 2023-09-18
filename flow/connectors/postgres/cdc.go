@@ -218,45 +218,55 @@ func (p *PostgresCDCSource) consumeStream(
 				switch r := rec.(type) {
 				case *model.UpdateRecord:
 					// tableName here is destination tableName.
-					// should be ideally sourceTableName as we are in pullRecrods.
+					// should be ideally sourceTableName as we are in PullRecords.
 					// will change in future
-					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
-					if err != nil {
-						return nil, fmt.Errorf("error getting pkey column value: %w", err)
-					}
-
-					tablePkeyVal := model.TableWithPkey{
-						TableName:  tableName,
-						PkeyColVal: *pkeyColVal,
-					}
-					_, ok := records.TablePKeyLastSeen[tablePkeyVal]
-					if !ok {
+					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+					if isFullReplica {
 						records.Records = append(records.Records, rec)
-						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					} else {
-						oldRec := records.Records[records.TablePKeyLastSeen[tablePkeyVal]]
-						// iterate through unchanged toast cols and set them in new record
-						updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
-						for _, col := range updatedCols {
-							delete(r.UnchangedToastColumns, col)
+						pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+						pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
+						if err != nil {
+							return nil, fmt.Errorf("error getting pkey column value: %w", err)
 						}
-						records.Records = append(records.Records, rec)
-						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+
+						tablePkeyVal := model.TableWithPkey{
+							TableName:  tableName,
+							PkeyColVal: *pkeyColVal,
+						}
+						_, ok := records.TablePKeyLastSeen[tablePkeyVal]
+						if !ok {
+							records.Records = append(records.Records, rec)
+							records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+						} else {
+							oldRec := records.Records[records.TablePKeyLastSeen[tablePkeyVal]]
+							// iterate through unchanged toast cols and set them in new record
+							updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
+							for _, col := range updatedCols {
+								delete(r.UnchangedToastColumns, col)
+							}
+							records.Records = append(records.Records, rec)
+							records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+						}
 					}
 				case *model.InsertRecord:
-					pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
-					pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
-					if err != nil {
-						return nil, fmt.Errorf("error getting pkey column value: %w", err)
+					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+					if isFullReplica {
+						records.Records = append(records.Records, rec)
+					} else {
+						pkeyCol := req.TableNameSchemaMapping[tableName].PrimaryKeyColumn
+						pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
+						if err != nil {
+							return nil, fmt.Errorf("error getting pkey column value: %w", err)
+						}
+						tablePkeyVal := model.TableWithPkey{
+							TableName:  tableName,
+							PkeyColVal: *pkeyColVal,
+						}
+						records.Records = append(records.Records, rec)
+						// all columns will be set in insert record, so add it to the map
+						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					}
-					tablePkeyVal := model.TableWithPkey{
-						TableName:  tableName,
-						PkeyColVal: *pkeyColVal,
-					}
-					records.Records = append(records.Records, rec)
-					// all columns will be set in insert record, so add it to the map
-					records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 				case *model.DeleteRecord:
 					records.Records = append(records.Records, rec)
 				case *model.RelationRecord:

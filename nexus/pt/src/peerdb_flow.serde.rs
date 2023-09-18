@@ -5268,6 +5268,9 @@ impl serde::Serialize for TableSchema {
         if !self.primary_key_column.is_empty() {
             len += 1;
         }
+        if self.is_replica_identity_full {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.TableSchema", len)?;
         if !self.table_identifier.is_empty() {
             struct_ser.serialize_field("tableIdentifier", &self.table_identifier)?;
@@ -5277,6 +5280,9 @@ impl serde::Serialize for TableSchema {
         }
         if !self.primary_key_column.is_empty() {
             struct_ser.serialize_field("primaryKeyColumn", &self.primary_key_column)?;
+        }
+        if self.is_replica_identity_full {
+            struct_ser.serialize_field("isReplicaIdentityFull", &self.is_replica_identity_full)?;
         }
         struct_ser.end()
     }
@@ -5293,6 +5299,8 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             "columns",
             "primary_key_column",
             "primaryKeyColumn",
+            "is_replica_identity_full",
+            "isReplicaIdentityFull",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -5300,6 +5308,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             TableIdentifier,
             Columns,
             PrimaryKeyColumn,
+            IsReplicaIdentityFull,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5325,6 +5334,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                             "tableIdentifier" | "table_identifier" => Ok(GeneratedField::TableIdentifier),
                             "columns" => Ok(GeneratedField::Columns),
                             "primaryKeyColumn" | "primary_key_column" => Ok(GeneratedField::PrimaryKeyColumn),
+                            "isReplicaIdentityFull" | "is_replica_identity_full" => Ok(GeneratedField::IsReplicaIdentityFull),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5347,6 +5357,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                 let mut table_identifier__ = None;
                 let mut columns__ = None;
                 let mut primary_key_column__ = None;
+                let mut is_replica_identity_full__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::TableIdentifier => {
@@ -5369,6 +5380,12 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                             }
                             primary_key_column__ = Some(map.next_value()?);
                         }
+                        GeneratedField::IsReplicaIdentityFull => {
+                            if is_replica_identity_full__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isReplicaIdentityFull"));
+                            }
+                            is_replica_identity_full__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -5378,6 +5395,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                     table_identifier: table_identifier__.unwrap_or_default(),
                     columns: columns__.unwrap_or_default(),
                     primary_key_column: primary_key_column__.unwrap_or_default(),
+                    is_replica_identity_full: is_replica_identity_full__.unwrap_or_default(),
                 })
             }
         }

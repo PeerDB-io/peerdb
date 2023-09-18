@@ -566,18 +566,23 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 	defer rows.Close()
 
+	isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+	if replErr != nil {
+		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
+	}
+
 	pkey, err := c.getPrimaryKeyColumn(schemaTable)
 	if err != nil {
-		replicaIdentity, err := c.getReplicaIdentityForTable(schemaTable)
-		if err != nil || replicaIdentity != "f" {
+		if !isFullReplica {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
 	}
 
 	res := &protos.TableSchema{
-		TableIdentifier:  tableName,
-		Columns:          make(map[string]string),
-		PrimaryKeyColumn: pkey,
+		TableIdentifier:       tableName,
+		Columns:               make(map[string]string),
+		PrimaryKeyColumn:      pkey,
+		IsReplicaIdentityFull: isFullReplica,
 	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {
