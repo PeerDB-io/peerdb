@@ -14,6 +14,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
@@ -103,13 +104,20 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	defer func() {
 		shutdown <- true
 	}()
-
+	tableNameRowsMapping := make(map[string]uint32)
 	batch := req.Records
 	eventsPerHeartBeat := 1000
 	eventsPerBatch := int(req.PushBatchSize)
+	if eventsPerBatch <= 0 {
+		eventsPerBatch = 10000
+	}
 	maxParallelism := req.PushParallelism
+	if maxParallelism <= 0 {
+		maxParallelism = 10
+	}
 
 	batchPerTopic := make(map[string][]*eventhub.Event)
+	startTime := time.Now()
 	for i, record := range batch.Records {
 		json, err := record.GetItems().ToJSON()
 		if err != nil {
@@ -134,7 +142,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 		if (i+1)%eventsPerBatch == 0 {
 			err := c.sendEventBatch(batchPerTopic, maxParallelism,
-				req.FlowJobName)
+				req.FlowJobName, tableNameRowsMapping)
 			if err != nil {
 				return nil, err
 			}
@@ -146,15 +154,15 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// send the remaining events.
 	if len(batchPerTopic) > 0 {
 		err := c.sendEventBatch(batchPerTopic, maxParallelism,
-			req.FlowJobName)
+			req.FlowJobName, tableNameRowsMapping)
 		if err != nil {
 			return nil, err
 		}
 	}
-
+	rowsSynced := len(batch.Records)
 	log.WithFields(log.Fields{
 		"flowName": req.FlowJobName,
-	}).Infof("[total] successfully sent %d records to event hub", len(batch.Records))
+	}).Infof("[total] successfully sent %d records to event hub", rowsSynced)
 
 	err := c.updateLastOffset(req.FlowJobName, batch.LastCheckPointID)
 	if err != nil {
@@ -167,6 +175,9 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
+	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(rowsSynced), time.Since(startTime))
+	metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, int64(rowsSynced),
+		time.Since(startTime), int64(rowsSynced))
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: batch.FirstCheckPointID,
 		LastSyncedCheckPointID:  batch.LastCheckPointID,
@@ -176,7 +187,8 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 	maxParallelism int64,
-	flowName string) error {
+	flowName string,
+	tableNameRowsMapping map[string]uint32) error {
 	if len(events) == 0 {
 		log.WithFields(log.Fields{
 			"flowName": flowName,
@@ -191,6 +203,7 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 	var wg sync.WaitGroup
 	var once sync.Once
 	var firstErr error
+	var mapLock sync.Mutex
 	// Limiting concurrent sends
 	guard := make(chan struct{}, maxParallelism)
 
@@ -223,6 +236,9 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 				"flowName": flowName,
 			}).Infof("pushed %d events to event hub: %s",
 				numEventsPushed, tblName)
+			mapLock.Lock()
+			tableNameRowsMapping[tblName] += uint32(len(eventBatch))
+			mapLock.Unlock()
 		}(tblName, eventBatch)
 	}
 
@@ -327,8 +343,10 @@ func (c *EventHubConnector) getEventHubMgmtClient() (*armeventhub.EventHubsClien
 func (c *EventHubConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (
 	*protos.SetupNormalizedTableBatchOutput, error) {
-	log.Infof("setting up tables for Eventhub is a no-op")
-	return nil, nil
+	log.Infof("normalization for event hub is a no-op")
+	return &protos.SetupNormalizedTableBatchOutput{
+		TableExistsMapping: nil,
+	}, nil
 }
 
 func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
