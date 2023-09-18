@@ -18,6 +18,8 @@ pub struct SnowflakeConfig {
     pub query_timeout: u64,
     #[prost(string, tag="9")]
     pub s3_integration: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="10")]
+    pub password: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

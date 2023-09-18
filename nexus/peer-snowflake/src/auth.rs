@@ -7,7 +7,6 @@ use anyhow::Context;
 use base64::encode as base64_encode;
 use jsonwebtoken::{encode as jwt_encode, Algorithm, EncodingKey, Header};
 use pkcs1::EncodeRsaPrivateKey;
-use pkcs8::der::Document;
 use pkcs8::{DecodePrivateKey, EncodePublicKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use secrecy::{Secret, SecretString};
@@ -43,10 +42,18 @@ impl SnowflakeAuth {
         account_id: String,
         username: String,
         private_key: String,
+        password: Option<String>,
         refresh_threshold: u64,
         expiry_threshold: u64,
     ) -> anyhow::Result<Self> {
-        let pkey = DecodePrivateKey::from_pkcs8_pem(&private_key).context("Invalid private key")?;
+        let pkey = match password {
+            Some(pw) => {
+                DecodePrivateKey::from_pkcs8_encrypted_pem(&private_key, pw).context("Invalid private key or decryption failed")?
+            },
+            None => {
+                DecodePrivateKey::from_pkcs8_pem(&private_key).context("Invalid private key")?
+            }
+        };
         let mut snowflake_auth: SnowflakeAuth = SnowflakeAuth {
             // moved normalized_account_id above account_id to satisfy the borrow checker.
             normalized_account_id: SnowflakeAuth::normalize_account_identifier(&account_id),
@@ -62,7 +69,7 @@ impl SnowflakeAuth {
         snowflake_auth.public_key_fp = Some(SnowflakeAuth::gen_public_key_fp(
             &snowflake_auth.private_key,
         )?);
-        snowflake_auth.refresh_jwt();
+        snowflake_auth.refresh_jwt()?;
 
         Ok(snowflake_auth)
     }
@@ -92,7 +99,7 @@ impl SnowflakeAuth {
         let public_key = EncodePublicKey::to_public_key_der(&RsaPublicKey::from(private_key))?;
         let res = format!(
             "SHA256:{}",
-            base64_encode(Sha256::new_with_prefix(public_key.as_der()).finalize())
+            base64_encode(Sha256::new_with_prefix(public_key.as_bytes()).finalize())
         );
         Ok(res)
     }
@@ -100,7 +107,7 @@ impl SnowflakeAuth {
     #[tracing::instrument(name = "peer_sflake::auth_refresh_jwt", skip_all)]
     fn refresh_jwt(&mut self) -> anyhow::Result<()> {
         let private_key_jwt: EncodingKey = EncodingKey::from_rsa_der(
-            EncodeRsaPrivateKey::to_pkcs1_der(&self.private_key)?.as_der(),
+            EncodeRsaPrivateKey::to_pkcs1_der(&self.private_key)?.as_bytes(),
         );
         self.last_refreshed = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         info!(

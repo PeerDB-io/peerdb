@@ -2,24 +2,28 @@ package util
 
 import (
 	"crypto/rsa"
-	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+
+	"github.com/youmark/pkcs8"
 )
 
-func DecodePKCS8PrivateKey(rawKey []byte) (*rsa.PrivateKey, error) {
+func DecodePKCS8PrivateKey(rawKey []byte, password *string) (*rsa.PrivateKey, error) {
 	PEMBlock, _ := pem.Decode(rawKey)
 	if PEMBlock == nil {
 		return nil, fmt.Errorf("failed to decode private key PEM block")
 	}
-	privateKeyAny, err := x509.ParsePKCS8PrivateKey(PEMBlock.Bytes)
+
+	var privateKey *rsa.PrivateKey
+	var err error
+	if password != nil {
+		privateKey, err = pkcs8.ParsePKCS8PrivateKeyRSA(PEMBlock.Bytes, []byte(*password))
+	} else {
+		privateKey, err = pkcs8.ParsePKCS8PrivateKeyRSA(PEMBlock.Bytes)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse private key PEM block as PKCS8: %w", err)
 	}
-	privateKeyRSA, ok := privateKeyAny.(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("key does not appear to RSA as expected")
-	}
 
-	return privateKeyRSA, nil
+	return privateKey, nil
 }
