@@ -262,6 +262,7 @@ export interface TableSchema {
    */
   columns: { [key: string]: string };
   primaryKeyColumn: string;
+  isReplicaIdentityFull: boolean;
 }
 
 export interface TableSchema_ColumnsEntry {
@@ -3182,7 +3183,7 @@ export const CreateRawTableOutput = {
 };
 
 function createBaseTableSchema(): TableSchema {
-  return { tableIdentifier: "", columns: {}, primaryKeyColumn: "" };
+  return { tableIdentifier: "", columns: {}, primaryKeyColumn: "", isReplicaIdentityFull: false };
 }
 
 export const TableSchema = {
@@ -3195,6 +3196,9 @@ export const TableSchema = {
     });
     if (message.primaryKeyColumn !== "") {
       writer.uint32(26).string(message.primaryKeyColumn);
+    }
+    if (message.isReplicaIdentityFull === true) {
+      writer.uint32(32).bool(message.isReplicaIdentityFull);
     }
     return writer;
   },
@@ -3230,6 +3234,13 @@ export const TableSchema = {
 
           message.primaryKeyColumn = reader.string();
           continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.isReplicaIdentityFull = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3249,6 +3260,7 @@ export const TableSchema = {
         }, {})
         : {},
       primaryKeyColumn: isSet(object.primaryKeyColumn) ? String(object.primaryKeyColumn) : "",
+      isReplicaIdentityFull: isSet(object.isReplicaIdentityFull) ? Boolean(object.isReplicaIdentityFull) : false,
     };
   },
 
@@ -3269,6 +3281,9 @@ export const TableSchema = {
     if (message.primaryKeyColumn !== "") {
       obj.primaryKeyColumn = message.primaryKeyColumn;
     }
+    if (message.isReplicaIdentityFull === true) {
+      obj.isReplicaIdentityFull = message.isReplicaIdentityFull;
+    }
     return obj;
   },
 
@@ -3285,6 +3300,7 @@ export const TableSchema = {
       return acc;
     }, {});
     message.primaryKeyColumn = object.primaryKeyColumn ?? "";
+    message.isReplicaIdentityFull = object.isReplicaIdentityFull ?? false;
     return message;
   },
 };

@@ -237,6 +237,8 @@ pub struct TableSchema {
     pub columns: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(string, tag="3")]
     pub primary_key_column: ::prost::alloc::string::String,
+    #[prost(bool, tag="4")]
+    pub is_replica_identity_full: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
