@@ -419,12 +419,6 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	return resultMap, nil
 }
 
-// PullRecords pulls records from the source.
-func (c *BigQueryConnector) PullRecords(req *model.PullRecordsRequest) (
-	*model.RecordsWithTableSchemaDelta, error) {
-	panic("not implemented")
-}
-
 // ValueSaver interface for bqRecord
 func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 	return map[string]bigquery.Value{
@@ -468,13 +462,13 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	var res *model.SyncResponse
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
-		res, err = c.SyncRecordsViaAvro(req, rawTableName, syncBatchID)
+		res, err = c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
-		res, err = c.SyncRecordsViaSQL(req, rawTableName, syncBatchID)
+		res, err = c.syncRecordsViaSQL(req, rawTableName, syncBatchID)
 		if err != nil {
 			return nil, err
 		}
@@ -483,7 +477,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	return res, nil
 }
 
-func (c *BigQueryConnector) SyncRecordsViaSQL(req *model.SyncRecordsRequest,
+func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
 	stagingTableName := c.getStagingTableName(req.FlowJobName)
 	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
@@ -660,7 +654,7 @@ func (c *BigQueryConnector) SyncRecordsViaSQL(req *model.SyncRecordsRequest,
 	}, nil
 }
 
-func (c *BigQueryConnector) SyncRecordsViaAvro(req *model.SyncRecordsRequest,
+func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
@@ -1095,12 +1089,6 @@ func (c *BigQueryConnector) metadataHasJob(jobName string) (bool, error) {
 	return count > 0, nil
 }
 
-// GetTableSchema returns the schema for a table, implementing the Connector interface.
-func (c *BigQueryConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
-	panic("not implemented")
-}
-
 // SetupNormalizedTables sets up normalized tables, implementing the Connector interface.
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
 func (c *BigQueryConnector) SetupNormalizedTables(
@@ -1145,16 +1133,6 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
 	}, nil
-}
-
-// EnsurePullability ensures that the given table is pullable, implementing the Connector interface.
-func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityBatchInput) (
-	*protos.EnsurePullabilityBatchOutput, error) {
-	panic("not implemented")
-}
-
-func (c *BigQueryConnector) PullFlowCleanup(jobName string) error {
-	panic("not implemented")
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(jobName string) error {

@@ -86,10 +86,10 @@ impl FlowGrpcClient {
         &mut self,
         peer_flow_config: pt::peerdb_flow::FlowConnectionConfigs,
     ) -> anyhow::Result<String> {
-        let create_peer_flow_req = pt::peerdb_route::CreatePeerFlowRequest {
+        let create_peer_flow_req = pt::peerdb_route::CreateCdcFlowRequest {
             connection_configs: Some(peer_flow_config),
         };
-        let response = self.client.create_peer_flow(create_peer_flow_req).await?;
+        let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
         let workflow_id = response.into_inner().worflow_id;
         Ok(workflow_id)
     }

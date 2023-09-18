@@ -29,7 +29,7 @@ type PeerFlowE2ETestSuiteSQLServer struct {
 	sqlsHelper *SQLServerHelper
 }
 
-func TestPeerFlowE2ETestSuiteSQLServer(t *testing.T) {
+func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
 	suite.Run(t, new(PeerFlowE2ETestSuiteSQLServer))
 }
 

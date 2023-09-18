@@ -18,18 +18,6 @@ import (
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
-func (c *SnowflakeConnector) GetQRepPartitions(config *protos.QRepConfig,
-	last *protos.QRepPartition,
-) ([]*protos.QRepPartition, error) {
-	panic("not implemented")
-}
-
-func (c *SnowflakeConnector) PullQRepRecords(config *protos.QRepConfig,
-	partition *protos.QRepPartition,
-) (*model.QRecordBatch, error) {
-	panic("not implemented")
-}
-
 func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,

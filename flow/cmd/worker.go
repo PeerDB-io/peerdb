@@ -128,15 +128,13 @@ func WorkerMain(opts *WorkerOptions) error {
 	defer c.Close()
 
 	w := worker.New(c, shared.PeerFlowTaskQueue, worker.Options{})
-	w.RegisterWorkflow(peerflow.PeerFlowWorkflow)
-	w.RegisterWorkflow(peerflow.PeerFlowWorkflowWithConfig)
+	w.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
 	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	w.RegisterWorkflow(peerflow.SetupFlowWorkflow)
 	w.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
 	w.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	w.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
-	w.RegisterActivity(&activities.FetchConfigActivity{})
 	w.RegisterActivity(&activities.FlowableActivity{
 		EnableMetrics:        opts.EnableMetrics,
 		CatalogMirrorMonitor: &catalogMirrorMonitor,

@@ -89,23 +89,9 @@ func (c *EventHubConnector) ConnectionActive() bool {
 	return true
 }
 
-func (c *EventHubConnector) EnsurePullability(
-	req *protos.EnsurePullabilityBatchInput) (*protos.EnsurePullabilityBatchOutput, error) {
-	panic("ensure pullability not implemented for event hub")
-}
-
 func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
 	c.tableSchemas = req
 	return nil
-}
-
-func (c *EventHubConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error {
-	log.Warnf("ReplayTableSchemaDelta is a no-op for EventHub flow connector")
-	return nil
-}
-
-func (c *EventHubConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
-	panic("pull records not implemented for event hub")
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
@@ -170,9 +156,14 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		"flowName": req.FlowJobName,
 	}).Infof("[total] successfully sent %d records to event hub", len(batch.Records))
 
-	err := c.UpdateLastOffset(req.FlowJobName, batch.LastCheckPointID)
+	err := c.updateLastOffset(req.FlowJobName, batch.LastCheckPointID)
 	if err != nil {
 		log.Errorf("failed to update last offset: %v", err)
+		return nil, err
+	}
+	err = c.incrementSyncBatchID(req.FlowJobName)
+	if err != nil {
+		log.Errorf("%v", err)
 		return nil, err
 	}
 
@@ -280,11 +271,6 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	return nil, nil
 }
 
-func (c *EventHubConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
-	panic("get table schema not implemented for event hub")
-}
-
 func (c *EventHubConnector) ensureEventHub(ctx context.Context, name string, flowName string) error {
 	hubClient, err := c.getEventHubMgmtClient()
 	if err != nil {
@@ -338,28 +324,11 @@ func (c *EventHubConnector) getEventHubMgmtClient() (*armeventhub.EventHubsClien
 	return hubClient, nil
 }
 
-// Normalization
-
 func (c *EventHubConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (
 	*protos.SetupNormalizedTableBatchOutput, error) {
-	log.Infof("normalization for event hub is a no-op")
+	log.Infof("setting up tables for Eventhub is a no-op")
 	return nil, nil
-}
-
-func (c *EventHubConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	log.Infof("normalization for event hub is a no-op")
-	return &model.NormalizeResponse{
-		EndBatchID:   0,
-		StartBatchID: 0,
-		Done:         true,
-	}, nil
-}
-
-// cleanup
-
-func (c *EventHubConnector) PullFlowCleanup(jobName string) error {
-	panic("pull flow cleanup not implemented for event hub")
 }
 
 func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {

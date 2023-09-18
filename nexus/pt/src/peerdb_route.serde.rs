@@ -1,5 +1,5 @@
 // @generated
-impl serde::Serialize for CreatePeerFlowRequest {
+impl serde::Serialize for CreateCdcFlowRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -10,14 +10,14 @@ impl serde::Serialize for CreatePeerFlowRequest {
         if self.connection_configs.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("peerdb_route.CreatePeerFlowRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.CreateCDCFlowRequest", len)?;
         if let Some(v) = self.connection_configs.as_ref() {
             struct_ser.serialize_field("connectionConfigs", v)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for CreatePeerFlowRequest {
+impl<'de> serde::Deserialize<'de> for CreateCdcFlowRequest {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -63,13 +63,13 @@ impl<'de> serde::Deserialize<'de> for CreatePeerFlowRequest {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = CreatePeerFlowRequest;
+            type Value = CreateCdcFlowRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct peerdb_route.CreatePeerFlowRequest")
+                formatter.write_str("struct peerdb_route.CreateCDCFlowRequest")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<CreatePeerFlowRequest, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<CreateCdcFlowRequest, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -87,15 +87,15 @@ impl<'de> serde::Deserialize<'de> for CreatePeerFlowRequest {
                         }
                     }
                 }
-                Ok(CreatePeerFlowRequest {
+                Ok(CreateCdcFlowRequest {
                     connection_configs: connection_configs__,
                 })
             }
         }
-        deserializer.deserialize_struct("peerdb_route.CreatePeerFlowRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("peerdb_route.CreateCDCFlowRequest", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for CreatePeerFlowResponse {
+impl serde::Serialize for CreateCdcFlowResponse {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -106,14 +106,14 @@ impl serde::Serialize for CreatePeerFlowResponse {
         if !self.worflow_id.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("peerdb_route.CreatePeerFlowResponse", len)?;
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.CreateCDCFlowResponse", len)?;
         if !self.worflow_id.is_empty() {
             struct_ser.serialize_field("worflowId", &self.worflow_id)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for CreatePeerFlowResponse {
+impl<'de> serde::Deserialize<'de> for CreateCdcFlowResponse {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -159,13 +159,13 @@ impl<'de> serde::Deserialize<'de> for CreatePeerFlowResponse {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = CreatePeerFlowResponse;
+            type Value = CreateCdcFlowResponse;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct peerdb_route.CreatePeerFlowResponse")
+                formatter.write_str("struct peerdb_route.CreateCDCFlowResponse")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<CreatePeerFlowResponse, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<CreateCdcFlowResponse, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -183,12 +183,12 @@ impl<'de> serde::Deserialize<'de> for CreatePeerFlowResponse {
                         }
                     }
                 }
-                Ok(CreatePeerFlowResponse {
+                Ok(CreateCdcFlowResponse {
                     worflow_id: worflow_id__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("peerdb_route.CreatePeerFlowResponse", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("peerdb_route.CreateCDCFlowResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for CreateQRepFlowRequest {

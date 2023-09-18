@@ -117,7 +117,7 @@ func (s *PeerFlowE2ETestSuiteEH) Test_Complete_Simple_Flow_EH() {
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	s.NoError(err)
 
-	peerFlowInput := peerflow.PeerFlowLimits{
+	peerFlowInput := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
@@ -125,7 +125,7 @@ func (s *PeerFlowE2ETestSuiteEH) Test_Complete_Simple_Flow_EH() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	go func() {
-		e2e.SetupPeerFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
@@ -138,7 +138,7 @@ func (s *PeerFlowE2ETestSuiteEH) Test_Complete_Simple_Flow_EH() {
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
-	env.ExecuteWorkflow(peerflow.PeerFlowWorkflowWithConfig, flowConnConfig, &peerFlowInput, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &peerFlowInput, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

@@ -322,12 +322,6 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
-	log.Errorf("panicking at call to GetTableSchema for Snowflake flow connector")
-	panic("GetTableSchema is not implemented for the Snowflake flow connector")
-}
-
 func (c *SnowflakeConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
@@ -419,11 +413,6 @@ func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDe
 	}
 
 	return nil
-}
-
-func (c *SnowflakeConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
-	log.Errorf("panicking at call to PullRecords for Snowflake flow connector")
-	panic("PullRecords is not implemented for the Snowflake flow connector")
 }
 
 func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
@@ -930,18 +919,6 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	return &protos.CreateRawTableOutput{
 		TableIdentifier: rawTableIdentifier,
 	}, nil
-}
-
-// EnsurePullability ensures that the table is pullable, implementing the Connector interface.
-func (c *SnowflakeConnector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
-) (*protos.EnsurePullabilityBatchOutput, error) {
-	log.Errorf("panicking at call to EnsurePullability for Snowflake flow connector")
-	panic("EnsurePullability is not implemented for the Snowflake flow connector")
-}
-
-func (c *SnowflakeConnector) PullFlowCleanup(jobName string) error {
-	log.Errorf("panicking at call to PullFlowCleanup for Snowflake flow connector")
-	panic("PullFlowCleanup is not implemented for the Snowflake flow connector")
 }
 
 func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {

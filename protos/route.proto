@@ -6,11 +6,11 @@ import "flow.proto";
 
 package peerdb_route;
 
-message CreatePeerFlowRequest {
+message CreateCDCFlowRequest {
   peerdb_flow.FlowConnectionConfigs connection_configs = 1;
 }
 
-message CreatePeerFlowResponse {
+message CreateCDCFlowResponse {
   string worflow_id = 1;
 }
 
@@ -43,7 +43,7 @@ message ListPeersResponse {
 
 service FlowService {
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {}
-  rpc CreatePeerFlow(CreatePeerFlowRequest) returns (CreatePeerFlowResponse) {}
+  rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {}
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
 }
