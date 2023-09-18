@@ -86,6 +86,23 @@ func (c *PostgresConnector) getRelIDForTable(schemaTable *SchemaTable) (uint32, 
 	return relID, nil
 }
 
+// getReplicaIdentity returns the replica identity for a table.
+func (c *PostgresConnector) getReplicaIdentityForTable(schemaTable *SchemaTable) (string, error) {
+	relID, relIDErr := c.getRelIDForTable(schemaTable)
+	if relIDErr != nil {
+		return "", fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, relIDErr)
+	}
+
+	var replicaIdentity rune
+	err := c.pool.QueryRow(c.ctx,
+		`SELECT relreplident FROM pg_class WHERE oid = $1;`,
+		relID).Scan(&replicaIdentity)
+	if err != nil {
+		return "", fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
+	}
+	return string(replicaIdentity), nil
+}
+
 // getPrimaryKeyColumn for table returns the primary key column for a given table
 // errors if there is no primary key column or if there is more than one primary key column.
 func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) (string, error) {
