@@ -10,7 +10,6 @@ import { SearchField } from '@/lib/SearchField';
 import { Select } from '@/lib/Select';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { GetFlowServiceClient } from '@/rpc/rpc';
-import getConfig from 'next/config';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { Header } from '../../lib/Header';

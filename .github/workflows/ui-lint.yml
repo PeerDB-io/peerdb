@@ -1,0 +1,36 @@
+name: Lint UI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  checks: write
+  contents: write
+
+jobs:
+  run-linters:
+    name: Run UI linters
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubicloud]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - name: Install Node.js dependencies
+        working-directory: ui
+        run: yarn install --frozen-lockfile
+
+      - name: lint
+        uses: wearerequired/lint-action@v2
+        with:
+          eslint: true
+          prettier: true
+          eslint_dir: ui
+          prettier_dir: ui
