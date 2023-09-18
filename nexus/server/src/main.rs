@@ -32,7 +32,7 @@ use pgwire::{
     tokio::process_socket,
 };
 use pt::{
-    flow_model::{FlowJob, QRepFlowJob},
+    flow_model::QRepFlowJob,
     peerdb_peers::{peer::Config, Peer},
 };
 use rand::Rng;
