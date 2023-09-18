@@ -76,6 +76,7 @@ export interface SnowflakeConfig {
   role: string;
   queryTimeout: number;
   s3Integration: string;
+  password?: string | undefined;
 }
 
 export interface BigqueryConfig {
@@ -151,6 +152,7 @@ function createBaseSnowflakeConfig(): SnowflakeConfig {
     role: "",
     queryTimeout: 0,
     s3Integration: "",
+    password: undefined,
   };
 }
 
@@ -179,6 +181,9 @@ export const SnowflakeConfig = {
     }
     if (message.s3Integration !== "") {
       writer.uint32(74).string(message.s3Integration);
+    }
+    if (message.password !== undefined) {
+      writer.uint32(82).string(message.password);
     }
     return writer;
   },
@@ -246,6 +251,13 @@ export const SnowflakeConfig = {
 
           message.s3Integration = reader.string();
           continue;
+        case 10:
+          if (tag !== 82) {
+            break;
+          }
+
+          message.password = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -265,6 +277,7 @@ export const SnowflakeConfig = {
       role: isSet(object.role) ? String(object.role) : "",
       queryTimeout: isSet(object.queryTimeout) ? Number(object.queryTimeout) : 0,
       s3Integration: isSet(object.s3Integration) ? String(object.s3Integration) : "",
+      password: isSet(object.password) ? String(object.password) : undefined,
     };
   },
 
@@ -294,6 +307,9 @@ export const SnowflakeConfig = {
     if (message.s3Integration !== "") {
       obj.s3Integration = message.s3Integration;
     }
+    if (message.password !== undefined) {
+      obj.password = message.password;
+    }
     return obj;
   },
 
@@ -310,6 +326,7 @@ export const SnowflakeConfig = {
     message.role = object.role ?? "";
     message.queryTimeout = object.queryTimeout ?? 0;
     message.s3Integration = object.s3Integration ?? "";
+    message.password = object.password ?? undefined;
     return message;
   },
 };

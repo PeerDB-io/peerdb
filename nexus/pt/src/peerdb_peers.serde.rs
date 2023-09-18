@@ -1207,6 +1207,9 @@ impl serde::Serialize for SnowflakeConfig {
         if !self.s3_integration.is_empty() {
             len += 1;
         }
+        if self.password.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.SnowflakeConfig", len)?;
         if !self.account_id.is_empty() {
             struct_ser.serialize_field("accountId", &self.account_id)?;
@@ -1232,6 +1235,9 @@ impl serde::Serialize for SnowflakeConfig {
         if !self.s3_integration.is_empty() {
             struct_ser.serialize_field("s3Integration", &self.s3_integration)?;
         }
+        if let Some(v) = self.password.as_ref() {
+            struct_ser.serialize_field("password", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1254,6 +1260,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
             "queryTimeout",
             "s3_integration",
             "s3Integration",
+            "password",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1266,6 +1273,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
             Role,
             QueryTimeout,
             S3Integration,
+            Password,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1296,6 +1304,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                             "role" => Ok(GeneratedField::Role),
                             "queryTimeout" | "query_timeout" => Ok(GeneratedField::QueryTimeout),
                             "s3Integration" | "s3_integration" => Ok(GeneratedField::S3Integration),
+                            "password" => Ok(GeneratedField::Password),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1323,6 +1332,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                 let mut role__ = None;
                 let mut query_timeout__ = None;
                 let mut s3_integration__ = None;
+                let mut password__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::AccountId => {
@@ -1375,6 +1385,12 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                             }
                             s3_integration__ = Some(map.next_value()?);
                         }
+                        GeneratedField::Password => {
+                            if password__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("password"));
+                            }
+                            password__ = map.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1389,6 +1405,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                     role: role__.unwrap_or_default(),
                     query_timeout: query_timeout__.unwrap_or_default(),
                     s3_integration: s3_integration__.unwrap_or_default(),
+                    password: password__,
                 })
             }
         }

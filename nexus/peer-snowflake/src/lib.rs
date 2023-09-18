@@ -134,6 +134,7 @@ impl SnowflakeQueryExecutor {
                 config.clone().account_id,
                 config.clone().username,
                 config.clone().private_key,
+                config.clone().password,
                 DEFAULT_REFRESH_THRESHOLD,
                 DEFAULT_EXPIRY_THRESHOLD,
             )?,

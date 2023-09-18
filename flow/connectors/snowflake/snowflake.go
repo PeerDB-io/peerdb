@@ -121,7 +121,8 @@ type UnchangedToastColumnResult struct {
 
 func NewSnowflakeConnector(ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig) (*SnowflakeConnector, error) {
-	PrivateKeyRSA, err := util.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey))
+	PrivateKeyRSA, err := util.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
+		snowflakeProtoConfig.Password)
 	if err != nil {
 		return nil, err
 	}

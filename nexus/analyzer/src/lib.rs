@@ -479,6 +479,7 @@ fn parse_db_options(
                     .context("no query_timeout specified")?
                     .parse::<u64>()
                     .context("unable to parse query_timeout")?,
+                password: opts.get("password").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
             let config = Config::SnowflakeConfig(snowflake_config);
