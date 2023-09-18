@@ -1,8 +1,0 @@
-version: 2
-
-sources:
-  - name: events_raw_source
-    database: postgres
-    schema: dst
-    tables:
-      - name: events
