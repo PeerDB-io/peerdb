@@ -63,10 +63,10 @@ func (s *PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int
 	s.NoError(err)
 }
 
-func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified string) error {
+func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	// Execute the two EXCEPT queries
 	for {
-		err := s.compareQuery(srcSchemaQualified, dstSchemaQualified)
+		err := s.compareQuery(srcSchemaQualified, dstSchemaQualified, selector)
 		// while testing, the prepared plan might break due to schema changes
 		// solution is to retry, prepared statement should be evicted upon the first error
 		if err != nil && !strings.Contains(err.Error(), "cached plan must not change result type") {
@@ -78,7 +78,7 @@ func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQu
 	}
 
 	for {
-		err := s.compareQuery(dstSchemaQualified, srcSchemaQualified)
+		err := s.compareQuery(dstSchemaQualified, srcSchemaQualified, selector)
 		// while testing, the prepared plan might break due to schema changes
 		// solution is to retry, prepared statement should be evicted upon the first error
 		if err != nil && !strings.Contains(err.Error(), "cached plan must not change result type") {
@@ -93,8 +93,9 @@ func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQu
 	return nil
 }
 
-func (s *PeerFlowE2ETestSuitePG) compareQuery(schema1, schema2 string) error {
-	query := fmt.Sprintf("SELECT * FROM %s EXCEPT SELECT * FROM %s", schema1, schema2)
+func (s *PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualified, selector string) error {
+	query := fmt.Sprintf("SELECT %s FROM %s EXCEPT SELECT %s FROM %s", selector, srcSchemaQualified,
+		selector, dstSchemaQualified)
 	rows, _ := s.pool.Query(context.Background(), query)
 	rowsPresent := false
 
@@ -163,7 +164,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	err = env.GetWorkflowError()
 	s.NoError(err)
 
-	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified)
+	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
 	if err != nil {
 		s.FailNow(err.Error())
 	}

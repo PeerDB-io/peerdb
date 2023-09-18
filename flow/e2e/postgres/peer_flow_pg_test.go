@@ -73,7 +73,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	s.Error(err)
 	s.Contains(err.Error(), "continue as new")
 
-	err = s.comparePGTables(srcTableName, dstTableName)
+	err = s.comparePGTables(srcTableName, dstTableName, "id,key,value")
 	s.NoError(err)
 
 	env.AssertExpectations(s.T())
@@ -121,7 +121,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our first row.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
-		err = s.comparePGTables(srcTableName, dstTableName)
+		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
 		s.NoError(err)
 
 		// alter source table, add column c2 and insert another row.
@@ -136,7 +136,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
-		err = s.comparePGTables(srcTableName, dstTableName)
+		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
 		s.NoError(err)
 
 		// alter source table, add column c3, drop column c2 and insert another row.
@@ -151,7 +151,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
-		err = s.comparePGTables(srcTableName, dstTableName)
+		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
 		s.NoError(err)
 
 		// alter source table, drop column c3 and insert another row.
@@ -166,7 +166,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
-		err = s.comparePGTables(srcTableName, dstTableName)
+		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
 		s.NoError(err)
 	}()
 
