@@ -34,7 +34,7 @@ pub fn create(nexus: &mut Client) {
 
     let create_stmt = format!(
         "
-    CREATE PEER pg_test FROM POSTGRES WITH
+    CREATE PEER IF NOT EXISTS pg_test FROM POSTGRES WITH
     (
         host = '{}',
         port = '{}',
@@ -45,17 +45,5 @@ pub fn create(nexus: &mut Client) {
         &peer_host, &peer_port, &peer_user, &peer_password, &peer_database
     );
 
-    let creation_status = nexus.simple_query(&create_stmt);
-    match creation_status {
-        Ok(_) => (),
-        Err(err) => {
-            let create_err = err
-                .as_db_error()
-                .expect("failed to unwrap create peer error");
-            let already_exists_case = create_err.message().contains("(pg_test) already exists");
-            if !already_exists_case {
-                panic!("failed to create pg peer: {}", err)
-            }
-        }
-    }
+    let _ = nexus.simple_query(&create_stmt);
 }

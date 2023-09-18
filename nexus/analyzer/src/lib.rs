@@ -98,9 +98,11 @@ pub enum PeerDDL {
         if_not_exists: bool,
     },
     CreateMirrorForCDC {
+        if_not_exists: bool,
         flow_job: FlowJob,
     },
     CreateMirrorForSelect {
+        if_not_exists: bool,
         qrep_flow_job: QRepFlowJob,
     },
     ExecuteMirrorForSelect {
@@ -136,7 +138,10 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                     if_not_exists: *if_not_exists,
                 }))
             }
-            Statement::CreateMirror { create_mirror } => {
+            Statement::CreateMirror {
+                if_not_exists,
+                create_mirror,
+            } => {
                 match create_mirror {
                     CDC(cdc) => {
                         let mut flow_job_table_mappings = vec![];
@@ -243,7 +248,6 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
                             _ => None,
                         };
-                        
 
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
@@ -275,7 +279,10 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             ));
                         }
 
-                        Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
+                        Ok(Some(PeerDDL::CreateMirrorForCDC {
+                            if_not_exists: *if_not_exists,
+                            flow_job,
+                        }))
                     }
                     Select(select) => {
                         let mut raw_options = HashMap::new();
@@ -304,7 +311,10 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             disabled,
                         };
 
-                        Ok(Some(PeerDDL::CreateMirrorForSelect { qrep_flow_job }))
+                        Ok(Some(PeerDDL::CreateMirrorForSelect {
+                            if_not_exists: *if_not_exists,
+                            qrep_flow_job,
+                        }))
                     }
                 }
             }
