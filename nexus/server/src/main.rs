@@ -316,22 +316,27 @@ impl NexusBackend {
                             err_msg: "flow service is not configured".to_owned(),
                         })));
                     }
-
-                    let catalog = self.catalog.lock().await;
-                    let mirror_details =
-                        Self::check_for_mirror(&catalog, qrep_flow_job.name.clone()).await?;
+                    let mirror_details;
+                    {
+                        let catalog = self.catalog.lock().await;
+                        mirror_details =
+                            Self::check_for_mirror(&catalog, qrep_flow_job.name.clone()).await?;
+                    }
                     if mirror_details.is_none() {
-                        catalog
-                            .create_qrep_flow_job_entry(&qrep_flow_job)
-                            .await
-                            .map_err(|err| {
-                                PgWireError::ApiError(Box::new(PgError::Internal {
-                                    err_msg: format!(
-                                        "unable to create mirror job entry: {:?}",
-                                        err
-                                    ),
-                                }))
-                            })?;
+                        {
+                            let catalog = self.catalog.lock().await;
+                            catalog
+                                .create_qrep_flow_job_entry(&qrep_flow_job)
+                                .await
+                                .map_err(|err| {
+                                    PgWireError::ApiError(Box::new(PgError::Internal {
+                                        err_msg: format!(
+                                            "unable to create mirror job entry: {:?}",
+                                            err
+                                        ),
+                                    }))
+                                })?;
+                        }
 
                         if qrep_flow_job.disabled {
                             let create_mirror_success =
