@@ -336,6 +336,10 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
 	fetchSize := shared.FetchAndChannelSize
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("[pg_query_executor] executing cursor declaration for %v with args %v", cursorQuery, args)
 	_, err = tx.Exec(qe.ctx, cursorQuery, args...)
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{

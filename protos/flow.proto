@@ -202,12 +202,18 @@ message TIDPartitionRange {
   TID end = 2;
 }
 
+message XMINPartitionRange {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
     IntPartitionRange int_range = 1;
     TimestampPartitionRange timestamp_range = 2;
     TIDPartitionRange tid_range = 3;
+    XMINPartitionRange xmin_range = 4;
   }
 }
 

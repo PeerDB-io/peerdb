@@ -379,11 +379,6 @@ func GenerateMergeCommand(
 		upsertKeyCols[i] = caseMatchedCols[strings.ToLower(col)]
 	}
 
-	watermarkCol, ok := caseMatchedCols[strings.ToLower(watermarkCol)]
-	if !ok {
-		return "", fmt.Errorf("watermark column '%s' not found in destination table", watermarkCol)
-	}
-
 	upsertKeys := []string{}
 	partitionKeyCols := []string{}
 	for _, key := range upsertKeyCols {
@@ -405,22 +400,19 @@ func GenerateMergeCommand(
 	updateSetClause := strings.Join(updateSetClauses, ", ")
 	insertColumnsClause := strings.Join(insertColumnsClauses, ", ")
 	insertValuesClause := strings.Join(insertValuesClauses, ", ")
-
-	quotedWMC := utils.QuoteIdentifier(watermarkCol)
-
 	selectCmd := fmt.Sprintf(`
 		SELECT *
 		FROM %s
 		QUALIFY ROW_NUMBER() OVER (PARTITION BY %s ORDER BY %s DESC) = 1
-	`, tempTableName, strings.Join(partitionKeyCols, ","), quotedWMC)
+	`, tempTableName, strings.Join(partitionKeyCols, ","), partitionKeyCols[0])
 
 	mergeCmd := fmt.Sprintf(`
-		MERGE INTO %s dst
-		USING (%s) src
-		ON %s
-		WHEN MATCHED AND src.%s > dst.%s THEN UPDATE SET %s
-		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-	`, dstTable, selectCmd, upsertKeyClause, quotedWMC, quotedWMC,
+			MERGE INTO %s dst
+			USING (%s) src
+			ON %s
+			WHEN MATCHED THEN UPDATE SET %s
+			WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
+		`, dstTable, selectCmd, upsertKeyClause,
 		updateSetClause, insertColumnsClause, insertValuesClause)
 
 	return mergeCmd, nil
