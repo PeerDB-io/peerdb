@@ -230,6 +230,9 @@ func (c *PostgresConnector) getMinMaxValues(
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	if config.WatermarkColumn == "xmin" {
+		quotedWatermarkColumn = fmt.Sprintf("%s::text::bigint", quotedWatermarkColumn)
+	}
 	// Get the maximum value from the database
 	maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
 	row := tx.QueryRow(c.ctx, maxQuery)
