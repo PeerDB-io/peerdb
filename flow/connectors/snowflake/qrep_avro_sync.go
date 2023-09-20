@@ -405,31 +405,15 @@ func GenerateMergeCommand(
 		FROM %s
 		QUALIFY ROW_NUMBER() OVER (PARTITION BY %s ORDER BY %s DESC) = 1
 	`, tempTableName, strings.Join(partitionKeyCols, ","), partitionKeyCols[0])
-	var mergeCmd string
-	if watermarkCol == "xmin" { // we don't want to depend on wmc
-		mergeCmd = fmt.Sprintf(`
+
+	mergeCmd := fmt.Sprintf(`
 			MERGE INTO %s dst
 			USING (%s) src
 			ON %s
 			WHEN MATCHED THEN UPDATE SET %s
 			WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
 		`, dstTable, selectCmd, upsertKeyClause,
-			updateSetClause, insertColumnsClause, insertValuesClause)
-	} else {
-		watermarkCol, ok := caseMatchedCols[strings.ToLower(watermarkCol)]
-		if !ok {
-			return "", fmt.Errorf("watermark column '%s' not found in destination table", watermarkCol)
-		}
-		quotedWMC := utils.QuoteIdentifier(watermarkCol)
-		mergeCmd = fmt.Sprintf(`
-			MERGE INTO %s dst
-			USING (%s) src
-			ON %s
-			WHEN MATCHED AND src.%s > dst.%s THEN UPDATE SET %s
-			WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-		`, dstTable, selectCmd, upsertKeyClause, quotedWMC, quotedWMC,
-			updateSetClause, insertColumnsClause, insertValuesClause)
-	}
+		updateSetClause, insertColumnsClause, insertValuesClause)
 
 	return mergeCmd, nil
 }
