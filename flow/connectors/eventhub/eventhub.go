@@ -350,6 +350,7 @@ func (c *EventHubConnector) SetupNormalizedTables(
 }
 
 func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
-	// TODO (kaushik): this has to be implemented for DROP PEER support.
-	panic("sync flow cleanup not implemented for event hub")
+	_, err := c.pgMetadata.pool.Exec(c.ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
+		metadataSchema))
+	return err
 }
