@@ -811,7 +811,8 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 		return fmt.Errorf("error dropping publication: %w", err)
 	}
 
-	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slotName))
+	_, err = pullFlowCleanupTx.Exec(c.ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
+	 WHERE slot_name=$1`, slotName)
 	if err != nil {
 		return fmt.Errorf("error dropping replication slot: %w", err)
 	}
