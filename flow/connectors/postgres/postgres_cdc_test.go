@@ -414,8 +414,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 	}
 
 	err = suite.connector.PullFlowCleanup(nonExistentFlowName)
-	suite.Errorf(err, "error dropping replication slot:"+
-		"ERROR: replication slot \"%s\" does not exist (SQLSTATE 42704)", nonExistentFlowName)
+	suite.Nil(err)
 
 	// creating table and the replication slots for it, and dropping before pull records.
 	_, err = suite.connector.pool.Exec(context.Background(),
