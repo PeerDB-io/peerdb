@@ -85,7 +85,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		StartToCloseTimeout: 24 * time.Hour,
 		// TODO: activity needs to call heartbeat.
 		// see https://github.com/PeerDB-io/nexus/issues/216
-		HeartbeatTimeout: 5 * time.Minute,
+		HeartbeatTimeout: 30 * time.Second,
 	})
 
 	// execute StartFlow on the peers to start the flow

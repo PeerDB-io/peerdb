@@ -157,6 +157,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 // StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput) (*model.SyncResponse, error) {
+	activity.RecordHeartbeat(ctx, "starting flow...")
 	conn := input.FlowConnectionConfigs
 
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
@@ -180,6 +181,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
 	}
+	activity.RecordHeartbeat(ctx, "initialized table schema")
 
 	log.WithFields(log.Fields{
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
@@ -202,6 +204,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		return nil, fmt.Errorf("failed to pull records: %w", err)
 	}
 	recordBatch := recordsWithTableSchemaDelta.RecordBatch
+
+	pullRecordWithCount := fmt.Sprintf("pulled %d records", len(recordBatch.Records))
+	activity.RecordHeartbeat(ctx, pullRecordWithCount)
+
 	if a.CatalogMirrorMonitor.IsActive() && len(recordBatch.Records) > 0 {
 		syncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
 		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
@@ -237,6 +243,15 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			TableSchemaDelta:       recordsWithTableSchemaDelta.TableSchemaDelta,
 		}, nil
 	}
+
+	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
+		jobName := input.FlowConnectionConfigs.FlowJobName
+		return fmt.Sprintf("pushing records for job - %s", jobName)
+	})
+
+	defer func() {
+		shutdown <- true
+	}()
 
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
@@ -275,7 +290,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 	res.TableSchemaDelta = recordsWithTableSchemaDelta.TableSchemaDelta
 	res.RelationMessageMapping = recordsWithTableSchemaDelta.RelationMessageMapping
-	activity.RecordHeartbeat(ctx, "pushed records")
+
+	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
+	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 
 	return res, nil
 }
