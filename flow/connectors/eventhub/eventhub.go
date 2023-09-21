@@ -182,6 +182,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		FirstSyncedCheckPointID: batch.FirstCheckPointID,
 		LastSyncedCheckPointID:  batch.LastCheckPointID,
 		NumRecordsSynced:        int64(len(batch.Records)),
+		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
 
