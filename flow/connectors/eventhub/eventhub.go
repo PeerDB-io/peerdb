@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	cmap "github.com/orcaman/concurrent-map/v2"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 )
@@ -28,7 +29,7 @@ type EventHubConnector struct {
 	tableSchemas  map[string]*protos.TableSchema
 	creds         *azidentity.DefaultAzureCredential
 	tokenProvider auth.TokenProvider
-	hubs          map[string]*eventhub.Hub
+	hubs          cmap.ConcurrentMap[string, *eventhub.Hub]
 }
 
 // NewEventHubConnector creates a new EventHubConnector.
@@ -60,7 +61,7 @@ func NewEventHubConnector(
 		pgMetadata:    pgMetadata,
 		creds:         defaultAzureCreds,
 		tokenProvider: jwtTokenProvider,
-		hubs:          make(map[string]*eventhub.Hub),
+		hubs:          cmap.New[*eventhub.Hub](),
 	}, nil
 }
 
@@ -68,7 +69,14 @@ func (c *EventHubConnector) Close() error {
 	var allErrors error
 
 	// close all the event hub connections.
-	for _, hub := range c.hubs {
+	for _, hubName := range c.hubs.Keys() {
+		hub, ok := c.hubs.Get(hubName)
+		if !ok {
+			log.Errorf("failed to get event hub connection: %v", hubName)
+			allErrors = errors.Join(allErrors, fmt.Errorf("failed to get event hub connection: %v", hubName))
+			continue
+		}
+
 		err := hub.Close(c.ctx)
 		if err != nil {
 			log.Errorf("failed to close event hub connection: %v", err)
@@ -104,7 +112,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	defer func() {
 		shutdown <- true
 	}()
-	tableNameRowsMapping := make(map[string]uint32)
+	tableNameRowsMapping := cmap.New[uint32]()
 	batch := req.Records
 	eventsPerHeartBeat := 1000
 	eventsPerBatch := int(req.PushBatchSize)
@@ -182,14 +190,14 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		FirstSyncedCheckPointID: batch.FirstCheckPointID,
 		LastSyncedCheckPointID:  batch.LastCheckPointID,
 		NumRecordsSynced:        int64(len(batch.Records)),
-		TableNameRowsMapping:    tableNameRowsMapping,
+		TableNameRowsMapping:    tableNameRowsMapping.Items(),
 	}, nil
 }
 
 func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 	maxParallelism int64,
 	flowName string,
-	tableNameRowsMapping map[string]uint32) error {
+	tableNameRowsMapping cmap.ConcurrentMap[string, uint32]) error {
 	if len(events) == 0 {
 		log.WithFields(log.Fields{
 			"flowName": flowName,
@@ -204,7 +212,6 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 	var wg sync.WaitGroup
 	var once sync.Once
 	var firstErr error
-	var mapLock sync.Mutex
 	// Limiting concurrent sends
 	guard := make(chan struct{}, maxParallelism)
 
@@ -237,9 +244,12 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 				"flowName": flowName,
 			}).Infof("pushed %d events to event hub: %s",
 				numEventsPushed, tblName)
-			mapLock.Lock()
-			defer mapLock.Unlock()
-			tableNameRowsMapping[tblName] += uint32(len(eventBatch))
+			rowCount, ok := tableNameRowsMapping.Get(tblName)
+			if !ok {
+				rowCount = uint32(0)
+			}
+			rowCount += uint32(len(eventBatch))
+			tableNameRowsMapping.Set(tblName, rowCount)
 		}(tblName, eventBatch)
 	}
 
@@ -255,14 +265,14 @@ func (c *EventHubConnector) sendEventBatch(events map[string][]*eventhub.Event,
 }
 
 func (c *EventHubConnector) getOrCreateHubConnection(name string) (*eventhub.Hub, error) {
-	hub, ok := c.hubs[name]
+	hub, ok := c.hubs.Get(name)
 	if !ok {
 		hub, err := eventhub.NewHub(c.config.GetNamespace(), name, c.tokenProvider)
 		if err != nil {
 			log.Errorf("failed to create event hub connection: %v", err)
 			return nil, err
 		}
-		c.hubs[name] = hub
+		c.hubs.Set(name, hub)
 		return hub, nil
 	}
 
