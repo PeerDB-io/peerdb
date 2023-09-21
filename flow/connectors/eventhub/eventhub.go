@@ -96,7 +96,7 @@ func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSc
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	shutdown := utils.HeartbeatRoutine(c.ctx, 1*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
 		return fmt.Sprintf("syncing records to eventhub with"+
 			" push parallelism %d and push batch size %d",
 			req.PushParallelism, req.PushBatchSize)
