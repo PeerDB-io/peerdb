@@ -249,6 +249,12 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -268,6 +274,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             replication_slot_name,
                             push_batch_size,
                             push_parallelism,
+                            max_batch_size,
                         };
 
                         // Error reporting
