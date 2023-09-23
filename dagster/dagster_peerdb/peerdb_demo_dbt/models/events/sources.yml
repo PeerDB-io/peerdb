@@ -1,8 +1,14 @@
 version: 2
 
 sources:
-  - name: events_raw_source
+  - name: peerdb_raw
     database: postgres
-    schema: dst
+    schema: peerdb_stage
     tables:
-      - name: events
+      - name: raw_union_pool
+  - name: direct_buys
+    database: postgres
+    schema: direct_buys
+    tables:
+      - name: client_code_mapping
+      - name: currency_mapping

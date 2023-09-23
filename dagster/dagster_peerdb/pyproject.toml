@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "dagster_peerdb"}]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.8"
 dagster = "^1.4.2"
 temporalio = "^1.2.0"
 asyncio = "^3.4.3"

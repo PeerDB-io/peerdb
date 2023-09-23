@@ -4,9 +4,9 @@ peerdb_demo_dbt:
     dev:
       type: postgres
       threads: 1
-      host: localhost
+      host: sai-test.postgres.database.azure.com
       port: 5432
-      user: postgres
-      pass: postgres
+      user: sai
+      pass: test123!
       dbname: postgres
-      schema: dst
+      schema: public

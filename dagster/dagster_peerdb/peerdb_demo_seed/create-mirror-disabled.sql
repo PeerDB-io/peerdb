@@ -1,13 +1,11 @@
 -- Customizable ETL from PostgreSQL to Snowflake
 CREATE MIRROR simple_mirror_from_src_to_dst FROM
-	postgres_peer TO postgres_peer FOR
+	sql_server TO pg_flex FOR
 $$
-  SELECT * FROM src.events
+  SELECT * FROM peerdb_result
 $$
 WITH (
-	destination_table_name = 'dst.events',
-	parallelism = 2,
-	refresh_interval = 30,
+	destination_table_name = 'peerdb_stage.peerdb_result',
   initial_copy_only=true,
   disabled=true
 );
