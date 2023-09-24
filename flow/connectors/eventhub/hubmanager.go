@@ -3,6 +3,7 @@ package conneventhub
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
@@ -33,9 +34,16 @@ func NewEventHubManager(
 func (m *EventHubManager) GetOrCreateHub(name string) (*azeventhubs.ProducerClient, error) {
 	hub, ok := m.hubs.Get(name)
 
+	namespace := m.namespace
+	// if the namespace isn't fully qualified, add the `.servicebus.windows.net`
+	// check by counting the number of '.' in the namespace
+	if strings.Count(namespace, ".") < 2 {
+		namespace = fmt.Sprintf("%s.servicebus.windows.net", namespace)
+	}
+
 	if !ok {
 		opts := &azeventhubs.ProducerClientOptions{}
-		hub, err := azeventhubs.NewProducerClient(m.namespace, name, m.creds, opts)
+		hub, err := azeventhubs.NewProducerClient(namespace, name, m.creds, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create eventhub client: %v", err)
 		}
