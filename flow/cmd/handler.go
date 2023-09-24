@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/cenkalti/backoff"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
@@ -119,6 +121,11 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
 	}
 
+	err = h.waitForWorkflowClose(ctx, req.WorkflowId)
+	if err != nil {
+		return nil, fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
+	}
+
 	workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
@@ -141,6 +148,33 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	return &protos.ShutdownResponse{
 		Ok: true,
 	}, nil
+}
+
+func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowID string) error {
+	expBackoff := backoff.NewExponentialBackOff()
+	expBackoff.InitialInterval = 5 * time.Second
+	expBackoff.MaxInterval = 30 * time.Second
+	expBackoff.MaxElapsedTime = 5 * time.Minute
+
+	operation := func() error {
+		workflowRes, err := h.temporalClient.DescribeWorkflowExecution(ctx, workflowID, "")
+		if err != nil {
+			return backoff.Permanent(fmt.Errorf("unable to describe PeerFlow workflow: %w", err)) // Permanent error will stop the retries
+		}
+
+		if workflowRes.WorkflowExecutionInfo.CloseTime != nil {
+			return nil
+		}
+
+		return fmt.Errorf("workflow - %s not closed yet: %v", workflowID, workflowRes)
+	}
+
+	err := backoff.Retry(operation, expBackoff)
+	if err != nil {
+		return nil, err
+	}
+
+	return nil
 }
 
 func (h *FlowRequestHandler) ListPeers(
