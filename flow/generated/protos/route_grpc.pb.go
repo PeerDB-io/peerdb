@@ -20,6 +20,8 @@ const _ = grpc.SupportPackageIsVersion7
 
 const (
 	FlowService_ListPeers_FullMethodName      = "/peerdb_route.FlowService/ListPeers"
+	FlowService_ValidatePeer_FullMethodName   = "/peerdb_route.FlowService/ValidatePeer"
+	FlowService_CreatePeer_FullMethodName     = "/peerdb_route.FlowService/CreatePeer"
 	FlowService_CreateCDCFlow_FullMethodName  = "/peerdb_route.FlowService/CreateCDCFlow"
 	FlowService_CreateQRepFlow_FullMethodName = "/peerdb_route.FlowService/CreateQRepFlow"
 	FlowService_ShutdownFlow_FullMethodName   = "/peerdb_route.FlowService/ShutdownFlow"
@@ -30,6 +32,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FlowServiceClient interface {
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
+	ValidatePeer(ctx context.Context, in *ValidatePeerRequest, opts ...grpc.CallOption) (*ValidatePeerResponse, error)
+	CreatePeer(ctx context.Context, in *CreatePeerRequest, opts ...grpc.CallOption) (*CreatePeerResponse, error)
 	CreateCDCFlow(ctx context.Context, in *CreateCDCFlowRequest, opts ...grpc.CallOption) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error)
 	ShutdownFlow(ctx context.Context, in *ShutdownRequest, opts ...grpc.CallOption) (*ShutdownResponse, error)
@@ -46,6 +50,24 @@ func NewFlowServiceClient(cc grpc.ClientConnInterface) FlowServiceClient {
 func (c *flowServiceClient) ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error) {
 	out := new(ListPeersResponse)
 	err := c.cc.Invoke(ctx, FlowService_ListPeers_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) ValidatePeer(ctx context.Context, in *ValidatePeerRequest, opts ...grpc.CallOption) (*ValidatePeerResponse, error) {
+	out := new(ValidatePeerResponse)
+	err := c.cc.Invoke(ctx, FlowService_ValidatePeer_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) CreatePeer(ctx context.Context, in *CreatePeerRequest, opts ...grpc.CallOption) (*CreatePeerResponse, error) {
+	out := new(CreatePeerResponse)
+	err := c.cc.Invoke(ctx, FlowService_CreatePeer_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -84,6 +106,8 @@ func (c *flowServiceClient) ShutdownFlow(ctx context.Context, in *ShutdownReques
 // for forward compatibility
 type FlowServiceServer interface {
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
+	ValidatePeer(context.Context, *ValidatePeerRequest) (*ValidatePeerResponse, error)
+	CreatePeer(context.Context, *CreatePeerRequest) (*CreatePeerResponse, error)
 	CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error)
 	ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
@@ -96,6 +120,12 @@ type UnimplementedFlowServiceServer struct {
 
 func (UnimplementedFlowServiceServer) ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPeers not implemented")
+}
+func (UnimplementedFlowServiceServer) ValidatePeer(context.Context, *ValidatePeerRequest) (*ValidatePeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidatePeer not implemented")
+}
+func (UnimplementedFlowServiceServer) CreatePeer(context.Context, *CreatePeerRequest) (*CreatePeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreatePeer not implemented")
 }
 func (UnimplementedFlowServiceServer) CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateCDCFlow not implemented")
@@ -133,6 +163,42 @@ func _FlowService_ListPeers_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).ListPeers(ctx, req.(*ListPeersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_ValidatePeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidatePeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).ValidatePeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_ValidatePeer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).ValidatePeer(ctx, req.(*ValidatePeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_CreatePeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CreatePeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CreatePeer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CreatePeer(ctx, req.(*CreatePeerRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -201,6 +267,14 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListPeers",
 			Handler:    _FlowService_ListPeers_Handler,
+		},
+		{
+			MethodName: "ValidatePeer",
+			Handler:    _FlowService_ValidatePeer_Handler,
+		},
+		{
+			MethodName: "CreatePeer",
+			Handler:    _FlowService_CreatePeer_Handler,
 		},
 		{
 			MethodName: "CreateCDCFlow",

@@ -7,15 +7,15 @@ import { LayoutMain, RowWithSelect } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { Select } from '@/lib/Select';
 
-export default function CreateConnector() {
+export default function CreatePeer() {
   return (
     <LayoutMain alignSelf='center' justifySelf='center' width='xxLarge'>
       <Panel>
         <Label variant='title3'>Select source</Label>
         <Label colorName='lowContrast'>
-          Start by selecting the data source for you new connector.
+          Start by selecting the data source for your new peer.
         </Label>
-        <Action icon={<Icon name='help' />}>Learn about connectors</Action>
+        <Action icon={<Icon name='help' />}>Learn about peers</Action>
       </Panel>
       <Panel>
         <Label colorName='lowContrast' variant='subheadline'>

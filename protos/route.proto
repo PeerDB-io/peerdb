@@ -41,8 +41,41 @@ message ListPeersResponse {
   repeated peerdb_peers.Peer peers = 1;
 }
 
+message ValidatePeerRequest {
+  string name = 1;
+}
+
+message CreatePeerRequest {
+  string name = 1;
+}
+
+enum ValidatePeerStatus {
+  VALID = 0;
+  INVALID = 1;
+  VALIDATING = 2;
+  ERROR = 3;
+}
+
+enum CreatePeerStatus {
+  CREATED = 0;
+  PENDING = 1;
+  FAILED = 2;
+}
+
+message ValidatePeerResponse {
+  ValidatePeerStatus status = 1;
+  string message = 2;
+}
+
+message CreatePeerResponse {
+  CreatePeerStatus status = 1;
+  string message = 2;
+}
+
 service FlowService {
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {}
+  rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {}
+  rpc CreatePeer(CreatePeerRequest) returns (CreatePeerResponse) {}
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {}
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}

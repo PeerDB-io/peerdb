@@ -17,6 +17,90 @@ import { Peer } from "./peers";
 
 export const protobufPackage = "peerdb_route";
 
+export enum ValidatePeerStatus {
+  VALID = 0,
+  INVALID = 1,
+  VALIDATING = 2,
+  ERROR = 3,
+  UNRECOGNIZED = -1,
+}
+
+export function validatePeerStatusFromJSON(object: any): ValidatePeerStatus {
+  switch (object) {
+    case 0:
+    case "VALID":
+      return ValidatePeerStatus.VALID;
+    case 1:
+    case "INVALID":
+      return ValidatePeerStatus.INVALID;
+    case 2:
+    case "VALIDATING":
+      return ValidatePeerStatus.VALIDATING;
+    case 3:
+    case "ERROR":
+      return ValidatePeerStatus.ERROR;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return ValidatePeerStatus.UNRECOGNIZED;
+  }
+}
+
+export function validatePeerStatusToJSON(object: ValidatePeerStatus): string {
+  switch (object) {
+    case ValidatePeerStatus.VALID:
+      return "VALID";
+    case ValidatePeerStatus.INVALID:
+      return "INVALID";
+    case ValidatePeerStatus.VALIDATING:
+      return "VALIDATING";
+    case ValidatePeerStatus.ERROR:
+      return "ERROR";
+    case ValidatePeerStatus.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export enum CreatePeerStatus {
+  CREATED = 0,
+  PENDING = 1,
+  FAILED = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function createPeerStatusFromJSON(object: any): CreatePeerStatus {
+  switch (object) {
+    case 0:
+    case "CREATED":
+      return CreatePeerStatus.CREATED;
+    case 1:
+    case "PENDING":
+      return CreatePeerStatus.PENDING;
+    case 2:
+    case "FAILED":
+      return CreatePeerStatus.FAILED;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return CreatePeerStatus.UNRECOGNIZED;
+  }
+}
+
+export function createPeerStatusToJSON(object: CreatePeerStatus): string {
+  switch (object) {
+    case CreatePeerStatus.CREATED:
+      return "CREATED";
+    case CreatePeerStatus.PENDING:
+      return "PENDING";
+    case CreatePeerStatus.FAILED:
+      return "FAILED";
+    case CreatePeerStatus.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 export interface CreateCDCFlowRequest {
   connectionConfigs: FlowConnectionConfigs | undefined;
 }
@@ -50,6 +134,24 @@ export interface ListPeersRequest {
 
 export interface ListPeersResponse {
   peers: Peer[];
+}
+
+export interface ValidatePeerRequest {
+  name: string;
+}
+
+export interface CreatePeerRequest {
+  name: string;
+}
+
+export interface ValidatePeerResponse {
+  status: ValidatePeerStatus;
+  message: string;
+}
+
+export interface CreatePeerResponse {
+  status: CreatePeerStatus;
+  message: string;
 }
 
 function createBaseCreateCDCFlowRequest(): CreateCDCFlowRequest {
@@ -570,6 +672,268 @@ export const ListPeersResponse = {
   },
 };
 
+function createBaseValidatePeerRequest(): ValidatePeerRequest {
+  return { name: "" };
+}
+
+export const ValidatePeerRequest = {
+  encode(message: ValidatePeerRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ValidatePeerRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseValidatePeerRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ValidatePeerRequest {
+    return { name: isSet(object.name) ? String(object.name) : "" };
+  },
+
+  toJSON(message: ValidatePeerRequest): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ValidatePeerRequest>, I>>(base?: I): ValidatePeerRequest {
+    return ValidatePeerRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ValidatePeerRequest>, I>>(object: I): ValidatePeerRequest {
+    const message = createBaseValidatePeerRequest();
+    message.name = object.name ?? "";
+    return message;
+  },
+};
+
+function createBaseCreatePeerRequest(): CreatePeerRequest {
+  return { name: "" };
+}
+
+export const CreatePeerRequest = {
+  encode(message: CreatePeerRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreatePeerRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreatePeerRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreatePeerRequest {
+    return { name: isSet(object.name) ? String(object.name) : "" };
+  },
+
+  toJSON(message: CreatePeerRequest): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CreatePeerRequest>, I>>(base?: I): CreatePeerRequest {
+    return CreatePeerRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CreatePeerRequest>, I>>(object: I): CreatePeerRequest {
+    const message = createBaseCreatePeerRequest();
+    message.name = object.name ?? "";
+    return message;
+  },
+};
+
+function createBaseValidatePeerResponse(): ValidatePeerResponse {
+  return { status: 0, message: "" };
+}
+
+export const ValidatePeerResponse = {
+  encode(message: ValidatePeerResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.status !== 0) {
+      writer.uint32(8).int32(message.status);
+    }
+    if (message.message !== "") {
+      writer.uint32(18).string(message.message);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ValidatePeerResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseValidatePeerResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.status = reader.int32() as any;
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.message = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ValidatePeerResponse {
+    return {
+      status: isSet(object.status) ? validatePeerStatusFromJSON(object.status) : 0,
+      message: isSet(object.message) ? String(object.message) : "",
+    };
+  },
+
+  toJSON(message: ValidatePeerResponse): unknown {
+    const obj: any = {};
+    if (message.status !== 0) {
+      obj.status = validatePeerStatusToJSON(message.status);
+    }
+    if (message.message !== "") {
+      obj.message = message.message;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ValidatePeerResponse>, I>>(base?: I): ValidatePeerResponse {
+    return ValidatePeerResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ValidatePeerResponse>, I>>(object: I): ValidatePeerResponse {
+    const message = createBaseValidatePeerResponse();
+    message.status = object.status ?? 0;
+    message.message = object.message ?? "";
+    return message;
+  },
+};
+
+function createBaseCreatePeerResponse(): CreatePeerResponse {
+  return { status: 0, message: "" };
+}
+
+export const CreatePeerResponse = {
+  encode(message: CreatePeerResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.status !== 0) {
+      writer.uint32(8).int32(message.status);
+    }
+    if (message.message !== "") {
+      writer.uint32(18).string(message.message);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreatePeerResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreatePeerResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.status = reader.int32() as any;
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.message = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreatePeerResponse {
+    return {
+      status: isSet(object.status) ? createPeerStatusFromJSON(object.status) : 0,
+      message: isSet(object.message) ? String(object.message) : "",
+    };
+  },
+
+  toJSON(message: CreatePeerResponse): unknown {
+    const obj: any = {};
+    if (message.status !== 0) {
+      obj.status = createPeerStatusToJSON(message.status);
+    }
+    if (message.message !== "") {
+      obj.message = message.message;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CreatePeerResponse>, I>>(base?: I): CreatePeerResponse {
+    return CreatePeerResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CreatePeerResponse>, I>>(object: I): CreatePeerResponse {
+    const message = createBaseCreatePeerResponse();
+    message.status = object.status ?? 0;
+    message.message = object.message ?? "";
+    return message;
+  },
+};
+
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
   listPeers: {
@@ -580,6 +944,24 @@ export const FlowServiceService = {
     requestDeserialize: (value: Buffer) => ListPeersRequest.decode(value),
     responseSerialize: (value: ListPeersResponse) => Buffer.from(ListPeersResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => ListPeersResponse.decode(value),
+  },
+  validatePeer: {
+    path: "/peerdb_route.FlowService/ValidatePeer",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: ValidatePeerRequest) => Buffer.from(ValidatePeerRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => ValidatePeerRequest.decode(value),
+    responseSerialize: (value: ValidatePeerResponse) => Buffer.from(ValidatePeerResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => ValidatePeerResponse.decode(value),
+  },
+  createPeer: {
+    path: "/peerdb_route.FlowService/CreatePeer",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: CreatePeerRequest) => Buffer.from(CreatePeerRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => CreatePeerRequest.decode(value),
+    responseSerialize: (value: CreatePeerResponse) => Buffer.from(CreatePeerResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => CreatePeerResponse.decode(value),
   },
   createCdcFlow: {
     path: "/peerdb_route.FlowService/CreateCDCFlow",
@@ -612,6 +994,8 @@ export const FlowServiceService = {
 
 export interface FlowServiceServer extends UntypedServiceImplementation {
   listPeers: handleUnaryCall<ListPeersRequest, ListPeersResponse>;
+  validatePeer: handleUnaryCall<ValidatePeerRequest, ValidatePeerResponse>;
+  createPeer: handleUnaryCall<CreatePeerRequest, CreatePeerResponse>;
   createCdcFlow: handleUnaryCall<CreateCDCFlowRequest, CreateCDCFlowResponse>;
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
@@ -632,6 +1016,36 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ListPeersResponse) => void,
+  ): ClientUnaryCall;
+  validatePeer(
+    request: ValidatePeerRequest,
+    callback: (error: ServiceError | null, response: ValidatePeerResponse) => void,
+  ): ClientUnaryCall;
+  validatePeer(
+    request: ValidatePeerRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ValidatePeerResponse) => void,
+  ): ClientUnaryCall;
+  validatePeer(
+    request: ValidatePeerRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ValidatePeerResponse) => void,
+  ): ClientUnaryCall;
+  createPeer(
+    request: CreatePeerRequest,
+    callback: (error: ServiceError | null, response: CreatePeerResponse) => void,
+  ): ClientUnaryCall;
+  createPeer(
+    request: CreatePeerRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: CreatePeerResponse) => void,
+  ): ClientUnaryCall;
+  createPeer(
+    request: CreatePeerRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: CreatePeerResponse) => void,
   ): ClientUnaryCall;
   createCdcFlow(
     request: CreateCDCFlowRequest,

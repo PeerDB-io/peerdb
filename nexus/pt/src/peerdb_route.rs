@@ -53,6 +53,95 @@ pub struct ListPeersResponse {
     #[prost(message, repeated, tag="1")]
     pub peers: ::prost::alloc::vec::Vec<super::peerdb_peers::Peer>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ValidatePeerRequest {
+    #[prost(string, tag="1")]
+    pub name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreatePeerRequest {
+    #[prost(string, tag="1")]
+    pub name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ValidatePeerResponse {
+    #[prost(enumeration="ValidatePeerStatus", tag="1")]
+    pub status: i32,
+    #[prost(string, tag="2")]
+    pub message: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreatePeerResponse {
+    #[prost(enumeration="CreatePeerStatus", tag="1")]
+    pub status: i32,
+    #[prost(string, tag="2")]
+    pub message: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ValidatePeerStatus {
+    Valid = 0,
+    Invalid = 1,
+    Validating = 2,
+    Error = 3,
+}
+impl ValidatePeerStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ValidatePeerStatus::Valid => "VALID",
+            ValidatePeerStatus::Invalid => "INVALID",
+            ValidatePeerStatus::Validating => "VALIDATING",
+            ValidatePeerStatus::Error => "ERROR",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "VALID" => Some(Self::Valid),
+            "INVALID" => Some(Self::Invalid),
+            "VALIDATING" => Some(Self::Validating),
+            "ERROR" => Some(Self::Error),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum CreatePeerStatus {
+    Created = 0,
+    Pending = 1,
+    Failed = 2,
+}
+impl CreatePeerStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            CreatePeerStatus::Created => "CREATED",
+            CreatePeerStatus::Pending => "PENDING",
+            CreatePeerStatus::Failed => "FAILED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "CREATED" => Some(Self::Created),
+            "PENDING" => Some(Self::Pending),
+            "FAILED" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
 include!("peerdb_route.tonic.rs");
 include!("peerdb_route.serde.rs");
 // @@protoc_insertion_point(module)
