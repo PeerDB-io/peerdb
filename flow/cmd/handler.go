@@ -156,10 +156,14 @@ func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowI
 	expBackoff.MaxInterval = 30 * time.Second
 	expBackoff.MaxElapsedTime = 5 * time.Minute
 
+	// empty will terminate the latest run
+	runID := ""
+
 	operation := func() error {
-		workflowRes, err := h.temporalClient.DescribeWorkflowExecution(ctx, workflowID, "")
+		workflowRes, err := h.temporalClient.DescribeWorkflowExecution(ctx, workflowID, runID)
 		if err != nil {
-			return backoff.Permanent(fmt.Errorf("unable to describe PeerFlow workflow: %w", err)) // Permanent error will stop the retries
+			// Permanent error will stop the retries
+			return backoff.Permanent(fmt.Errorf("unable to describe PeerFlow workflow: %w", err))
 		}
 
 		if workflowRes.WorkflowExecutionInfo.CloseTime != nil {
@@ -171,7 +175,12 @@ func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowI
 
 	err := backoff.Retry(operation, expBackoff)
 	if err != nil {
-		return err
+		// terminate workflow if it is still running
+		reason := "PeerFlow workflow did not close in time"
+		err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, reason)
+		if err != nil {
+			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
+		}
 	}
 
 	return nil
