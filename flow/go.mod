@@ -36,6 +36,7 @@ require (
 )
 
 require (
+	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.0.0 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.4 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect

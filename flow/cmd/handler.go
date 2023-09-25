@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
@@ -119,6 +121,11 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
 	}
 
+	err = h.waitForWorkflowClose(ctx, req.WorkflowId)
+	if err != nil {
+		return nil, fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
+	}
+
 	workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
@@ -141,6 +148,42 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	return &protos.ShutdownResponse{
 		Ok: true,
 	}, nil
+}
+
+func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowID string) error {
+	expBackoff := backoff.NewExponentialBackOff()
+	expBackoff.InitialInterval = 5 * time.Second
+	expBackoff.MaxInterval = 30 * time.Second
+	expBackoff.MaxElapsedTime = 5 * time.Minute
+
+	// empty will terminate the latest run
+	runID := ""
+
+	operation := func() error {
+		workflowRes, err := h.temporalClient.DescribeWorkflowExecution(ctx, workflowID, runID)
+		if err != nil {
+			// Permanent error will stop the retries
+			return backoff.Permanent(fmt.Errorf("unable to describe PeerFlow workflow: %w", err))
+		}
+
+		if workflowRes.WorkflowExecutionInfo.CloseTime != nil {
+			return nil
+		}
+
+		return fmt.Errorf("workflow - %s not closed yet: %v", workflowID, workflowRes)
+	}
+
+	err := backoff.Retry(operation, expBackoff)
+	if err != nil {
+		// terminate workflow if it is still running
+		reason := "PeerFlow workflow did not close in time"
+		err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, reason)
+		if err != nil {
+			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (h *FlowRequestHandler) ListPeers(

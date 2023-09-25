@@ -380,12 +380,6 @@ func (c *EventHubConnector) SetupNormalizedTables(
 	}, nil
 }
 
-func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
-	_, err := c.pgMetadata.pool.Exec(c.ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
-		metadataSchema))
-	return err
-}
-
 func eventDataFromString(s string) *azeventhubs.EventData {
 	return &azeventhubs.EventData{
 		Body: []byte(s),
