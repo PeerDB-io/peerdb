@@ -226,3 +226,11 @@ func (c *EventHubConnector) incrementSyncBatchID(jobName string) error {
 
 	return nil
 }
+
+func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
+	_, err := c.pgMetadata.pool.Exec(c.ctx, `
+		DELETE FROM `+metadataSchema+`.`+lastSyncStateTableName+`
+		WHERE job_name = $1
+	`, jobName)
+	return err
+}

@@ -8,7 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	"github.com/cenkalti/backoff"
+	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
@@ -171,7 +171,7 @@ func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowI
 
 	err := backoff.Retry(operation, expBackoff)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	return nil
