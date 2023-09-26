@@ -118,6 +118,22 @@ func (c *CatalogMirrorMonitor) UpdateEndTimeForCDCBatch(ctx context.Context, flo
 	return nil
 }
 
+func (c *CatalogMirrorMonitor) GetThroughputForCDCBatch(ctx context.Context,
+	flowJobName string, batchID int64) (float64, error) {
+	if c == nil || c.catalogConn == nil {
+		return 0, nil
+	}
+
+	row := c.catalogConn.QueryRow(ctx, `SELECT rows_in_batch/EXTRACT(EPOCH FROM end_time - start_time)
+	 FROM peerdb_stats.cdc_batches WHERE flow_name=$1 AND batch_id=$2`, flowJobName, batchID)
+	var result float64
+	err := row.Scan(&result)
+	if err != nil {
+		return 0, fmt.Errorf("error reading throughput from cdc_batch: %w", err)
+	}
+	return result, nil
+}
+
 func (c *CatalogMirrorMonitor) AddCDCBatchTablesForFlow(ctx context.Context, flowJobName string,
 	batchID int64, tableNameRowsMapping map[string]uint32) error {
 	if c == nil || c.catalogConn == nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -238,6 +239,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		log.WithFields(log.Fields{
 			"flowName": input.FlowConnectionConfigs.FlowJobName,
 		}).Info("no records to push")
+		metrics.LogSyncMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1)
+		metrics.LogNormalizeMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1, 0)
 		return &model.SyncResponse{
 			RelationMessageMapping: recordsWithTableSchemaDelta.RelationMessageMapping,
 			TableSchemaDelta:       recordsWithTableSchemaDelta.TableSchemaDelta,
@@ -317,8 +320,18 @@ func (a *FlowableActivity) StartNormalize(
 			return nil, fmt.Errorf("failed to get last sync batch ID: %v", err)
 		}
 
-		return nil, a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
+		err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
 			lastSyncBatchID)
+		if err != nil {
+			return nil, err
+		}
+
+		throughput, err := a.CatalogMirrorMonitor.GetThroughputForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
+			lastSyncBatchID)
+		if err != nil {
+			return nil, err
+		}
+		metrics.LogCDCOverallMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, throughput)
 	} else if err != nil {
 		return nil, err
 	}
@@ -350,6 +363,13 @@ func (a *FlowableActivity) StartNormalize(
 	if err != nil {
 		return nil, err
 	}
+
+	throughput, err := a.CatalogMirrorMonitor.GetThroughputForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
+		res.EndBatchID)
+	if err != nil {
+		return nil, err
+	}
+	metrics.LogCDCOverallMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, throughput)
 
 	// log the number of batches normalized
 	if res != nil {
