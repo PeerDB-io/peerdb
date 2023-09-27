@@ -17,47 +17,54 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
 )
 
-type PostgresCDCSource struct {
+type postgresCDCSource struct {
 	ctx                    context.Context
 	replPool               *pgxpool.Pool
-	SrcTableIDNameMapping  map[uint32]string
-	TableNameMapping       map[string]string
+	srcTableIDNameMapping  map[uint32]string
+	tableNameMapping       map[string]string
 	slot                   string
 	publication            string
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
 	startLSN               pglogrepl.LSN
+	schemas                []string
+	allowTableAdditions    bool
 }
 
-type PostgresCDCConfig struct {
-	AppContext             context.Context
-	Connection             *pgxpool.Pool
-	Slot                   string
-	Publication            string
-	SrcTableIDNameMapping  map[uint32]string
-	TableNameMapping       map[string]string
-	RelationMessageMapping model.RelationMessageMapping
+type postgresCDCConfig struct {
+	appContext             context.Context
+	connection             *pgxpool.Pool
+	slot                   string
+	publication            string
+	srcTableIDNameMapping  map[uint32]string
+	tableNameMapping       map[string]string
+	relationMessageMapping model.RelationMessageMapping
+	schemas                []string
+	allowTableAdditions    bool
 }
 
 // Create a new PostgresCDCSource
-func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
-	return &PostgresCDCSource{
-		ctx:                    cdcConfig.AppContext,
-		replPool:               cdcConfig.Connection,
-		SrcTableIDNameMapping:  cdcConfig.SrcTableIDNameMapping,
-		TableNameMapping:       cdcConfig.TableNameMapping,
-		slot:                   cdcConfig.Slot,
-		publication:            cdcConfig.Publication,
-		relationMessageMapping: cdcConfig.RelationMessageMapping,
+func NewPostgresCDCSource(cdcConfig *postgresCDCConfig) (*postgresCDCSource, error) {
+	return &postgresCDCSource{
+		ctx:                    cdcConfig.appContext,
+		replPool:               cdcConfig.connection,
+		srcTableIDNameMapping:  cdcConfig.srcTableIDNameMapping,
+		tableNameMapping:       cdcConfig.tableNameMapping,
+		slot:                   cdcConfig.slot,
+		publication:            cdcConfig.publication,
+		relationMessageMapping: cdcConfig.relationMessageMapping,
 		typeMap:                pgtype.NewMap(),
+		schemas:                cdcConfig.schemas,
+		allowTableAdditions:    cdcConfig.allowTableAdditions,
 	}, nil
 }
 
 // PullRecords pulls records from the cdc stream
-func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
-	*model.RecordsWithTableSchemaDelta, error) {
+func (p *postgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
+	*model.RecordsWithDeltaInfo, error) {
 	// setup options
 	pluginArguments := []string{
 		"proto_version '1'",
@@ -110,18 +117,18 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
 }
 
 // start consuming the cdc stream
-func (p *PostgresCDCSource) consumeStream(
+func (p *postgresCDCSource) consumeStream(
 	conn *pgconn.PgConn,
 	req *model.PullRecordsRequest,
 	clientXLogPos pglogrepl.LSN,
-) (*model.RecordsWithTableSchemaDelta, error) {
+) (*model.RecordsWithDeltaInfo, error) {
 	// TODO (kaushik): take into consideration the MaxBatchSize
 	// parameters in the original request.
 	records := &model.RecordBatch{
 		Records:           make([]model.Record, 0),
 		TablePKeyLastSeen: make(map[model.TableWithPkey]int),
 	}
-	result := &model.RecordsWithTableSchemaDelta{
+	result := &model.RecordsWithDeltaInfo{
 		RecordBatch:            records,
 		TableSchemaDelta:       nil,
 		RelationMessageMapping: p.relationMessageMapping,
@@ -281,6 +288,14 @@ func (p *PostgresCDCSource) consumeStream(
 							result.TableSchemaDelta.SrcTableName)
 						earlyReturn = true
 					}
+				case *model.AddedTableRecord:
+					log.Infof("Detected additional table %s, returning currently accumulated records",
+						rec.GetTableName())
+					result.AdditionalTableInfo = &protos.AdditionalTableInfo{
+						TableName: rec.(*model.AddedTableRecord).TableName,
+						SrcSchema: rec.(*model.AddedTableRecord).SrcSchema,
+					}
+					earlyReturn = true
 				}
 			}
 
@@ -295,7 +310,7 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 }
 
-func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogrepl.XLogData) (model.Record, error) {
+func (p *postgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogrepl.XLogData) (model.Record, error) {
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
@@ -314,13 +329,28 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 		// for a commit message, update the last checkpoint id for the record batch.
 		batch.LastCheckPointID = int64(xld.WALStart)
 	case *pglogrepl.RelationMessage:
-		// TODO (kaushik): consider persistent state for a mirror job
-		// to be stored somewhere in temporal state. We might need to persist
-		// the state of the relation message somewhere
-		log.Debugf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
+		log.Infof("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
 			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns)
 		if p.relationMessageMapping[msg.RelationID] == nil {
-			p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)
+			_, ok := p.tableNameMapping[fmt.Sprintf("%s.%s", msg.Namespace, msg.RelationName)]
+			// either it's a table we are aware of from SetupFlow, so it is in the map
+			// or it is a table we are not aware of, in a schema we are aware of.
+			if ok || slices.Contains(p.schemas, msg.Namespace) {
+				p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)
+				if !ok {
+					if p.allowTableAdditions {
+						// stop processing, return this to ensure new table is created
+						return &model.AddedTableRecord{
+							CheckPointID: int64(xld.WALStart),
+							TableName:    msg.RelationName,
+							SrcSchema:    msg.Namespace,
+						}, nil
+					} else {
+						// the table is new, but we aren't going to add it to the destination.
+						delete(p.relationMessageMapping, msg.RelationID)
+					}
+				}
+			}
 		} else {
 			return p.processRelationMessage(xld.WALStart, convertRelationMessageToProto(msg))
 		}
@@ -335,11 +365,11 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 	return nil, nil
 }
 
-func (p *PostgresCDCSource) processInsertMessage(
+func (p *postgresCDCSource) processInsertMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 ) (model.Record, error) {
-	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
+	tableName, exists := p.srcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil
 	}
@@ -349,7 +379,8 @@ func (p *PostgresCDCSource) processInsertMessage(
 
 	rel, ok := p.relationMessageMapping[msg.RelationID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", msg.RelationID)
+		log.Warnf("unknown relation id: %d", msg.RelationID)
+		return nil, nil
 	}
 
 	// create empty map of string to interface{}
@@ -361,18 +392,18 @@ func (p *PostgresCDCSource) processInsertMessage(
 	return &model.InsertRecord{
 		CheckPointID:          int64(lsn),
 		Items:                 items,
-		DestinationTableName:  p.TableNameMapping[tableName],
+		DestinationTableName:  p.tableNameMapping[tableName],
 		SourceTableName:       tableName,
 		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
 
 // processUpdateMessage processes an update message and returns an UpdateRecord
-func (p *PostgresCDCSource) processUpdateMessage(
+func (p *postgresCDCSource) processUpdateMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 ) (model.Record, error) {
-	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
+	tableName, exists := p.srcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil
 	}
@@ -382,7 +413,8 @@ func (p *PostgresCDCSource) processUpdateMessage(
 
 	rel, ok := p.relationMessageMapping[msg.RelationID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", msg.RelationID)
+		log.Warnf("unknown relation id: %d", msg.RelationID)
+		return nil, nil
 	}
 
 	// create empty map of string to interface{}
@@ -400,18 +432,18 @@ func (p *PostgresCDCSource) processUpdateMessage(
 		CheckPointID:          int64(lsn),
 		OldItems:              oldItems,
 		NewItems:              newItems,
-		DestinationTableName:  p.TableNameMapping[tableName],
+		DestinationTableName:  p.tableNameMapping[tableName],
 		SourceTableName:       tableName,
 		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
 }
 
 // processDeleteMessage processes a delete message and returns a DeleteRecord
-func (p *PostgresCDCSource) processDeleteMessage(
+func (p *postgresCDCSource) processDeleteMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 ) (model.Record, error) {
-	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
+	tableName, exists := p.srcTableIDNameMapping[msg.RelationID]
 	if !exists {
 		return nil, nil
 	}
@@ -421,7 +453,8 @@ func (p *PostgresCDCSource) processDeleteMessage(
 
 	rel, ok := p.relationMessageMapping[msg.RelationID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", msg.RelationID)
+		log.Warnf("unknown relation id: %d", msg.RelationID)
+		return nil, nil
 	}
 
 	// create empty map of string to interface{}
@@ -433,7 +466,7 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	return &model.DeleteRecord{
 		CheckPointID:          int64(lsn),
 		Items:                 items,
-		DestinationTableName:  p.TableNameMapping[tableName],
+		DestinationTableName:  p.tableNameMapping[tableName],
 		SourceTableName:       tableName,
 		UnchangedToastColumns: unchangedToastColumns,
 	}, nil
@@ -446,7 +479,7 @@ It takes a tuple and a relation message as input and returns
 1. a map of column names to values and
 2. a string slice of unchanged TOAST column names
 */
-func (p *PostgresCDCSource) convertTupleToMap(
+func (p *postgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *protos.RelationMessage,
 ) (*model.RecordItems, map[string]bool, error) {
@@ -487,7 +520,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	return items, unchangedToastColumns, nil
 }
 
-func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, formatCode int16) (*qvalue.QValue, error) {
+func (p *postgresCDCSource) decodeColumnData(data []byte, dataType uint32, formatCode int16) (*qvalue.QValue, error) {
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
@@ -532,7 +565,7 @@ func convertRelationMessageToProto(msg *pglogrepl.RelationMessage) *protos.Relat
 }
 
 // processRelationMessage processes a delete message and returns a TableSchemaDelta
-func (p *PostgresCDCSource) processRelationMessage(
+func (p *postgresCDCSource) processRelationMessage(
 	lsn pglogrepl.LSN,
 	currRel *protos.RelationMessage,
 ) (model.Record, error) {
@@ -549,10 +582,8 @@ func (p *PostgresCDCSource) processRelationMessage(
 	}
 
 	schemaDelta := &protos.TableSchemaDelta{
-		// set it to the source table for now, so we can update the schema on the source side
-		// then at the Workflow level we set it t
-		SrcTableName:   p.SrcTableIDNameMapping[currRel.RelationId],
-		DstTableName:   p.TableNameMapping[p.SrcTableIDNameMapping[currRel.RelationId]],
+		SrcTableName:   p.srcTableIDNameMapping[currRel.RelationId],
+		DstTableName:   p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationId]],
 		AddedColumns:   make([]*protos.DeltaAddedColumn, 0),
 		DroppedColumns: make([]string, 0),
 	}

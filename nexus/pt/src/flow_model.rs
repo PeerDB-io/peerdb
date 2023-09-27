@@ -2,13 +2,14 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlparser::ast::MappingType;
 
 use crate::peerdb_flow;
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
-pub struct FlowJobTableMapping {
-    pub source_table_identifier: String,
-    pub target_table_identifier: String,
+pub struct FlowJobMapping {
+    pub source_identifier: String,
+    pub target_identifier: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -55,12 +56,12 @@ impl ToString for FlowSyncMode {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FlowJob {
     pub name: String,
     pub source_peer: String,
     pub target_peer: String,
-    pub table_mappings: Vec<FlowJobTableMapping>,
+    pub table_mappings: Vec<FlowJobMapping>,
     pub description: String,
     pub do_initial_copy: bool,
     pub publication_name: Option<String>,
@@ -76,6 +77,8 @@ pub struct FlowJob {
     pub push_parallelism: Option<i64>,
     pub push_batch_size: Option<i64>,
     pub max_batch_size: Option<u32>,
+    pub mapping_type: MappingType,
+    pub allow_table_additions: bool
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

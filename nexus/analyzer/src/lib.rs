@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Context;
 use pt::{
-    flow_model::{FlowJob, FlowJobTableMapping, FlowSyncMode, QRepFlowJob},
+    flow_model::{FlowJob, FlowJobMapping, FlowSyncMode, QRepFlowJob},
     peerdb_peers::{
         peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
         S3Config, SnowflakeConfig, SqlServerConfig,
@@ -151,15 +151,15 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
             } => {
                 match create_mirror {
                     CDC(cdc) => {
-                        let mut flow_job_table_mappings = vec![];
-                        for table_mapping in &cdc.table_mappings {
-                            flow_job_table_mappings.push(FlowJobTableMapping {
-                                source_table_identifier: table_mapping
+                        let mut flow_job_mappings = vec![];
+                        for mapping in &cdc.mappings {
+                            flow_job_mappings.push(FlowJobMapping {
+                                source_identifier: mapping
                                     .source_table_identifier
                                     .to_string()
                                     .to_lowercase(),
-                                target_table_identifier: table_mapping
-                                    .target_table_identifier
+                                target_identifier: mapping
+                                    .target_identifier
                                     .to_string()
                                     .to_lowercase(),
                             });
@@ -262,11 +262,16 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             _ => None,
                         };
 
+                        let allow_table_additions = match raw_options.remove("allow_table_additions") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            _ => false,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
                             target_peer: cdc.target_peer.to_string().to_lowercase(),
-                            table_mappings: flow_job_table_mappings,
+                            table_mappings: flow_job_mappings,
                             description: "".to_string(), // TODO: add description
                             do_initial_copy,
                             publication_name,
@@ -282,6 +287,8 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             push_batch_size,
                             push_parallelism,
                             max_batch_size,
+                            mapping_type: cdc.mapping_type,
+                            allow_table_additions
                         };
 
                         // Error reporting

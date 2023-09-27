@@ -83,9 +83,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		// TODO: activity needs to call heartbeat.
-		// see https://github.com/PeerDB-io/nexus/issues/216
-		HeartbeatTimeout: 30 * time.Second,
+		HeartbeatTimeout:    30 * time.Second,
 	})
 
 	// execute StartFlow on the peers to start the flow
@@ -100,6 +98,25 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	var syncRes *model.SyncResponse
 	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
+	}
+
+	if syncRes.AdditionalTableInfo != nil {
+		createAdditionalTableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 10 * time.Minute,
+		})
+		syncRes.AdditionalTableInfo.DstSchema = config.SchemaMapping[syncRes.AdditionalTableInfo.SrcSchema]
+		fCreateAdditionalTable := workflow.ExecuteActivity(createAdditionalTableCtx,
+			flowable.CreateAdditionalTable, &protos.CreateAdditionalTableInput{
+				FlowConnectionConfigs: config,
+				AdditionalTableInfo:   syncRes.AdditionalTableInfo,
+			})
+
+		var createAdditionalTableOutput *protos.AdditionalTableInfo
+		if err := fCreateAdditionalTable.Get(createAdditionalTableCtx,
+			&createAdditionalTableOutput); err != nil {
+			return nil, fmt.Errorf("failed to create additional table: %w", err)
+		}
+		syncRes.AdditionalTableInfo = createAdditionalTableOutput
 	}
 
 	return syncRes, nil

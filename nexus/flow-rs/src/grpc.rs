@@ -4,7 +4,7 @@ use anyhow::Context;
 use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
-    peerdb_flow::{QRepWriteMode, QRepWriteType},
+    peerdb_flow::{QRepWriteMode, QRepWriteType, MappingType},
     peerdb_route,
 };
 use serde_json::Value;
@@ -123,11 +123,11 @@ impl FlowGrpcClient {
         src: pt::peerdb_peers::Peer,
         dst: pt::peerdb_peers::Peer,
     ) -> anyhow::Result<String> {
-        let mut src_dst_name_map: HashMap<String, String> = HashMap::new();
+        let mut src_dst_name_mapping: HashMap<String, String> = HashMap::new();
         job.table_mappings.iter().for_each(|mapping| {
-            src_dst_name_map.insert(
-                mapping.source_table_identifier.clone(),
-                mapping.target_table_identifier.clone(),
+            src_dst_name_mapping.insert(
+                mapping.source_identifier.clone(),
+                mapping.target_identifier.clone(),
             );
         });
 
@@ -137,12 +137,15 @@ impl FlowGrpcClient {
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
         let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
         let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
+        let mapping_type = match job.mapping_type {
+            sqlparser::ast::MappingType::Table => pt::peerdb_flow::MappingType::Table,
+            sqlparser::ast::MappingType::Schema => pt::peerdb_flow::MappingType::Schema
+        };
 
-        let flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
+        let mut flow_conn_cfg = pt::peerdb_flow::FlowConnectionConfigs {
             source: Some(src),
             destination: Some(dst),
             flow_job_name: job.name.clone(),
-            table_name_mapping: src_dst_name_map,
             do_initial_copy,
             publication_name: publication_name.unwrap_or_default(),
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
@@ -165,8 +168,19 @@ impl FlowGrpcClient {
             push_batch_size: job.push_batch_size.unwrap_or_default(),
             push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
+            mapping_type: mapping_type as i32,
+            allow_table_additions: job.allow_table_additions,
             ..Default::default()
         };
+        match mapping_type {
+            MappingType::Table => {
+                flow_conn_cfg.table_name_mapping = src_dst_name_mapping;
+            },
+            MappingType::Schema => {
+                flow_conn_cfg.schema_mapping = src_dst_name_mapping;
+            },
+            _ => unreachable!()
+        }
 
         self.start_peer_flow(flow_conn_cfg).await
     }

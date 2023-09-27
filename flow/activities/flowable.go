@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
@@ -18,12 +19,14 @@ import (
 	"github.com/jackc/pglogrepl"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
+	"golang.org/x/exp/maps"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
 type CheckConnectionResult struct {
-	// True of metadata tables need to be set up.
+	// True if metadata tables need to be set up.
 	NeedsSetupMetadataTables bool
+	SupportsSchemaMapping    bool
 }
 
 type SlotSnapshotSignal struct {
@@ -37,8 +40,17 @@ type FlowableActivity struct {
 	CatalogMirrorMonitor *monitoring.CatalogMirrorMonitor
 }
 
-// CheckConnection implements CheckConnection.
-func (a *FlowableActivity) CheckConnection(
+func (a *FlowableActivity) CheckPullConnection(ctx context.Context, config *protos.Peer) (bool, error) {
+	srcConn, err := connectors.GetCDCPullConnector(ctx, config)
+	if err != nil {
+		return false, fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	return srcConn.ConnectionActive(), nil
+}
+
+func (a *FlowableActivity) CheckSyncConnection(
 	ctx context.Context,
 	config *protos.Peer,
 ) (*CheckConnectionResult, error) {
@@ -50,8 +62,17 @@ func (a *FlowableActivity) CheckConnection(
 
 	needsSetup := dstConn.NeedsSetupMetadataTables()
 
+	supportsSchemaMapping := false
+	switch dstConn.(type) {
+	case *connpostgres.PostgresConnector:
+		supportsSchemaMapping = true
+	case *connsnowflake.SnowflakeConnector:
+		supportsSchemaMapping = true
+	}
+
 	return &CheckConnectionResult{
 		NeedsSetupMetadataTables: needsSetup,
+		SupportsSchemaMapping:    supportsSchemaMapping,
 	}, nil
 }
 
@@ -146,13 +167,13 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
-	conn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
+	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(conn)
+	defer connectors.CloseConnector(dstConn)
 
-	return conn.SetupNormalizedTables(config)
+	return dstConn.SetupNormalizedTables(config)
 }
 
 // StartFlow implements StartFlow.
@@ -188,8 +209,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
 	}).Info("pulling records...")
 
+	var schemas []string
+	if input.FlowConnectionConfigs.MappingType == protos.MappingType_SCHEMA {
+		schemas = maps.Keys(input.FlowConnectionConfigs.SchemaMapping)
+	}
 	startTime := time.Now()
-	recordsWithTableSchemaDelta, err := srcConn.PullRecords(&model.PullRecordsRequest{
+	recordsWithDeltaInfo, err := srcConn.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
 		SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
 		TableNameMapping:            input.FlowConnectionConfigs.TableNameMapping,
@@ -200,11 +225,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 		OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
 		RelationMessageMapping:      input.RelationMessageMapping,
+		Schemas:                     schemas,
+		AllowTableAdditions:         input.FlowConnectionConfigs.AllowTableAdditions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull records: %w", err)
 	}
-	recordBatch := recordsWithTableSchemaDelta.RecordBatch
+	recordBatch := recordsWithDeltaInfo.RecordBatch
 
 	pullRecordWithCount := fmt.Sprintf("pulled %d records", len(recordBatch.Records))
 	activity.RecordHeartbeat(ctx, pullRecordWithCount)
@@ -243,8 +270,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		metrics.LogNormalizeMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1, 0)
 		metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0)
 		return &model.SyncResponse{
-			RelationMessageMapping: recordsWithTableSchemaDelta.RelationMessageMapping,
-			TableSchemaDelta:       recordsWithTableSchemaDelta.TableSchemaDelta,
+			RelationMessageMapping: recordsWithDeltaInfo.RelationMessageMapping,
+			TableSchemaDelta:       recordsWithDeltaInfo.TableSchemaDelta,
 		}, nil
 	}
 
@@ -292,10 +319,11 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	res.TableSchemaDelta = recordsWithTableSchemaDelta.TableSchemaDelta
-	res.RelationMessageMapping = recordsWithTableSchemaDelta.RelationMessageMapping
+	res.TableSchemaDelta = recordsWithDeltaInfo.TableSchemaDelta
+	res.RelationMessageMapping = recordsWithDeltaInfo.RelationMessageMapping
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
+	res.AdditionalTableInfo = recordsWithDeltaInfo.AdditionalTableInfo
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 
 	metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName,
@@ -626,4 +654,87 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 		return fmt.Errorf("failed to cleanup destination: %w", err)
 	}
 	return nil
+}
+
+// PopulateTableMappingFromSchemas sets up the TableNameMapping from SchemaMapping for MappingType SCHEMA
+func (a *FlowableActivity) PopulateTableMappingFromSchemas(
+	ctx context.Context,
+	config *protos.ListTablesInSchemasInput,
+) (*protos.ListTablesInSchemasOutput, error) {
+	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	srcSchemas := maps.Keys(config.SchemaMapping)
+
+	schemaTablesMapping, err := srcConn.ListTablesInSchemas(srcSchemas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schemaTablesMapping: %w", err)
+	}
+
+	schemaTablesMappingProto := make(map[string]*protos.TablesList)
+	for schema, tables := range schemaTablesMapping {
+		schemaTablesMappingProto[schema] = &protos.TablesList{
+			Tables: tables,
+		}
+	}
+
+	return &protos.ListTablesInSchemasOutput{
+		SchemaToTables: schemaTablesMappingProto,
+	}, nil
+}
+
+func (a *FlowableActivity) CreateAdditionalTable(
+	ctx context.Context,
+	input *protos.CreateAdditionalTableInput) (*protos.AdditionalTableInfo, error) {
+	srcConn, err := connectors.GetCDCPullConnector(ctx, input.FlowConnectionConfigs.Source)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	dstConn, err := connectors.GetCDCSyncConnector(ctx, input.FlowConnectionConfigs.Destination)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get destination connector: %w", err)
+	}
+	defer connectors.CloseConnector(dstConn)
+
+	srcTableIdentifier := fmt.Sprintf("%s.%s", input.AdditionalTableInfo.SrcSchema,
+		input.AdditionalTableInfo.TableName)
+	dstTableIdentifier := fmt.Sprintf("%s.%s", input.AdditionalTableInfo.DstSchema,
+		input.AdditionalTableInfo.TableName)
+
+	tableRelIDMapping, err := srcConn.EnsurePullability(&protos.EnsurePullabilityBatchInput{
+		SourceTableIdentifiers: []string{srcTableIdentifier},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure pullability for additional table: %w", err)
+	}
+
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(&protos.GetTableSchemaBatchInput{
+		TableIdentifiers: []string{srcTableIdentifier},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema for additional table: %w", err)
+	}
+
+	_, err = dstConn.SetupNormalizedTables(&protos.SetupNormalizedTableBatchInput{
+		TableNameSchemaMapping: map[string]*protos.TableSchema{
+			dstTableIdentifier: tableNameSchemaMapping.TableNameSchemaMapping[srcTableIdentifier]},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create additional table at destination: %w", err)
+	}
+
+	input.AdditionalTableInfo.RelId = tableRelIDMapping.
+		TableIdentifierMapping[srcTableIdentifier].GetPostgresTableIdentifier().RelId
+	input.AdditionalTableInfo.TableSchema = tableNameSchemaMapping.TableNameSchemaMapping[srcTableIdentifier]
+
+	log.WithFields(log.Fields{
+		"flowName": input.FlowConnectionConfigs.FlowJobName,
+	}).Infof("finished creating additional table %s\n", dstTableIdentifier)
+
+	return input.AdditionalTableInfo, nil
 }

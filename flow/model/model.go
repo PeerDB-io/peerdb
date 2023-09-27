@@ -32,6 +32,10 @@ type PullRecordsRequest struct {
 	OverrideReplicationSlotName string
 	// for supporting schema changes
 	RelationMessageMapping RelationMessageMapping
+	// schemas to allow adding new tables for, empty if MappingType != SCHEMA
+	Schemas []string
+	// should we add new tables detected in the source schemas?
+	AllowTableAdditions bool
 }
 
 type Record interface {
@@ -282,6 +286,8 @@ type SyncResponse struct {
 	TableSchemaDelta *protos.TableSchemaDelta
 	// to be stored in state for future PullFlows
 	RelationMessageMapping RelationMessageMapping
+	// to be used to create additional tables, for MappingType SCHEMA
+	AdditionalTableInfo *protos.AdditionalTableInfo
 }
 
 type NormalizeResponse struct {
@@ -291,11 +297,13 @@ type NormalizeResponse struct {
 	EndBatchID   int64
 }
 
-// sync all the records normally, then apply the schema delta after NormalizeFlow.
-type RecordsWithTableSchemaDelta struct {
+// sync all the records normally, then apply any schema delta after NormalizeFlow.
+// add any new tables at the end of SyncFlow.
+type RecordsWithDeltaInfo struct {
 	RecordBatch            *RecordBatch
 	TableSchemaDelta       *protos.TableSchemaDelta
 	RelationMessageMapping RelationMessageMapping
+	AdditionalTableInfo    *protos.AdditionalTableInfo
 }
 
 // being clever and passing the delta back as a regular record instead of heavy CDC refactoring.
@@ -318,3 +326,23 @@ func (r *RelationRecord) GetItems() *RecordItems {
 }
 
 type RelationMessageMapping map[uint32]*protos.RelationMessage
+
+// being clever and passing the new table back as a regular record instead of heavy refactoring in processMessage.
+type AddedTableRecord struct {
+	CheckPointID int64
+	TableName    string
+	SrcSchema    string
+}
+
+// Implement Record interface for RelationRecord.
+func (r *AddedTableRecord) GetCheckPointID() int64 {
+	return r.CheckPointID
+}
+
+func (r *AddedTableRecord) GetTableName() string {
+	return r.TableName
+}
+
+func (r *AddedTableRecord) GetItems() *RecordItems {
+	return nil
+}

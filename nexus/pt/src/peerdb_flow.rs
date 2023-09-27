@@ -1,14 +1,6 @@
 // @generated
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TableNameMapping {
-    #[prost(string, tag="1")]
-    pub source_table_name: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub destination_table_name: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RelationMessageColumn {
     #[prost(uint32, tag="1")]
     pub flags: u32,
@@ -38,6 +30,7 @@ pub struct FlowConnectionConfigs {
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="4")]
     pub table_schema: ::core::option::Option<TableSchema>,
+    /// if MappingType is TABLE, this contains the table level mappings.
     #[prost(map="string, string", tag="5")]
     pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(map="uint32, string", tag="6")]
@@ -79,6 +72,13 @@ pub struct FlowConnectionConfigs {
     pub push_batch_size: i64,
     #[prost(int64, tag="22")]
     pub push_parallelism: i64,
+    #[prost(enumeration="MappingType", tag="23")]
+    pub mapping_type: i32,
+    /// if MappingType is SCHEMA, this contains the schema level mappings.
+    #[prost(map="string, string", tag="24")]
+    pub schema_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(bool, tag="25")]
+    pub allow_table_additions: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -130,16 +130,6 @@ pub struct GetLastSyncedIdInput {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EnsurePullabilityInput {
-    #[prost(message, optional, tag="1")]
-    pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
-    #[prost(string, tag="2")]
-    pub flow_job_name: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub source_table_identifier: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EnsurePullabilityBatchInput {
     #[prost(message, optional, tag="1")]
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
@@ -171,12 +161,6 @@ pub mod table_identifier {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EnsurePullabilityOutput {
-    #[prost(message, optional, tag="1")]
-    pub table_identifier: ::core::option::Option<TableIdentifier>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EnsurePullabilityBatchOutput {
     #[prost(map="string, message", tag="1")]
     pub table_identifier_mapping: ::std::collections::HashMap<::prost::alloc::string::String, TableIdentifier>,
@@ -199,6 +183,9 @@ pub struct SetupReplicationInput {
     pub existing_publication_name: ::prost::alloc::string::String,
     #[prost(string, tag="7")]
     pub existing_replication_slot_name: ::prost::alloc::string::String,
+    /// if length > 0, ignore table name mapping and use schemas as basis of publication creation
+    #[prost(string, repeated, tag="8")]
+    pub schemas: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -461,6 +448,77 @@ pub struct ReplayTableSchemaDeltaInput {
     pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
     #[prost(message, optional, tag="2")]
     pub table_schema_delta: ::core::option::Option<TableSchemaDelta>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListTablesInSchemasInput {
+    #[prost(message, optional, tag="1")]
+    pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(map="string, string", tag="2")]
+    pub schema_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TablesList {
+    #[prost(string, repeated, tag="1")]
+    pub tables: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListTablesInSchemasOutput {
+    #[prost(map="string, message", tag="1")]
+    pub schema_to_tables: ::std::collections::HashMap<::prost::alloc::string::String, TablesList>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AdditionalTableInfo {
+    #[prost(string, tag="1")]
+    pub table_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub src_schema: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub dst_schema: ::prost::alloc::string::String,
+    #[prost(uint32, tag="4")]
+    pub rel_id: u32,
+    #[prost(message, optional, tag="5")]
+    pub table_schema: ::core::option::Option<TableSchema>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateAdditionalTableInput {
+    #[prost(message, optional, tag="1")]
+    pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
+    #[prost(message, optional, tag="2")]
+    pub additional_table_info: ::core::option::Option<AdditionalTableInfo>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum MappingType {
+    Unknown = 0,
+    Table = 1,
+    Schema = 2,
+}
+impl MappingType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            MappingType::Unknown => "UNKNOWN",
+            MappingType::Table => "TABLE",
+            MappingType::Schema => "SCHEMA",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNKNOWN" => Some(Self::Unknown),
+            "TABLE" => Some(Self::Table),
+            "SCHEMA" => Some(Self::Schema),
+            _ => None,
+        }
+    }
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

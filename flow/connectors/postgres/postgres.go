@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
+	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
 )
 
@@ -172,7 +173,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 // PullRecords pulls records from the source.
-func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
+func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithDeltaInfo, error) {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
@@ -209,14 +210,16 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		"flowName": req.FlowJobName,
 	}).Infof("PullRecords: performed checks for slot and publication")
 
-	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
-		AppContext:             c.ctx,
-		Connection:             c.replPool,
-		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
-		Slot:                   slotName,
-		Publication:            publicationName,
-		TableNameMapping:       req.TableNameMapping,
-		RelationMessageMapping: req.RelationMessageMapping,
+	cdc, err := NewPostgresCDCSource(&postgresCDCConfig{
+		appContext:             c.ctx,
+		connection:             c.replPool,
+		srcTableIDNameMapping:  req.SrcTableIDNameMapping,
+		slot:                   slotName,
+		publication:            publicationName,
+		tableNameMapping:       req.TableNameMapping,
+		relationMessageMapping: req.RelationMessageMapping,
+		schemas:                req.Schemas,
+		allowTableAdditions:    req.AllowTableAdditions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
@@ -780,7 +783,7 @@ func (c *PostgresConnector) SetupReplication(signal *SlotSignal, req *protos.Set
 
 	// Create the replication slot and publication
 	err = c.createSlotAndPublication(signal, exists,
-		slotName, publicationName, req.TableNameMapping, req.DoInitialCopy)
+		slotName, publicationName, req.TableNameMapping, req.DoInitialCopy, req.Schemas)
 	if err != nil {
 		return fmt.Errorf("error creating replication slot and publication: %w", err)
 	}
@@ -869,4 +872,42 @@ func parseSchemaTable(tableName string) (*SchemaTable, error) {
 		Schema: parts[0],
 		Table:  parts[1],
 	}, nil
+}
+
+// if the functions are being called outside the context of a Temporal workflow,
+// activity.RecordHeartbeat panics, this is a bandaid for that.
+func (c *PostgresConnector) recordHeartbeatWithRecover(details ...interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Warnln("ignoring panic from activity.RecordHeartbeat")
+			log.Warnln("this can happen when function is invoked outside of a Temporal workflow")
+		}
+	}()
+	activity.RecordHeartbeat(c.ctx, details...)
+}
+
+func (c *PostgresConnector) ListTablesInSchemas(schemas []string) (map[string][]string, error) {
+	schemaTablesMap := make(map[string][]string)
+
+	for _, schema := range schemas {
+		tables := make([]string, 0)
+		rows, err := c.pool.Query(c.ctx, getAllTablesInSchemaSQL, schema)
+		if err != nil {
+			return nil, fmt.Errorf("error while retrieving table names in schema %s: %w", schema, err)
+		}
+		defer rows.Close()
+
+		var tableName string
+		// Process the rows and populate the array
+		for rows.Next() {
+			err := rows.Scan(&tableName)
+			if err != nil {
+				log.Fatalf("Failed to scan row: %v", err)
+				return nil, err
+			}
+			tables = append(tables, tableName)
+		}
+		schemaTablesMap[schema] = tables
+	}
+	return schemaTablesMap, nil
 }

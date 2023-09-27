@@ -5,11 +5,6 @@ import "peers.proto";
 
 package peerdb_flow;
 
-message TableNameMapping {
-  string source_table_name = 1;
-  string destination_table_name = 2;
-}
-
 message RelationMessageColumn {
   uint32 flags = 1;
   string name = 2;
@@ -22,11 +17,18 @@ message RelationMessage {
   repeated RelationMessageColumn columns = 3;
 }
 
+enum MappingType {
+  UNKNOWN = 0;
+  TABLE = 1;
+  SCHEMA = 2;
+}
+
 message FlowConnectionConfigs {
   peerdb_peers.Peer source = 1;
   peerdb_peers.Peer destination = 2;
   string flow_job_name = 3;
   TableSchema table_schema = 4;
+  // if MappingType is TABLE, this contains the table level mappings.
   map<string, string> table_name_mapping = 5;
   map<uint32, string> src_table_id_name_mapping = 6;
   map<string, TableSchema> table_name_schema_mapping = 7;
@@ -56,6 +58,11 @@ message FlowConnectionConfigs {
   // the below two are for eventhub only
   int64 push_batch_size = 21;
   int64 push_parallelism = 22;
+
+  MappingType mapping_type = 23;
+  // if MappingType is SCHEMA, this contains the schema level mappings.
+  map<string, string> schema_mapping = 24;
+  bool allow_table_additions = 25;
 }
 
 message SyncFlowOptions { 
@@ -88,12 +95,6 @@ message GetLastSyncedIDInput {
   string flow_job_name = 2;
 }
 
-message EnsurePullabilityInput {
-  peerdb_peers.Peer peer_connection_config = 1;
-  string flow_job_name = 2;
-  string source_table_identifier = 3;
-}
-
 message EnsurePullabilityBatchInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
@@ -110,10 +111,6 @@ message TableIdentifier {
   }
 }
 
-message EnsurePullabilityOutput {
-  TableIdentifier table_identifier = 1;
-}
-
 message EnsurePullabilityBatchOutput {
   map<string, TableIdentifier> table_identifier_mapping = 1;
 }
@@ -127,6 +124,9 @@ message SetupReplicationInput {
   bool do_initial_copy = 5;
   string existing_publication_name = 6;
   string existing_replication_slot_name = 7;
+
+  // if length > 0, ignore table name mapping and use schemas as basis of publication creation
+  repeated string schemas = 8;
 }
 
 message SetupReplicationOutput {
@@ -309,4 +309,30 @@ message TableSchemaDelta {
 message ReplayTableSchemaDeltaInput {
   FlowConnectionConfigs flow_connection_configs = 1;
   TableSchemaDelta table_schema_delta = 2;
+}
+
+message ListTablesInSchemasInput {
+  peerdb_peers.Peer peer_connection_config = 1;
+  map<string, string> schema_mapping = 2;
+}
+
+message TablesList {
+  repeated string tables = 1;
+}
+
+message ListTablesInSchemasOutput {
+  map<string, TablesList> schema_to_tables = 1;
+}
+
+message AdditionalTableInfo {
+  string table_name = 1;
+  string src_schema = 2;
+  string dst_schema = 3;
+  uint32 rel_id = 4;
+  TableSchema table_schema = 5;
+}
+
+message CreateAdditionalTableInput {
+  FlowConnectionConfigs flow_connection_configs = 1;
+  AdditionalTableInfo additional_table_info = 2;
 }

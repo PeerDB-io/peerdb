@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
@@ -62,17 +63,24 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	})
 
 	// first check the source peer connection
-	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Source)
-	var srcConnStatus activities.CheckConnectionResult
+	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckPullConnection, config.Source)
+	var srcConnStatus bool
 	if err := srcConnStatusFuture.Get(ctx, &srcConnStatus); err != nil {
 		return fmt.Errorf("failed to check source peer connection: %w", err)
 	}
+	if !srcConnStatus {
+		return fmt.Errorf("source peer connection is not active")
+	}
 
 	// then check the destination peer connection
-	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Destination)
+	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckSyncConnection, config.Destination)
 	var destConnStatus activities.CheckConnectionResult
 	if err := destConnStatusFuture.Get(ctx, &destConnStatus); err != nil {
 		return fmt.Errorf("failed to check destination peer connection: %w", err)
+	}
+
+	if config.MappingType == protos.MappingType_SCHEMA && !destConnStatus.SupportsSchemaMapping {
+		return fmt.Errorf("SCHEMA mapping is not supported by the destination connector")
 	}
 
 	s.logger.Info("ensuring metadata table exists - ", s.CDCFlowName)
@@ -95,7 +103,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) error {
-	s.logger.Info("ensuring pullability for peer flow - ", s.CDCFlowName)
+	s.logger.Info("ensuring pullability for CDC flow - ", s.CDCFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Minute,
@@ -103,7 +111,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	tmpMap := make(map[uint32]string)
 
 	srcTblIdentifiers := maps.Keys(config.TableNameMapping)
-	sort.Strings(srcTblIdentifiers)
+	slices.Sort(srcTblIdentifiers)
 
 	// create EnsurePullabilityInput for the srcTableName
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
@@ -164,7 +172,7 @@ func (s *SetupFlowExecution) createRawTable(
 // sets up the normalized tables on the destination peer.
 func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs) (map[string]*protos.TableSchema, error) {
-	s.logger.Info("fetching table schema for peer flow - ", s.CDCFlowName)
+	s.logger.Info("fetching table schema for CDC flow - ", s.CDCFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
@@ -191,7 +199,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	sortedSourceTables := maps.Keys(tableNameSchemaMapping)
 	sort.Strings(sortedSourceTables)
 
-	s.logger.Info("setting up normalized tables for peer flow - ", s.CDCFlowName)
+	s.logger.Info("setting up normalized tables for CDC flow - ", s.CDCFlowName)
 	normalizedTableMapping := make(map[string]*protos.TableSchema)
 	for _, srcTableName := range sortedSourceTables {
 		tableSchema := tableNameSchemaMapping[srcTableName]
@@ -213,8 +221,43 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		return nil, fmt.Errorf("failed to create normalized tables: %w", err)
 	}
 
-	s.logger.Info("finished setting up normalized tables for peer flow - ", s.CDCFlowName)
+	s.logger.Info("finished setting up normalized tables for CDC flow - ", s.CDCFlowName)
 	return normalizedTableMapping, nil
+}
+
+func (s *SetupFlowExecution) populateTableMappingFromSchemas(ctx workflow.Context,
+	flowConnectionConfigs *protos.FlowConnectionConfigs) error {
+	if flowConnectionConfigs.MappingType != protos.MappingType_SCHEMA {
+		return nil
+	}
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 10 * time.Minute,
+	})
+
+	populateTableMappingFromSchemasFuture := workflow.ExecuteActivity(ctx,
+		flowable.PopulateTableMappingFromSchemas,
+		&protos.ListTablesInSchemasInput{
+			PeerConnectionConfig: flowConnectionConfigs.Source,
+			SchemaMapping:        flowConnectionConfigs.SchemaMapping,
+		})
+	var populateTableMappingFromSchemasOutput *protos.ListTablesInSchemasOutput
+	if err := populateTableMappingFromSchemasFuture.Get(ctx, &populateTableMappingFromSchemasOutput); err != nil {
+		s.logger.Error("failed to populate table mapping from schemas: ", err)
+		return fmt.Errorf("failed to populate table mapping from schemas: %w", err)
+	}
+
+	flowConnectionConfigs.TableNameMapping = make(map[string]string)
+	for srcSchema, dstSchema := range flowConnectionConfigs.SchemaMapping {
+		for _, table := range populateTableMappingFromSchemasOutput.SchemaToTables[srcSchema].Tables {
+			flowConnectionConfigs.TableNameMapping[fmt.Sprintf("%s.%s", srcSchema, table)] =
+				fmt.Sprintf("%s.%s", dstSchema, table)
+
+		}
+	}
+	s.logger.Info("finished populating table mapping from schemas for CDC flow - ", s.CDCFlowName)
+
+	return nil
 }
 
 // executeSetupFlow executes the setup flow.
@@ -224,9 +267,14 @@ func (s *SetupFlowExecution) executeSetupFlow(
 ) (map[string]*protos.TableSchema, error) {
 	s.logger.Info("executing setup flow - ", s.CDCFlowName)
 
-	// first check the connectionsAndSetupMetadataTables
+	// first check the connectionsAndSetupMetadataTables, fail here if MappingType is SCHEMA
 	if err := s.checkConnectionsAndSetupMetadataTables(ctx, config); err != nil {
 		return nil, fmt.Errorf("failed to check connections and setup metadata tables: %w", err)
+	}
+
+	// then populate the initial table mapping from the schemas, if MappingType is SCHEMA
+	if err := s.populateTableMappingFromSchemas(ctx, config); err != nil {
+		return nil, err
 	}
 
 	// then ensure pullability

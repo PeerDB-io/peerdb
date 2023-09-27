@@ -44,6 +44,9 @@ func (s *SnapshotFlowExecution) setupReplication(
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
 	}
+	if s.config.MappingType == protos.MappingType_SCHEMA {
+		setupReplicationInput.Schemas = maps.Keys(s.config.SchemaMapping)
+	}
 
 	res := &protos.SetupReplicationOutput{}
 	setupReplicationFuture := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput)

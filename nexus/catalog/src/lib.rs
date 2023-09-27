@@ -397,13 +397,13 @@ impl Catalog {
                         &job.description,
                         &self
                             .normalize_schema_for_table_identifier(
-                                &table_mapping.source_table_identifier,
+                                &table_mapping.source_identifier,
                                 source_peer_id,
                             )
                             .await?,
                         &self
                             .normalize_schema_for_table_identifier(
-                                &table_mapping.target_table_identifier,
+                                &table_mapping.target_identifier,
                                 destination_peer_id,
                             )
                             .await?,

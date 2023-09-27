@@ -6,6 +6,45 @@ import { Peer } from "./peers";
 
 export const protobufPackage = "peerdb_flow";
 
+export enum MappingType {
+  UNKNOWN = 0,
+  TABLE = 1,
+  SCHEMA = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function mappingTypeFromJSON(object: any): MappingType {
+  switch (object) {
+    case 0:
+    case "UNKNOWN":
+      return MappingType.UNKNOWN;
+    case 1:
+    case "TABLE":
+      return MappingType.TABLE;
+    case 2:
+    case "SCHEMA":
+      return MappingType.SCHEMA;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return MappingType.UNRECOGNIZED;
+  }
+}
+
+export function mappingTypeToJSON(object: MappingType): string {
+  switch (object) {
+    case MappingType.UNKNOWN:
+      return "UNKNOWN";
+    case MappingType.TABLE:
+      return "TABLE";
+    case MappingType.SCHEMA:
+      return "SCHEMA";
+    case MappingType.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 /** protos for qrep */
 export enum QRepSyncMode {
   QREP_SYNC_MODE_MULTI_INSERT = 0,
@@ -80,11 +119,6 @@ export function qRepWriteTypeToJSON(object: QRepWriteType): string {
   }
 }
 
-export interface TableNameMapping {
-  sourceTableName: string;
-  destinationTableName: string;
-}
-
 export interface RelationMessageColumn {
   flags: number;
   name: string;
@@ -101,7 +135,10 @@ export interface FlowConnectionConfigs {
   source: Peer | undefined;
   destination: Peer | undefined;
   flowJobName: string;
-  tableSchema: TableSchema | undefined;
+  tableSchema:
+    | TableSchema
+    | undefined;
+  /** if MappingType is TABLE, this contains the table level mappings. */
   tableNameMapping: { [key: string]: string };
   srcTableIdNameMapping: { [key: number]: string };
   tableNameSchemaMapping: { [key: string]: TableSchema };
@@ -127,6 +164,10 @@ export interface FlowConnectionConfigs {
   /** the below two are for eventhub only */
   pushBatchSize: number;
   pushParallelism: number;
+  mappingType: MappingType;
+  /** if MappingType is SCHEMA, this contains the schema level mappings. */
+  schemaMapping: { [key: string]: string };
+  allowTableAdditions: boolean;
 }
 
 export interface FlowConnectionConfigs_TableNameMappingEntry {
@@ -142,6 +183,11 @@ export interface FlowConnectionConfigs_SrcTableIdNameMappingEntry {
 export interface FlowConnectionConfigs_TableNameSchemaMappingEntry {
   key: string;
   value: TableSchema | undefined;
+}
+
+export interface FlowConnectionConfigs_SchemaMappingEntry {
+  key: string;
+  value: string;
 }
 
 export interface SyncFlowOptions {
@@ -184,12 +230,6 @@ export interface GetLastSyncedIDInput {
   flowJobName: string;
 }
 
-export interface EnsurePullabilityInput {
-  peerConnectionConfig: Peer | undefined;
-  flowJobName: string;
-  sourceTableIdentifier: string;
-}
-
 export interface EnsurePullabilityBatchInput {
   peerConnectionConfig: Peer | undefined;
   flowJobName: string;
@@ -202,10 +242,6 @@ export interface PostgresTableIdentifier {
 
 export interface TableIdentifier {
   postgresTableIdentifier?: PostgresTableIdentifier | undefined;
-}
-
-export interface EnsurePullabilityOutput {
-  tableIdentifier: TableIdentifier | undefined;
 }
 
 export interface EnsurePullabilityBatchOutput {
@@ -226,6 +262,8 @@ export interface SetupReplicationInput {
   doInitialCopy: boolean;
   existingPublicationName: string;
   existingReplicationSlotName: string;
+  /** if length > 0, ignore table name mapping and use schemas as basis of publication creation */
+  schemas: string[];
 }
 
 export interface SetupReplicationInput_TableNameMappingEntry {
@@ -423,79 +461,41 @@ export interface ReplayTableSchemaDeltaInput {
   tableSchemaDelta: TableSchemaDelta | undefined;
 }
 
-function createBaseTableNameMapping(): TableNameMapping {
-  return { sourceTableName: "", destinationTableName: "" };
+export interface ListTablesInSchemasInput {
+  peerConnectionConfig: Peer | undefined;
+  schemaMapping: { [key: string]: string };
 }
 
-export const TableNameMapping = {
-  encode(message: TableNameMapping, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.sourceTableName !== "") {
-      writer.uint32(10).string(message.sourceTableName);
-    }
-    if (message.destinationTableName !== "") {
-      writer.uint32(18).string(message.destinationTableName);
-    }
-    return writer;
-  },
+export interface ListTablesInSchemasInput_SchemaMappingEntry {
+  key: string;
+  value: string;
+}
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): TableNameMapping {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseTableNameMapping();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
+export interface TablesList {
+  tables: string[];
+}
 
-          message.sourceTableName = reader.string();
-          continue;
-        case 2:
-          if (tag !== 18) {
-            break;
-          }
+export interface ListTablesInSchemasOutput {
+  schemaToTables: { [key: string]: TablesList };
+}
 
-          message.destinationTableName = reader.string();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
+export interface ListTablesInSchemasOutput_SchemaToTablesEntry {
+  key: string;
+  value: TablesList | undefined;
+}
 
-  fromJSON(object: any): TableNameMapping {
-    return {
-      sourceTableName: isSet(object.sourceTableName) ? String(object.sourceTableName) : "",
-      destinationTableName: isSet(object.destinationTableName) ? String(object.destinationTableName) : "",
-    };
-  },
+export interface AdditionalTableInfo {
+  tableName: string;
+  srcSchema: string;
+  dstSchema: string;
+  relId: number;
+  tableSchema: TableSchema | undefined;
+}
 
-  toJSON(message: TableNameMapping): unknown {
-    const obj: any = {};
-    if (message.sourceTableName !== "") {
-      obj.sourceTableName = message.sourceTableName;
-    }
-    if (message.destinationTableName !== "") {
-      obj.destinationTableName = message.destinationTableName;
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<TableNameMapping>, I>>(base?: I): TableNameMapping {
-    return TableNameMapping.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<TableNameMapping>, I>>(object: I): TableNameMapping {
-    const message = createBaseTableNameMapping();
-    message.sourceTableName = object.sourceTableName ?? "";
-    message.destinationTableName = object.destinationTableName ?? "";
-    return message;
-  },
-};
+export interface CreateAdditionalTableInput {
+  flowConnectionConfigs: FlowConnectionConfigs | undefined;
+  additionalTableInfo: AdditionalTableInfo | undefined;
+}
 
 function createBaseRelationMessageColumn(): RelationMessageColumn {
   return { flags: 0, name: "", dataType: 0 };
@@ -699,6 +699,9 @@ function createBaseFlowConnectionConfigs(): FlowConnectionConfigs {
     replicationSlotName: "",
     pushBatchSize: 0,
     pushParallelism: 0,
+    mappingType: 0,
+    schemaMapping: {},
+    allowTableAdditions: false,
   };
 }
 
@@ -771,6 +774,15 @@ export const FlowConnectionConfigs = {
     }
     if (message.pushParallelism !== 0) {
       writer.uint32(176).int64(message.pushParallelism);
+    }
+    if (message.mappingType !== 0) {
+      writer.uint32(184).int32(message.mappingType);
+    }
+    Object.entries(message.schemaMapping).forEach(([key, value]) => {
+      FlowConnectionConfigs_SchemaMappingEntry.encode({ key: key as any, value }, writer.uint32(194).fork()).ldelim();
+    });
+    if (message.allowTableAdditions === true) {
+      writer.uint32(200).bool(message.allowTableAdditions);
     }
     return writer;
   },
@@ -945,6 +957,30 @@ export const FlowConnectionConfigs = {
 
           message.pushParallelism = longToNumber(reader.int64() as Long);
           continue;
+        case 23:
+          if (tag !== 184) {
+            break;
+          }
+
+          message.mappingType = reader.int32() as any;
+          continue;
+        case 24:
+          if (tag !== 194) {
+            break;
+          }
+
+          const entry24 = FlowConnectionConfigs_SchemaMappingEntry.decode(reader, reader.uint32());
+          if (entry24.value !== undefined) {
+            message.schemaMapping[entry24.key] = entry24.value;
+          }
+          continue;
+        case 25:
+          if (tag !== 200) {
+            break;
+          }
+
+          message.allowTableAdditions = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -999,6 +1035,14 @@ export const FlowConnectionConfigs = {
       replicationSlotName: isSet(object.replicationSlotName) ? String(object.replicationSlotName) : "",
       pushBatchSize: isSet(object.pushBatchSize) ? Number(object.pushBatchSize) : 0,
       pushParallelism: isSet(object.pushParallelism) ? Number(object.pushParallelism) : 0,
+      mappingType: isSet(object.mappingType) ? mappingTypeFromJSON(object.mappingType) : 0,
+      schemaMapping: isObject(object.schemaMapping)
+        ? Object.entries(object.schemaMapping).reduce<{ [key: string]: string }>((acc, [key, value]) => {
+          acc[key] = String(value);
+          return acc;
+        }, {})
+        : {},
+      allowTableAdditions: isSet(object.allowTableAdditions) ? Boolean(object.allowTableAdditions) : false,
     };
   },
 
@@ -1088,6 +1132,21 @@ export const FlowConnectionConfigs = {
     if (message.pushParallelism !== 0) {
       obj.pushParallelism = Math.round(message.pushParallelism);
     }
+    if (message.mappingType !== 0) {
+      obj.mappingType = mappingTypeToJSON(message.mappingType);
+    }
+    if (message.schemaMapping) {
+      const entries = Object.entries(message.schemaMapping);
+      if (entries.length > 0) {
+        obj.schemaMapping = {};
+        entries.forEach(([k, v]) => {
+          obj.schemaMapping[k] = v;
+        });
+      }
+    }
+    if (message.allowTableAdditions === true) {
+      obj.allowTableAdditions = message.allowTableAdditions;
+    }
     return obj;
   },
 
@@ -1148,6 +1207,17 @@ export const FlowConnectionConfigs = {
     message.replicationSlotName = object.replicationSlotName ?? "";
     message.pushBatchSize = object.pushBatchSize ?? 0;
     message.pushParallelism = object.pushParallelism ?? 0;
+    message.mappingType = object.mappingType ?? 0;
+    message.schemaMapping = Object.entries(object.schemaMapping ?? {}).reduce<{ [key: string]: string }>(
+      (acc, [key, value]) => {
+        if (value !== undefined) {
+          acc[key] = String(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    message.allowTableAdditions = object.allowTableAdditions ?? false;
     return message;
   },
 };
@@ -1384,6 +1454,81 @@ export const FlowConnectionConfigs_TableNameSchemaMappingEntry = {
     message.value = (object.value !== undefined && object.value !== null)
       ? TableSchema.fromPartial(object.value)
       : undefined;
+    return message;
+  },
+};
+
+function createBaseFlowConnectionConfigs_SchemaMappingEntry(): FlowConnectionConfigs_SchemaMappingEntry {
+  return { key: "", value: "" };
+}
+
+export const FlowConnectionConfigs_SchemaMappingEntry = {
+  encode(message: FlowConnectionConfigs_SchemaMappingEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== "") {
+      writer.uint32(18).string(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): FlowConnectionConfigs_SchemaMappingEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowConnectionConfigs_SchemaMappingEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FlowConnectionConfigs_SchemaMappingEntry {
+    return { key: isSet(object.key) ? String(object.key) : "", value: isSet(object.value) ? String(object.value) : "" };
+  },
+
+  toJSON(message: FlowConnectionConfigs_SchemaMappingEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<FlowConnectionConfigs_SchemaMappingEntry>, I>>(
+    base?: I,
+  ): FlowConnectionConfigs_SchemaMappingEntry {
+    return FlowConnectionConfigs_SchemaMappingEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowConnectionConfigs_SchemaMappingEntry>, I>>(
+    object: I,
+  ): FlowConnectionConfigs_SchemaMappingEntry {
+    const message = createBaseFlowConnectionConfigs_SchemaMappingEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? "";
     return message;
   },
 };
@@ -2059,97 +2204,6 @@ export const GetLastSyncedIDInput = {
   },
 };
 
-function createBaseEnsurePullabilityInput(): EnsurePullabilityInput {
-  return { peerConnectionConfig: undefined, flowJobName: "", sourceTableIdentifier: "" };
-}
-
-export const EnsurePullabilityInput = {
-  encode(message: EnsurePullabilityInput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.peerConnectionConfig !== undefined) {
-      Peer.encode(message.peerConnectionConfig, writer.uint32(10).fork()).ldelim();
-    }
-    if (message.flowJobName !== "") {
-      writer.uint32(18).string(message.flowJobName);
-    }
-    if (message.sourceTableIdentifier !== "") {
-      writer.uint32(26).string(message.sourceTableIdentifier);
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): EnsurePullabilityInput {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseEnsurePullabilityInput();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
-
-          message.peerConnectionConfig = Peer.decode(reader, reader.uint32());
-          continue;
-        case 2:
-          if (tag !== 18) {
-            break;
-          }
-
-          message.flowJobName = reader.string();
-          continue;
-        case 3:
-          if (tag !== 26) {
-            break;
-          }
-
-          message.sourceTableIdentifier = reader.string();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): EnsurePullabilityInput {
-    return {
-      peerConnectionConfig: isSet(object.peerConnectionConfig) ? Peer.fromJSON(object.peerConnectionConfig) : undefined,
-      flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
-      sourceTableIdentifier: isSet(object.sourceTableIdentifier) ? String(object.sourceTableIdentifier) : "",
-    };
-  },
-
-  toJSON(message: EnsurePullabilityInput): unknown {
-    const obj: any = {};
-    if (message.peerConnectionConfig !== undefined) {
-      obj.peerConnectionConfig = Peer.toJSON(message.peerConnectionConfig);
-    }
-    if (message.flowJobName !== "") {
-      obj.flowJobName = message.flowJobName;
-    }
-    if (message.sourceTableIdentifier !== "") {
-      obj.sourceTableIdentifier = message.sourceTableIdentifier;
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<EnsurePullabilityInput>, I>>(base?: I): EnsurePullabilityInput {
-    return EnsurePullabilityInput.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<EnsurePullabilityInput>, I>>(object: I): EnsurePullabilityInput {
-    const message = createBaseEnsurePullabilityInput();
-    message.peerConnectionConfig = (object.peerConnectionConfig !== undefined && object.peerConnectionConfig !== null)
-      ? Peer.fromPartial(object.peerConnectionConfig)
-      : undefined;
-    message.flowJobName = object.flowJobName ?? "";
-    message.sourceTableIdentifier = object.sourceTableIdentifier ?? "";
-    return message;
-  },
-};
-
 function createBaseEnsurePullabilityBatchInput(): EnsurePullabilityBatchInput {
   return { peerConnectionConfig: undefined, flowJobName: "", sourceTableIdentifiers: [] };
 }
@@ -2364,67 +2418,6 @@ export const TableIdentifier = {
   },
 };
 
-function createBaseEnsurePullabilityOutput(): EnsurePullabilityOutput {
-  return { tableIdentifier: undefined };
-}
-
-export const EnsurePullabilityOutput = {
-  encode(message: EnsurePullabilityOutput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.tableIdentifier !== undefined) {
-      TableIdentifier.encode(message.tableIdentifier, writer.uint32(10).fork()).ldelim();
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): EnsurePullabilityOutput {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseEnsurePullabilityOutput();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
-
-          message.tableIdentifier = TableIdentifier.decode(reader, reader.uint32());
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): EnsurePullabilityOutput {
-    return {
-      tableIdentifier: isSet(object.tableIdentifier) ? TableIdentifier.fromJSON(object.tableIdentifier) : undefined,
-    };
-  },
-
-  toJSON(message: EnsurePullabilityOutput): unknown {
-    const obj: any = {};
-    if (message.tableIdentifier !== undefined) {
-      obj.tableIdentifier = TableIdentifier.toJSON(message.tableIdentifier);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<EnsurePullabilityOutput>, I>>(base?: I): EnsurePullabilityOutput {
-    return EnsurePullabilityOutput.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<EnsurePullabilityOutput>, I>>(object: I): EnsurePullabilityOutput {
-    const message = createBaseEnsurePullabilityOutput();
-    message.tableIdentifier = (object.tableIdentifier !== undefined && object.tableIdentifier !== null)
-      ? TableIdentifier.fromPartial(object.tableIdentifier)
-      : undefined;
-    return message;
-  },
-};
-
 function createBaseEnsurePullabilityBatchOutput(): EnsurePullabilityBatchOutput {
   return { tableIdentifierMapping: {} };
 }
@@ -2603,6 +2596,7 @@ function createBaseSetupReplicationInput(): SetupReplicationInput {
     doInitialCopy: false,
     existingPublicationName: "",
     existingReplicationSlotName: "",
+    schemas: [],
   };
 }
 
@@ -2628,6 +2622,9 @@ export const SetupReplicationInput = {
     }
     if (message.existingReplicationSlotName !== "") {
       writer.uint32(58).string(message.existingReplicationSlotName);
+    }
+    for (const v of message.schemas) {
+      writer.uint32(66).string(v!);
     }
     return writer;
   },
@@ -2691,6 +2688,13 @@ export const SetupReplicationInput = {
 
           message.existingReplicationSlotName = reader.string();
           continue;
+        case 8:
+          if (tag !== 66) {
+            break;
+          }
+
+          message.schemas.push(reader.string());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2716,6 +2720,7 @@ export const SetupReplicationInput = {
       existingReplicationSlotName: isSet(object.existingReplicationSlotName)
         ? String(object.existingReplicationSlotName)
         : "",
+      schemas: Array.isArray(object?.schemas) ? object.schemas.map((e: any) => String(e)) : [],
     };
   },
 
@@ -2748,6 +2753,9 @@ export const SetupReplicationInput = {
     if (message.existingReplicationSlotName !== "") {
       obj.existingReplicationSlotName = message.existingReplicationSlotName;
     }
+    if (message.schemas?.length) {
+      obj.schemas = message.schemas;
+    }
     return obj;
   },
 
@@ -2775,6 +2783,7 @@ export const SetupReplicationInput = {
     message.doInitialCopy = object.doInitialCopy ?? false;
     message.existingPublicationName = object.existingPublicationName ?? "";
     message.existingReplicationSlotName = object.existingReplicationSlotName ?? "";
+    message.schemas = object.schemas?.map((e) => e) || [];
     return message;
   },
 };
@@ -5543,6 +5552,602 @@ export const ReplayTableSchemaDeltaInput = {
         : undefined;
     message.tableSchemaDelta = (object.tableSchemaDelta !== undefined && object.tableSchemaDelta !== null)
       ? TableSchemaDelta.fromPartial(object.tableSchemaDelta)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseListTablesInSchemasInput(): ListTablesInSchemasInput {
+  return { peerConnectionConfig: undefined, schemaMapping: {} };
+}
+
+export const ListTablesInSchemasInput = {
+  encode(message: ListTablesInSchemasInput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.peerConnectionConfig !== undefined) {
+      Peer.encode(message.peerConnectionConfig, writer.uint32(10).fork()).ldelim();
+    }
+    Object.entries(message.schemaMapping).forEach(([key, value]) => {
+      ListTablesInSchemasInput_SchemaMappingEntry.encode({ key: key as any, value }, writer.uint32(18).fork()).ldelim();
+    });
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListTablesInSchemasInput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListTablesInSchemasInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.peerConnectionConfig = Peer.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          const entry2 = ListTablesInSchemasInput_SchemaMappingEntry.decode(reader, reader.uint32());
+          if (entry2.value !== undefined) {
+            message.schemaMapping[entry2.key] = entry2.value;
+          }
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListTablesInSchemasInput {
+    return {
+      peerConnectionConfig: isSet(object.peerConnectionConfig) ? Peer.fromJSON(object.peerConnectionConfig) : undefined,
+      schemaMapping: isObject(object.schemaMapping)
+        ? Object.entries(object.schemaMapping).reduce<{ [key: string]: string }>((acc, [key, value]) => {
+          acc[key] = String(value);
+          return acc;
+        }, {})
+        : {},
+    };
+  },
+
+  toJSON(message: ListTablesInSchemasInput): unknown {
+    const obj: any = {};
+    if (message.peerConnectionConfig !== undefined) {
+      obj.peerConnectionConfig = Peer.toJSON(message.peerConnectionConfig);
+    }
+    if (message.schemaMapping) {
+      const entries = Object.entries(message.schemaMapping);
+      if (entries.length > 0) {
+        obj.schemaMapping = {};
+        entries.forEach(([k, v]) => {
+          obj.schemaMapping[k] = v;
+        });
+      }
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListTablesInSchemasInput>, I>>(base?: I): ListTablesInSchemasInput {
+    return ListTablesInSchemasInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListTablesInSchemasInput>, I>>(object: I): ListTablesInSchemasInput {
+    const message = createBaseListTablesInSchemasInput();
+    message.peerConnectionConfig = (object.peerConnectionConfig !== undefined && object.peerConnectionConfig !== null)
+      ? Peer.fromPartial(object.peerConnectionConfig)
+      : undefined;
+    message.schemaMapping = Object.entries(object.schemaMapping ?? {}).reduce<{ [key: string]: string }>(
+      (acc, [key, value]) => {
+        if (value !== undefined) {
+          acc[key] = String(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    return message;
+  },
+};
+
+function createBaseListTablesInSchemasInput_SchemaMappingEntry(): ListTablesInSchemasInput_SchemaMappingEntry {
+  return { key: "", value: "" };
+}
+
+export const ListTablesInSchemasInput_SchemaMappingEntry = {
+  encode(message: ListTablesInSchemasInput_SchemaMappingEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== "") {
+      writer.uint32(18).string(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListTablesInSchemasInput_SchemaMappingEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListTablesInSchemasInput_SchemaMappingEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListTablesInSchemasInput_SchemaMappingEntry {
+    return { key: isSet(object.key) ? String(object.key) : "", value: isSet(object.value) ? String(object.value) : "" };
+  },
+
+  toJSON(message: ListTablesInSchemasInput_SchemaMappingEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListTablesInSchemasInput_SchemaMappingEntry>, I>>(
+    base?: I,
+  ): ListTablesInSchemasInput_SchemaMappingEntry {
+    return ListTablesInSchemasInput_SchemaMappingEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListTablesInSchemasInput_SchemaMappingEntry>, I>>(
+    object: I,
+  ): ListTablesInSchemasInput_SchemaMappingEntry {
+    const message = createBaseListTablesInSchemasInput_SchemaMappingEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? "";
+    return message;
+  },
+};
+
+function createBaseTablesList(): TablesList {
+  return { tables: [] };
+}
+
+export const TablesList = {
+  encode(message: TablesList, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.tables) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TablesList {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTablesList();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.tables.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TablesList {
+    return { tables: Array.isArray(object?.tables) ? object.tables.map((e: any) => String(e)) : [] };
+  },
+
+  toJSON(message: TablesList): unknown {
+    const obj: any = {};
+    if (message.tables?.length) {
+      obj.tables = message.tables;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TablesList>, I>>(base?: I): TablesList {
+    return TablesList.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TablesList>, I>>(object: I): TablesList {
+    const message = createBaseTablesList();
+    message.tables = object.tables?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseListTablesInSchemasOutput(): ListTablesInSchemasOutput {
+  return { schemaToTables: {} };
+}
+
+export const ListTablesInSchemasOutput = {
+  encode(message: ListTablesInSchemasOutput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    Object.entries(message.schemaToTables).forEach(([key, value]) => {
+      ListTablesInSchemasOutput_SchemaToTablesEntry.encode({ key: key as any, value }, writer.uint32(10).fork())
+        .ldelim();
+    });
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListTablesInSchemasOutput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListTablesInSchemasOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          const entry1 = ListTablesInSchemasOutput_SchemaToTablesEntry.decode(reader, reader.uint32());
+          if (entry1.value !== undefined) {
+            message.schemaToTables[entry1.key] = entry1.value;
+          }
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListTablesInSchemasOutput {
+    return {
+      schemaToTables: isObject(object.schemaToTables)
+        ? Object.entries(object.schemaToTables).reduce<{ [key: string]: TablesList }>((acc, [key, value]) => {
+          acc[key] = TablesList.fromJSON(value);
+          return acc;
+        }, {})
+        : {},
+    };
+  },
+
+  toJSON(message: ListTablesInSchemasOutput): unknown {
+    const obj: any = {};
+    if (message.schemaToTables) {
+      const entries = Object.entries(message.schemaToTables);
+      if (entries.length > 0) {
+        obj.schemaToTables = {};
+        entries.forEach(([k, v]) => {
+          obj.schemaToTables[k] = TablesList.toJSON(v);
+        });
+      }
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListTablesInSchemasOutput>, I>>(base?: I): ListTablesInSchemasOutput {
+    return ListTablesInSchemasOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListTablesInSchemasOutput>, I>>(object: I): ListTablesInSchemasOutput {
+    const message = createBaseListTablesInSchemasOutput();
+    message.schemaToTables = Object.entries(object.schemaToTables ?? {}).reduce<{ [key: string]: TablesList }>(
+      (acc, [key, value]) => {
+        if (value !== undefined) {
+          acc[key] = TablesList.fromPartial(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    return message;
+  },
+};
+
+function createBaseListTablesInSchemasOutput_SchemaToTablesEntry(): ListTablesInSchemasOutput_SchemaToTablesEntry {
+  return { key: "", value: undefined };
+}
+
+export const ListTablesInSchemasOutput_SchemaToTablesEntry = {
+  encode(message: ListTablesInSchemasOutput_SchemaToTablesEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      TablesList.encode(message.value, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ListTablesInSchemasOutput_SchemaToTablesEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListTablesInSchemasOutput_SchemaToTablesEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = TablesList.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ListTablesInSchemasOutput_SchemaToTablesEntry {
+    return {
+      key: isSet(object.key) ? String(object.key) : "",
+      value: isSet(object.value) ? TablesList.fromJSON(object.value) : undefined,
+    };
+  },
+
+  toJSON(message: ListTablesInSchemasOutput_SchemaToTablesEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== undefined) {
+      obj.value = TablesList.toJSON(message.value);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ListTablesInSchemasOutput_SchemaToTablesEntry>, I>>(
+    base?: I,
+  ): ListTablesInSchemasOutput_SchemaToTablesEntry {
+    return ListTablesInSchemasOutput_SchemaToTablesEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListTablesInSchemasOutput_SchemaToTablesEntry>, I>>(
+    object: I,
+  ): ListTablesInSchemasOutput_SchemaToTablesEntry {
+    const message = createBaseListTablesInSchemasOutput_SchemaToTablesEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? TablesList.fromPartial(object.value)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseAdditionalTableInfo(): AdditionalTableInfo {
+  return { tableName: "", srcSchema: "", dstSchema: "", relId: 0, tableSchema: undefined };
+}
+
+export const AdditionalTableInfo = {
+  encode(message: AdditionalTableInfo, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.tableName !== "") {
+      writer.uint32(10).string(message.tableName);
+    }
+    if (message.srcSchema !== "") {
+      writer.uint32(18).string(message.srcSchema);
+    }
+    if (message.dstSchema !== "") {
+      writer.uint32(26).string(message.dstSchema);
+    }
+    if (message.relId !== 0) {
+      writer.uint32(32).uint32(message.relId);
+    }
+    if (message.tableSchema !== undefined) {
+      TableSchema.encode(message.tableSchema, writer.uint32(42).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): AdditionalTableInfo {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAdditionalTableInfo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.tableName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.srcSchema = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.dstSchema = reader.string();
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.relId = reader.uint32();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.tableSchema = TableSchema.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): AdditionalTableInfo {
+    return {
+      tableName: isSet(object.tableName) ? String(object.tableName) : "",
+      srcSchema: isSet(object.srcSchema) ? String(object.srcSchema) : "",
+      dstSchema: isSet(object.dstSchema) ? String(object.dstSchema) : "",
+      relId: isSet(object.relId) ? Number(object.relId) : 0,
+      tableSchema: isSet(object.tableSchema) ? TableSchema.fromJSON(object.tableSchema) : undefined,
+    };
+  },
+
+  toJSON(message: AdditionalTableInfo): unknown {
+    const obj: any = {};
+    if (message.tableName !== "") {
+      obj.tableName = message.tableName;
+    }
+    if (message.srcSchema !== "") {
+      obj.srcSchema = message.srcSchema;
+    }
+    if (message.dstSchema !== "") {
+      obj.dstSchema = message.dstSchema;
+    }
+    if (message.relId !== 0) {
+      obj.relId = Math.round(message.relId);
+    }
+    if (message.tableSchema !== undefined) {
+      obj.tableSchema = TableSchema.toJSON(message.tableSchema);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<AdditionalTableInfo>, I>>(base?: I): AdditionalTableInfo {
+    return AdditionalTableInfo.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AdditionalTableInfo>, I>>(object: I): AdditionalTableInfo {
+    const message = createBaseAdditionalTableInfo();
+    message.tableName = object.tableName ?? "";
+    message.srcSchema = object.srcSchema ?? "";
+    message.dstSchema = object.dstSchema ?? "";
+    message.relId = object.relId ?? 0;
+    message.tableSchema = (object.tableSchema !== undefined && object.tableSchema !== null)
+      ? TableSchema.fromPartial(object.tableSchema)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseCreateAdditionalTableInput(): CreateAdditionalTableInput {
+  return { flowConnectionConfigs: undefined, additionalTableInfo: undefined };
+}
+
+export const CreateAdditionalTableInput = {
+  encode(message: CreateAdditionalTableInput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowConnectionConfigs !== undefined) {
+      FlowConnectionConfigs.encode(message.flowConnectionConfigs, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.additionalTableInfo !== undefined) {
+      AdditionalTableInfo.encode(message.additionalTableInfo, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreateAdditionalTableInput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateAdditionalTableInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowConnectionConfigs = FlowConnectionConfigs.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.additionalTableInfo = AdditionalTableInfo.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateAdditionalTableInput {
+    return {
+      flowConnectionConfigs: isSet(object.flowConnectionConfigs)
+        ? FlowConnectionConfigs.fromJSON(object.flowConnectionConfigs)
+        : undefined,
+      additionalTableInfo: isSet(object.additionalTableInfo)
+        ? AdditionalTableInfo.fromJSON(object.additionalTableInfo)
+        : undefined,
+    };
+  },
+
+  toJSON(message: CreateAdditionalTableInput): unknown {
+    const obj: any = {};
+    if (message.flowConnectionConfigs !== undefined) {
+      obj.flowConnectionConfigs = FlowConnectionConfigs.toJSON(message.flowConnectionConfigs);
+    }
+    if (message.additionalTableInfo !== undefined) {
+      obj.additionalTableInfo = AdditionalTableInfo.toJSON(message.additionalTableInfo);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CreateAdditionalTableInput>, I>>(base?: I): CreateAdditionalTableInput {
+    return CreateAdditionalTableInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CreateAdditionalTableInput>, I>>(object: I): CreateAdditionalTableInput {
+    const message = createBaseCreateAdditionalTableInput();
+    message.flowConnectionConfigs =
+      (object.flowConnectionConfigs !== undefined && object.flowConnectionConfigs !== null)
+        ? FlowConnectionConfigs.fromPartial(object.flowConnectionConfigs)
+        : undefined;
+    message.additionalTableInfo = (object.additionalTableInfo !== undefined && object.additionalTableInfo !== null)
+      ? AdditionalTableInfo.fromPartial(object.additionalTableInfo)
       : undefined;
     return message;
   },

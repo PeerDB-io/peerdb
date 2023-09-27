@@ -70,6 +70,9 @@ const (
 
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
+
+	getAllTablesInSchemaSQL = `SELECT table_name FROM information_schema.tables WHERE
+	 table_schema=$1 AND table_type='BASE TABLE'`
 )
 
 // getRelIDForTable returns the relation ID for a table.
@@ -203,23 +206,25 @@ func (c *PostgresConnector) createSlotAndPublication(
 	publication string,
 	tableNameMapping map[string]string,
 	doInitialCopy bool,
+	schemas []string,
 ) error {
-	/*
-		iterating through source tables and creating a publication.
-		expecting tablenames to be schema qualified
-	*/
-	srcTableNames := make([]string, 0, len(tableNameMapping))
-	for srcTableName := range tableNameMapping {
-		if len(strings.Split(srcTableName, ".")) != 2 {
-			return fmt.Errorf("source tables identifier is invalid: %v", srcTableName)
-		}
-		srcTableNames = append(srcTableNames, srcTableName)
-	}
-	tableNameString := strings.Join(srcTableNames, ", ")
 
 	if !s.PublicationExists {
-		// Create the publication to help filter changes only for the given tables
-		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
+		var stmt string
+		if len(schemas) > 0 {
+			// Create the publication to filter changes for all tables in the given schemas
+			stmt = fmt.Sprintf("CREATE PUBLICATION %s FOR TABLES IN SCHEMA %s",
+				publication, strings.Join(schemas, ","))
+		} else {
+			// Create the publication to filter changes only for the given tables
+			/*
+				iterating through source tables and creating a publication.
+				expecting tablenames to be schema qualified
+			*/
+			tableNameString := strings.Join(maps.Keys(tableNameMapping), ", ")
+
+			stmt = fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
+		}
 		_, err := c.pool.Exec(c.ctx, stmt)
 		if err != nil {
 			log.Warnf("Error creating publication '%s': %v", publication, err)

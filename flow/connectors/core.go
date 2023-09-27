@@ -32,14 +32,15 @@ type CDCPullConnector interface {
 	EnsurePullability(req *protos.EnsurePullabilityBatchInput) (
 		*protos.EnsurePullabilityBatchOutput, error)
 
-	// Methods related to retrieving and pusing records for this connector as a source and destination.
-
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error)
+	PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithDeltaInfo, error)
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
+
+	// ListTablesInSchemas... gets all the tables in multiple schemas
+	ListTablesInSchemas(schemas []string) (map[string][]string, error)
 }
 
 type CDCSyncConnector interface {

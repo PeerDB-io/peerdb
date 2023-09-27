@@ -21,3 +21,4 @@ tonic = "0.9"
 tonic-health = "0.9"
 pt = { path = "../pt" }
 catalog = { path = "../catalog" }
+sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }

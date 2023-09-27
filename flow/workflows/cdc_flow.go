@@ -274,6 +274,19 @@ func CDCFlowWorkflowWithConfig(
 			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			if childSyncFlowRes != nil {
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
+
+				// table was created, update all flow configuration to reflect the same.
+				if childSyncFlowRes.AdditionalTableInfo != nil {
+					srcTableIdentifier := fmt.Sprintf("%s.%s", childSyncFlowRes.AdditionalTableInfo.SrcSchema,
+						childSyncFlowRes.AdditionalTableInfo.TableName)
+					dstTableIdentifier := fmt.Sprintf("%s.%s", childSyncFlowRes.AdditionalTableInfo.DstSchema,
+						childSyncFlowRes.AdditionalTableInfo.TableName)
+
+					cfg.TableNameMapping[srcTableIdentifier] = dstTableIdentifier
+					cfg.SrcTableIdNameMapping[childSyncFlowRes.AdditionalTableInfo.RelId] = srcTableIdentifier
+					// because
+					cfg.TableNameSchemaMapping[dstTableIdentifier] = childSyncFlowRes.AdditionalTableInfo.TableSchema
+				}
 			}
 		}
 
