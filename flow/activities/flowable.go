@@ -241,6 +241,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}).Info("no records to push")
 		metrics.LogSyncMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1)
 		metrics.LogNormalizeMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1, 0)
+		metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0)
 		return &model.SyncResponse{
 			RelationMessageMapping: recordsWithTableSchemaDelta.RelationMessageMapping,
 			TableSchemaDelta:       recordsWithTableSchemaDelta.TableSchemaDelta,
@@ -297,6 +298,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 
+	metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName,
+		float64(numRecords)/(pullDuration.Seconds()+syncDuration.Seconds()))
+
 	return res, nil
 }
 
@@ -325,13 +329,6 @@ func (a *FlowableActivity) StartNormalize(
 		if err != nil {
 			return nil, err
 		}
-
-		throughput, err := a.CatalogMirrorMonitor.GetThroughputForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
-			lastSyncBatchID)
-		if err != nil {
-			return nil, err
-		}
-		metrics.LogCDCOverallMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, throughput)
 	} else if err != nil {
 		return nil, err
 	}
@@ -363,13 +360,6 @@ func (a *FlowableActivity) StartNormalize(
 	if err != nil {
 		return nil, err
 	}
-
-	throughput, err := a.CatalogMirrorMonitor.GetThroughputForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
-		res.EndBatchID)
-	if err != nil {
-		return nil, err
-	}
-	metrics.LogCDCOverallMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, throughput)
 
 	// log the number of batches normalized
 	if res != nil {

@@ -120,7 +120,7 @@ func LogQRepNormalizeMetrics(ctx context.Context, flowJobName string,
 	totalRecordsAtTargetGauge.Update(float64(totalRecordsAtTarget))
 }
 
-func LogCDCOverallMetrics(ctx context.Context, flowJobName string, throughput float64) {
+func LogCDCRawThroughputMetrics(ctx context.Context, flowJobName string, throughput float64) {
 	if ctx.Value(shared.EnableMetricsKey) != true {
 		return
 	}
