@@ -222,7 +222,7 @@ services:
       context: .
       dockerfile: stacks/ui.Dockerfile
     ports:
-      - 3000:3000
+      - 3001:3000
     environment:
       <<: *catalog-config
       PEERDB_FLOW_SERVER_ADDRESS: flow_api:8112

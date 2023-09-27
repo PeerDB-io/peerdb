@@ -15,6 +15,7 @@ func LogPullMetrics(
 	flowJobName string,
 	recordBatch *model.RecordBatch,
 	totalRecordsAtSource int64,
+	duration time.Duration,
 ) {
 	if ctx.Value(shared.EnableMetricsKey) != true {
 		return
@@ -39,10 +40,10 @@ func LogPullMetrics(
 		}
 	}
 
-	insertRecordsPulledGauge.Update(float64(insertRecords))
-	updateRecordsPulledGauge.Update(float64(updateRecords))
-	deleteRecordsPulledGauge.Update(float64(deleteRecords))
-	totalRecordsPulledGauge.Update(float64(len(recordBatch.Records)))
+	insertRecordsPulledGauge.Update(float64(insertRecords) / duration.Seconds())
+	updateRecordsPulledGauge.Update(float64(updateRecords) / duration.Seconds())
+	deleteRecordsPulledGauge.Update(float64(deleteRecords) / duration.Seconds())
+	totalRecordsPulledGauge.Update(float64(len(recordBatch.Records)) / duration.Seconds())
 	totalRecordsAtSourceGauge.Update(float64(totalRecordsAtSource))
 }
 
@@ -117,4 +118,15 @@ func LogQRepNormalizeMetrics(ctx context.Context, flowJobName string,
 
 	recordsSyncedPerSecondGauge.Update(float64(normalizedRecordsCount) / duration.Seconds())
 	totalRecordsAtTargetGauge.Update(float64(totalRecordsAtTarget))
+}
+
+func LogCDCRawThroughputMetrics(ctx context.Context, flowJobName string, throughput float64) {
+	if ctx.Value(shared.EnableMetricsKey) != true {
+		return
+	}
+
+	metricsHandler := activity.GetMetricsHandler(ctx)
+	totalThroughputGauge :=
+		metricsHandler.Gauge(fmt.Sprintf("cdcflow.%s.records_throughput", flowJobName))
+	totalThroughputGauge.Update(throughput)
 }

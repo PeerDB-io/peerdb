@@ -223,16 +223,19 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
 
+	startTime := time.Now()
 	recordsWithSchemaDelta, err := cdc.PullRecords(req)
 	if err != nil {
 		return nil, err
 	}
+
+	totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
+	if err != nil {
+		return nil, err
+	}
+	metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.RecordBatch,
+		totalRecordsAtSource, time.Since(startTime))
 	if len(recordsWithSchemaDelta.RecordBatch.Records) > 0 {
-		totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
-		if err != nil {
-			return nil, err
-		}
-		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.RecordBatch, totalRecordsAtSource)
 		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
 		if ok {
 			latestLSN, err := c.getCurrentLSN()
