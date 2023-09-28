@@ -145,7 +145,9 @@ const ExampleTable = ({ title }: { title: string }) => (
 type EditMirrorProps = {
   params: { peerId: string };
 };
-export default function EditPeer({ params: { peerId } }: EditMirrorProps) {
+export default function EditPeer({
+  params: { peerId },
+}: EditMirrorProps) {
   const [logsOpen, setLogsOpen] = useState(false);
   return (
     <>
