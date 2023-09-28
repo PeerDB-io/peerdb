@@ -3,6 +3,7 @@ package connectors
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
@@ -15,7 +16,6 @@ import (
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
-var ErrWrongConfig = errors.New("wrong config for connector")
 
 type Connector interface {
 	Close() error
@@ -191,26 +191,27 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 	}
 }
 
-func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
-	inner := config.Type
+func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
+	inner := peer.Type
 	switch inner {
 	case protos.DBType_POSTGRES:
-		pgConfig := config.GetPostgresConfig()
+		pgConfig := peer.GetPostgresConfig()
+
 		if pgConfig == nil {
-			return nil, ErrWrongConfig
+			return nil, fmt.Errorf("missing postgres config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connpostgres.NewPostgresConnector(ctx, pgConfig)
 	case protos.DBType_BIGQUERY:
-		bqConfig := config.GetBigqueryConfig()
+		bqConfig := peer.GetBigqueryConfig()
 		if bqConfig == nil {
-			return nil, ErrWrongConfig
+			return nil, fmt.Errorf("missing bigquery config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connbigquery.NewBigQueryConnector(ctx, bqConfig)
 
 	case protos.DBType_SNOWFLAKE:
-		sfConfig := config.GetSnowflakeConfig()
+		sfConfig := peer.GetSnowflakeConfig()
 		if sfConfig == nil {
-			return nil, ErrWrongConfig
+			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
 	// case protos.DBType_S3:
@@ -220,7 +221,7 @@ func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
 	// case protos.DBType_SQLSERVER:
 	// 	return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
 	default:
-		return nil, ErrUnsupportedFunctionality
+		return nil, fmt.Errorf("unsupported peer type %s", peer.Type.String())
 	}
 }
 

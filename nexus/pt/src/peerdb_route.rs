@@ -84,8 +84,9 @@ pub struct CreatePeerResponse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ValidatePeerStatus {
-    Valid = 0,
-    Invalid = 1,
+    CreationUnknown = 0,
+    Valid = 1,
+    Invalid = 2,
 }
 impl ValidatePeerStatus {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -94,6 +95,7 @@ impl ValidatePeerStatus {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
+            ValidatePeerStatus::CreationUnknown => "CREATION_UNKNOWN",
             ValidatePeerStatus::Valid => "VALID",
             ValidatePeerStatus::Invalid => "INVALID",
         }
@@ -101,6 +103,7 @@ impl ValidatePeerStatus {
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
+            "CREATION_UNKNOWN" => Some(Self::CreationUnknown),
             "VALID" => Some(Self::Valid),
             "INVALID" => Some(Self::Invalid),
             _ => None,
@@ -110,8 +113,9 @@ impl ValidatePeerStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum CreatePeerStatus {
-    Created = 0,
-    Failed = 1,
+    ValidationUnknown = 0,
+    Created = 1,
+    Failed = 2,
 }
 impl CreatePeerStatus {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -120,6 +124,7 @@ impl CreatePeerStatus {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
+            CreatePeerStatus::ValidationUnknown => "VALIDATION_UNKNOWN",
             CreatePeerStatus::Created => "CREATED",
             CreatePeerStatus::Failed => "FAILED",
         }
@@ -127,6 +132,7 @@ impl CreatePeerStatus {
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
+            "VALIDATION_UNKNOWN" => Some(Self::ValidationUnknown),
             "CREATED" => Some(Self::Created),
             "FAILED" => Some(Self::Failed),
             _ => None,

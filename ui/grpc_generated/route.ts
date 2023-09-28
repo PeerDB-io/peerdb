@@ -18,17 +18,21 @@ import { Peer } from "./peers";
 export const protobufPackage = "peerdb_route";
 
 export enum ValidatePeerStatus {
-  VALID = 0,
-  INVALID = 1,
+  CREATION_UNKNOWN = 0,
+  VALID = 1,
+  INVALID = 2,
   UNRECOGNIZED = -1,
 }
 
 export function validatePeerStatusFromJSON(object: any): ValidatePeerStatus {
   switch (object) {
     case 0:
+    case "CREATION_UNKNOWN":
+      return ValidatePeerStatus.CREATION_UNKNOWN;
+    case 1:
     case "VALID":
       return ValidatePeerStatus.VALID;
-    case 1:
+    case 2:
     case "INVALID":
       return ValidatePeerStatus.INVALID;
     case -1:
@@ -40,6 +44,8 @@ export function validatePeerStatusFromJSON(object: any): ValidatePeerStatus {
 
 export function validatePeerStatusToJSON(object: ValidatePeerStatus): string {
   switch (object) {
+    case ValidatePeerStatus.CREATION_UNKNOWN:
+      return "CREATION_UNKNOWN";
     case ValidatePeerStatus.VALID:
       return "VALID";
     case ValidatePeerStatus.INVALID:
@@ -51,17 +57,21 @@ export function validatePeerStatusToJSON(object: ValidatePeerStatus): string {
 }
 
 export enum CreatePeerStatus {
-  CREATED = 0,
-  FAILED = 1,
+  VALIDATION_UNKNOWN = 0,
+  CREATED = 1,
+  FAILED = 2,
   UNRECOGNIZED = -1,
 }
 
 export function createPeerStatusFromJSON(object: any): CreatePeerStatus {
   switch (object) {
     case 0:
+    case "VALIDATION_UNKNOWN":
+      return CreatePeerStatus.VALIDATION_UNKNOWN;
+    case 1:
     case "CREATED":
       return CreatePeerStatus.CREATED;
-    case 1:
+    case 2:
     case "FAILED":
       return CreatePeerStatus.FAILED;
     case -1:
@@ -73,6 +83,8 @@ export function createPeerStatusFromJSON(object: any): CreatePeerStatus {
 
 export function createPeerStatusToJSON(object: CreatePeerStatus): string {
   switch (object) {
+    case CreatePeerStatus.VALIDATION_UNKNOWN:
+      return "VALIDATION_UNKNOWN";
     case CreatePeerStatus.CREATED:
       return "CREATED";
     case CreatePeerStatus.FAILED:

@@ -50,13 +50,15 @@ message CreatePeerRequest {
 }
 
 enum ValidatePeerStatus {
-  VALID = 0;
-  INVALID = 1;
+  CREATION_UNKNOWN = 0;
+  VALID = 1;
+  INVALID = 2;
 }
 
 enum CreatePeerStatus {
-  CREATED = 0;
-  FAILED = 1;
+  VALIDATION_UNKNOWN = 0;
+  CREATED = 1;
+  FAILED = 2;
 }
 
 message ValidatePeerResponse {

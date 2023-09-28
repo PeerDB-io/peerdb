@@ -298,22 +298,25 @@ func (h *FlowRequestHandler) ValidatePeer(
 	conn, err := connectors.GetConnector(ctx, req.Peer)
 	if err != nil {
 		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("invalid peer: %s", err),
+			Status: protos.ValidatePeerStatus_INVALID,
+			Message: fmt.Sprintf("peer type is missing or your requested configuration for %s peer %s was invalidated: %s",
+				req.Peer.Type, req.Peer.Name, err),
 		}, nil
 	}
 
 	status := conn.ConnectionActive()
 	if !status {
 		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("failed to establish connection to peer: %s", err),
+			Status: protos.ValidatePeerStatus_INVALID,
+			Message: fmt.Sprintf("failed to establish active connection to %s peer %s.",
+				req.Peer.Type, req.Peer.Name),
 		}, nil
 	}
 
 	return &protos.ValidatePeerResponse{
-		Status:  protos.ValidatePeerStatus_VALID,
-		Message: "valid peer",
+		Status: protos.ValidatePeerStatus_VALID,
+		Message: fmt.Sprintf("%s peer %s is valid",
+			req.Peer.Type, req.Peer.Name),
 	}, nil
 }
 
@@ -334,26 +337,37 @@ func (h *FlowRequestHandler) CreatePeer(
 
 	config := req.Peer.Config
 	wrongConfigResponse := &protos.CreatePeerResponse{
-		Status:  protos.CreatePeerStatus_FAILED,
-		Message: "wrong config for connector",
+		Status: protos.CreatePeerStatus_FAILED,
+		Message: fmt.Sprintf("invalid config for %s peer %s",
+			req.Peer.Type, req.Peer.Name),
 	}
 	var encodedConfig []byte
 	var encodingErr error
 	peerType := req.Peer.Type
 	switch peerType {
 	case protos.DBType_POSTGRES:
-		pgConfig := config.(*protos.Peer_PostgresConfig).PostgresConfig
+		pgConfigObject, ok := config.(*protos.Peer_PostgresConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		pgConfig := pgConfigObject.PostgresConfig
+
 		encodedConfig, encodingErr = proto.Marshal(pgConfig)
 
 	case protos.DBType_SNOWFLAKE:
-		sfConfig := config.(*protos.Peer_SnowflakeConfig).SnowflakeConfig
+		sfConfigObject, ok := config.(*protos.Peer_SnowflakeConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		sfConfig := sfConfigObject.SnowflakeConfig
 		encodedConfig, encodingErr = proto.Marshal(sfConfig)
 
 	default:
 		return wrongConfigResponse, nil
 	}
 	if encodingErr != nil {
-		log.Errorf("failed to encode peer config: %v", encodingErr)
+		log.Errorf("failed to encode peer configuration for %s peer %s : %v",
+			req.Peer.Type, req.Peer.Name, encodingErr)
 		return nil, encodingErr
 	}
 
@@ -362,8 +376,9 @@ func (h *FlowRequestHandler) CreatePeer(
 	)
 	if err != nil {
 		return &protos.CreatePeerResponse{
-			Status:  protos.CreatePeerStatus_FAILED,
-			Message: err.Error(),
+			Status: protos.CreatePeerStatus_FAILED,
+			Message: fmt.Sprintf("failed to insert into peers table for %s peer %s: %s",
+				req.Peer.Type, req.Peer.Name, err.Error()),
 		}, nil
 	}
 

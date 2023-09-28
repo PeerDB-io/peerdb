@@ -407,6 +407,7 @@ impl serde::Serialize for CreatePeerStatus {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::ValidationUnknown => "VALIDATION_UNKNOWN",
             Self::Created => "CREATED",
             Self::Failed => "FAILED",
         };
@@ -420,6 +421,7 @@ impl<'de> serde::Deserialize<'de> for CreatePeerStatus {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "VALIDATION_UNKNOWN",
             "CREATED",
             "FAILED",
         ];
@@ -464,6 +466,7 @@ impl<'de> serde::Deserialize<'de> for CreatePeerStatus {
                 E: serde::de::Error,
             {
                 match value {
+                    "VALIDATION_UNKNOWN" => Ok(CreatePeerStatus::ValidationUnknown),
                     "CREATED" => Ok(CreatePeerStatus::Created),
                     "FAILED" => Ok(CreatePeerStatus::Failed),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
@@ -1311,6 +1314,7 @@ impl serde::Serialize for ValidatePeerStatus {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::CreationUnknown => "CREATION_UNKNOWN",
             Self::Valid => "VALID",
             Self::Invalid => "INVALID",
         };
@@ -1324,6 +1328,7 @@ impl<'de> serde::Deserialize<'de> for ValidatePeerStatus {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "CREATION_UNKNOWN",
             "VALID",
             "INVALID",
         ];
@@ -1368,6 +1373,7 @@ impl<'de> serde::Deserialize<'de> for ValidatePeerStatus {
                 E: serde::de::Error,
             {
                 match value {
+                    "CREATION_UNKNOWN" => Ok(ValidatePeerStatus::CreationUnknown),
                     "VALID" => Ok(ValidatePeerStatus::Valid),
                     "INVALID" => Ok(ValidatePeerStatus::Invalid),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
