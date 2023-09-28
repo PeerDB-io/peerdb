@@ -1,5 +1,5 @@
 use crate::{auth::SnowflakeAuth, PartitionResult, ResultSet};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use futures::Stream;
 use peer_cursor::Schema;
 use peer_cursor::{Record, RecordStream, SchemaRef};
@@ -146,18 +146,16 @@ impl SnowflakeRecordStream {
                         // really hacky workaround for parsing the UTC timezone specifically.
                         SnowflakeDataType::TimestampLtz => {
                             match DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT) {
-                                Ok(_) => TimestampWithTimeZone(DateTime::<Utc>::from_utc(
-                                    DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT)?
+                                Ok(_) => TimestampWithTimeZone(Utc.from_utc_datetime(
+                                    &DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT)?
                                         .naive_utc(),
-                                    Utc,
                                 )),
-                                Err(_) => TimestampWithTimeZone(DateTime::<Utc>::from_utc(
-                                    DateTime::parse_from_str(
+                                Err(_) => TimestampWithTimeZone(Utc.from_utc_datetime(
+                                    &DateTime::parse_from_str(
                                         &elem.replace("Z", "+0000"),
                                         TIMESTAMP_TZ_PARSE_FORMAT,
                                     )?
                                     .naive_utc(),
-                                    Utc,
                                 )),
                             }
                         }
@@ -166,18 +164,16 @@ impl SnowflakeRecordStream {
                         ),
                         SnowflakeDataType::TimestampTz => {
                             match DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT) {
-                                Ok(_) => TimestampWithTimeZone(DateTime::<Utc>::from_utc(
-                                    DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT)?
+                                Ok(_) => TimestampWithTimeZone(Utc.from_utc_datetime(
+                                    &DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT)?
                                         .naive_utc(),
-                                    Utc,
                                 )),
-                                Err(_) => TimestampWithTimeZone(DateTime::<Utc>::from_utc(
-                                    DateTime::parse_from_str(
+                                Err(_) => TimestampWithTimeZone(Utc.from_utc_datetime(
+                                    &DateTime::parse_from_str(
                                         &elem.replace("Z", "+0000"),
                                         TIMESTAMP_TZ_PARSE_FORMAT,
                                     )?
                                     .naive_utc(),
-                                    Utc,
                                 )),
                             }
                         }
