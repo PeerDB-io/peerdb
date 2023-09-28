@@ -299,7 +299,8 @@ func (h *FlowRequestHandler) ValidatePeer(
 	if err != nil {
 		return &protos.ValidatePeerResponse{
 			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("peer type is missing or your requested configuration for %s peer %s was invalidated: %s",
+			Message: fmt.Sprintf("peer type is missing or "+
+				"your requested configuration for %s peer %s was invalidated: %s",
 				req.Peer.Type, req.Peer.Name, err),
 		}, nil
 	}
