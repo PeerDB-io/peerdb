@@ -448,9 +448,11 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		TableNameSchemaMapping: tableNameSchemaMapping,
 		RelationMessageMapping: relationMessageMapping,
 	})
-	suite.Equal(0, len(recordsWithSchemaDelta.RecordBatch.Records))
-	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
-	suite.Nil(err)
+	suite.Nil(recordsWithSchemaDelta)
+	suite.Errorf(
+		err,
+		"error while closing statement batch: ERROR: relation \"%s\" does not exist (SQLSTATE 42P01)",
+		nonExistentFlowSrcTableName)
 
 	err = suite.connector.PullFlowCleanup(nonExistentFlowName)
 	suite.failTestError(err)
