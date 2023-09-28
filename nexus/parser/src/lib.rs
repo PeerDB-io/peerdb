@@ -42,7 +42,7 @@ impl NexusStatement {
         stmt: &Statement,
     ) -> PgWireResult<Self> {
         let ddl = {
-            let pdl: PeerDDLAnalyzer = Default::default();
+            let pdl: PeerDDLAnalyzer = PeerDDLAnalyzer::new(&peers);
             pdl.analyze(stmt).map_err(|e| {
                 PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),

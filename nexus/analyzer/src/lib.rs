@@ -88,8 +88,15 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 /// PeerDDLAnalyzer is a statement analyzer that checks if the given
 /// statement is a PeerDB DDL statement. If it is, it returns the type of
 /// DDL statement.
-#[derive(Default)]
-pub struct PeerDDLAnalyzer;
+pub struct PeerDDLAnalyzer<'a> {
+    peers: &'a HashMap<String, Peer>,
+}
+
+impl<'a> PeerDDLAnalyzer<'a> {
+    pub fn new(peers: &'a HashMap<String, Peer>) -> Self {
+        Self { peers }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum PeerDDL {
@@ -114,7 +121,7 @@ pub enum PeerDDL {
     },
 }
 
-impl StatementAnalyzer for PeerDDLAnalyzer {
+impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
     type Output = Option<PeerDDL>;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
@@ -126,7 +133,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                 with_options,
             } => {
                 let db_type = DbType::from(peer_type.clone());
-                let config = parse_db_options(db_type, with_options.clone())?;
+                let config = parse_db_options(self.peers, db_type, with_options.clone())?;
                 let peer = Peer {
                     name: peer_name.to_string().to_lowercase(),
                     r#type: db_type as i32,
@@ -395,6 +402,7 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
 }
 
 fn parse_db_options(
+    peers: &HashMap<String, Peer>,
     db_type: DbType,
     with_options: Vec<SqlOption>,
 ) -> anyhow::Result<Option<Config>> {
@@ -545,33 +553,16 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Eventhub => {
-            let mut metadata_db = PostgresConfig::default();
-            let conn_str = opts
+            let conn_str: String = opts
                 .get("metadata_db")
-                .context("no metadata db specified")?;
-            let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
-            match param_pairs.len() {
-                5 => Ok(true),
-                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
-            }?;
-            for pair in param_pairs {
-                let key_value: Vec<&str> = pair.trim().split('=').collect();
-                match key_value.len() {
-                    2 => Ok(true),
-                    _ => Err(anyhow::Error::msg(
-                        "Invalid config setting for PG. Check the formatting",
-                    )),
-                }?;
-                let value = key_value[1].to_string();
-                match key_value[0] {
-                    "host" => metadata_db.host = value,
-                    "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
-                    "database" => metadata_db.database = value,
-                    "user" => metadata_db.user = value,
-                    "password" => metadata_db.password = value,
-                    _ => (),
-                };
-            }
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let metadata_db = parse_metadata_db_info(&conn_str)?;
+            let subscription_id = opts
+                .get("subscription_id")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+
             let eventhub_config = EventHubConfig {
                 namespace: opts
                     .get("namespace")
@@ -585,7 +576,8 @@ fn parse_db_options(
                     .get("location")
                     .context("location not specified")?
                     .to_string(),
-                metadata_db: Some(metadata_db),
+                metadata_db,
+                subscription_id,
             };
             let config = Config::EventhubConfig(eventhub_config);
             Some(config)
@@ -622,7 +614,79 @@ fn parse_db_options(
             let config = Config::SqlserverConfig(sqlserver_config);
             Some(config)
         }
+        DbType::EventhubGroup => {
+            let conn_str = opts
+                .get("metadata_db")
+                .context("no metadata db specified")?;
+            let metadata_db = parse_metadata_db_info(conn_str)?;
+
+            // metadata_db is required for eventhub group
+            if metadata_db.is_none() {
+                anyhow::bail!("metadata_db is required for eventhub group");
+            }
+
+            let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
+            for (key, _) in opts {
+                if key == "metadata_db" {
+                    continue;
+                }
+
+                // check if peers contains key and if it does
+                // then add it to the eventhubs hashmap, if not error
+                if let Some(peer) = peers.get(&key) {
+                    let eventhub_config = peer.config.clone().unwrap();
+                    if let Config::EventhubConfig(eventhub_config) = eventhub_config {
+                        eventhubs.insert(key.to_string(), eventhub_config);
+                    } else {
+                        anyhow::bail!("Peer '{}' is not an eventhub", key);
+                    }
+                } else {
+                    anyhow::bail!("Peer '{}' does not exist", key);
+                }
+            }
+
+            let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
+                eventhubs,
+                metadata_db,
+            };
+            let config = Config::EventhubGroupConfig(eventhub_group_config);
+            Some(config)
+        }
     };
 
     Ok(config)
+}
+
+fn parse_metadata_db_info(conn_str: &str) -> anyhow::Result<Option<PostgresConfig>> {
+    if conn_str.is_empty() {
+        return Ok(None);
+    }
+
+    let mut metadata_db = PostgresConfig::default();
+    let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
+    match param_pairs.len() {
+                5 => Ok(true),
+                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
+            }?;
+
+    for pair in param_pairs {
+        let key_value: Vec<&str> = pair.trim().split('=').collect();
+        match key_value.len() {
+            2 => Ok(true),
+            _ => Err(anyhow::Error::msg(
+                "Invalid config setting for PG. Check the formatting",
+            )),
+        }?;
+        let value = key_value[1].to_string();
+        match key_value[0] {
+            "host" => metadata_db.host = value,
+            "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
+            "database" => metadata_db.database = value,
+            "user" => metadata_db.user = value,
+            "password" => metadata_db.password = value,
+            _ => (),
+        };
+    }
+
+    Ok(Some(metadata_db))
 }

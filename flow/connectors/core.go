@@ -142,7 +142,9 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
 	case *protos.Peer_EventhubConfig:
-		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
+		return nil, fmt.Errorf("use eventhub group config instead")
+	case *protos.Peer_EventhubGroupConfig:
+		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubGroupConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
