@@ -10,6 +10,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.0.1
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.1.1
 	github.com/aws/aws-sdk-go v1.45.15
+	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/google/uuid v1.3.1
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jackc/pglogrepl v0.0.0-20230826184802-9ed16cb201f6
@@ -36,7 +37,6 @@ require (
 )
 
 require (
-	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.0.0 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.4 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect

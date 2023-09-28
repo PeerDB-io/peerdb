@@ -289,6 +289,7 @@ impl serde::Serialize for DbType {
             Self::Eventhub => "EVENTHUB",
             Self::S3 => "S3",
             Self::Sqlserver => "SQLSERVER",
+            Self::EventhubGroup => "EVENTHUB_GROUP",
         };
         serializer.serialize_str(variant)
     }
@@ -307,6 +308,7 @@ impl<'de> serde::Deserialize<'de> for DbType {
             "EVENTHUB",
             "S3",
             "SQLSERVER",
+            "EVENTHUB_GROUP",
         ];
 
         struct GeneratedVisitor;
@@ -356,6 +358,7 @@ impl<'de> serde::Deserialize<'de> for DbType {
                     "EVENTHUB" => Ok(DbType::Eventhub),
                     "S3" => Ok(DbType::S3),
                     "SQLSERVER" => Ok(DbType::Sqlserver),
+                    "EVENTHUB_GROUP" => Ok(DbType::EventhubGroup),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -383,6 +386,9 @@ impl serde::Serialize for EventHubConfig {
         if self.metadata_db.is_some() {
             len += 1;
         }
+        if !self.subscription_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.EventHubConfig", len)?;
         if !self.namespace.is_empty() {
             struct_ser.serialize_field("namespace", &self.namespace)?;
@@ -395,6 +401,9 @@ impl serde::Serialize for EventHubConfig {
         }
         if let Some(v) = self.metadata_db.as_ref() {
             struct_ser.serialize_field("metadataDb", v)?;
+        }
+        if !self.subscription_id.is_empty() {
+            struct_ser.serialize_field("subscriptionId", &self.subscription_id)?;
         }
         struct_ser.end()
     }
@@ -412,6 +421,8 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
             "location",
             "metadata_db",
             "metadataDb",
+            "subscription_id",
+            "subscriptionId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -420,6 +431,7 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
             ResourceGroup,
             Location,
             MetadataDb,
+            SubscriptionId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -446,6 +458,7 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
                             "resourceGroup" | "resource_group" => Ok(GeneratedField::ResourceGroup),
                             "location" => Ok(GeneratedField::Location),
                             "metadataDb" | "metadata_db" => Ok(GeneratedField::MetadataDb),
+                            "subscriptionId" | "subscription_id" => Ok(GeneratedField::SubscriptionId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -469,6 +482,7 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
                 let mut resource_group__ = None;
                 let mut location__ = None;
                 let mut metadata_db__ = None;
+                let mut subscription_id__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Namespace => {
@@ -495,6 +509,12 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
                             }
                             metadata_db__ = map.next_value()?;
                         }
+                        GeneratedField::SubscriptionId => {
+                            if subscription_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("subscriptionId"));
+                            }
+                            subscription_id__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -505,10 +525,126 @@ impl<'de> serde::Deserialize<'de> for EventHubConfig {
                     resource_group: resource_group__.unwrap_or_default(),
                     location: location__.unwrap_or_default(),
                     metadata_db: metadata_db__,
+                    subscription_id: subscription_id__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("peerdb_peers.EventHubConfig", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for EventHubGroupConfig {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.eventhubs.is_empty() {
+            len += 1;
+        }
+        if self.metadata_db.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_peers.EventHubGroupConfig", len)?;
+        if !self.eventhubs.is_empty() {
+            struct_ser.serialize_field("eventhubs", &self.eventhubs)?;
+        }
+        if let Some(v) = self.metadata_db.as_ref() {
+            struct_ser.serialize_field("metadataDb", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for EventHubGroupConfig {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "eventhubs",
+            "metadata_db",
+            "metadataDb",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Eventhubs,
+            MetadataDb,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "eventhubs" => Ok(GeneratedField::Eventhubs),
+                            "metadataDb" | "metadata_db" => Ok(GeneratedField::MetadataDb),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = EventHubGroupConfig;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_peers.EventHubGroupConfig")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<EventHubGroupConfig, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut eventhubs__ = None;
+                let mut metadata_db__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Eventhubs => {
+                            if eventhubs__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("eventhubs"));
+                            }
+                            eventhubs__ = Some(
+                                map.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
+                        GeneratedField::MetadataDb => {
+                            if metadata_db__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadataDb"));
+                            }
+                            metadata_db__ = map.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(EventHubGroupConfig {
+                    eventhubs: eventhubs__.unwrap_or_default(),
+                    metadata_db: metadata_db__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_peers.EventHubGroupConfig", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for MongoConfig {
@@ -725,6 +861,9 @@ impl serde::Serialize for Peer {
                 peer::Config::SqlserverConfig(v) => {
                     struct_ser.serialize_field("sqlserverConfig", v)?;
                 }
+                peer::Config::EventhubGroupConfig(v) => {
+                    struct_ser.serialize_field("eventhubGroupConfig", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -753,6 +892,8 @@ impl<'de> serde::Deserialize<'de> for Peer {
             "s3Config",
             "sqlserver_config",
             "sqlserverConfig",
+            "eventhub_group_config",
+            "eventhubGroupConfig",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -766,6 +907,7 @@ impl<'de> serde::Deserialize<'de> for Peer {
             EventhubConfig,
             S3Config,
             SqlserverConfig,
+            EventhubGroupConfig,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -797,6 +939,7 @@ impl<'de> serde::Deserialize<'de> for Peer {
                             "eventhubConfig" | "eventhub_config" => Ok(GeneratedField::EventhubConfig),
                             "s3Config" | "s3_config" => Ok(GeneratedField::S3Config),
                             "sqlserverConfig" | "sqlserver_config" => Ok(GeneratedField::SqlserverConfig),
+                            "eventhubGroupConfig" | "eventhub_group_config" => Ok(GeneratedField::EventhubGroupConfig),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -880,6 +1023,13 @@ impl<'de> serde::Deserialize<'de> for Peer {
                                 return Err(serde::de::Error::duplicate_field("sqlserverConfig"));
                             }
                             config__ = map.next_value::<::std::option::Option<_>>()?.map(peer::Config::SqlserverConfig)
+;
+                        }
+                        GeneratedField::EventhubGroupConfig => {
+                            if config__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("eventhubGroupConfig"));
+                            }
+                            config__ = map.next_value::<::std::option::Option<_>>()?.map(peer::Config::EventhubGroupConfig)
 ;
                         }
                         GeneratedField::__SkipField__ => {

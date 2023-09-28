@@ -154,6 +154,7 @@ impl NexusBackend {
             4, // EVENTHUB
             5, // S3
             6, // SQLSERVER
+            7, // EVENTHUBGROUP
         ];
         !unsupported_peer_types.contains(&peer_type)
     }

@@ -143,6 +143,11 @@ impl Catalog {
                     buf.reserve(config_len);
                     sqlserver_config.encode(&mut buf)?;
                 }
+                Config::EventhubGroupConfig(eventhub_group_config) => {
+                    let config_len = eventhub_group_config.encoded_len();
+                    buf.reserve(config_len);
+                    eventhub_group_config.encode(&mut buf)?;
+                }
             };
 
             buf
@@ -330,6 +335,16 @@ impl Catalog {
                 let sqlserver_config =
                     pt::peerdb_peers::SqlServerConfig::decode(options.as_slice()).context(err)?;
                 Ok(Some(Config::SqlserverConfig(sqlserver_config)))
+            }
+            Some(DbType::EventhubGroup) => {
+                let err = format!(
+                    "unable to decode {} options for peer {}",
+                    "eventhub_group", name
+                );
+                let eventhub_group_config =
+                    pt::peerdb_peers::EventHubGroupConfig::decode(options.as_slice())
+                        .context(err)?;
+                Ok(Some(Config::EventhubGroupConfig(eventhub_group_config)))
             }
             None => Ok(None),
         }

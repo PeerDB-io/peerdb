@@ -12,6 +12,7 @@ export enum DBType {
   EVENTHUB = 4,
   S3 = 5,
   SQLSERVER = 6,
+  EVENTHUB_GROUP = 7,
   UNRECOGNIZED = -1,
 }
 
@@ -38,6 +39,9 @@ export function dBTypeFromJSON(object: any): DBType {
     case 6:
     case "SQLSERVER":
       return DBType.SQLSERVER;
+    case 7:
+    case "EVENTHUB_GROUP":
+      return DBType.EVENTHUB_GROUP;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -61,6 +65,8 @@ export function dBTypeToJSON(object: DBType): string {
       return "S3";
     case DBType.SQLSERVER:
       return "SQLSERVER";
+    case DBType.EVENTHUB_GROUP:
+      return "EVENTHUB_GROUP";
     case DBType.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -115,7 +121,22 @@ export interface EventHubConfig {
   namespace: string;
   resourceGroup: string;
   location: string;
+  metadataDb:
+    | PostgresConfig
+    | undefined;
+  /** if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable. */
+  subscriptionId: string;
+}
+
+export interface EventHubGroupConfig {
+  /** event hub peer name to event hub config */
+  eventhubs: { [key: string]: EventHubConfig };
   metadataDb: PostgresConfig | undefined;
+}
+
+export interface EventHubGroupConfig_EventhubsEntry {
+  key: string;
+  value: EventHubConfig | undefined;
 }
 
 export interface S3Config {
@@ -140,6 +161,7 @@ export interface Peer {
   eventhubConfig?: EventHubConfig | undefined;
   s3Config?: S3Config | undefined;
   sqlserverConfig?: SqlServerConfig | undefined;
+  eventhubGroupConfig?: EventHubGroupConfig | undefined;
 }
 
 function createBaseSnowflakeConfig(): SnowflakeConfig {
@@ -806,7 +828,7 @@ export const PostgresConfig = {
 };
 
 function createBaseEventHubConfig(): EventHubConfig {
-  return { namespace: "", resourceGroup: "", location: "", metadataDb: undefined };
+  return { namespace: "", resourceGroup: "", location: "", metadataDb: undefined, subscriptionId: "" };
 }
 
 export const EventHubConfig = {
@@ -822,6 +844,9 @@ export const EventHubConfig = {
     }
     if (message.metadataDb !== undefined) {
       PostgresConfig.encode(message.metadataDb, writer.uint32(34).fork()).ldelim();
+    }
+    if (message.subscriptionId !== "") {
+      writer.uint32(42).string(message.subscriptionId);
     }
     return writer;
   },
@@ -861,6 +886,13 @@ export const EventHubConfig = {
 
           message.metadataDb = PostgresConfig.decode(reader, reader.uint32());
           continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.subscriptionId = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -876,6 +908,7 @@ export const EventHubConfig = {
       resourceGroup: isSet(object.resourceGroup) ? String(object.resourceGroup) : "",
       location: isSet(object.location) ? String(object.location) : "",
       metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
+      subscriptionId: isSet(object.subscriptionId) ? String(object.subscriptionId) : "",
     };
   },
 
@@ -893,6 +926,9 @@ export const EventHubConfig = {
     if (message.metadataDb !== undefined) {
       obj.metadataDb = PostgresConfig.toJSON(message.metadataDb);
     }
+    if (message.subscriptionId !== "") {
+      obj.subscriptionId = message.subscriptionId;
+    }
     return obj;
   },
 
@@ -906,6 +942,185 @@ export const EventHubConfig = {
     message.location = object.location ?? "";
     message.metadataDb = (object.metadataDb !== undefined && object.metadataDb !== null)
       ? PostgresConfig.fromPartial(object.metadataDb)
+      : undefined;
+    message.subscriptionId = object.subscriptionId ?? "";
+    return message;
+  },
+};
+
+function createBaseEventHubGroupConfig(): EventHubGroupConfig {
+  return { eventhubs: {}, metadataDb: undefined };
+}
+
+export const EventHubGroupConfig = {
+  encode(message: EventHubGroupConfig, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    Object.entries(message.eventhubs).forEach(([key, value]) => {
+      EventHubGroupConfig_EventhubsEntry.encode({ key: key as any, value }, writer.uint32(10).fork()).ldelim();
+    });
+    if (message.metadataDb !== undefined) {
+      PostgresConfig.encode(message.metadataDb, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): EventHubGroupConfig {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseEventHubGroupConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          const entry1 = EventHubGroupConfig_EventhubsEntry.decode(reader, reader.uint32());
+          if (entry1.value !== undefined) {
+            message.eventhubs[entry1.key] = entry1.value;
+          }
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.metadataDb = PostgresConfig.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): EventHubGroupConfig {
+    return {
+      eventhubs: isObject(object.eventhubs)
+        ? Object.entries(object.eventhubs).reduce<{ [key: string]: EventHubConfig }>((acc, [key, value]) => {
+          acc[key] = EventHubConfig.fromJSON(value);
+          return acc;
+        }, {})
+        : {},
+      metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
+    };
+  },
+
+  toJSON(message: EventHubGroupConfig): unknown {
+    const obj: any = {};
+    if (message.eventhubs) {
+      const entries = Object.entries(message.eventhubs);
+      if (entries.length > 0) {
+        obj.eventhubs = {};
+        entries.forEach(([k, v]) => {
+          obj.eventhubs[k] = EventHubConfig.toJSON(v);
+        });
+      }
+    }
+    if (message.metadataDb !== undefined) {
+      obj.metadataDb = PostgresConfig.toJSON(message.metadataDb);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<EventHubGroupConfig>, I>>(base?: I): EventHubGroupConfig {
+    return EventHubGroupConfig.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<EventHubGroupConfig>, I>>(object: I): EventHubGroupConfig {
+    const message = createBaseEventHubGroupConfig();
+    message.eventhubs = Object.entries(object.eventhubs ?? {}).reduce<{ [key: string]: EventHubConfig }>(
+      (acc, [key, value]) => {
+        if (value !== undefined) {
+          acc[key] = EventHubConfig.fromPartial(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    message.metadataDb = (object.metadataDb !== undefined && object.metadataDb !== null)
+      ? PostgresConfig.fromPartial(object.metadataDb)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseEventHubGroupConfig_EventhubsEntry(): EventHubGroupConfig_EventhubsEntry {
+  return { key: "", value: undefined };
+}
+
+export const EventHubGroupConfig_EventhubsEntry = {
+  encode(message: EventHubGroupConfig_EventhubsEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      EventHubConfig.encode(message.value, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): EventHubGroupConfig_EventhubsEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseEventHubGroupConfig_EventhubsEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = EventHubConfig.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): EventHubGroupConfig_EventhubsEntry {
+    return {
+      key: isSet(object.key) ? String(object.key) : "",
+      value: isSet(object.value) ? EventHubConfig.fromJSON(object.value) : undefined,
+    };
+  },
+
+  toJSON(message: EventHubGroupConfig_EventhubsEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== undefined) {
+      obj.value = EventHubConfig.toJSON(message.value);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<EventHubGroupConfig_EventhubsEntry>, I>>(
+    base?: I,
+  ): EventHubGroupConfig_EventhubsEntry {
+    return EventHubGroupConfig_EventhubsEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<EventHubGroupConfig_EventhubsEntry>, I>>(
+    object: I,
+  ): EventHubGroupConfig_EventhubsEntry {
+    const message = createBaseEventHubGroupConfig_EventhubsEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? EventHubConfig.fromPartial(object.value)
       : undefined;
     return message;
   },
@@ -1098,6 +1313,7 @@ function createBasePeer(): Peer {
     eventhubConfig: undefined,
     s3Config: undefined,
     sqlserverConfig: undefined,
+    eventhubGroupConfig: undefined,
   };
 }
 
@@ -1129,6 +1345,9 @@ export const Peer = {
     }
     if (message.sqlserverConfig !== undefined) {
       SqlServerConfig.encode(message.sqlserverConfig, writer.uint32(74).fork()).ldelim();
+    }
+    if (message.eventhubGroupConfig !== undefined) {
+      EventHubGroupConfig.encode(message.eventhubGroupConfig, writer.uint32(82).fork()).ldelim();
     }
     return writer;
   },
@@ -1203,6 +1422,13 @@ export const Peer = {
 
           message.sqlserverConfig = SqlServerConfig.decode(reader, reader.uint32());
           continue;
+        case 10:
+          if (tag !== 82) {
+            break;
+          }
+
+          message.eventhubGroupConfig = EventHubGroupConfig.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1223,6 +1449,9 @@ export const Peer = {
       eventhubConfig: isSet(object.eventhubConfig) ? EventHubConfig.fromJSON(object.eventhubConfig) : undefined,
       s3Config: isSet(object.s3Config) ? S3Config.fromJSON(object.s3Config) : undefined,
       sqlserverConfig: isSet(object.sqlserverConfig) ? SqlServerConfig.fromJSON(object.sqlserverConfig) : undefined,
+      eventhubGroupConfig: isSet(object.eventhubGroupConfig)
+        ? EventHubGroupConfig.fromJSON(object.eventhubGroupConfig)
+        : undefined,
     };
   },
 
@@ -1255,6 +1484,9 @@ export const Peer = {
     if (message.sqlserverConfig !== undefined) {
       obj.sqlserverConfig = SqlServerConfig.toJSON(message.sqlserverConfig);
     }
+    if (message.eventhubGroupConfig !== undefined) {
+      obj.eventhubGroupConfig = EventHubGroupConfig.toJSON(message.eventhubGroupConfig);
+    }
     return obj;
   },
 
@@ -1285,6 +1517,9 @@ export const Peer = {
       : undefined;
     message.sqlserverConfig = (object.sqlserverConfig !== undefined && object.sqlserverConfig !== null)
       ? SqlServerConfig.fromPartial(object.sqlserverConfig)
+      : undefined;
+    message.eventhubGroupConfig = (object.eventhubGroupConfig !== undefined && object.eventhubGroupConfig !== null)
+      ? EventHubGroupConfig.fromPartial(object.eventhubGroupConfig)
       : undefined;
     return message;
   },
@@ -1330,6 +1565,10 @@ function longToNumber(long: Long): number {
 if (_m0.util.Long !== Long) {
   _m0.util.Long = Long as any;
   _m0.configure();
+}
+
+function isObject(value: any): boolean {
+  return typeof value === "object" && value !== null;
 }
 
 function isSet(value: any): boolean {

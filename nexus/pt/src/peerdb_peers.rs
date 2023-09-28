@@ -89,6 +89,18 @@ pub struct EventHubConfig {
     pub location: ::prost::alloc::string::String,
     #[prost(message, optional, tag="4")]
     pub metadata_db: ::core::option::Option<PostgresConfig>,
+    /// if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable.
+    #[prost(string, tag="5")]
+    pub subscription_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventHubGroupConfig {
+    /// event hub peer name to event hub config
+    #[prost(map="string, message", tag="1")]
+    pub eventhubs: ::std::collections::HashMap<::prost::alloc::string::String, EventHubConfig>,
+    #[prost(message, optional, tag="2")]
+    pub metadata_db: ::core::option::Option<PostgresConfig>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -117,7 +129,7 @@ pub struct Peer {
     pub name: ::prost::alloc::string::String,
     #[prost(enumeration="DbType", tag="2")]
     pub r#type: i32,
-    #[prost(oneof="peer::Config", tags="3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof="peer::Config", tags="3, 4, 5, 6, 7, 8, 9, 10")]
     pub config: ::core::option::Option<peer::Config>,
 }
 /// Nested message and enum types in `Peer`.
@@ -139,6 +151,8 @@ pub mod peer {
         S3Config(super::S3Config),
         #[prost(message, tag="9")]
         SqlserverConfig(super::SqlServerConfig),
+        #[prost(message, tag="10")]
+        EventhubGroupConfig(super::EventHubGroupConfig),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -151,6 +165,7 @@ pub enum DbType {
     Eventhub = 4,
     S3 = 5,
     Sqlserver = 6,
+    EventhubGroup = 7,
 }
 impl DbType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -166,6 +181,7 @@ impl DbType {
             DbType::Eventhub => "EVENTHUB",
             DbType::S3 => "S3",
             DbType::Sqlserver => "SQLSERVER",
+            DbType::EventhubGroup => "EVENTHUB_GROUP",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -178,6 +194,7 @@ impl DbType {
             "EVENTHUB" => Some(Self::Eventhub),
             "S3" => Some(Self::S3),
             "SQLSERVER" => Some(Self::Sqlserver),
+            "EVENTHUB_GROUP" => Some(Self::EventhubGroup),
             _ => None,
         }
     }

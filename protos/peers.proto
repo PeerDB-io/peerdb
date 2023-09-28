@@ -52,6 +52,14 @@ message EventHubConfig {
   string resource_group = 2;
   string location = 3;
   PostgresConfig metadata_db = 4;
+  // if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable.
+  string subscription_id = 5;
+}
+
+message EventHubGroupConfig {
+  // event hub peer name to event hub config
+  map<string, EventHubConfig> eventhubs = 1;
+  PostgresConfig metadata_db = 2;
 }
 
 message S3Config {
@@ -74,6 +82,7 @@ enum DBType {
   EVENTHUB = 4;
   S3 = 5;
   SQLSERVER = 6;
+  EVENTHUB_GROUP = 7;
 }
 
 message Peer {
@@ -87,5 +96,6 @@ message Peer {
     EventHubConfig eventhub_config = 7;
     S3Config s3_config = 8;
     SqlServerConfig sqlserver_config = 9;
+    EventHubGroupConfig eventhub_group_config = 10;
   }
 }
