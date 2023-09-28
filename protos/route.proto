@@ -42,24 +42,21 @@ message ListPeersResponse {
 }
 
 message ValidatePeerRequest {
-  string name = 1;
+ peerdb_peers.Peer peer = 1;
 }
 
 message CreatePeerRequest {
-  string name = 1;
+  peerdb_peers.Peer peer = 1;
 }
 
 enum ValidatePeerStatus {
   VALID = 0;
   INVALID = 1;
-  VALIDATING = 2;
-  ERROR = 3;
 }
 
 enum CreatePeerStatus {
   CREATED = 0;
-  PENDING = 1;
-  FAILED = 2;
+  FAILED = 1;
 }
 
 message ValidatePeerResponse {

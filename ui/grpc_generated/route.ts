@@ -20,8 +20,6 @@ export const protobufPackage = "peerdb_route";
 export enum ValidatePeerStatus {
   VALID = 0,
   INVALID = 1,
-  VALIDATING = 2,
-  ERROR = 3,
   UNRECOGNIZED = -1,
 }
 
@@ -33,12 +31,6 @@ export function validatePeerStatusFromJSON(object: any): ValidatePeerStatus {
     case 1:
     case "INVALID":
       return ValidatePeerStatus.INVALID;
-    case 2:
-    case "VALIDATING":
-      return ValidatePeerStatus.VALIDATING;
-    case 3:
-    case "ERROR":
-      return ValidatePeerStatus.ERROR;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -52,10 +44,6 @@ export function validatePeerStatusToJSON(object: ValidatePeerStatus): string {
       return "VALID";
     case ValidatePeerStatus.INVALID:
       return "INVALID";
-    case ValidatePeerStatus.VALIDATING:
-      return "VALIDATING";
-    case ValidatePeerStatus.ERROR:
-      return "ERROR";
     case ValidatePeerStatus.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -64,8 +52,7 @@ export function validatePeerStatusToJSON(object: ValidatePeerStatus): string {
 
 export enum CreatePeerStatus {
   CREATED = 0,
-  PENDING = 1,
-  FAILED = 2,
+  FAILED = 1,
   UNRECOGNIZED = -1,
 }
 
@@ -75,9 +62,6 @@ export function createPeerStatusFromJSON(object: any): CreatePeerStatus {
     case "CREATED":
       return CreatePeerStatus.CREATED;
     case 1:
-    case "PENDING":
-      return CreatePeerStatus.PENDING;
-    case 2:
     case "FAILED":
       return CreatePeerStatus.FAILED;
     case -1:
@@ -91,8 +75,6 @@ export function createPeerStatusToJSON(object: CreatePeerStatus): string {
   switch (object) {
     case CreatePeerStatus.CREATED:
       return "CREATED";
-    case CreatePeerStatus.PENDING:
-      return "PENDING";
     case CreatePeerStatus.FAILED:
       return "FAILED";
     case CreatePeerStatus.UNRECOGNIZED:
@@ -137,11 +119,11 @@ export interface ListPeersResponse {
 }
 
 export interface ValidatePeerRequest {
-  name: string;
+  peer: Peer | undefined;
 }
 
 export interface CreatePeerRequest {
-  name: string;
+  peer: Peer | undefined;
 }
 
 export interface ValidatePeerResponse {
@@ -673,13 +655,13 @@ export const ListPeersResponse = {
 };
 
 function createBaseValidatePeerRequest(): ValidatePeerRequest {
-  return { name: "" };
+  return { peer: undefined };
 }
 
 export const ValidatePeerRequest = {
   encode(message: ValidatePeerRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.name !== "") {
-      writer.uint32(10).string(message.name);
+    if (message.peer !== undefined) {
+      Peer.encode(message.peer, writer.uint32(10).fork()).ldelim();
     }
     return writer;
   },
@@ -696,7 +678,7 @@ export const ValidatePeerRequest = {
             break;
           }
 
-          message.name = reader.string();
+          message.peer = Peer.decode(reader, reader.uint32());
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -708,13 +690,13 @@ export const ValidatePeerRequest = {
   },
 
   fromJSON(object: any): ValidatePeerRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { peer: isSet(object.peer) ? Peer.fromJSON(object.peer) : undefined };
   },
 
   toJSON(message: ValidatePeerRequest): unknown {
     const obj: any = {};
-    if (message.name !== "") {
-      obj.name = message.name;
+    if (message.peer !== undefined) {
+      obj.peer = Peer.toJSON(message.peer);
     }
     return obj;
   },
@@ -724,19 +706,19 @@ export const ValidatePeerRequest = {
   },
   fromPartial<I extends Exact<DeepPartial<ValidatePeerRequest>, I>>(object: I): ValidatePeerRequest {
     const message = createBaseValidatePeerRequest();
-    message.name = object.name ?? "";
+    message.peer = (object.peer !== undefined && object.peer !== null) ? Peer.fromPartial(object.peer) : undefined;
     return message;
   },
 };
 
 function createBaseCreatePeerRequest(): CreatePeerRequest {
-  return { name: "" };
+  return { peer: undefined };
 }
 
 export const CreatePeerRequest = {
   encode(message: CreatePeerRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.name !== "") {
-      writer.uint32(10).string(message.name);
+    if (message.peer !== undefined) {
+      Peer.encode(message.peer, writer.uint32(10).fork()).ldelim();
     }
     return writer;
   },
@@ -753,7 +735,7 @@ export const CreatePeerRequest = {
             break;
           }
 
-          message.name = reader.string();
+          message.peer = Peer.decode(reader, reader.uint32());
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -765,13 +747,13 @@ export const CreatePeerRequest = {
   },
 
   fromJSON(object: any): CreatePeerRequest {
-    return { name: isSet(object.name) ? String(object.name) : "" };
+    return { peer: isSet(object.peer) ? Peer.fromJSON(object.peer) : undefined };
   },
 
   toJSON(message: CreatePeerRequest): unknown {
     const obj: any = {};
-    if (message.name !== "") {
-      obj.name = message.name;
+    if (message.peer !== undefined) {
+      obj.peer = Peer.toJSON(message.peer);
     }
     return obj;
   },
@@ -781,7 +763,7 @@ export const CreatePeerRequest = {
   },
   fromPartial<I extends Exact<DeepPartial<CreatePeerRequest>, I>>(object: I): CreatePeerRequest {
     const message = createBaseCreatePeerRequest();
-    message.name = object.name ?? "";
+    message.peer = (object.peer !== undefined && object.peer !== null) ? Peer.fromPartial(object.peer) : undefined;
     return message;
   },
 };

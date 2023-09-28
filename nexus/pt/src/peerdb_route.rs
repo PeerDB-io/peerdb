@@ -56,14 +56,14 @@ pub struct ListPeersResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidatePeerRequest {
-    #[prost(string, tag="1")]
-    pub name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="1")]
+    pub peer: ::core::option::Option<super::peerdb_peers::Peer>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreatePeerRequest {
-    #[prost(string, tag="1")]
-    pub name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="1")]
+    pub peer: ::core::option::Option<super::peerdb_peers::Peer>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -86,8 +86,6 @@ pub struct CreatePeerResponse {
 pub enum ValidatePeerStatus {
     Valid = 0,
     Invalid = 1,
-    Validating = 2,
-    Error = 3,
 }
 impl ValidatePeerStatus {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -98,8 +96,6 @@ impl ValidatePeerStatus {
         match self {
             ValidatePeerStatus::Valid => "VALID",
             ValidatePeerStatus::Invalid => "INVALID",
-            ValidatePeerStatus::Validating => "VALIDATING",
-            ValidatePeerStatus::Error => "ERROR",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -107,8 +103,6 @@ impl ValidatePeerStatus {
         match value {
             "VALID" => Some(Self::Valid),
             "INVALID" => Some(Self::Invalid),
-            "VALIDATING" => Some(Self::Validating),
-            "ERROR" => Some(Self::Error),
             _ => None,
         }
     }
@@ -117,8 +111,7 @@ impl ValidatePeerStatus {
 #[repr(i32)]
 pub enum CreatePeerStatus {
     Created = 0,
-    Pending = 1,
-    Failed = 2,
+    Failed = 1,
 }
 impl CreatePeerStatus {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -128,7 +121,6 @@ impl CreatePeerStatus {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             CreatePeerStatus::Created => "CREATED",
-            CreatePeerStatus::Pending => "PENDING",
             CreatePeerStatus::Failed => "FAILED",
         }
     }
@@ -136,7 +128,6 @@ impl CreatePeerStatus {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "CREATED" => Some(Self::Created),
-            "PENDING" => Some(Self::Pending),
             "FAILED" => Some(Self::Failed),
             _ => None,
         }

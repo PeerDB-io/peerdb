@@ -15,6 +15,7 @@ import (
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
+var ErrWrongConfig = errors.New("wrong config for connector")
 
 type Connector interface {
 	Close() error
@@ -185,6 +186,39 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	default:
+		return nil, ErrUnsupportedFunctionality
+	}
+}
+
+func GetConnector(ctx context.Context, config *protos.Peer) (Connector, error) {
+	inner := config.Type
+	switch inner {
+	case protos.DBType_POSTGRES:
+		pgConfig := config.GetPostgresConfig()
+		if pgConfig == nil {
+			return nil, ErrWrongConfig
+		}
+		return connpostgres.NewPostgresConnector(ctx, pgConfig)
+	case protos.DBType_BIGQUERY:
+		bqConfig := config.GetBigqueryConfig()
+		if bqConfig == nil {
+			return nil, ErrWrongConfig
+		}
+		return connbigquery.NewBigQueryConnector(ctx, bqConfig)
+
+	case protos.DBType_SNOWFLAKE:
+		sfConfig := config.GetSnowflakeConfig()
+		if sfConfig == nil {
+			return nil, ErrWrongConfig
+		}
+		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
+	// case protos.DBType_S3:
+	// 	return conns3.NewS3Connector(ctx, config.GetS3Config())
+	// case protos.DBType_EVENTHUB:
+	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
+	// case protos.DBType_SQLSERVER:
+	// 	return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}

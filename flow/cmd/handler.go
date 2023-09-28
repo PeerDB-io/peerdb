@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -273,5 +274,101 @@ func (h *FlowRequestHandler) ListPeers(
 
 	return &protos.ListPeersResponse{
 		Peers: peers,
+	}, nil
+}
+
+func (h *FlowRequestHandler) ValidatePeer(
+	ctx context.Context,
+	req *protos.ValidatePeerRequest,
+) (*protos.ValidatePeerResponse, error) {
+	if req.Peer == nil {
+		return &protos.ValidatePeerResponse{
+			Status:  protos.ValidatePeerStatus_INVALID,
+			Message: "no peer provided",
+		}, nil
+	}
+
+	if len(req.Peer.Name) == 0 {
+		return &protos.ValidatePeerResponse{
+			Status:  protos.ValidatePeerStatus_INVALID,
+			Message: "no peer name provided",
+		}, nil
+	}
+
+	conn, err := connectors.GetConnector(ctx, req.Peer)
+	if err != nil {
+		return &protos.ValidatePeerResponse{
+			Status:  protos.ValidatePeerStatus_INVALID,
+			Message: fmt.Sprintf("invalid peer: %s", err),
+		}, nil
+	}
+
+	status := conn.ConnectionActive()
+	if !status {
+		return &protos.ValidatePeerResponse{
+			Status:  protos.ValidatePeerStatus_INVALID,
+			Message: fmt.Sprintf("failed to establish connection to peer: %s", err),
+		}, nil
+	}
+
+	return &protos.ValidatePeerResponse{
+		Status:  protos.ValidatePeerStatus_VALID,
+		Message: "valid peer",
+	}, nil
+}
+
+func (h *FlowRequestHandler) CreatePeer(
+	ctx context.Context,
+	req *protos.CreatePeerRequest,
+) (*protos.CreatePeerResponse, error) {
+	status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
+	if validateErr != nil {
+		return nil, validateErr
+	}
+	if status.Status != protos.ValidatePeerStatus_VALID {
+		return &protos.CreatePeerResponse{
+			Status:  protos.CreatePeerStatus_FAILED,
+			Message: status.Message,
+		}, nil
+	}
+
+	config := req.Peer.Config
+	wrongConfigResponse := &protos.CreatePeerResponse{
+		Status:  protos.CreatePeerStatus_FAILED,
+		Message: "wrong config for connector",
+	}
+	var encodedConfig []byte
+	var encodingErr error
+	peerType := req.Peer.Type
+	switch peerType {
+	case protos.DBType_POSTGRES:
+		pgConfig := config.(*protos.Peer_PostgresConfig).PostgresConfig
+		encodedConfig, encodingErr = proto.Marshal(pgConfig)
+
+	case protos.DBType_SNOWFLAKE:
+		sfConfig := config.(*protos.Peer_SnowflakeConfig).SnowflakeConfig
+		encodedConfig, encodingErr = proto.Marshal(sfConfig)
+
+	default:
+		return wrongConfigResponse, nil
+	}
+	if encodingErr != nil {
+		log.Errorf("failed to encode peer config: %v", encodingErr)
+		return nil, encodingErr
+	}
+
+	_, err := h.pool.Exec(ctx, "INSERT INTO peers (name, type, options) VALUES ($1, $2, $3)",
+		req.Peer.Name, peerType, encodedConfig,
+	)
+	if err != nil {
+		return &protos.CreatePeerResponse{
+			Status:  protos.CreatePeerStatus_FAILED,
+			Message: err.Error(),
+		}, nil
+	}
+
+	return &protos.CreatePeerResponse{
+		Status:  protos.CreatePeerStatus_CREATED,
+		Message: "",
 	}, nil
 }

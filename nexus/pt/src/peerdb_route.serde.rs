@@ -199,12 +199,12 @@ impl serde::Serialize for CreatePeerRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.name.is_empty() {
+        if self.peer.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("peerdb_route.CreatePeerRequest", len)?;
-        if !self.name.is_empty() {
-            struct_ser.serialize_field("name", &self.name)?;
+        if let Some(v) = self.peer.as_ref() {
+            struct_ser.serialize_field("peer", v)?;
         }
         struct_ser.end()
     }
@@ -216,12 +216,12 @@ impl<'de> serde::Deserialize<'de> for CreatePeerRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "name",
+            "peer",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Name,
+            Peer,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -244,7 +244,7 @@ impl<'de> serde::Deserialize<'de> for CreatePeerRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "name" => Ok(GeneratedField::Name),
+                            "peer" => Ok(GeneratedField::Peer),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -264,14 +264,14 @@ impl<'de> serde::Deserialize<'de> for CreatePeerRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut name__ = None;
+                let mut peer__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::Name => {
-                            if name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("name"));
+                        GeneratedField::Peer => {
+                            if peer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peer"));
                             }
-                            name__ = Some(map.next_value()?);
+                            peer__ = map.next_value()?;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
@@ -279,7 +279,7 @@ impl<'de> serde::Deserialize<'de> for CreatePeerRequest {
                     }
                 }
                 Ok(CreatePeerRequest {
-                    name: name__.unwrap_or_default(),
+                    peer: peer__,
                 })
             }
         }
@@ -408,7 +408,6 @@ impl serde::Serialize for CreatePeerStatus {
     {
         let variant = match self {
             Self::Created => "CREATED",
-            Self::Pending => "PENDING",
             Self::Failed => "FAILED",
         };
         serializer.serialize_str(variant)
@@ -422,7 +421,6 @@ impl<'de> serde::Deserialize<'de> for CreatePeerStatus {
     {
         const FIELDS: &[&str] = &[
             "CREATED",
-            "PENDING",
             "FAILED",
         ];
 
@@ -467,7 +465,6 @@ impl<'de> serde::Deserialize<'de> for CreatePeerStatus {
             {
                 match value {
                     "CREATED" => Ok(CreatePeerStatus::Created),
-                    "PENDING" => Ok(CreatePeerStatus::Pending),
                     "FAILED" => Ok(CreatePeerStatus::Failed),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
@@ -1106,12 +1103,12 @@ impl serde::Serialize for ValidatePeerRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.name.is_empty() {
+        if self.peer.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("peerdb_route.ValidatePeerRequest", len)?;
-        if !self.name.is_empty() {
-            struct_ser.serialize_field("name", &self.name)?;
+        if let Some(v) = self.peer.as_ref() {
+            struct_ser.serialize_field("peer", v)?;
         }
         struct_ser.end()
     }
@@ -1123,12 +1120,12 @@ impl<'de> serde::Deserialize<'de> for ValidatePeerRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "name",
+            "peer",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Name,
+            Peer,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1151,7 +1148,7 @@ impl<'de> serde::Deserialize<'de> for ValidatePeerRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "name" => Ok(GeneratedField::Name),
+                            "peer" => Ok(GeneratedField::Peer),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1171,14 +1168,14 @@ impl<'de> serde::Deserialize<'de> for ValidatePeerRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut name__ = None;
+                let mut peer__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::Name => {
-                            if name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("name"));
+                        GeneratedField::Peer => {
+                            if peer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peer"));
                             }
-                            name__ = Some(map.next_value()?);
+                            peer__ = map.next_value()?;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
@@ -1186,7 +1183,7 @@ impl<'de> serde::Deserialize<'de> for ValidatePeerRequest {
                     }
                 }
                 Ok(ValidatePeerRequest {
-                    name: name__.unwrap_or_default(),
+                    peer: peer__,
                 })
             }
         }
@@ -1316,8 +1313,6 @@ impl serde::Serialize for ValidatePeerStatus {
         let variant = match self {
             Self::Valid => "VALID",
             Self::Invalid => "INVALID",
-            Self::Validating => "VALIDATING",
-            Self::Error => "ERROR",
         };
         serializer.serialize_str(variant)
     }
@@ -1331,8 +1326,6 @@ impl<'de> serde::Deserialize<'de> for ValidatePeerStatus {
         const FIELDS: &[&str] = &[
             "VALID",
             "INVALID",
-            "VALIDATING",
-            "ERROR",
         ];
 
         struct GeneratedVisitor;
@@ -1377,8 +1370,6 @@ impl<'de> serde::Deserialize<'de> for ValidatePeerStatus {
                 match value {
                     "VALID" => Ok(ValidatePeerStatus::Valid),
                     "INVALID" => Ok(ValidatePeerStatus::Invalid),
-                    "VALIDATING" => Ok(ValidatePeerStatus::Validating),
-                    "ERROR" => Ok(ValidatePeerStatus::Error),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
