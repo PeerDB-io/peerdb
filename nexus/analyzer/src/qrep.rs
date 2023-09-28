@@ -38,7 +38,7 @@ lazy_static::lazy_static! {
         QRepOptionType::String {
             name: "watermark_column",
             default_val: None,
-            required: false,
+            required: true,
             accepted_values: None,
         },
         QRepOptionType::String {
