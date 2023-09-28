@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/prometheus/common/log"
 	"go.temporal.io/sdk/activity"
 )
 
@@ -29,4 +30,16 @@ func HeartbeatRoutine(
 		}
 	}()
 	return shutdown
+}
+
+// if the functions are being called outside the context of a Temporal workflow,
+// activity.RecordHeartbeat panics, this is a bandaid for that.
+func RecordHeartbeatWithRecover(ctx context.Context, details ...interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Warnln("ignoring panic from activity.RecordHeartbeat")
+			log.Warnln("this can happen when function is invoked outside of a Temporal workflow")
+		}
+	}()
+	activity.RecordHeartbeat(ctx, details...)
 }
