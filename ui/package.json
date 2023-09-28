@@ -32,7 +32,7 @@
     "@types/react-dom": "18.2.7",
     "classnames": "^2.3.2",
     "long": "^5.2.3",
-    "material-symbols": "0.11.0",
+    "material-symbols": "0.12.0",
     "next": "13.4.16",
     "prop-types": "^15.8.1",
     "protobufjs": "^7.2.5",
