@@ -148,6 +148,9 @@ func (s *SnapshotFlowExecution) cloneTable(
 		SyncMode:                   s.config.SnapshotSyncMode,
 		MaxParallelWorkers:         numWorkers,
 		StagingPath:                s.config.SnapshotStagingPath,
+		WriteMode: &protos.QRepWriteMode{
+			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+		},
 	}
 
 	numPartitionsProcessed := 0

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -16,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
 	log "github.com/sirupsen/logrus"
-	"go.temporal.io/sdk/activity"
 )
 
 type PostgresCDCSource struct {
@@ -157,7 +157,7 @@ func (p *PostgresCDCSource) consumeStream(
 			}
 
 			numRowsProcessedMessage := fmt.Sprintf("processed %d rows", len(records.Records))
-			activity.RecordHeartbeat(p.ctx, numRowsProcessedMessage)
+			utils.RecordHeartbeatWithRecover(p.ctx, numRowsProcessedMessage)
 			log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
