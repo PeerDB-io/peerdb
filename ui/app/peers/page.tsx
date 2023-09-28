@@ -13,7 +13,6 @@ import { GetFlowServiceClient } from '@/rpc/rpc';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { Header } from '../../lib/Header';
-
 export const dynamic = 'force-dynamic';
 
 async function fetchPeers() {
@@ -31,7 +30,7 @@ function PeerRow({ peer }: { peer: Peer }) {
         <Checkbox />
       </TableCell>
       <TableCell variant='extended'>
-        <Label as={Link} href='/connectors/edit/TestConnector'>
+        <Label as={Link} href='/peers/edit/TestPeer'>
           {peer.name}
         </Label>
       </TableCell>
@@ -97,24 +96,24 @@ function Loading() {
   return <h2>🌀 Loading...</h2>;
 }
 
-export default async function Connectors() {
+export default async function Peers() {
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
       <Panel>
         <Header
           variant='title2'
           slot={
-            <Button as={Link} href={'/connectors/create'} variant='normalSolid'>
-              New connector
+            <Button as={Link} href={'/peers/create'} variant='normalSolid'>
+              New peer
             </Button>
           }
         >
-          Connectors
+          Peers
         </Header>
       </Panel>
       <Panel>
         <Suspense fallback={<Loading />}>
-          <PeersTable title='All connectors' />
+          <PeersTable title='All peers' />
         </Suspense>
       </Panel>
     </LayoutMain>

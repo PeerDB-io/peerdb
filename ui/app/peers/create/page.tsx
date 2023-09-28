@@ -1,3 +1,4 @@
+"use client"
 import { Action } from '@/lib/Action';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -5,9 +6,14 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { LayoutMain, RowWithSelect } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
-import { Select } from '@/lib/Select';
+import SelectSource from '../../../components/SelectSource';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation'
+import Link from 'next/link';
 
 export default function CreatePeer() {
+  const [peerType, setPeerType] = useState<string>("")
+  const router = useRouter();
   return (
     <LayoutMain alignSelf='center' justifySelf='center' width='xxLarge'>
       <Panel>
@@ -15,7 +21,7 @@ export default function CreatePeer() {
         <Label colorName='lowContrast'>
           Start by selecting the data source for your new peer.
         </Label>
-        <Action icon={<Icon name='help' />}>Learn about peers</Action>
+        <Action icon={<Icon name='help' />} href='https://docs.peerdb.io/sql/commands/create-peer' target='_blank'>Learn about peers</Action>
       </Panel>
       <Panel>
         <Label colorName='lowContrast' variant='subheadline'>
@@ -27,13 +33,15 @@ export default function CreatePeer() {
               Data source
             </Label>
           }
-          action={<Select placeholder='Select' id='source' />}
+            action={<SelectSource peerType={peerType} setPeerType={setPeerType}/>}
         />
       </Panel>
       <Panel>
         <ButtonGroup>
-          <Button>Cancel</Button>
-          <Button variant='normalSolid'>Continue</Button>
+          <Button as={Link} href='/peers'>Cancel</Button>
+          <Button disabled={!peerType} onClick={()=>{
+            router.push(`/peers/create/details?dbtype=${peerType}`)
+          }} variant='normalSolid'>Continue</Button>
         </ButtonGroup>
       </Panel>
     </LayoutMain>

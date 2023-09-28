@@ -31,10 +31,10 @@ export default function SidebarComponent() {
       </SidebarItem>
       <SidebarItem
         as={Link}
-        href={'/connectors'}
+        href={'/peers'}
         leadingIcon={<Icon name='cable' />}
       >
-        Connectors
+        Peers
       </SidebarItem>
       <SidebarItem
         as={Link}
