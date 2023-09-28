@@ -437,6 +437,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 		PeerConnectionConfig: nil, // not used by the connector itself.
 	})
 	suite.failTestError(err)
+	suite.dropTable(nonExistentFlowSrcTableName)
 	recordsWithSchemaDelta, err := suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            nonExistentFlowName,
 		LastSyncState:          nil,
@@ -453,7 +454,6 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 
 	err = suite.connector.PullFlowCleanup(nonExistentFlowName)
 	suite.failTestError(err)
-	suite.dropTable(nonExistentFlowSrcTableName)
 }
 
 func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
