@@ -3,6 +3,7 @@ package connectors
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
@@ -187,6 +188,40 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
 	default:
 		return nil, ErrUnsupportedFunctionality
+	}
+}
+
+func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
+	inner := peer.Type
+	switch inner {
+	case protos.DBType_POSTGRES:
+		pgConfig := peer.GetPostgresConfig()
+
+		if pgConfig == nil {
+			return nil, fmt.Errorf("missing postgres config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connpostgres.NewPostgresConnector(ctx, pgConfig)
+	case protos.DBType_BIGQUERY:
+		bqConfig := peer.GetBigqueryConfig()
+		if bqConfig == nil {
+			return nil, fmt.Errorf("missing bigquery config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connbigquery.NewBigQueryConnector(ctx, bqConfig)
+
+	case protos.DBType_SNOWFLAKE:
+		sfConfig := peer.GetSnowflakeConfig()
+		if sfConfig == nil {
+			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
+	// case protos.DBType_S3:
+	// 	return conns3.NewS3Connector(ctx, config.GetS3Config())
+	// case protos.DBType_EVENTHUB:
+	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
+	// case protos.DBType_SQLSERVER:
+	// 	return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
+	default:
+		return nil, fmt.Errorf("unsupported peer type %s", peer.Type.String())
 	}
 }
 
