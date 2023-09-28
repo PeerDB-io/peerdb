@@ -3108,10 +3108,10 @@
   resolved "https://registry.yarnpkg.com/@testing-library/user-event/-/user-event-14.4.3.tgz#af975e367743fa91989cd666666aec31a8f50591"
   integrity sha512-kCUc5MEwaEMakkO5x7aoD+DLi02ehmEM2QCGWvNqAS1dV/fAvORWEjnjsEIvml59M7Y5kCkWN6fCCyPOe8OL6Q==
 
-"@tremor/react@^3.6.6":
-  version "3.7.2"
-  resolved "https://registry.yarnpkg.com/@tremor/react/-/react-3.7.2.tgz#96136af0a65bf88dd395fb80610a42dbebbf0cb6"
-  integrity sha512-WEFsXL9uot5bL/T2YCtkj7PeTC1XVgevWaD2Ql8h/9xKTpA6YCwEaj/jQqtz83b/8GAYx3ZsI8choKqPNGGb9Q==
+"@tremor/react@^3.7.3":
+  version "3.8.1"
+  resolved "https://registry.yarnpkg.com/@tremor/react/-/react-3.8.1.tgz#c96ebecb8fca0164b36b9f3a81329b6afd95ee0f"
+  integrity sha512-nUQRmrUNnhTyxig6h717GRAqgwtKKHZGSx75fX37ILwS8wEnL0XJlIpMNQmN8j2hIPADX8wIL9Qvi1hVf6F0Nw==
   dependencies:
     "@floating-ui/react" "^0.19.1"
     "@headlessui/react" "^1.7.14"
