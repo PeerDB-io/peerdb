@@ -271,25 +271,6 @@ type NormalizeRecordsRequest struct {
 	SoftDelete  bool
 }
 
-type SyncResponse struct {
-	// FirstSyncedCheckPointID is the first ID that was synced.
-	FirstSyncedCheckPointID int64
-	// LastSyncedCheckPointID is the last ID that was synced.
-	LastSyncedCheckPointID int64
-	// NumRecordsSynced is the number of records that were synced.
-	NumRecordsSynced int64
-	// CurrentSyncBatchID is the ID of the currently synced batch.
-	CurrentSyncBatchID int64
-	// TableNameRowsMapping tells how many records need to be synced to each destination table.
-	TableNameRowsMapping map[string]uint32
-	// to be carried to NormalizeFlow
-	TableSchemaDelta *protos.TableSchemaDelta
-	// to be stored in state for future PullFlows
-	RelationMessageMapping RelationMessageMapping
-	// to be used to create additional tables, for MappingType SCHEMA
-	AdditionalTableInfo *protos.AdditionalTableInfo
-}
-
 type NormalizeResponse struct {
 	// Flag to depict if normalization is done
 	Done         bool
@@ -301,9 +282,8 @@ type NormalizeResponse struct {
 // add any new tables at the end of SyncFlow.
 type RecordsWithDeltaInfo struct {
 	RecordBatch            *RecordBatch
-	TableSchemaDelta       *protos.TableSchemaDelta
 	RelationMessageMapping RelationMessageMapping
-	AdditionalTableInfo    *protos.AdditionalTableInfo
+	MirrorDelta            *protos.MirrorDelta
 }
 
 // being clever and passing the delta back as a regular record instead of heavy CDC refactoring.

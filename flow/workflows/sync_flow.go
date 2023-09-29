@@ -55,7 +55,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	config *protos.FlowConnectionConfigs,
 	opts *protos.SyncFlowOptions,
 	relationMessageMapping model.RelationMessageMapping,
-) (*model.SyncResponse, error) {
+) (*protos.SyncResponse, error) {
 	s.logger.Info("executing sync flow - ", s.CDCFlowName)
 
 	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -95,28 +95,33 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	}
 	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 
-	var syncRes *model.SyncResponse
+	var syncRes *protos.SyncResponse
 	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
 	}
 
-	if syncRes.AdditionalTableInfo != nil {
+	if syncRes.MirrorDelta.GetAdditionalTableDelta() != nil {
+		additionalTableDelta := syncRes.MirrorDelta.GetAdditionalTableDelta()
 		createAdditionalTableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
 		})
-		syncRes.AdditionalTableInfo.DstSchema = config.SchemaMapping[syncRes.AdditionalTableInfo.SrcSchema]
+		additionalTableDelta.DstSchema = config.SchemaMapping[additionalTableDelta.SrcSchema]
 		fCreateAdditionalTable := workflow.ExecuteActivity(createAdditionalTableCtx,
 			flowable.CreateAdditionalTable, &protos.CreateAdditionalTableInput{
 				FlowConnectionConfigs: config,
-				AdditionalTableInfo:   syncRes.AdditionalTableInfo,
+				AdditionalTableInfo:   additionalTableDelta,
 			})
 
-		var createAdditionalTableOutput *protos.AdditionalTableInfo
+		var createAdditionalTableOutput *protos.AdditionalTableDelta
 		if err := fCreateAdditionalTable.Get(createAdditionalTableCtx,
 			&createAdditionalTableOutput); err != nil {
 			return nil, fmt.Errorf("failed to create additional table: %w", err)
 		}
-		syncRes.AdditionalTableInfo = createAdditionalTableOutput
+		syncRes.MirrorDelta = &protos.MirrorDelta{
+			Delta: &protos.MirrorDelta_AdditionalTableDelta{
+				AdditionalTableDelta: createAdditionalTableOutput,
+			},
+		}
 	}
 
 	return syncRes, nil
@@ -128,7 +133,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 func SyncFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
-) (*model.SyncResponse, error) {
+) (*protos.SyncResponse, error) {
 	s := NewSyncFlowExecution(ctx, &SyncFlowState{
 		CDCFlowName: config.FlowJobName,
 		Progress:    []string{},

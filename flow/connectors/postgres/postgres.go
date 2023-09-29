@@ -226,7 +226,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	}
 
 	startTime := time.Now()
-	recordsWithSchemaDelta, err := cdc.PullRecords(req)
+	recordsWithDelta, err := cdc.PullRecords(req)
 	if err != nil {
 		return nil, err
 	}
@@ -235,9 +235,9 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	if err != nil {
 		return nil, err
 	}
-	metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.RecordBatch,
+	metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithDelta.RecordBatch,
 		totalRecordsAtSource, time.Since(startTime))
-	if len(recordsWithSchemaDelta.RecordBatch.Records) > 0 {
+	if len(recordsWithDelta.RecordBatch.Records) > 0 {
 		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
 		if ok {
 			latestLSN, err := c.getCurrentLSN()
@@ -251,11 +251,11 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		}
 	}
 
-	return recordsWithSchemaDelta, nil
+	return recordsWithDelta, nil
 }
 
 // SyncRecords pushes records to the destination.
-func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*protos.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	log.WithFields(log.Fields{
 		"flowName": req.FlowJobName,
@@ -341,9 +341,9 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	if len(records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
+		return &protos.SyncResponse{
+			FirstSyncedCheckpointId: 0,
+			LastSyncedCheckpointId:  0,
 			NumRecordsSynced:        0,
 		}, nil
 	}
@@ -390,11 +390,11 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
+	return &protos.SyncResponse{
+		FirstSyncedCheckpointId: firstCP,
+		LastSyncedCheckpointId:  lastCP,
 		NumRecordsSynced:        int64(len(records)),
-		CurrentSyncBatchID:      syncBatchID,
+		CurrentSyncBatchId:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
@@ -752,7 +752,9 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
-	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
+	return &protos.EnsurePullabilityBatchOutput{
+		TableIdentifierMapping: tableIdentifierMapping,
+	}, nil
 }
 
 // SetupReplication sets up replication for the source connector.

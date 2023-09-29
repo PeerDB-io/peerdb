@@ -438,11 +438,11 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 // SyncRecords pushes records to the destination.
 // currently only supports inserts,updates and deletes
 // more record types will be added in the future.
-func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*protos.SyncResponse, error) {
 	if len(req.Records.Records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
+		return &protos.SyncResponse{
+			FirstSyncedCheckpointId: 0,
+			LastSyncedCheckpointId:  0,
 			NumRecordsSynced:        0,
 		}, nil
 	}
@@ -460,7 +460,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 	syncBatchID = syncBatchID + 1
 
-	var res *model.SyncResponse
+	var res *protos.SyncResponse
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
 		res, err = c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
 		if err != nil {
@@ -478,7 +478,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 }
 
 func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
-	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
+	rawTableName string, syncBatchID int64) (*protos.SyncResponse, error) {
 	stagingTableName := c.getStagingTableName(req.FlowJobName)
 	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
 	err := c.truncateTable(stagingTableName)
@@ -594,9 +594,9 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 
 	numRecords := len(records)
 	if numRecords == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
+		return &protos.SyncResponse{
+			FirstSyncedCheckpointId: 0,
+			LastSyncedCheckpointId:  0,
 			NumRecordsSynced:        0,
 		}, nil
 	}
@@ -645,17 +645,17 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
-	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
+	return &protos.SyncResponse{
+		FirstSyncedCheckpointId: firstCP,
+		LastSyncedCheckpointId:  lastCP,
 		NumRecordsSynced:        int64(numRecords),
-		CurrentSyncBatchID:      syncBatchID,
+		CurrentSyncBatchId:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
 
 func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
-	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
+	rawTableName string, syncBatchID int64) (*protos.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
 	var firstCP int64 = 0
@@ -867,11 +867,11 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
-	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
+	return &protos.SyncResponse{
+		FirstSyncedCheckpointId: firstCP,
+		LastSyncedCheckpointId:  lastCP,
 		NumRecordsSynced:        int64(numRecords),
-		CurrentSyncBatchID:      syncBatchID,
+		CurrentSyncBatchId:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }

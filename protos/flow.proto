@@ -324,7 +324,7 @@ message ListTablesInSchemasOutput {
   map<string, TablesList> schema_to_tables = 1;
 }
 
-message AdditionalTableInfo {
+message AdditionalTableDelta {
   string table_name = 1;
   string src_schema = 2;
   string dst_schema = 3;
@@ -332,7 +332,33 @@ message AdditionalTableInfo {
   TableSchema table_schema = 5;
 }
 
+message MirrorDelta {
+  oneof delta {
+    // adding or dropping columns to an existing table
+    TableSchemaDelta table_schema_delta = 1;
+    // creating a new table, for MappingType SCHEMA only
+    AdditionalTableDelta additional_table_delta = 2;
+  }
+}
+
 message CreateAdditionalTableInput {
   FlowConnectionConfigs flow_connection_configs = 1;
-  AdditionalTableInfo additional_table_info = 2;
+  AdditionalTableDelta additional_table_info = 2;
+}
+
+message SyncResponse {
+  // FirstSyncedCheckPointID is the first ID that was synced.
+  int64 first_synced_checkpoint_id = 1;
+	// LastSyncedCheckPointID is the last ID that was synced.
+  int64 last_synced_checkpoint_id = 2;
+	// NumRecordsSynced is the number of records that were synced.
+  int64 num_records_synced = 3;
+	// CurrentSyncBatchID is the ID of the currently synced batch.
+  int64 current_sync_batch_id = 4;
+	// TableNameRowsMapping tells how many records need to be synced to each destination table.
+  map<string, uint32> table_name_rows_mapping = 5;
+	// to be stored in state for future PullFlows
+  map<uint32, RelationMessage> relation_message_mapping = 6;
+	// if not-nil, needs to be applied before next StartFlow
+  MirrorDelta mirror_delta = 7;
 }

@@ -85,7 +85,7 @@ func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
-func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*protos.SyncResponse, error) {
 	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
 		return fmt.Sprintf("syncing records to eventhub with"+
 			" push parallelism %d and push batch size %d",
@@ -219,9 +219,9 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(rowsSynced), time.Since(startTime))
 	metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, int64(rowsSynced),
 		time.Since(startTime), int64(rowsSynced))
-	return &model.SyncResponse{
-		FirstSyncedCheckPointID: batch.FirstCheckPointID,
-		LastSyncedCheckPointID:  batch.LastCheckPointID,
+	return &protos.SyncResponse{
+		FirstSyncedCheckpointId: batch.FirstCheckPointID,
+		LastSyncedCheckpointId:  batch.LastCheckPointID,
 		NumRecordsSynced:        int64(len(batch.Records)),
 		TableNameRowsMapping:    tableNameRowsMapping.Items(),
 	}, nil

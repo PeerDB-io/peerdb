@@ -471,7 +471,7 @@ pub struct ListTablesInSchemasOutput {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AdditionalTableInfo {
+pub struct AdditionalTableDelta {
     #[prost(string, tag="1")]
     pub table_name: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
@@ -485,11 +485,55 @@ pub struct AdditionalTableInfo {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MirrorDelta {
+    #[prost(oneof="mirror_delta::Delta", tags="1, 2")]
+    pub delta: ::core::option::Option<mirror_delta::Delta>,
+}
+/// Nested message and enum types in `MirrorDelta`.
+pub mod mirror_delta {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Delta {
+        /// adding or dropping columns to an existing table
+        #[prost(message, tag="1")]
+        TableSchemaDelta(super::TableSchemaDelta),
+        /// creating a new table, for MappingType SCHEMA only
+        #[prost(message, tag="2")]
+        AdditionalTableDelta(super::AdditionalTableDelta),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateAdditionalTableInput {
     #[prost(message, optional, tag="1")]
     pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
     #[prost(message, optional, tag="2")]
-    pub additional_table_info: ::core::option::Option<AdditionalTableInfo>,
+    pub additional_table_info: ::core::option::Option<AdditionalTableDelta>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SyncResponse {
+    /// FirstSyncedCheckPointID is the first ID that was synced.
+    #[prost(int64, tag="1")]
+    pub first_synced_checkpoint_id: i64,
+    /// LastSyncedCheckPointID is the last ID that was synced.
+    #[prost(int64, tag="2")]
+    pub last_synced_checkpoint_id: i64,
+    /// NumRecordsSynced is the number of records that were synced.
+    #[prost(int64, tag="3")]
+    pub num_records_synced: i64,
+    /// CurrentSyncBatchID is the ID of the currently synced batch.
+    #[prost(int64, tag="4")]
+    pub current_sync_batch_id: i64,
+    /// TableNameRowsMapping tells how many records need to be synced to each destination table.
+    #[prost(map="string, uint32", tag="5")]
+    pub table_name_rows_mapping: ::std::collections::HashMap<::prost::alloc::string::String, u32>,
+    /// to be stored in state for future PullFlows
+    #[prost(map="uint32, message", tag="6")]
+    pub relation_message_mapping: ::std::collections::HashMap<u32, RelationMessage>,
+    /// if not-nil, needs to be applied before next StartFlow
+    #[prost(message, optional, tag="7")]
+    pub mirror_delta: ::core::option::Option<MirrorDelta>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

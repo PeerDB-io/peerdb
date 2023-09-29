@@ -55,7 +55,7 @@ type CDCFlowState struct {
 	// Progress events for the peer flow.
 	Progress []string
 	// Accumulates status for sync flows spawned.
-	SyncFlowStatuses []*model.SyncResponse
+	SyncFlowStatuses []*protos.SyncResponse
 	// Accumulates status for sync flows spawned.
 	NormalizeFlowStatuses []*model.NormalizeResponse
 	// Current signalled state of the peer flow.
@@ -266,7 +266,7 @@ func CDCFlowWorkflowWithConfig(
 			syncFlowOptions,
 		)
 
-		var childSyncFlowRes *model.SyncResponse
+		var childSyncFlowRes *protos.SyncResponse
 		if err := childSyncFlowFuture.Get(ctx, &childSyncFlowRes); err != nil {
 			w.logger.Error("failed to execute sync flow: ", err)
 			state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
@@ -275,17 +275,18 @@ func CDCFlowWorkflowWithConfig(
 			if childSyncFlowRes != nil {
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
 
-				// table was created, update all flow configuration to reflect the same.
-				if childSyncFlowRes.AdditionalTableInfo != nil {
-					srcTableIdentifier := fmt.Sprintf("%s.%s", childSyncFlowRes.AdditionalTableInfo.SrcSchema,
-						childSyncFlowRes.AdditionalTableInfo.TableName)
-					dstTableIdentifier := fmt.Sprintf("%s.%s", childSyncFlowRes.AdditionalTableInfo.DstSchema,
-						childSyncFlowRes.AdditionalTableInfo.TableName)
+				// additional table was created, update all flow configuration to reflect the same.
+				if childSyncFlowRes.MirrorDelta.GetAdditionalTableDelta() != nil {
+					additionalTableDelta := childSyncFlowRes.MirrorDelta.GetAdditionalTableDelta()
+					srcTableIdentifier := fmt.Sprintf("%s.%s", additionalTableDelta.SrcSchema,
+						additionalTableDelta.TableName)
+					dstTableIdentifier := fmt.Sprintf("%s.%s", additionalTableDelta.DstSchema,
+						additionalTableDelta.TableName)
 
 					cfg.TableNameMapping[srcTableIdentifier] = dstTableIdentifier
-					cfg.SrcTableIdNameMapping[childSyncFlowRes.AdditionalTableInfo.RelId] = srcTableIdentifier
+					cfg.SrcTableIdNameMapping[additionalTableDelta.RelId] = srcTableIdentifier
 					// because
-					cfg.TableNameSchemaMapping[dstTableIdentifier] = childSyncFlowRes.AdditionalTableInfo.TableSchema
+					cfg.TableNameSchemaMapping[dstTableIdentifier] = additionalTableDelta.TableSchema
 				}
 			}
 		}
@@ -306,7 +307,7 @@ func CDCFlowWorkflowWithConfig(
 
 		var tableSchemaDelta *protos.TableSchemaDelta = nil
 		if childSyncFlowRes != nil {
-			tableSchemaDelta = childSyncFlowRes.TableSchemaDelta
+			tableSchemaDelta = childSyncFlowRes.MirrorDelta.GetTableSchemaDelta()
 		}
 
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(

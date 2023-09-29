@@ -1,5 +1,5 @@
 // @generated
-impl serde::Serialize for AdditionalTableInfo {
+impl serde::Serialize for AdditionalTableDelta {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -22,7 +22,7 @@ impl serde::Serialize for AdditionalTableInfo {
         if self.table_schema.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("peerdb_flow.AdditionalTableInfo", len)?;
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.AdditionalTableDelta", len)?;
         if !self.table_name.is_empty() {
             struct_ser.serialize_field("tableName", &self.table_name)?;
         }
@@ -41,7 +41,7 @@ impl serde::Serialize for AdditionalTableInfo {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for AdditionalTableInfo {
+impl<'de> serde::Deserialize<'de> for AdditionalTableDelta {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -103,13 +103,13 @@ impl<'de> serde::Deserialize<'de> for AdditionalTableInfo {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = AdditionalTableInfo;
+            type Value = AdditionalTableDelta;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct peerdb_flow.AdditionalTableInfo")
+                formatter.write_str("struct peerdb_flow.AdditionalTableDelta")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<AdditionalTableInfo, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<AdditionalTableDelta, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -157,7 +157,7 @@ impl<'de> serde::Deserialize<'de> for AdditionalTableInfo {
                         }
                     }
                 }
-                Ok(AdditionalTableInfo {
+                Ok(AdditionalTableDelta {
                     table_name: table_name__.unwrap_or_default(),
                     src_schema: src_schema__.unwrap_or_default(),
                     dst_schema: dst_schema__.unwrap_or_default(),
@@ -166,7 +166,7 @@ impl<'de> serde::Deserialize<'de> for AdditionalTableInfo {
                 })
             }
         }
-        deserializer.deserialize_struct("peerdb_flow.AdditionalTableInfo", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("peerdb_flow.AdditionalTableDelta", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for CreateAdditionalTableInput {
@@ -2371,6 +2371,121 @@ impl<'de> serde::Deserialize<'de> for MappingType {
             }
         }
         deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for MirrorDelta {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.delta.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.MirrorDelta", len)?;
+        if let Some(v) = self.delta.as_ref() {
+            match v {
+                mirror_delta::Delta::TableSchemaDelta(v) => {
+                    struct_ser.serialize_field("tableSchemaDelta", v)?;
+                }
+                mirror_delta::Delta::AdditionalTableDelta(v) => {
+                    struct_ser.serialize_field("additionalTableDelta", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for MirrorDelta {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "table_schema_delta",
+            "tableSchemaDelta",
+            "additional_table_delta",
+            "additionalTableDelta",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            TableSchemaDelta,
+            AdditionalTableDelta,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "tableSchemaDelta" | "table_schema_delta" => Ok(GeneratedField::TableSchemaDelta),
+                            "additionalTableDelta" | "additional_table_delta" => Ok(GeneratedField::AdditionalTableDelta),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = MirrorDelta;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.MirrorDelta")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<MirrorDelta, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut delta__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::TableSchemaDelta => {
+                            if delta__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tableSchemaDelta"));
+                            }
+                            delta__ = map.next_value::<::std::option::Option<_>>()?.map(mirror_delta::Delta::TableSchemaDelta)
+;
+                        }
+                        GeneratedField::AdditionalTableDelta => {
+                            if delta__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("additionalTableDelta"));
+                            }
+                            delta__ = map.next_value::<::std::option::Option<_>>()?.map(mirror_delta::Delta::AdditionalTableDelta)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(MirrorDelta {
+                    delta: delta__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.MirrorDelta", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for NormalizeFlowOptions {
@@ -5239,6 +5354,224 @@ impl<'de> serde::Deserialize<'de> for SyncFlowOptions {
             }
         }
         deserializer.deserialize_struct("peerdb_flow.SyncFlowOptions", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SyncResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.first_synced_checkpoint_id != 0 {
+            len += 1;
+        }
+        if self.last_synced_checkpoint_id != 0 {
+            len += 1;
+        }
+        if self.num_records_synced != 0 {
+            len += 1;
+        }
+        if self.current_sync_batch_id != 0 {
+            len += 1;
+        }
+        if !self.table_name_rows_mapping.is_empty() {
+            len += 1;
+        }
+        if !self.relation_message_mapping.is_empty() {
+            len += 1;
+        }
+        if self.mirror_delta.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.SyncResponse", len)?;
+        if self.first_synced_checkpoint_id != 0 {
+            struct_ser.serialize_field("firstSyncedCheckpointId", ToString::to_string(&self.first_synced_checkpoint_id).as_str())?;
+        }
+        if self.last_synced_checkpoint_id != 0 {
+            struct_ser.serialize_field("lastSyncedCheckpointId", ToString::to_string(&self.last_synced_checkpoint_id).as_str())?;
+        }
+        if self.num_records_synced != 0 {
+            struct_ser.serialize_field("numRecordsSynced", ToString::to_string(&self.num_records_synced).as_str())?;
+        }
+        if self.current_sync_batch_id != 0 {
+            struct_ser.serialize_field("currentSyncBatchId", ToString::to_string(&self.current_sync_batch_id).as_str())?;
+        }
+        if !self.table_name_rows_mapping.is_empty() {
+            struct_ser.serialize_field("tableNameRowsMapping", &self.table_name_rows_mapping)?;
+        }
+        if !self.relation_message_mapping.is_empty() {
+            struct_ser.serialize_field("relationMessageMapping", &self.relation_message_mapping)?;
+        }
+        if let Some(v) = self.mirror_delta.as_ref() {
+            struct_ser.serialize_field("mirrorDelta", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SyncResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "first_synced_checkpoint_id",
+            "firstSyncedCheckpointId",
+            "last_synced_checkpoint_id",
+            "lastSyncedCheckpointId",
+            "num_records_synced",
+            "numRecordsSynced",
+            "current_sync_batch_id",
+            "currentSyncBatchId",
+            "table_name_rows_mapping",
+            "tableNameRowsMapping",
+            "relation_message_mapping",
+            "relationMessageMapping",
+            "mirror_delta",
+            "mirrorDelta",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            FirstSyncedCheckpointId,
+            LastSyncedCheckpointId,
+            NumRecordsSynced,
+            CurrentSyncBatchId,
+            TableNameRowsMapping,
+            RelationMessageMapping,
+            MirrorDelta,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "firstSyncedCheckpointId" | "first_synced_checkpoint_id" => Ok(GeneratedField::FirstSyncedCheckpointId),
+                            "lastSyncedCheckpointId" | "last_synced_checkpoint_id" => Ok(GeneratedField::LastSyncedCheckpointId),
+                            "numRecordsSynced" | "num_records_synced" => Ok(GeneratedField::NumRecordsSynced),
+                            "currentSyncBatchId" | "current_sync_batch_id" => Ok(GeneratedField::CurrentSyncBatchId),
+                            "tableNameRowsMapping" | "table_name_rows_mapping" => Ok(GeneratedField::TableNameRowsMapping),
+                            "relationMessageMapping" | "relation_message_mapping" => Ok(GeneratedField::RelationMessageMapping),
+                            "mirrorDelta" | "mirror_delta" => Ok(GeneratedField::MirrorDelta),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SyncResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.SyncResponse")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<SyncResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut first_synced_checkpoint_id__ = None;
+                let mut last_synced_checkpoint_id__ = None;
+                let mut num_records_synced__ = None;
+                let mut current_sync_batch_id__ = None;
+                let mut table_name_rows_mapping__ = None;
+                let mut relation_message_mapping__ = None;
+                let mut mirror_delta__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::FirstSyncedCheckpointId => {
+                            if first_synced_checkpoint_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("firstSyncedCheckpointId"));
+                            }
+                            first_synced_checkpoint_id__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::LastSyncedCheckpointId => {
+                            if last_synced_checkpoint_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastSyncedCheckpointId"));
+                            }
+                            last_synced_checkpoint_id__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::NumRecordsSynced => {
+                            if num_records_synced__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("numRecordsSynced"));
+                            }
+                            num_records_synced__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CurrentSyncBatchId => {
+                            if current_sync_batch_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("currentSyncBatchId"));
+                            }
+                            current_sync_batch_id__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::TableNameRowsMapping => {
+                            if table_name_rows_mapping__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tableNameRowsMapping"));
+                            }
+                            table_name_rows_mapping__ = Some(
+                                map.next_value::<std::collections::HashMap<_, ::pbjson::private::NumberDeserialize<u32>>>()?
+                                    .into_iter().map(|(k,v)| (k, v.0)).collect()
+                            );
+                        }
+                        GeneratedField::RelationMessageMapping => {
+                            if relation_message_mapping__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("relationMessageMapping"));
+                            }
+                            relation_message_mapping__ = Some(
+                                map.next_value::<std::collections::HashMap<::pbjson::private::NumberDeserialize<u32>, _>>()?
+                                    .into_iter().map(|(k,v)| (k.0, v)).collect()
+                            );
+                        }
+                        GeneratedField::MirrorDelta => {
+                            if mirror_delta__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mirrorDelta"));
+                            }
+                            mirror_delta__ = map.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SyncResponse {
+                    first_synced_checkpoint_id: first_synced_checkpoint_id__.unwrap_or_default(),
+                    last_synced_checkpoint_id: last_synced_checkpoint_id__.unwrap_or_default(),
+                    num_records_synced: num_records_synced__.unwrap_or_default(),
+                    current_sync_batch_id: current_sync_batch_id__.unwrap_or_default(),
+                    table_name_rows_mapping: table_name_rows_mapping__.unwrap_or_default(),
+                    relation_message_mapping: relation_message_mapping__.unwrap_or_default(),
+                    mirror_delta: mirror_delta__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.SyncResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for Tid {

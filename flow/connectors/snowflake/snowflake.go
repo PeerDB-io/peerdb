@@ -416,11 +416,11 @@ func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDe
 	return nil
 }
 
-func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*protos.SyncResponse, error) {
 	if len(req.Records.Records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
+		return &protos.SyncResponse{
+			FirstSyncedCheckpointId: 0,
+			LastSyncedCheckpointId:  0,
 			NumRecordsSynced:        0,
 		}, nil
 	}
@@ -450,7 +450,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		}
 	}()
 
-	var res *model.SyncResponse
+	var res *protos.SyncResponse
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
 		res, err = c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
 		if err != nil {
@@ -464,7 +464,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	}
 
 	// updating metadata with new offset and syncBatchID
-	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckPointID, syncBatchID, syncRecordsTx)
+	err = c.updateSyncMetadata(req.FlowJobName, res.LastSyncedCheckpointId, syncBatchID, syncRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +478,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 }
 
 func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, rawTableIdentifier string,
-	syncBatchID int64, syncRecordsTx *sql.Tx) (*model.SyncResponse, error) {
+	syncBatchID int64, syncRecordsTx *sql.Tx) (*protos.SyncResponse, error) {
 
 	records := make([]snowflakeRawRecord, 0)
 	tableNameRowsMapping := make(map[string]uint32)
@@ -574,17 +574,17 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
-	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
+	return &protos.SyncResponse{
+		FirstSyncedCheckpointId: firstCP,
+		LastSyncedCheckpointId:  lastCP,
 		NumRecordsSynced:        int64(len(records)),
-		CurrentSyncBatchID:      syncBatchID,
+		CurrentSyncBatchId:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
 
 func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, rawTableIdentifier string,
-	syncBatchID int64) (*model.SyncResponse, error) {
+	syncBatchID int64) (*protos.SyncResponse, error) {
 	recordStream := model.NewQRecordStream(len(req.Records.Records))
 
 	err := recordStream.SetSchema(&model.QRecordSchema{
@@ -782,11 +782,11 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, r
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
-	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
+	return &protos.SyncResponse{
+		FirstSyncedCheckpointId: firstCP,
+		LastSyncedCheckpointId:  lastCP,
 		NumRecordsSynced:        int64(len(req.Records.Records)),
-		CurrentSyncBatchID:      syncBatchID,
+		CurrentSyncBatchId:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }

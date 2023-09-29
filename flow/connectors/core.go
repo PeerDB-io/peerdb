@@ -70,7 +70,7 @@ type CDCSyncConnector interface {
 
 	// SyncRecords pushes records to the destination peer and stores it in PeerDB specific tables.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error)
+	SyncRecords(req *model.SyncRecordsRequest) (*protos.SyncResponse, error)
 
 	// SyncFlowCleanup drops metadata tables on the destination, as a part of DROP MIRROR.
 	SyncFlowCleanup(jobName string) error

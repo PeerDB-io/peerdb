@@ -178,7 +178,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 // StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
-	input *protos.StartFlowInput) (*model.SyncResponse, error) {
+	input *protos.StartFlowInput) (*protos.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx, "starting flow...")
 	conn := input.FlowConnectionConfigs
 
@@ -269,9 +269,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		metrics.LogSyncMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1)
 		metrics.LogNormalizeMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1, 0)
 		metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0)
-		return &model.SyncResponse{
+		return &protos.SyncResponse{
 			RelationMessageMapping: recordsWithDeltaInfo.RelationMessageMapping,
-			TableSchemaDelta:       recordsWithDeltaInfo.TableSchemaDelta,
+			MirrorDelta:            recordsWithDeltaInfo.MirrorDelta,
 		}, nil
 	}
 
@@ -311,7 +311,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 	if res.TableNameRowsMapping != nil {
 		err = a.CatalogMirrorMonitor.AddCDCBatchTablesForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
-			res.CurrentSyncBatchID, res.TableNameRowsMapping)
+			res.CurrentSyncBatchId, res.TableNameRowsMapping)
 		if err != nil {
 			return nil, err
 		}
@@ -319,11 +319,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	res.TableSchemaDelta = recordsWithDeltaInfo.TableSchemaDelta
+	res.MirrorDelta = recordsWithDeltaInfo.MirrorDelta
 	res.RelationMessageMapping = recordsWithDeltaInfo.RelationMessageMapping
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
-	res.AdditionalTableInfo = recordsWithDeltaInfo.AdditionalTableInfo
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 
 	metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName,
@@ -688,7 +687,7 @@ func (a *FlowableActivity) PopulateTableMappingFromSchemas(
 
 func (a *FlowableActivity) CreateAdditionalTable(
 	ctx context.Context,
-	input *protos.CreateAdditionalTableInput) (*protos.AdditionalTableInfo, error) {
+	input *protos.CreateAdditionalTableInput) (*protos.AdditionalTableDelta, error) {
 	srcConn, err := connectors.GetCDCPullConnector(ctx, input.FlowConnectionConfigs.Source)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source connector: %w", err)

@@ -484,7 +484,7 @@ export interface ListTablesInSchemasOutput_SchemaToTablesEntry {
   value: TablesList | undefined;
 }
 
-export interface AdditionalTableInfo {
+export interface AdditionalTableDelta {
   tableName: string;
   srcSchema: string;
   dstSchema: string;
@@ -492,9 +492,45 @@ export interface AdditionalTableInfo {
   tableSchema: TableSchema | undefined;
 }
 
+export interface MirrorDelta {
+  /** adding or dropping columns to an existing table */
+  tableSchemaDelta?:
+    | TableSchemaDelta
+    | undefined;
+  /** creating a new table, for MappingType SCHEMA only */
+  additionalTableDelta?: AdditionalTableDelta | undefined;
+}
+
 export interface CreateAdditionalTableInput {
   flowConnectionConfigs: FlowConnectionConfigs | undefined;
-  additionalTableInfo: AdditionalTableInfo | undefined;
+  additionalTableInfo: AdditionalTableDelta | undefined;
+}
+
+export interface SyncResponse {
+  /** FirstSyncedCheckPointID is the first ID that was synced. */
+  firstSyncedCheckpointId: number;
+  /** LastSyncedCheckPointID is the last ID that was synced. */
+  lastSyncedCheckpointId: number;
+  /** NumRecordsSynced is the number of records that were synced. */
+  numRecordsSynced: number;
+  /** CurrentSyncBatchID is the ID of the currently synced batch. */
+  currentSyncBatchId: number;
+  /** TableNameRowsMapping tells how many records need to be synced to each destination table. */
+  tableNameRowsMapping: { [key: string]: number };
+  /** to be stored in state for future PullFlows */
+  relationMessageMapping: { [key: number]: RelationMessage };
+  /** if not-nil, needs to be applied before next StartFlow */
+  mirrorDelta: MirrorDelta | undefined;
+}
+
+export interface SyncResponse_TableNameRowsMappingEntry {
+  key: string;
+  value: number;
+}
+
+export interface SyncResponse_RelationMessageMappingEntry {
+  key: number;
+  value: RelationMessage | undefined;
 }
 
 function createBaseRelationMessageColumn(): RelationMessageColumn {
@@ -5949,12 +5985,12 @@ export const ListTablesInSchemasOutput_SchemaToTablesEntry = {
   },
 };
 
-function createBaseAdditionalTableInfo(): AdditionalTableInfo {
+function createBaseAdditionalTableDelta(): AdditionalTableDelta {
   return { tableName: "", srcSchema: "", dstSchema: "", relId: 0, tableSchema: undefined };
 }
 
-export const AdditionalTableInfo = {
-  encode(message: AdditionalTableInfo, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+export const AdditionalTableDelta = {
+  encode(message: AdditionalTableDelta, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.tableName !== "") {
       writer.uint32(10).string(message.tableName);
     }
@@ -5973,10 +6009,10 @@ export const AdditionalTableInfo = {
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): AdditionalTableInfo {
+  decode(input: _m0.Reader | Uint8Array, length?: number): AdditionalTableDelta {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseAdditionalTableInfo();
+    const message = createBaseAdditionalTableDelta();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -6024,7 +6060,7 @@ export const AdditionalTableInfo = {
     return message;
   },
 
-  fromJSON(object: any): AdditionalTableInfo {
+  fromJSON(object: any): AdditionalTableDelta {
     return {
       tableName: isSet(object.tableName) ? String(object.tableName) : "",
       srcSchema: isSet(object.srcSchema) ? String(object.srcSchema) : "",
@@ -6034,7 +6070,7 @@ export const AdditionalTableInfo = {
     };
   },
 
-  toJSON(message: AdditionalTableInfo): unknown {
+  toJSON(message: AdditionalTableDelta): unknown {
     const obj: any = {};
     if (message.tableName !== "") {
       obj.tableName = message.tableName;
@@ -6054,17 +6090,97 @@ export const AdditionalTableInfo = {
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<AdditionalTableInfo>, I>>(base?: I): AdditionalTableInfo {
-    return AdditionalTableInfo.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<AdditionalTableDelta>, I>>(base?: I): AdditionalTableDelta {
+    return AdditionalTableDelta.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<AdditionalTableInfo>, I>>(object: I): AdditionalTableInfo {
-    const message = createBaseAdditionalTableInfo();
+  fromPartial<I extends Exact<DeepPartial<AdditionalTableDelta>, I>>(object: I): AdditionalTableDelta {
+    const message = createBaseAdditionalTableDelta();
     message.tableName = object.tableName ?? "";
     message.srcSchema = object.srcSchema ?? "";
     message.dstSchema = object.dstSchema ?? "";
     message.relId = object.relId ?? 0;
     message.tableSchema = (object.tableSchema !== undefined && object.tableSchema !== null)
       ? TableSchema.fromPartial(object.tableSchema)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseMirrorDelta(): MirrorDelta {
+  return { tableSchemaDelta: undefined, additionalTableDelta: undefined };
+}
+
+export const MirrorDelta = {
+  encode(message: MirrorDelta, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.tableSchemaDelta !== undefined) {
+      TableSchemaDelta.encode(message.tableSchemaDelta, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.additionalTableDelta !== undefined) {
+      AdditionalTableDelta.encode(message.additionalTableDelta, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): MirrorDelta {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMirrorDelta();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.tableSchemaDelta = TableSchemaDelta.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.additionalTableDelta = AdditionalTableDelta.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MirrorDelta {
+    return {
+      tableSchemaDelta: isSet(object.tableSchemaDelta) ? TableSchemaDelta.fromJSON(object.tableSchemaDelta) : undefined,
+      additionalTableDelta: isSet(object.additionalTableDelta)
+        ? AdditionalTableDelta.fromJSON(object.additionalTableDelta)
+        : undefined,
+    };
+  },
+
+  toJSON(message: MirrorDelta): unknown {
+    const obj: any = {};
+    if (message.tableSchemaDelta !== undefined) {
+      obj.tableSchemaDelta = TableSchemaDelta.toJSON(message.tableSchemaDelta);
+    }
+    if (message.additionalTableDelta !== undefined) {
+      obj.additionalTableDelta = AdditionalTableDelta.toJSON(message.additionalTableDelta);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MirrorDelta>, I>>(base?: I): MirrorDelta {
+    return MirrorDelta.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MirrorDelta>, I>>(object: I): MirrorDelta {
+    const message = createBaseMirrorDelta();
+    message.tableSchemaDelta = (object.tableSchemaDelta !== undefined && object.tableSchemaDelta !== null)
+      ? TableSchemaDelta.fromPartial(object.tableSchemaDelta)
+      : undefined;
+    message.additionalTableDelta = (object.additionalTableDelta !== undefined && object.additionalTableDelta !== null)
+      ? AdditionalTableDelta.fromPartial(object.additionalTableDelta)
       : undefined;
     return message;
   },
@@ -6080,7 +6196,7 @@ export const CreateAdditionalTableInput = {
       FlowConnectionConfigs.encode(message.flowConnectionConfigs, writer.uint32(10).fork()).ldelim();
     }
     if (message.additionalTableInfo !== undefined) {
-      AdditionalTableInfo.encode(message.additionalTableInfo, writer.uint32(18).fork()).ldelim();
+      AdditionalTableDelta.encode(message.additionalTableInfo, writer.uint32(18).fork()).ldelim();
     }
     return writer;
   },
@@ -6104,7 +6220,7 @@ export const CreateAdditionalTableInput = {
             break;
           }
 
-          message.additionalTableInfo = AdditionalTableInfo.decode(reader, reader.uint32());
+          message.additionalTableInfo = AdditionalTableDelta.decode(reader, reader.uint32());
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -6121,7 +6237,7 @@ export const CreateAdditionalTableInput = {
         ? FlowConnectionConfigs.fromJSON(object.flowConnectionConfigs)
         : undefined,
       additionalTableInfo: isSet(object.additionalTableInfo)
-        ? AdditionalTableInfo.fromJSON(object.additionalTableInfo)
+        ? AdditionalTableDelta.fromJSON(object.additionalTableInfo)
         : undefined,
     };
   },
@@ -6132,7 +6248,7 @@ export const CreateAdditionalTableInput = {
       obj.flowConnectionConfigs = FlowConnectionConfigs.toJSON(message.flowConnectionConfigs);
     }
     if (message.additionalTableInfo !== undefined) {
-      obj.additionalTableInfo = AdditionalTableInfo.toJSON(message.additionalTableInfo);
+      obj.additionalTableInfo = AdditionalTableDelta.toJSON(message.additionalTableInfo);
     }
     return obj;
   },
@@ -6147,7 +6263,367 @@ export const CreateAdditionalTableInput = {
         ? FlowConnectionConfigs.fromPartial(object.flowConnectionConfigs)
         : undefined;
     message.additionalTableInfo = (object.additionalTableInfo !== undefined && object.additionalTableInfo !== null)
-      ? AdditionalTableInfo.fromPartial(object.additionalTableInfo)
+      ? AdditionalTableDelta.fromPartial(object.additionalTableInfo)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseSyncResponse(): SyncResponse {
+  return {
+    firstSyncedCheckpointId: 0,
+    lastSyncedCheckpointId: 0,
+    numRecordsSynced: 0,
+    currentSyncBatchId: 0,
+    tableNameRowsMapping: {},
+    relationMessageMapping: {},
+    mirrorDelta: undefined,
+  };
+}
+
+export const SyncResponse = {
+  encode(message: SyncResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.firstSyncedCheckpointId !== 0) {
+      writer.uint32(8).int64(message.firstSyncedCheckpointId);
+    }
+    if (message.lastSyncedCheckpointId !== 0) {
+      writer.uint32(16).int64(message.lastSyncedCheckpointId);
+    }
+    if (message.numRecordsSynced !== 0) {
+      writer.uint32(24).int64(message.numRecordsSynced);
+    }
+    if (message.currentSyncBatchId !== 0) {
+      writer.uint32(32).int64(message.currentSyncBatchId);
+    }
+    Object.entries(message.tableNameRowsMapping).forEach(([key, value]) => {
+      SyncResponse_TableNameRowsMappingEntry.encode({ key: key as any, value }, writer.uint32(42).fork()).ldelim();
+    });
+    Object.entries(message.relationMessageMapping).forEach(([key, value]) => {
+      SyncResponse_RelationMessageMappingEntry.encode({ key: key as any, value }, writer.uint32(50).fork()).ldelim();
+    });
+    if (message.mirrorDelta !== undefined) {
+      MirrorDelta.encode(message.mirrorDelta, writer.uint32(58).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SyncResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.firstSyncedCheckpointId = longToNumber(reader.int64() as Long);
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.lastSyncedCheckpointId = longToNumber(reader.int64() as Long);
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.numRecordsSynced = longToNumber(reader.int64() as Long);
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.currentSyncBatchId = longToNumber(reader.int64() as Long);
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          const entry5 = SyncResponse_TableNameRowsMappingEntry.decode(reader, reader.uint32());
+          if (entry5.value !== undefined) {
+            message.tableNameRowsMapping[entry5.key] = entry5.value;
+          }
+          continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          const entry6 = SyncResponse_RelationMessageMappingEntry.decode(reader, reader.uint32());
+          if (entry6.value !== undefined) {
+            message.relationMessageMapping[entry6.key] = entry6.value;
+          }
+          continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.mirrorDelta = MirrorDelta.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SyncResponse {
+    return {
+      firstSyncedCheckpointId: isSet(object.firstSyncedCheckpointId) ? Number(object.firstSyncedCheckpointId) : 0,
+      lastSyncedCheckpointId: isSet(object.lastSyncedCheckpointId) ? Number(object.lastSyncedCheckpointId) : 0,
+      numRecordsSynced: isSet(object.numRecordsSynced) ? Number(object.numRecordsSynced) : 0,
+      currentSyncBatchId: isSet(object.currentSyncBatchId) ? Number(object.currentSyncBatchId) : 0,
+      tableNameRowsMapping: isObject(object.tableNameRowsMapping)
+        ? Object.entries(object.tableNameRowsMapping).reduce<{ [key: string]: number }>((acc, [key, value]) => {
+          acc[key] = Number(value);
+          return acc;
+        }, {})
+        : {},
+      relationMessageMapping: isObject(object.relationMessageMapping)
+        ? Object.entries(object.relationMessageMapping).reduce<{ [key: number]: RelationMessage }>(
+          (acc, [key, value]) => {
+            acc[Number(key)] = RelationMessage.fromJSON(value);
+            return acc;
+          },
+          {},
+        )
+        : {},
+      mirrorDelta: isSet(object.mirrorDelta) ? MirrorDelta.fromJSON(object.mirrorDelta) : undefined,
+    };
+  },
+
+  toJSON(message: SyncResponse): unknown {
+    const obj: any = {};
+    if (message.firstSyncedCheckpointId !== 0) {
+      obj.firstSyncedCheckpointId = Math.round(message.firstSyncedCheckpointId);
+    }
+    if (message.lastSyncedCheckpointId !== 0) {
+      obj.lastSyncedCheckpointId = Math.round(message.lastSyncedCheckpointId);
+    }
+    if (message.numRecordsSynced !== 0) {
+      obj.numRecordsSynced = Math.round(message.numRecordsSynced);
+    }
+    if (message.currentSyncBatchId !== 0) {
+      obj.currentSyncBatchId = Math.round(message.currentSyncBatchId);
+    }
+    if (message.tableNameRowsMapping) {
+      const entries = Object.entries(message.tableNameRowsMapping);
+      if (entries.length > 0) {
+        obj.tableNameRowsMapping = {};
+        entries.forEach(([k, v]) => {
+          obj.tableNameRowsMapping[k] = Math.round(v);
+        });
+      }
+    }
+    if (message.relationMessageMapping) {
+      const entries = Object.entries(message.relationMessageMapping);
+      if (entries.length > 0) {
+        obj.relationMessageMapping = {};
+        entries.forEach(([k, v]) => {
+          obj.relationMessageMapping[k] = RelationMessage.toJSON(v);
+        });
+      }
+    }
+    if (message.mirrorDelta !== undefined) {
+      obj.mirrorDelta = MirrorDelta.toJSON(message.mirrorDelta);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SyncResponse>, I>>(base?: I): SyncResponse {
+    return SyncResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SyncResponse>, I>>(object: I): SyncResponse {
+    const message = createBaseSyncResponse();
+    message.firstSyncedCheckpointId = object.firstSyncedCheckpointId ?? 0;
+    message.lastSyncedCheckpointId = object.lastSyncedCheckpointId ?? 0;
+    message.numRecordsSynced = object.numRecordsSynced ?? 0;
+    message.currentSyncBatchId = object.currentSyncBatchId ?? 0;
+    message.tableNameRowsMapping = Object.entries(object.tableNameRowsMapping ?? {}).reduce<{ [key: string]: number }>(
+      (acc, [key, value]) => {
+        if (value !== undefined) {
+          acc[key] = Number(value);
+        }
+        return acc;
+      },
+      {},
+    );
+    message.relationMessageMapping = Object.entries(object.relationMessageMapping ?? {}).reduce<
+      { [key: number]: RelationMessage }
+    >((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[Number(key)] = RelationMessage.fromPartial(value);
+      }
+      return acc;
+    }, {});
+    message.mirrorDelta = (object.mirrorDelta !== undefined && object.mirrorDelta !== null)
+      ? MirrorDelta.fromPartial(object.mirrorDelta)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseSyncResponse_TableNameRowsMappingEntry(): SyncResponse_TableNameRowsMappingEntry {
+  return { key: "", value: 0 };
+}
+
+export const SyncResponse_TableNameRowsMappingEntry = {
+  encode(message: SyncResponse_TableNameRowsMappingEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== 0) {
+      writer.uint32(16).uint32(message.value);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SyncResponse_TableNameRowsMappingEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncResponse_TableNameRowsMappingEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.value = reader.uint32();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SyncResponse_TableNameRowsMappingEntry {
+    return { key: isSet(object.key) ? String(object.key) : "", value: isSet(object.value) ? Number(object.value) : 0 };
+  },
+
+  toJSON(message: SyncResponse_TableNameRowsMappingEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== 0) {
+      obj.value = Math.round(message.value);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SyncResponse_TableNameRowsMappingEntry>, I>>(
+    base?: I,
+  ): SyncResponse_TableNameRowsMappingEntry {
+    return SyncResponse_TableNameRowsMappingEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SyncResponse_TableNameRowsMappingEntry>, I>>(
+    object: I,
+  ): SyncResponse_TableNameRowsMappingEntry {
+    const message = createBaseSyncResponse_TableNameRowsMappingEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? 0;
+    return message;
+  },
+};
+
+function createBaseSyncResponse_RelationMessageMappingEntry(): SyncResponse_RelationMessageMappingEntry {
+  return { key: 0, value: undefined };
+}
+
+export const SyncResponse_RelationMessageMappingEntry = {
+  encode(message: SyncResponse_RelationMessageMappingEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.key !== 0) {
+      writer.uint32(8).uint32(message.key);
+    }
+    if (message.value !== undefined) {
+      RelationMessage.encode(message.value, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SyncResponse_RelationMessageMappingEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSyncResponse_RelationMessageMappingEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.key = reader.uint32();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = RelationMessage.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SyncResponse_RelationMessageMappingEntry {
+    return {
+      key: isSet(object.key) ? Number(object.key) : 0,
+      value: isSet(object.value) ? RelationMessage.fromJSON(object.value) : undefined,
+    };
+  },
+
+  toJSON(message: SyncResponse_RelationMessageMappingEntry): unknown {
+    const obj: any = {};
+    if (message.key !== 0) {
+      obj.key = Math.round(message.key);
+    }
+    if (message.value !== undefined) {
+      obj.value = RelationMessage.toJSON(message.value);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SyncResponse_RelationMessageMappingEntry>, I>>(
+    base?: I,
+  ): SyncResponse_RelationMessageMappingEntry {
+    return SyncResponse_RelationMessageMappingEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SyncResponse_RelationMessageMappingEntry>, I>>(
+    object: I,
+  ): SyncResponse_RelationMessageMappingEntry {
+    const message = createBaseSyncResponse_RelationMessageMappingEntry();
+    message.key = object.key ?? 0;
+    message.value = (object.value !== undefined && object.value !== null)
+      ? RelationMessage.fromPartial(object.value)
       : undefined;
     return message;
   },

@@ -130,7 +130,6 @@ func (p *postgresCDCSource) consumeStream(
 	}
 	result := &model.RecordsWithDeltaInfo{
 		RecordBatch:            records,
-		TableSchemaDelta:       nil,
 		RelationMessageMapping: p.relationMessageMapping,
 	}
 
@@ -283,17 +282,25 @@ func (p *postgresCDCSource) consumeStream(
 				case *model.RelationRecord:
 					tableSchemaDelta := rec.(*model.RelationRecord).TableSchemaDelta
 					if len(tableSchemaDelta.AddedColumns) > 0 || len(tableSchemaDelta.DroppedColumns) > 0 {
-						result.TableSchemaDelta = tableSchemaDelta
+						result.MirrorDelta = &protos.MirrorDelta{
+							Delta: &protos.MirrorDelta_TableSchemaDelta{
+								TableSchemaDelta: tableSchemaDelta,
+							},
+						}
 						log.Infof("Detected schema change for table %s, returning currently accumulated records",
-							result.TableSchemaDelta.SrcTableName)
+							result.MirrorDelta.GetTableSchemaDelta().SrcTableName)
 						earlyReturn = true
 					}
 				case *model.AddedTableRecord:
 					log.Infof("Detected additional table %s, returning currently accumulated records",
 						rec.GetTableName())
-					result.AdditionalTableInfo = &protos.AdditionalTableInfo{
-						TableName: rec.(*model.AddedTableRecord).TableName,
-						SrcSchema: rec.(*model.AddedTableRecord).SrcSchema,
+					result.MirrorDelta = &protos.MirrorDelta{
+						Delta: &protos.MirrorDelta_AdditionalTableDelta{
+							AdditionalTableDelta: &protos.AdditionalTableDelta{
+								TableName: rec.(*model.AddedTableRecord).TableName,
+								SrcSchema: rec.(*model.AddedTableRecord).SrcSchema,
+							},
+						},
 					}
 					earlyReturn = true
 				}
