@@ -30,9 +30,6 @@ export default function CreatePeer() {
         </Action>
       </Panel>
       <Panel>
-        <Label colorName='lowContrast' variant='subheadline'>
-          Source
-        </Label>
         <RowWithSelect
           label={
             <Label as='label' htmlFor='source'>
