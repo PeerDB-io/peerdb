@@ -15,7 +15,7 @@ interface ConfigProps {
   setter: PeerSetter;
 }
 
-export default function ConfigForm(props: ConfigProps) {
+export default function PgConfig(props: ConfigProps) {
   return (
     <>
       {props.settings.map((setting, id) => {

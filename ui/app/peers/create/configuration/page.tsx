@@ -6,20 +6,25 @@ import { LayoutMain, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import ConfigForm from './configForm';
+import PgConfig from './configForm';
 import { handleCreate, handleValidate } from './handlers';
-import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { PeerConfig } from './types';
+
 export default function CreateConfig() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const dbType = searchParams.get('dbtype') || '';
-  const blankSetting = getBlankSetting(dbType);
   const [name, setName] = useState<string>('');
-  const [config, setConfig] = useState<PeerConfig>(blankSetting);
+  const [config, setConfig] = useState<PeerConfig>({
+    host: '',
+    port: 5432,
+    user: '',
+    password: '',
+    database: '',
+    transactionSnapshot: '',
+  });
   const [formMessage, setFormMessage] = useState<{ ok: boolean; msg: string }>({
     ok: true,
     msg: '',
@@ -28,7 +33,7 @@ export default function CreateConfig() {
   const configComponentMap = (dbType: string) => {
     switch (dbType) {
       case 'POSTGRES':
-        return <ConfigForm settings={postgresSetting} setter={setConfig} />;
+        return <PgConfig settings={postgresSetting} setter={setConfig} />;
       default:
         return <></>;
     }
@@ -42,14 +47,14 @@ export default function CreateConfig() {
       </Panel>
       <Panel>
         <Label colorName='lowContrast' variant='subheadline'>
-          Configuration
+          Details
         </Label>
         <RowWithTextField
           label={<Label as='label'>Name</Label>}
           action={
             <TextField
               variant='simple'
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setName(e.target.value || '')}
             />
           }
         />
@@ -71,14 +76,7 @@ export default function CreateConfig() {
           <Button
             variant='normalSolid'
             onClick={() =>
-              handleCreate(
-                dbType,
-                config,
-                setFormMessage,
-                setLoading,
-                router,
-                name
-              )
+              handleCreate(dbType, config, setFormMessage, setLoading, name)
             }
           >
             Create
