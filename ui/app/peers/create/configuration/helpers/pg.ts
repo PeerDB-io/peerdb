@@ -42,4 +42,4 @@ export const blankPostgresSetting = {
   password: '',
   database: '',
   transactionSnapshot: '',
-}
+};

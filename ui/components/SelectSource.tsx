@@ -8,12 +8,10 @@ interface SelectSourceProps {
   setPeerType: Dispatch<SetStateAction<string>>;
 }
 
-export default function SelectSource({
-  setPeerType,
-}: SelectSourceProps) {
+export default function SelectSource({ setPeerType }: SelectSourceProps) {
   const dbTypes: string[] = Object.values(DBType).filter(
     (value): value is string =>
-      typeof value === 'string' && value === "POSTGRES"
+      typeof value === 'string' && value === 'POSTGRES'
   );
   return (
     <Select
