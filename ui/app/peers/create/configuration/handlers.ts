@@ -1,3 +1,4 @@
+import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context';
 import { Dispatch, SetStateAction } from 'react';
 import { checkFormFields } from './schema';
 import { PeerConfig } from './types';
@@ -58,6 +59,7 @@ export const handleCreate = async (
   config: PeerConfig,
   setMessage: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
   setLoading: Dispatch<SetStateAction<boolean>>,
+  router: AppRouterInstance,
   name?: string
 ) => {
   let isValid = validateFields(type, config, setMessage, name);
@@ -78,6 +80,7 @@ export const handleCreate = async (
     return;
   } else {
     setMessage({ ok: true, msg: 'Peer created successfully' });
+    router.push('/peers');
   }
   setLoading(false);
 };
