@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Context;
-use base64::encode as base64_encode;
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use jsonwebtoken::{encode as jwt_encode, Algorithm, EncodingKey, Header};
 use pkcs1::EncodeRsaPrivateKey;
 use pkcs8::{DecodePrivateKey, EncodePublicKey};
@@ -99,7 +99,7 @@ impl SnowflakeAuth {
         let public_key = EncodePublicKey::to_public_key_der(&RsaPublicKey::from(private_key))?;
         let res = format!(
             "SHA256:{}",
-            base64_encode(Sha256::new_with_prefix(public_key.as_bytes()).finalize())
+            BASE64_STANDARD.encode(Sha256::new_with_prefix(public_key.as_bytes()).finalize())
         );
         Ok(res)
     }
