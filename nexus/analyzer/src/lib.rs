@@ -563,6 +563,22 @@ fn parse_db_options(
                 .map(|s| s.to_string())
                 .unwrap_or_default();
 
+            // partition_count default to 3 if not set, parse as int
+            let partition_count = opts
+                .get("partition_count")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "3".to_string())
+                .parse::<u32>()
+                .context("unable to parse partition_count as valid int")?;
+
+            // message_retention_in_days default to 7 if not set, parse as int
+            let message_retention_in_days = opts
+                .get("message_retention_in_days")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "7".to_string())
+                .parse::<u32>()
+                .context("unable to parse message_retention_in_days as valid int")?;
+
             let eventhub_config = EventHubConfig {
                 namespace: opts
                     .get("namespace")
@@ -578,6 +594,8 @@ fn parse_db_options(
                     .to_string(),
                 metadata_db,
                 subscription_id,
+                partition_count,
+                message_retention_in_days,
             };
             let config = Config::EventhubConfig(eventhub_config);
             Some(config)
@@ -625,9 +643,25 @@ fn parse_db_options(
                 anyhow::bail!("metadata_db is required for eventhub group");
             }
 
+            // split comma separated list of columns and trim
+            let unnest_columns = opts
+                .get("unnest_columns")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let keys_to_ignore: HashSet<String> = vec!["metadata_db", "unnest_columns"]
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect();
+
             let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
             for (key, _) in opts {
-                if key == "metadata_db" {
+                if keys_to_ignore.contains(&key) {
                     continue;
                 }
 
@@ -648,6 +682,7 @@ fn parse_db_options(
             let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
                 eventhubs,
                 metadata_db,
+                unnest_columns,
             };
             let config = Config::EventhubGroupConfig(eventhub_group_config);
             Some(config)

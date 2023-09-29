@@ -126,12 +126,17 @@ export interface EventHubConfig {
     | undefined;
   /** if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable. */
   subscriptionId: string;
+  /** defaults to 3 */
+  partitionCount: number;
+  /** defaults to 7 */
+  messageRetentionInDays: number;
 }
 
 export interface EventHubGroupConfig {
   /** event hub peer name to event hub config */
   eventhubs: { [key: string]: EventHubConfig };
   metadataDb: PostgresConfig | undefined;
+  unnestColumns: string[];
 }
 
 export interface EventHubGroupConfig_EventhubsEntry {
@@ -828,7 +833,15 @@ export const PostgresConfig = {
 };
 
 function createBaseEventHubConfig(): EventHubConfig {
-  return { namespace: "", resourceGroup: "", location: "", metadataDb: undefined, subscriptionId: "" };
+  return {
+    namespace: "",
+    resourceGroup: "",
+    location: "",
+    metadataDb: undefined,
+    subscriptionId: "",
+    partitionCount: 0,
+    messageRetentionInDays: 0,
+  };
 }
 
 export const EventHubConfig = {
@@ -847,6 +860,12 @@ export const EventHubConfig = {
     }
     if (message.subscriptionId !== "") {
       writer.uint32(42).string(message.subscriptionId);
+    }
+    if (message.partitionCount !== 0) {
+      writer.uint32(48).uint32(message.partitionCount);
+    }
+    if (message.messageRetentionInDays !== 0) {
+      writer.uint32(56).uint32(message.messageRetentionInDays);
     }
     return writer;
   },
@@ -893,6 +912,20 @@ export const EventHubConfig = {
 
           message.subscriptionId = reader.string();
           continue;
+        case 6:
+          if (tag !== 48) {
+            break;
+          }
+
+          message.partitionCount = reader.uint32();
+          continue;
+        case 7:
+          if (tag !== 56) {
+            break;
+          }
+
+          message.messageRetentionInDays = reader.uint32();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -909,6 +942,8 @@ export const EventHubConfig = {
       location: isSet(object.location) ? String(object.location) : "",
       metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
       subscriptionId: isSet(object.subscriptionId) ? String(object.subscriptionId) : "",
+      partitionCount: isSet(object.partitionCount) ? Number(object.partitionCount) : 0,
+      messageRetentionInDays: isSet(object.messageRetentionInDays) ? Number(object.messageRetentionInDays) : 0,
     };
   },
 
@@ -929,6 +964,12 @@ export const EventHubConfig = {
     if (message.subscriptionId !== "") {
       obj.subscriptionId = message.subscriptionId;
     }
+    if (message.partitionCount !== 0) {
+      obj.partitionCount = Math.round(message.partitionCount);
+    }
+    if (message.messageRetentionInDays !== 0) {
+      obj.messageRetentionInDays = Math.round(message.messageRetentionInDays);
+    }
     return obj;
   },
 
@@ -944,12 +985,14 @@ export const EventHubConfig = {
       ? PostgresConfig.fromPartial(object.metadataDb)
       : undefined;
     message.subscriptionId = object.subscriptionId ?? "";
+    message.partitionCount = object.partitionCount ?? 0;
+    message.messageRetentionInDays = object.messageRetentionInDays ?? 0;
     return message;
   },
 };
 
 function createBaseEventHubGroupConfig(): EventHubGroupConfig {
-  return { eventhubs: {}, metadataDb: undefined };
+  return { eventhubs: {}, metadataDb: undefined, unnestColumns: [] };
 }
 
 export const EventHubGroupConfig = {
@@ -959,6 +1002,9 @@ export const EventHubGroupConfig = {
     });
     if (message.metadataDb !== undefined) {
       PostgresConfig.encode(message.metadataDb, writer.uint32(18).fork()).ldelim();
+    }
+    for (const v of message.unnestColumns) {
+      writer.uint32(26).string(v!);
     }
     return writer;
   },
@@ -987,6 +1033,13 @@ export const EventHubGroupConfig = {
 
           message.metadataDb = PostgresConfig.decode(reader, reader.uint32());
           continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.unnestColumns.push(reader.string());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1005,6 +1058,7 @@ export const EventHubGroupConfig = {
         }, {})
         : {},
       metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
+      unnestColumns: Array.isArray(object?.unnestColumns) ? object.unnestColumns.map((e: any) => String(e)) : [],
     };
   },
 
@@ -1021,6 +1075,9 @@ export const EventHubGroupConfig = {
     }
     if (message.metadataDb !== undefined) {
       obj.metadataDb = PostgresConfig.toJSON(message.metadataDb);
+    }
+    if (message.unnestColumns?.length) {
+      obj.unnestColumns = message.unnestColumns;
     }
     return obj;
   },
@@ -1042,6 +1099,7 @@ export const EventHubGroupConfig = {
     message.metadataDb = (object.metadataDb !== undefined && object.metadataDb !== null)
       ? PostgresConfig.fromPartial(object.metadataDb)
       : undefined;
+    message.unnestColumns = object.unnestColumns?.map((e) => e) || [];
     return message;
   },
 };

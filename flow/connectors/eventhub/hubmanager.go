@@ -117,9 +117,8 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 	_, err = hubClient.Get(ctx, resourceGroup, namespace, name.Eventhub, nil)
 
-	// TODO (kaushik): make these configurable.
-	partitionCount := int64(3)
-	retention := int64(1)
+	partitionCount := int64(cfg.PartitionCount)
+	retention := int64(cfg.MessageRetentionInDays)
 	if err != nil {
 		opts := armeventhub.Eventhub{
 			Properties: &armeventhub.Properties{
