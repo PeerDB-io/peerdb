@@ -6,15 +6,15 @@ import { LayoutMain, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import PgConfig from './configForm';
 import { handleCreate, handleValidate } from './handlers';
 import { postgresSetting } from './helpers/pg';
 import { PeerConfig } from './types';
-
 export default function CreateConfig() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const dbType = searchParams.get('dbtype') || '';
   const [name, setName] = useState<string>('');
   const [config, setConfig] = useState<PeerConfig>({
@@ -76,7 +76,14 @@ export default function CreateConfig() {
           <Button
             variant='normalSolid'
             onClick={() =>
-              handleCreate(dbType, config, setFormMessage, setLoading, name)
+              handleCreate(
+                dbType,
+                config,
+                setFormMessage,
+                setLoading,
+                router,
+                name
+              )
             }
           >
             Create
