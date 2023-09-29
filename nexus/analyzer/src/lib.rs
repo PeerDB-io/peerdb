@@ -563,6 +563,22 @@ fn parse_db_options(
                 .map(|s| s.to_string())
                 .unwrap_or_default();
 
+            // partition_count default to 3 if not set, parse as int
+            let partition_count = opts
+                .get("partition_count")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "3".to_string())
+                .parse::<u32>()
+                .context("unable to parse partition_count as valid int")?;
+
+            // message_retention_in_days default to 7 if not set, parse as int
+            let message_retention_in_days = opts
+                .get("message_retention_in_days")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "7".to_string())
+                .parse::<u32>()
+                .context("unable to parse message_retention_in_days as valid int")?;
+
             let eventhub_config = EventHubConfig {
                 namespace: opts
                     .get("namespace")
@@ -578,6 +594,8 @@ fn parse_db_options(
                     .to_string(),
                 metadata_db,
                 subscription_id,
+                partition_count,
+                message_retention_in_days,
             };
             let config = Config::EventhubConfig(eventhub_config);
             Some(config)

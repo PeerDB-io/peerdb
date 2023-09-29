@@ -126,6 +126,10 @@ export interface EventHubConfig {
     | undefined;
   /** if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable. */
   subscriptionId: string;
+  /** defaults to 3 */
+  partitionCount: number;
+  /** defaults to 7 */
+  messageRetentionInDays: number;
 }
 
 export interface EventHubGroupConfig {
@@ -829,7 +833,15 @@ export const PostgresConfig = {
 };
 
 function createBaseEventHubConfig(): EventHubConfig {
-  return { namespace: "", resourceGroup: "", location: "", metadataDb: undefined, subscriptionId: "" };
+  return {
+    namespace: "",
+    resourceGroup: "",
+    location: "",
+    metadataDb: undefined,
+    subscriptionId: "",
+    partitionCount: 0,
+    messageRetentionInDays: 0,
+  };
 }
 
 export const EventHubConfig = {
@@ -848,6 +860,12 @@ export const EventHubConfig = {
     }
     if (message.subscriptionId !== "") {
       writer.uint32(42).string(message.subscriptionId);
+    }
+    if (message.partitionCount !== 0) {
+      writer.uint32(48).uint32(message.partitionCount);
+    }
+    if (message.messageRetentionInDays !== 0) {
+      writer.uint32(56).uint32(message.messageRetentionInDays);
     }
     return writer;
   },
@@ -894,6 +912,20 @@ export const EventHubConfig = {
 
           message.subscriptionId = reader.string();
           continue;
+        case 6:
+          if (tag !== 48) {
+            break;
+          }
+
+          message.partitionCount = reader.uint32();
+          continue;
+        case 7:
+          if (tag !== 56) {
+            break;
+          }
+
+          message.messageRetentionInDays = reader.uint32();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -910,6 +942,8 @@ export const EventHubConfig = {
       location: isSet(object.location) ? String(object.location) : "",
       metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
       subscriptionId: isSet(object.subscriptionId) ? String(object.subscriptionId) : "",
+      partitionCount: isSet(object.partitionCount) ? Number(object.partitionCount) : 0,
+      messageRetentionInDays: isSet(object.messageRetentionInDays) ? Number(object.messageRetentionInDays) : 0,
     };
   },
 
@@ -930,6 +964,12 @@ export const EventHubConfig = {
     if (message.subscriptionId !== "") {
       obj.subscriptionId = message.subscriptionId;
     }
+    if (message.partitionCount !== 0) {
+      obj.partitionCount = Math.round(message.partitionCount);
+    }
+    if (message.messageRetentionInDays !== 0) {
+      obj.messageRetentionInDays = Math.round(message.messageRetentionInDays);
+    }
     return obj;
   },
 
@@ -945,6 +985,8 @@ export const EventHubConfig = {
       ? PostgresConfig.fromPartial(object.metadataDb)
       : undefined;
     message.subscriptionId = object.subscriptionId ?? "";
+    message.partitionCount = object.partitionCount ?? 0;
+    message.messageRetentionInDays = object.messageRetentionInDays ?? 0;
     return message;
   },
 };

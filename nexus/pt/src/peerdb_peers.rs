@@ -92,6 +92,12 @@ pub struct EventHubConfig {
     /// if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable.
     #[prost(string, tag="5")]
     pub subscription_id: ::prost::alloc::string::String,
+    /// defaults to 3
+    #[prost(uint32, tag="6")]
+    pub partition_count: u32,
+    /// defaults to 7
+    #[prost(uint32, tag="7")]
+    pub message_retention_in_days: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
