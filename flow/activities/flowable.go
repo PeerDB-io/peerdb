@@ -326,9 +326,7 @@ func (a *FlowableActivity) StartNormalize(
 
 		err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
 			lastSyncBatchID)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	} else if err != nil {
 		return nil, err
 	}
