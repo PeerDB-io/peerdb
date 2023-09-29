@@ -16,7 +16,6 @@ import (
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
-var ErrWrongConfig = errors.New("wrong config for connector")
 
 type Connector interface {
 	Close() error
