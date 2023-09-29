@@ -14,7 +14,6 @@ const validateFields = (
     setMessage({ ok: false, msg: 'Peer name is required' });
     return false;
   }
-
   const validity = checkFormFields(type, config);
   if (validity.error) {
     setMessage({ ok: false, msg: validity.error.message });
@@ -42,7 +41,6 @@ export const handleValidate = async (
       config,
     }),
   }).then((res) => res.text());
-
   if (statusMessage !== 'valid') {
     setMessage({ ok: false, msg: statusMessage });
     setLoading(false);
@@ -73,7 +71,6 @@ export const handleCreate = async (
       config,
     }),
   }).then((res) => res.text());
-
   if (statusMessage !== 'created') {
     setMessage({ ok: false, msg: statusMessage });
     setLoading(false);

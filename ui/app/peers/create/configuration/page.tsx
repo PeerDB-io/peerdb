@@ -12,19 +12,14 @@ import PgConfig from './configForm';
 import { handleCreate, handleValidate } from './handlers';
 import { postgresSetting } from './helpers/pg';
 import { PeerConfig } from './types';
+import { getBlankSetting } from './helpers/common';
 export default function CreateConfig() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const dbType = searchParams.get('dbtype') || '';
+  const blankSetting = getBlankSetting(dbType);
   const [name, setName] = useState<string>('');
-  const [config, setConfig] = useState<PeerConfig>({
-    host: '',
-    port: 5432,
-    user: '',
-    password: '',
-    database: '',
-    transactionSnapshot: '',
-  });
+  const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [formMessage, setFormMessage] = useState<{ ok: boolean; msg: string }>({
     ok: true,
     msg: '',
@@ -47,14 +42,14 @@ export default function CreateConfig() {
       </Panel>
       <Panel>
         <Label colorName='lowContrast' variant='subheadline'>
-          Details
+          Configuration
         </Label>
         <RowWithTextField
           label={<Label as='label'>Name</Label>}
           action={
             <TextField
               variant='simple'
-              onChange={(e) => setName(e.target.value || '')}
+              onChange={(e) => setName(e.target.value)}
             />
           }
         />

@@ -9,14 +9,12 @@ interface SelectSourceProps {
 }
 
 export default function SelectSource({
-  peerType,
   setPeerType,
 }: SelectSourceProps) {
   const dbTypes: string[] = Object.values(DBType).filter(
     (value): value is string =>
-      typeof value === 'string' && value !== 'UNRECOGNIZED' && value !== 'MONGO'
+      typeof value === 'string' && value === "POSTGRES"
   );
-
   return (
     <Select
       placeholder='Select a source'
