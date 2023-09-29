@@ -101,6 +101,8 @@ pub struct EventHubGroupConfig {
     pub eventhubs: ::std::collections::HashMap<::prost::alloc::string::String, EventHubConfig>,
     #[prost(message, optional, tag="2")]
     pub metadata_db: ::core::option::Option<PostgresConfig>,
+    #[prost(string, repeated, tag="3")]
+    pub unnest_columns: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -60,6 +60,7 @@ message EventHubGroupConfig {
   // event hub peer name to event hub config
   map<string, EventHubConfig> eventhubs = 1;
   PostgresConfig metadata_db = 2;
+  repeated string unnest_columns = 3;
 }
 
 message S3Config {

@@ -132,6 +132,7 @@ export interface EventHubGroupConfig {
   /** event hub peer name to event hub config */
   eventhubs: { [key: string]: EventHubConfig };
   metadataDb: PostgresConfig | undefined;
+  unnestColumns: string[];
 }
 
 export interface EventHubGroupConfig_EventhubsEntry {
@@ -949,7 +950,7 @@ export const EventHubConfig = {
 };
 
 function createBaseEventHubGroupConfig(): EventHubGroupConfig {
-  return { eventhubs: {}, metadataDb: undefined };
+  return { eventhubs: {}, metadataDb: undefined, unnestColumns: [] };
 }
 
 export const EventHubGroupConfig = {
@@ -959,6 +960,9 @@ export const EventHubGroupConfig = {
     });
     if (message.metadataDb !== undefined) {
       PostgresConfig.encode(message.metadataDb, writer.uint32(18).fork()).ldelim();
+    }
+    for (const v of message.unnestColumns) {
+      writer.uint32(26).string(v!);
     }
     return writer;
   },
@@ -987,6 +991,13 @@ export const EventHubGroupConfig = {
 
           message.metadataDb = PostgresConfig.decode(reader, reader.uint32());
           continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.unnestColumns.push(reader.string());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1005,6 +1016,7 @@ export const EventHubGroupConfig = {
         }, {})
         : {},
       metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
+      unnestColumns: Array.isArray(object?.unnestColumns) ? object.unnestColumns.map((e: any) => String(e)) : [],
     };
   },
 
@@ -1021,6 +1033,9 @@ export const EventHubGroupConfig = {
     }
     if (message.metadataDb !== undefined) {
       obj.metadataDb = PostgresConfig.toJSON(message.metadataDb);
+    }
+    if (message.unnestColumns?.length) {
+      obj.unnestColumns = message.unnestColumns;
     }
     return obj;
   },
@@ -1042,6 +1057,7 @@ export const EventHubGroupConfig = {
     message.metadataDb = (object.metadataDb !== undefined && object.metadataDb !== null)
       ? PostgresConfig.fromPartial(object.metadataDb)
       : undefined;
+    message.unnestColumns = object.unnestColumns?.map((e) => e) || [];
     return message;
   },
 };

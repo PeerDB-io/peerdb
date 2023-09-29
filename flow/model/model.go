@@ -110,10 +110,11 @@ func (r *RecordItems) Len() int {
 	return len(r.values)
 }
 
-func (r *RecordItems) ToJSON() (string, error) {
+func (r *RecordItems) toMap() (map[string]interface{}, error) {
 	if r.colToValIdx == nil {
-		return "", errors.New("colToValIdx is nil")
+		return nil, errors.New("colToValIdx is nil")
 	}
+
 	jsonStruct := make(map[string]interface{})
 	for col, idx := range r.colToValIdx {
 		v := r.values[idx]
@@ -129,24 +130,71 @@ func (r *RecordItems) ToJSON() (string, error) {
 			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
 			jsonStruct[col], err = v.GoTimeConvert()
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 		case qvalue.QValueKindNumeric:
 			bigRat, ok := v.Value.(*big.Rat)
 			if !ok {
-				return "", errors.New("expected *big.Rat value")
+				return nil, errors.New("expected *big.Rat value")
 			}
 			jsonStruct[col] = bigRat.FloatString(9)
 		default:
 			jsonStruct[col] = v.Value
 		}
 	}
+
+	return jsonStruct, nil
+}
+
+type ToJSONOptions struct {
+	UnnestColumns map[string]bool
+}
+
+func NewToJSONOptions(unnestCols []string) *ToJSONOptions {
+	unnestColumns := make(map[string]bool)
+	for _, col := range unnestCols {
+		unnestColumns[col] = true
+	}
+	return &ToJSONOptions{
+		UnnestColumns: unnestColumns,
+	}
+}
+
+func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
+	jsonStruct, err := r.toMap()
+	if err != nil {
+		return "", err
+	}
+
+	for col, idx := range r.colToValIdx {
+		v := r.values[idx]
+		if v.Kind == qvalue.QValueKindJSON {
+			if _, ok := opts.UnnestColumns[col]; ok {
+				var unnestStruct map[string]interface{}
+				err := json.Unmarshal([]byte(v.Value.(string)), &unnestStruct)
+				if err != nil {
+					return "", err
+				}
+
+				for k, v := range unnestStruct {
+					jsonStruct[k] = v
+				}
+				delete(jsonStruct, col)
+			}
+		}
+	}
+
 	jsonBytes, err := json.Marshal(jsonStruct)
 	if err != nil {
 		return "", err
 	}
 
 	return string(jsonBytes), nil
+}
+
+func (r *RecordItems) ToJSON() (string, error) {
+	unnestCols := make([]string, 0)
+	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols))
 }
 
 type InsertRecord struct {

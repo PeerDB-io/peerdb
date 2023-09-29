@@ -546,12 +546,18 @@ impl serde::Serialize for EventHubGroupConfig {
         if self.metadata_db.is_some() {
             len += 1;
         }
+        if !self.unnest_columns.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.EventHubGroupConfig", len)?;
         if !self.eventhubs.is_empty() {
             struct_ser.serialize_field("eventhubs", &self.eventhubs)?;
         }
         if let Some(v) = self.metadata_db.as_ref() {
             struct_ser.serialize_field("metadataDb", v)?;
+        }
+        if !self.unnest_columns.is_empty() {
+            struct_ser.serialize_field("unnestColumns", &self.unnest_columns)?;
         }
         struct_ser.end()
     }
@@ -566,12 +572,15 @@ impl<'de> serde::Deserialize<'de> for EventHubGroupConfig {
             "eventhubs",
             "metadata_db",
             "metadataDb",
+            "unnest_columns",
+            "unnestColumns",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Eventhubs,
             MetadataDb,
+            UnnestColumns,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -596,6 +605,7 @@ impl<'de> serde::Deserialize<'de> for EventHubGroupConfig {
                         match value {
                             "eventhubs" => Ok(GeneratedField::Eventhubs),
                             "metadataDb" | "metadata_db" => Ok(GeneratedField::MetadataDb),
+                            "unnestColumns" | "unnest_columns" => Ok(GeneratedField::UnnestColumns),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -617,6 +627,7 @@ impl<'de> serde::Deserialize<'de> for EventHubGroupConfig {
             {
                 let mut eventhubs__ = None;
                 let mut metadata_db__ = None;
+                let mut unnest_columns__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Eventhubs => {
@@ -633,6 +644,12 @@ impl<'de> serde::Deserialize<'de> for EventHubGroupConfig {
                             }
                             metadata_db__ = map.next_value()?;
                         }
+                        GeneratedField::UnnestColumns => {
+                            if unnest_columns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("unnestColumns"));
+                            }
+                            unnest_columns__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -641,6 +658,7 @@ impl<'de> serde::Deserialize<'de> for EventHubGroupConfig {
                 Ok(EventHubGroupConfig {
                     eventhubs: eventhubs__.unwrap_or_default(),
                     metadata_db: metadata_db__,
+                    unnest_columns: unnest_columns__.unwrap_or_default(),
                 })
             }
         }

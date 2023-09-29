@@ -625,9 +625,25 @@ fn parse_db_options(
                 anyhow::bail!("metadata_db is required for eventhub group");
             }
 
+            // split comma separated list of columns and trim
+            let unnest_columns = opts
+                .get("unnest_columns")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let keys_to_ignore: HashSet<String> = vec!["metadata_db", "unnest_columns"]
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect();
+
             let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
             for (key, _) in opts {
-                if key == "metadata_db" {
+                if keys_to_ignore.contains(&key) {
                     continue;
                 }
 
@@ -648,6 +664,7 @@ fn parse_db_options(
             let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
                 eventhubs,
                 metadata_db,
+                unnest_columns,
             };
             let config = Config::EventhubGroupConfig(eventhub_group_config);
             Some(config)
