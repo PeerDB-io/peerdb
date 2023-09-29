@@ -54,12 +54,17 @@ message EventHubConfig {
   PostgresConfig metadata_db = 4;
   // if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable.
   string subscription_id = 5;
+  // defaults to 3
+  uint32 partition_count = 6;
+  // defaults to 7
+  uint32 message_retention_in_days = 7;
 }
 
 message EventHubGroupConfig {
   // event hub peer name to event hub config
   map<string, EventHubConfig> eventhubs = 1;
   PostgresConfig metadata_db = 2;
+  repeated string unnest_columns = 3;
 }
 
 message S3Config {

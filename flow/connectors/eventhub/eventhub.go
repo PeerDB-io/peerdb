@@ -107,9 +107,11 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	batchPerTopic := make(map[ScopedEventhub]*azeventhubs.EventDataBatch)
+	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
+
 	startTime := time.Now()
 	for i, record := range batch.Records {
-		json, err := record.GetItems().ToJSON()
+		json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"flowName": req.FlowJobName,
