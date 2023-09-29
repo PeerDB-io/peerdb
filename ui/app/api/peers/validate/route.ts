@@ -4,23 +4,16 @@ import {
   ValidatePeerStatus,
 } from '@/grpc_generated/route';
 import { GetFlowServiceClient } from '@/rpc/rpc';
-import { typeMap } from '../peerTypeMap';
+import { constructPeer } from '../util';
 
 export async function POST(request: Request) {
-  let body = await request.json();
-  let name = body.name;
-  let type = body.type;
-  let config = body.config;
-  let flowServiceAddress = process.env.PEERDB_FLOW_SERVER_ADDRESS!;
-  let flowServiceClient = GetFlowServiceClient(flowServiceAddress);
-  let req: ValidatePeerRequest = {
-    peer: {
-      name: name,
-      type: typeMap(type),
-      postgresConfig: config,
-    },
-  };
-  let status: ValidatePeerResponse = await flowServiceClient.validatePeer(req);
+  const body = await request.json();
+  const { name, type, config } = body;
+  const flowServiceAddress = process.env.PEERDB_FLOW_SERVER_ADDRESS!;
+  const flowServiceClient = GetFlowServiceClient(flowServiceAddress);
+  const peer = constructPeer(name, type, config);
+  const req: ValidatePeerRequest = {peer};
+  const status: ValidatePeerResponse = await flowServiceClient.validatePeer(req);
   if (status.status === ValidatePeerStatus.INVALID) {
     return new Response(status.message);
   } else if (status.status === ValidatePeerStatus.VALID) {

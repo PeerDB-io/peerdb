@@ -34,3 +34,12 @@ export const postgresSetting = [
       setter((curr) => ({ ...curr, transactionSnapshot: value })),
   },
 ];
+
+export const blankPostgresSetting = {
+  host: '',
+  port: 5432,
+  user: '',
+  password: '',
+  database: '',
+  transactionSnapshot: '',
+}
