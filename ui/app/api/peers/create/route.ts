@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   const flowServiceAddress = process.env.PEERDB_FLOW_SERVER_ADDRESS!;
   const flowServiceClient = GetFlowServiceClient(flowServiceAddress);
   const peer = constructPeer(name, type, config);
-  const req: CreatePeerRequest = {peer};
+  const req: CreatePeerRequest = { peer };
   const status: CreatePeerResponse = await flowServiceClient.createPeer(req);
   if (status.status === CreatePeerStatus.FAILED) {
     return new Response(status.message);

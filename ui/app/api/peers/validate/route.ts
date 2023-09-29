@@ -12,8 +12,9 @@ export async function POST(request: Request) {
   const flowServiceAddress = process.env.PEERDB_FLOW_SERVER_ADDRESS!;
   const flowServiceClient = GetFlowServiceClient(flowServiceAddress);
   const peer = constructPeer(name, type, config);
-  const req: ValidatePeerRequest = {peer};
-  const status: ValidatePeerResponse = await flowServiceClient.validatePeer(req);
+  const req: ValidatePeerRequest = { peer };
+  const status: ValidatePeerResponse =
+    await flowServiceClient.validatePeer(req);
   if (status.status === ValidatePeerStatus.INVALID) {
     return new Response(status.message);
   } else if (status.status === ValidatePeerStatus.VALID) {

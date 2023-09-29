@@ -10,9 +10,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import PgConfig from './configForm';
 import { handleCreate, handleValidate } from './handlers';
+import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { PeerConfig } from './types';
-import { getBlankSetting } from './helpers/common';
 export default function CreateConfig() {
   const searchParams = useSearchParams();
   const router = useRouter();
