@@ -411,6 +411,8 @@ fn parse_db_options(
         let key = opt.name.value;
         let val = match opt.value {
             sqlparser::ast::Value::SingleQuotedString(str) => str,
+            sqlparser::ast::Value::Number(v, _) => v,
+            sqlparser::ast::Value::Boolean(v) => v.to_string(),
             _ => panic!("invalid option type for peer"),
         };
         opts.insert(key, val);
