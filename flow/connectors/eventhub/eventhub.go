@@ -132,6 +132,19 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			return nil
 		}
 
+		flushTopic := func(topic ScopedEventhub) error {
+			err := c.sendBatch(topic, batchPerTopic[topic])
+			if err != nil {
+				log.WithFields(log.Fields{
+					"flowName": req.FlowJobName,
+				}).Infof("failed to send event batch - %s: %v", topic, err)
+				return err
+			}
+
+			delete(batchPerTopic, topic)
+			return nil
+		}
+
 		topicName, err := NewScopedEventhub(record.GetTableName())
 		if err != nil {
 			log.WithFields(log.Fields{
@@ -162,7 +175,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			// if the error contains `EventData could not be added because it is too large for the batch`
 			// then flush the batch and try again.
 			if strings.Contains(err.Error(), "too large for the batch") {
-				err := flushBatch()
+				err := flushTopic(topicName)
 				if err != nil {
 					return nil, err
 				}
@@ -241,9 +254,6 @@ func (c *EventHubConnector) sendEventBatch(
 		return nil
 	}
 
-	subCtx, cancel := context.WithTimeout(c.ctx, 5*time.Minute)
-	defer cancel()
-
 	var numEventsPushed int32
 	var wg sync.WaitGroup
 	var once sync.Once
@@ -260,20 +270,8 @@ func (c *EventHubConnector) sendEventBatch(
 				wg.Done()
 			}()
 
-			hub, err := c.hubManager.GetOrCreateHubClient(tblName)
-			if err != nil {
-				once.Do(func() { firstErr = err })
-				return
-			}
-
 			numEvents := eventBatch.NumEvents()
-			log.WithFields(log.Fields{
-				"flowName": flowName,
-			}).Infof("obtained hub connection and now sending %d events to event hub: %s",
-				numEvents, tblName)
-
-			opts := &azeventhubs.SendEventDataBatchOptions{}
-			err = hub.SendEventDataBatch(subCtx, eventBatch, opts)
+			err := c.sendBatch(tblName, eventBatch)
 			if err != nil {
 				once.Do(func() { firstErr = err })
 				return
@@ -300,6 +298,25 @@ func (c *EventHubConnector) sendEventBatch(
 	}
 
 	log.Infof("successfully sent %d events to event hub", numEventsPushed)
+	return nil
+}
+
+func (c *EventHubConnector) sendBatch(tblName ScopedEventhub, events *azeventhubs.EventDataBatch) error {
+	subCtx, cancel := context.WithTimeout(c.ctx, 5*time.Minute)
+	defer cancel()
+
+	hub, err := c.hubManager.GetOrCreateHubClient(tblName)
+	if err != nil {
+		return err
+	}
+
+	opts := &azeventhubs.SendEventDataBatchOptions{}
+	err = hub.SendEventDataBatch(subCtx, events, opts)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("successfully sent %d events to event hub topic - %s", events.NumEvents(), tblName.ToString())
 	return nil
 }
 
