@@ -201,6 +201,9 @@ func (p *PostgresCDCSource) consumeStream(
 			log.Debugf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
 				pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested)
 
+			if pkm.ServerWALEnd > clientXLogPos {
+				clientXLogPos = pkm.ServerWALEnd
+			}
 			if pkm.ReplyRequested {
 				nextStandbyMessageDeadline = time.Time{}
 			}
