@@ -40,6 +40,9 @@ type CDCPullConnector interface {
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
+
+	// SendWALHeartbeat allows for activity to progress restart_lsn on postgres.
+	SendWALHeartbeat() error
 }
 
 type CDCSyncConnector interface {
