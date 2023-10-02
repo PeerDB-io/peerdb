@@ -625,3 +625,18 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 	}
 	return nil
 }
+
+func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, config *protos.FlowConnectionConfigs) error {
+	srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
+	if err != nil {
+		return fmt.Errorf("failed to get destination connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	err = srcConn.SendWALHeartbeat()
+	if err != nil {
+		return fmt.Errorf("failed to send WAL heartbeat: %w", err)
+	}
+
+	return nil
+}
