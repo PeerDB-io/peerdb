@@ -15,7 +15,7 @@ const validateFields = (
     return false;
   }
   const validity = checkFormFields(type, config);
-  if (validity.error) {
+  if (validity.success === false) {
     setMessage({ ok: false, msg: validity.error.message });
     return false;
   } else setMessage({ ok: true, msg: '' });
@@ -33,12 +33,13 @@ export const handleValidate = async (
   const isValid = validateFields(type, config, setMessage, name);
   if (!isValid) return;
   setLoading(true);
-  const statusMessage = await fetch('/api/peers/validate', {
+  const statusMessage = await fetch('/api/peers/', {
     method: 'POST',
     body: JSON.stringify({
       name,
       type,
       config,
+      mode: 'validate',
     }),
   }).then((res) => res.text());
   if (statusMessage !== 'valid') {
@@ -63,12 +64,13 @@ export const handleCreate = async (
   let isValid = validateFields(type, config, setMessage, name);
   if (!isValid) return;
   setLoading(true);
-  const statusMessage = await fetch('/api/peers/create', {
+  const statusMessage = await fetch('/api/peers/', {
     method: 'POST',
     body: JSON.stringify({
       name,
       type,
       config,
+      mode: 'create',
     }),
   }).then((res) => res.text());
   if (statusMessage !== 'created') {

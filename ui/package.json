@@ -31,7 +31,6 @@
     "@types/react": "18.2.21",
     "@types/react-dom": "18.2.7",
     "classnames": "^2.3.2",
-    "joi": "^17.10.2",
     "long": "^5.2.3",
     "material-symbols": "0.11.0",
     "next": "13.4.16",
@@ -39,7 +38,8 @@
     "protobufjs": "^7.2.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "styled-components": "^6.0.7"
+    "styled-components": "^6.0.7",
+    "zod": "^3.22.2"
   },
   "devDependencies": {
     "@storybook/addon-essentials": "^7.3.0",

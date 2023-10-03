@@ -46,15 +46,11 @@ export default function CreatePeer() {
           <Button as={Link} href='/peers'>
             Cancel
           </Button>
-          <Button
-            disabled={!peerType}
-            onClick={() => {
-              router.push(`/peers/create/configuration?dbtype=${peerType}`);
-            }}
-            variant='normalSolid'
-          >
-            Continue
-          </Button>
+          <Link href={`/peers/create/configuration?dbtype=${peerType}`}>
+            <Button disabled={!peerType} variant='normalSolid'>
+              Continue
+            </Button>
+          </Link>
         </ButtonGroup>
       </Panel>
     </LayoutMain>

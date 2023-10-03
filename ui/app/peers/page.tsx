@@ -9,15 +9,14 @@ import { Panel } from '@/lib/Panel';
 import { SearchField } from '@/lib/SearchField';
 import { Select } from '@/lib/Select';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { GetFlowServiceClient } from '@/rpc/rpc';
+import { GetFlowServiceClientFromEnv } from '@/rpc/rpc';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { Header } from '../../lib/Header';
 export const dynamic = 'force-dynamic';
 
 async function fetchPeers() {
-  let flowServiceAddress = process.env.PEERDB_FLOW_SERVER_ADDRESS!;
-  let flowServiceClient = GetFlowServiceClient(flowServiceAddress);
+  let flowServiceClient = GetFlowServiceClientFromEnv();
   let req: ListPeersRequest = {};
   let peers = await flowServiceClient.listPeers(req);
   return peers.peers;
