@@ -8,7 +8,7 @@ import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import PgConfig from './configForm';
+import ConfigForm from './configForm';
 import { handleCreate, handleValidate } from './handlers';
 import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
@@ -28,7 +28,7 @@ export default function CreateConfig() {
   const configComponentMap = (dbType: string) => {
     switch (dbType) {
       case 'POSTGRES':
-        return <PgConfig settings={postgresSetting} setter={setConfig} />;
+        return <ConfigForm settings={postgresSetting} setter={setConfig} />;
       default:
         return <></>;
     }
