@@ -25,8 +25,8 @@ type CDCBatchInfo struct {
 	StartTime     time.Time
 }
 
-func NewCatalogMirrorMonitor(catalogConn *pgxpool.Pool) CatalogMirrorMonitor {
-	return CatalogMirrorMonitor{
+func NewCatalogMirrorMonitor(catalogConn *pgxpool.Pool) *CatalogMirrorMonitor {
+	return &CatalogMirrorMonitor{
 		catalogConn: catalogConn,
 	}
 }
@@ -186,6 +186,11 @@ func (c *CatalogMirrorMonitor) UpdateEndTimeForQRepRun(ctx context.Context, runU
 func (c *CatalogMirrorMonitor) AddPartitionToQRepRun(ctx context.Context, flowJobName string,
 	runUUID string, partition *protos.QRepPartition) error {
 	if c == nil || c.catalogConn == nil {
+		return nil
+	}
+
+	if partition.Range == nil && partition.FullTablePartition {
+		log.Infof("partition %s is a full table partition. Metrics logging is skipped.", partition.PartitionId)
 		return nil
 	}
 
