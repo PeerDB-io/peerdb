@@ -137,7 +137,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterActivity(&activities.FlowableActivity{
 		EnableMetrics:        opts.EnableMetrics,
-		CatalogMirrorMonitor: &catalogMirrorMonitor,
+		CatalogMirrorMonitor: catalogMirrorMonitor,
 	})
 
 	err = w.Run(worker.InterruptCh())
