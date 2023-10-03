@@ -143,11 +143,9 @@ const ExampleTable = ({ title }: { title: string }) => (
 );
 
 type EditMirrorProps = {
-  params: { connectorId: string };
+  params: { peerId: string };
 };
-export default function EditConnector({
-  params: { connectorId },
-}: EditMirrorProps) {
+export default function EditPeer({ params: { peerId } }: EditMirrorProps) {
   const [logsOpen, setLogsOpen] = useState(false);
   return (
     <>
@@ -157,14 +155,14 @@ export default function EditConnector({
             variant='title2'
             slot={
               <ButtonGroup>
-                <Button>Disable connector</Button>
+                <Button>Disable peer</Button>
                 <Button onClick={() => setLogsOpen(!logsOpen)}>See logs</Button>
                 <Button>Sync now</Button>
-                <Button variant='normalSolid'>Edit connector</Button>
+                <Button variant='normalSolid'>Edit peer</Button>
               </ButtonGroup>
             }
           >
-            {connectorId}
+            {peerId}
           </Header>
           <Label colorName='lowContrast' variant='footnote'>
             Created on Jan 2023
