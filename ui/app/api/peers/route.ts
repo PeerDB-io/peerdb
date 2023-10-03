@@ -10,7 +10,7 @@ import {
 } from '@/grpc_generated/route';
 import { GetFlowServiceClientFromEnv } from '@/rpc/rpc';
 
-export const constructPeer = (
+const constructPeer = (
   name: string,
   type: string,
   config: PeerConfig
