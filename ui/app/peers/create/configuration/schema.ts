@@ -1,20 +1,20 @@
-import Joi from 'joi';
+import * as z from 'zod';
 import { PeerConfig } from './types';
 
-export const pgSchema = Joi.object({
-  host: Joi.string().required(),
-  port: Joi.number().integer().min(1).max(65535).required(),
-  database: Joi.string().min(1).max(100).required(),
-  user: Joi.string().alphanum().min(1).max(64).required(),
-  password: Joi.string().min(1).max(100).required(),
-  transactionSnapshot: Joi.string().max(100).allow('').optional(),
+const pgSchema = z.object({
+  host: z.string().nonempty().max(255),
+  port: z.number().int().min(1).max(65535),
+  database: z.string().min(1).max(100),
+  user: z.string().min(1).max(64),
+  password: z.string().min(1).max(100),
+  transactionSnapshot: z.string().max(100).optional(),
 });
 
 export const checkFormFields = (peerType: string, config: PeerConfig) => {
   switch (peerType) {
     case 'POSTGRES':
-      return pgSchema.validate(config);
+      return pgSchema.safeParse(config);
     default:
-      return { error: { message: 'Peer type not recognized' } };
+      return { success: false, error: { message: 'Peer type not recognized' } };
   }
 };
