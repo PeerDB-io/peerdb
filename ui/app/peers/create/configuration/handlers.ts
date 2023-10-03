@@ -1,6 +1,6 @@
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context';
 import { Dispatch, SetStateAction } from 'react';
-import { checkFormFields } from './schema';
+import { pgSchema } from './schema';
 import { PeerConfig } from './types';
 
 // Frontend form validation
@@ -14,9 +14,17 @@ const validateFields = (
     setMessage({ ok: false, msg: 'Peer name is required' });
     return false;
   }
-  const validity = checkFormFields(type, config);
-  if (validity.success === false) {
-    setMessage({ ok: false, msg: validity.error.message });
+  let validationErr: string | undefined;
+  switch (type) {
+    case 'POSTGRES':
+      const pgConfig = pgSchema.safeParse(config);
+      if (!pgConfig.success) validationErr = pgConfig.error.issues[0].message;
+      break;
+    default:
+      validationErr = 'Unsupported peer type ' + type;
+  }
+  if (validationErr) {
+    setMessage({ ok: false, msg: validationErr });
     return false;
   } else setMessage({ ok: true, msg: '' });
   return true;
