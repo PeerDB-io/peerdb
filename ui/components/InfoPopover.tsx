@@ -38,6 +38,7 @@ export const InfoPopover = ({
             {link && (
               <a
                 href={link}
+                rel='noreferrer'
                 target='_blank'
                 style={{ color: '#0070f3', fontSize: 13 }}
               >
