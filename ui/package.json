@@ -59,7 +59,7 @@
     "eslint-plugin-storybook": "^0.6.13",
     "gh-pages": "^6.0.0",
     "less": "^4.1.2",
-    "postcss": "^8.4.28",
+    "postcss": "^8.4.31",
     "prettier": "^3.0.1",
     "prettier-plugin-organize-imports": "^3.2.3",
     "storybook": "^7.3.0",
