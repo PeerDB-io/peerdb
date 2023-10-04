@@ -3,7 +3,9 @@ import { Setting } from '@/app/peers/create/configuration/helpers/common';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { TextField } from '@/lib/TextField';
+import { Tooltip } from '@/lib/Tooltip';
 import { PeerSetter } from '../app/peers/create/configuration/types';
+import { InfoPopover } from './InfoPopover';
 
 interface ConfigProps {
   settings: Setting[];
@@ -15,15 +17,16 @@ export default function ConfigForm(props: ConfigProps) {
     file: File,
     setFile: (value: string, setter: PeerSetter) => void
   ) => {
-    const reader = new FileReader();
-    reader.readAsText(file);
-    reader.onload = () => {
-      console.log(reader.result);
-      setFile(reader.result as string, props.setter);
-    };
-    reader.onerror = (error) => {
-      console.log(error);
-    };
+    if (file) {
+      const reader = new FileReader();
+      reader.readAsText(file);
+      reader.onload = () => {
+        setFile(reader.result as string, props.setter);
+      };
+      reader.onerror = (error) => {
+        console.log(error);
+      };
+    }
   };
 
   const handleChange = (
@@ -42,18 +45,44 @@ export default function ConfigForm(props: ConfigProps) {
         return (
           <RowWithTextField
             key={id}
-            label={<Label>{setting.label}</Label>}
+            label={
+              <Label>
+                {setting.label}{' '}
+                {!setting.optional && (
+                  <Tooltip
+                    style={{ width: '100%' }}
+                    content={'This is a required field.'}
+                  >
+                    <Label colorName='lowContrast' colorSet='destructive'>
+                      *
+                    </Label>
+                  </Tooltip>
+                )}
+              </Label>
+            }
             action={
-              <TextField
-                variant='simple'
-                style={
-                  setting.type === 'file'
-                    ? { border: 'none', height: 'auto' }
-                    : { border: 'auto' }
-                }
-                type={setting.type}
-                onChange={(e) => handleChange(e, setting)}
-              />
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <TextField
+                  variant='simple'
+                  style={
+                    setting.type === 'file'
+                      ? { border: 'none', height: 'auto' }
+                      : { border: 'auto' }
+                  }
+                  type={setting.type}
+                  defaultValue={setting.default}
+                  onChange={(e) => handleChange(e, setting)}
+                />
+                {setting.tips && (
+                  <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
+                )}
+              </div>
             }
           />
         );

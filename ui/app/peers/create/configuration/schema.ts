@@ -60,10 +60,10 @@ export const sfSchema = z.object({
   username: z
     .string({
       required_error: 'Username is required',
-      invalid_type_error: 'Username must be a number',
+      invalid_type_error: 'Username must be a string',
     })
     .nonempty({ message: 'Username must be non-empty' })
-    .max(255, 'Port must be below 65535'),
+    .max(255, 'Username must be less than 255 characters'),
   database: z
     .string({
       required_error: 'Database is required',

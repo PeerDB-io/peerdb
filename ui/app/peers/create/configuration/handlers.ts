@@ -15,7 +15,6 @@ const validateFields = (
     return false;
   }
   let validationErr: string | undefined;
-  console.log(config);
   switch (type) {
     case 'POSTGRES':
       const pgConfig = pgSchema.safeParse(config);
