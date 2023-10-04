@@ -144,8 +144,24 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		return nil, fmt.Errorf("unable to start DropFlow workflow: %w", err)
 	}
 
-	if err = dropFlowHandle.Get(ctx, nil); err != nil {
-		return nil, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+	cancelCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- dropFlowHandle.Get(cancelCtx, nil)
+	}()
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return nil, fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+		}
+	case <-time.After(1 * time.Minute):
+		err := h.handleWorkflowNotClosed(ctx, workflowID, "")
+		if err != nil {
+			return nil, fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
+		}
 	}
 
 	return &protos.ShutdownResponse{
@@ -185,13 +201,36 @@ func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowI
 }
 
 func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workflowID, runID string) error {
-	if err := h.temporalClient.CancelWorkflow(ctx, workflowID, runID); err != nil {
-		log.Errorf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error())
+	errChan := make(chan error, 1)
+
+	// Create a new context with timeout for CancelWorkflow
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	// Call CancelWorkflow in a goroutine
+	go func() {
+		err := h.temporalClient.CancelWorkflow(ctxWithTimeout, workflowID, runID)
+		errChan <- err
+	}()
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			log.Errorf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error())
+			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
+			if err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
+				return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
+			}
+		}
+	case <-time.After(1 * time.Minute):
+		// If 1 minute has passed and we haven't received an error, terminate the workflow
+		log.Errorf("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.")
 		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
-		if err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
+		if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
 		}
 	}
+
 	return nil
 }
 
