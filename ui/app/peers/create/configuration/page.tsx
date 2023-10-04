@@ -5,13 +5,15 @@ import { Label } from '@/lib/Label';
 import { LayoutMain, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { TextField } from '@/lib/TextField';
+import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import ConfigForm from './configForm';
+import ConfigForm from '../../../../components/ConfigForm';
 import { handleCreate, handleValidate } from './handlers';
-import { getBlankSetting } from './helpers/common';
+import { Setting, getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
+import { snowflakeSetting } from './helpers/sf';
 import { PeerConfig } from './types';
 export default function CreateConfig() {
   const searchParams = useSearchParams();
@@ -26,9 +28,14 @@ export default function CreateConfig() {
   });
   const [loading, setLoading] = useState<boolean>(false);
   const configComponentMap = (dbType: string) => {
+    const configForm = (settingList: Setting[]) => (
+      <ConfigForm settings={settingList} setter={setConfig} />
+    );
     switch (dbType) {
       case 'POSTGRES':
-        return <ConfigForm settings={postgresSetting} setter={setConfig} />;
+        return configForm(postgresSetting);
+      case 'SNOWFLAKE':
+        return configForm(snowflakeSetting);
       default:
         return <></>;
     }
@@ -37,15 +44,28 @@ export default function CreateConfig() {
   return (
     <LayoutMain alignSelf='center' justifySelf='center' width='xxLarge'>
       <Panel>
-        <Label variant='title3'>New peer</Label>
-        <Label colorName='lowContrast'>Set up a new peer.</Label>
+        <Label variant='title3'>
+          Setup a new{' '}
+          {dbType.charAt(0).toUpperCase() + dbType.slice(1).toLowerCase()} peer
+        </Label>
       </Panel>
       <Panel>
-        <Label colorName='lowContrast' variant='subheadline'>
-          Configuration
-        </Label>
         <RowWithTextField
-          label={<Label as='label'>Name</Label>}
+          label={
+            <Label>
+              Name
+              {
+                <Tooltip
+                  style={{ width: '100%' }}
+                  content={'Peer name is a required field.'}
+                >
+                  <Label colorName='lowContrast' colorSet='destructive'>
+                    *
+                  </Label>
+                </Tooltip>
+              }
+            </Label>
+          }
           action={
             <TextField
               variant='simple'
@@ -53,6 +73,9 @@ export default function CreateConfig() {
             />
           }
         />
+        <Label colorName='lowContrast' variant='subheadline'>
+          Configuration
+        </Label>
         {dbType && configComponentMap(dbType)}
       </Panel>
       <Panel>

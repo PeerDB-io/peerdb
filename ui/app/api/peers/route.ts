@@ -1,5 +1,10 @@
 import { PeerConfig } from '@/app/peers/create/configuration/types';
-import { DBType, Peer, PostgresConfig } from '@/grpc_generated/peers';
+import {
+  DBType,
+  Peer,
+  PostgresConfig,
+  SnowflakeConfig,
+} from '@/grpc_generated/peers';
 import {
   CreatePeerRequest,
   CreatePeerResponse,
@@ -21,6 +26,12 @@ const constructPeer = (
         name,
         type: DBType.POSTGRES,
         postgresConfig: config as PostgresConfig,
+      };
+    case 'SNOWFLAKE':
+      return {
+        name,
+        type: DBType.SNOWFLAKE,
+        snowflakeConfig: config as SnowflakeConfig,
       };
     default:
       return;
