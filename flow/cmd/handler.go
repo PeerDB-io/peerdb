@@ -110,7 +110,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 }
 
 func (h *FlowRequestHandler) ShutdownFlow(
-	ctx context.Context, req *protos.ShutdownRequest) (*protos.ShutdownResponse, error) {
+	ctx context.Context,
+	req *protos.ShutdownRequest,
+) (*protos.ShutdownResponse, error) {
 	err := h.temporalClient.SignalWorkflow(
 		ctx,
 		req.WorkflowId,
@@ -153,9 +155,9 @@ func (h *FlowRequestHandler) ShutdownFlow(
 
 func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowID string) error {
 	expBackoff := backoff.NewExponentialBackOff()
-	expBackoff.InitialInterval = 5 * time.Second
-	expBackoff.MaxInterval = 30 * time.Second
-	expBackoff.MaxElapsedTime = 5 * time.Minute
+	expBackoff.InitialInterval = 3 * time.Second
+	expBackoff.MaxInterval = 10 * time.Second
+	expBackoff.MaxElapsedTime = 1 * time.Minute
 
 	// empty will terminate the latest run
 	runID := ""
@@ -176,14 +178,20 @@ func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowI
 
 	err := backoff.Retry(operation, expBackoff)
 	if err != nil {
-		// terminate workflow if it is still running
-		reason := "PeerFlow workflow did not close in time"
-		err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, reason)
-		if err != nil {
+		return h.handleWorkflowNotClosed(ctx, workflowID, runID)
+	}
+
+	return nil
+}
+
+func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workflowID, runID string) error {
+	if err := h.temporalClient.CancelWorkflow(ctx, workflowID, runID); err != nil {
+		log.Errorf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error())
+		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
+		if err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
 		}
 	}
-
 	return nil
 }
 
