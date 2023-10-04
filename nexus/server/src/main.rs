@@ -204,6 +204,53 @@ impl NexusBackend {
         }
     }
 
+    async fn validate_peer<'a>(&self, peer_type: i32, peer: &Peer) -> anyhow::Result<()> {
+        if peer_type != 6 {
+            let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
+                PgWireError::ApiError(Box::new(PgError::Internal {
+                    err_msg: format!("unable to get peer executor: {:?}", err),
+                }))
+            })?;
+            peer_executor.is_connection_valid().await.map_err(|e| {
+                self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
+                PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    "internal_error".to_owned(),
+                    format!("[peer]: invalid configuration: {}", e),
+                )))
+            })?;
+            self.executors.remove(&peer.name);
+            Ok(())
+        } else {
+            let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+            let validate_request = pt::peerdb_route::ValidatePeerRequest {
+                peer: Some(Peer {
+                    name: peer.name.clone(),
+                    r#type: peer.r#type,
+                    config: peer.config.clone(),
+                }),
+            };
+            let validity = flow_handler
+                .validate_peer(&validate_request)
+                .await
+                .map_err(|err| {
+                    PgWireError::ApiError(Box::new(PgError::Internal {
+                        err_msg: format!("unable to check peer validity: {:?}", err),
+                    }))
+                })?;
+            if let PeerValidationResult::Invalid(validation_err) = validity {
+                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    "internal_error".to_owned(),
+                    format!("[peer]: invalid configuration: {}", validation_err),
+                )))
+                .into());
+            } else {
+                return Ok(());
+            }
+        }
+    }
+
     async fn handle_query<'a>(
         &self,
         nexus_stmt: NexusStatement,
@@ -217,53 +264,13 @@ impl NexusBackend {
                 } => {
                     let peer_type = peer.r#type;
                     if Self::is_peer_validity_supported(peer_type) {
-                        if peer_type != 6 {
-                            let peer_executor =
-                                self.get_peer_executor(&peer).await.map_err(|err| {
-                                    PgWireError::ApiError(Box::new(PgError::Internal {
-                                        err_msg: format!("unable to get peer executor: {:?}", err),
-                                    }))
-                                })?;
-                            peer_executor.is_connection_valid().await.map_err(|e| {
-                                self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
-                                PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "internal_error".to_owned(),
-                                    format!("[peer]: invalid configuration: {}", e),
-                                )))
-                            })?;
-                            self.executors.remove(&peer.name);
-                        } else {
-                            let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-                            let validate_request = pt::peerdb_route::ValidatePeerRequest {
-                                peer: Some(Peer {
-                                    name: peer.name.clone(),
-                                    r#type: peer.r#type,
-                                    config: peer.config.clone(),
-                                }),
-                            };
-                            let validity = flow_handler
-                                .validate_peer(&validate_request)
-                                .await
-                                .map_err(|err| {
-                                    PgWireError::ApiError(Box::new(PgError::Internal {
-                                        err_msg: format!(
-                                            "unable to check peer validity: {:?}",
-                                            err
-                                        ),
-                                    }))
-                                })?;
-                            if let PeerValidationResult::Invalid(validation_err) = validity {
-                                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                                    "ERROR".to_owned(),
-                                    "error".to_owned(),
-                                    format!(
-                                        "Peer: {:?} is invalid: {:#?}",
-                                        peer.name, validation_err
-                                    ),
-                                ))));
-                            }
-                        }
+                        self.validate_peer(peer_type, &peer).await.map_err(|e| {
+                            PgWireError::UserError(Box::new(ErrorInfo::new(
+                                "ERROR".to_owned(),
+                                "internal_error".to_owned(),
+                                e.to_string(),
+                            )))
+                        })?;
                     }
 
                     let catalog = self.catalog.lock().await;
