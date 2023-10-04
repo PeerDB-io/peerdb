@@ -74,6 +74,7 @@ const (
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	isDeletedColumnName         = "_PEERDB_IS_DELETED"
+	checkSchemaExistsSQL        = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 
 	syncRecordsChunkSize = 1024
 )
@@ -936,16 +937,26 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 		}
 	}()
 
-	_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
-		getRawTableIdentifier(jobName)))
+	row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, peerDBInternalSchema)
+	var schemaExists bool
+	err = row.Scan(&schemaExists)
 	if err != nil {
-		return fmt.Errorf("unable to drop raw table: %w", err)
+		return fmt.Errorf("unable to check if internal schema exists: %w", err)
 	}
-	_, err = syncFlowCleanupTx.ExecContext(c.ctx,
-		fmt.Sprintf(deleteJobMetadataSQL, peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return fmt.Errorf("unable to delete job metadata: %w", err)
+
+	if schemaExists {
+		_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
+			getRawTableIdentifier(jobName)))
+		if err != nil {
+			return fmt.Errorf("unable to drop raw table: %w", err)
+		}
+		_, err = syncFlowCleanupTx.ExecContext(c.ctx,
+			fmt.Sprintf(deleteJobMetadataSQL, peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
+		if err != nil {
+			return fmt.Errorf("unable to delete job metadata: %w", err)
+		}
 	}
+
 	err = syncFlowCleanupTx.Commit()
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
