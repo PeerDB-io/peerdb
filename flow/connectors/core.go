@@ -219,12 +219,17 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
+
+	case protos.DBType_SQLSERVER:
+		sqlServerConfig := peer.GetSqlserverConfig()
+		if sqlServerConfig == nil {
+			return nil, fmt.Errorf("missing sqlserver config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connsqlserver.NewSQLServerConnector(ctx, sqlServerConfig)
 	// case protos.DBType_S3:
 	// 	return conns3.NewS3Connector(ctx, config.GetS3Config())
 	// case protos.DBType_EVENTHUB:
 	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
-	// case protos.DBType_SQLSERVER:
-	// 	return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
 	default:
 		return nil, fmt.Errorf("unsupported peer type %s", peer.Type.String())
 	}
