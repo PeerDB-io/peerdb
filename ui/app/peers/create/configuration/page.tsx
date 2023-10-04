@@ -8,10 +8,11 @@ import { TextField } from '@/lib/TextField';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import ConfigForm from './configForm';
+import ConfigForm from '../../../../components/ConfigForm';
 import { handleCreate, handleValidate } from './handlers';
-import { getBlankSetting } from './helpers/common';
+import { Setting, getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
+import { snowflakeSetting } from './helpers/sf';
 import { PeerConfig } from './types';
 export default function CreateConfig() {
   const searchParams = useSearchParams();
@@ -26,9 +27,14 @@ export default function CreateConfig() {
   });
   const [loading, setLoading] = useState<boolean>(false);
   const configComponentMap = (dbType: string) => {
+    const configForm = (settingList: Setting[]) => (
+      <ConfigForm settings={settingList} setter={setConfig} />
+    );
     switch (dbType) {
       case 'POSTGRES':
-        return <ConfigForm settings={postgresSetting} setter={setConfig} />;
+        return configForm(postgresSetting);
+      case 'SNOWFLAKE':
+        return configForm(snowflakeSetting);
       default:
         return <></>;
     }
