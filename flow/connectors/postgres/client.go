@@ -516,10 +516,10 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if strings.Contains(genericColumnType, "array") {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS %s",
+				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS \"%s\"",
 					strings.Trim(columnName, "\""), pgType, columnName))
 		} else {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
 				strings.Trim(columnName, "\""), pgType, columnName))
 		}
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {

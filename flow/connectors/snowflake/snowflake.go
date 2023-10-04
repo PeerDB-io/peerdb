@@ -59,6 +59,8 @@ const (
 	getTableNametoUnchangedColsSQL = `SELECT _PEERDB_DESTINATION_TABLE_NAME,
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
+	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+	 WHERE TABLE_SCHEMA=? AND TABLE_NAME=?`
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
@@ -211,12 +213,75 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 	return nil
 }
 
+// only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
+func (c *SnowflakeConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
+	res := make(map[string]*protos.TableSchema)
+	for _, tableName := range req.TableIdentifiers {
+		tableSchema, err := c.getTableSchemaForTable(tableName)
+		if err != nil {
+			return nil, err
+		}
+		res[tableName] = tableSchema
+		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+	}
+
+	return &protos.GetTableSchemaBatchOutput{
+		TableNameSchemaMapping: res,
+	}, nil
+}
+
+func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
+	tableNameComponents, err := parseTableName(tableName)
+	if err != nil {
+		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+	}
+	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, tableNameComponents.schemaIdentifier,
+		tableNameComponents.tableIdentifier)
+	if err != nil {
+		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
+	}
+	defer func() {
+		// not sure if the errors these two return are same or different?
+		err = errors.Join(rows.Close(), rows.Err())
+		if err != nil {
+			log.Errorf("error while closing rows for reading schema of table %s: %v", tableName, err)
+		}
+	}()
+
+	res := &protos.TableSchema{
+		TableIdentifier: tableName,
+		Columns:         make(map[string]string),
+	}
+
+	var columnName, columnType string
+	for rows.Next() {
+		rows.Scan(&columnName, &columnType)
+		genericColType, err := snowflakeTypeToQValueKind(columnType)
+		if err != nil {
+			// we use string for invalid types
+			genericColType = qvalue.QValueKindString
+		}
+
+		res.Columns[columnName] = string(genericColType)
+	}
+
+	return res, nil
+}
+
 func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
 		peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return nil, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
 	}
+	defer func() {
+		// not sure if the errors these two return are same or different?
+		err = errors.Join(rows.Close(), rows.Err())
+		if err != nil {
+			log.Errorf("error while closing rows for reading last offset of job %s: %v", jobName, err)
+		}
+	}()
 
 	if !rows.Next() {
 		log.Warnf("No row found for job %s, returning nil", jobName)
@@ -231,7 +296,6 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
 		return nil, nil
 	}
-
 	return &protos.LastSyncState{
 		Checkpoint: result,
 	}, nil
@@ -366,11 +430,10 @@ func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDe
 		return nil
 	}
 
-	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	tableSchemaModifyTx, err := c.database.Begin()
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification for table %s: %w",
-			schemaDelta.SrcTableName, err)
+			schemaDelta.DstTableName, err)
 	}
 	defer func() {
 		deferErr := tableSchemaModifyTx.Rollback()
@@ -382,27 +445,30 @@ func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDe
 	}()
 
 	for _, droppedColumn := range schemaDelta.DroppedColumns {
-		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", schemaDelta.DstTableName,
-			droppedColumn))
+		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN \"%s\"", schemaDelta.DstTableName,
+			strings.ToUpper(droppedColumn)))
 		if err != nil {
 			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
-				schemaDelta.SrcTableName, err)
+				schemaDelta.DstTableName, err)
 		}
 		log.WithFields(log.Fields{
-			"flowName":  flowJobName,
-			"tableName": schemaDelta.SrcTableName,
+			"flowName":     flowJobName,
+			"srcTableName": schemaDelta.SrcTableName,
+			"dstTableName": schemaDelta.DstTableName,
 		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
 	}
 	for _, addedColumn := range schemaDelta.AddedColumns {
-		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", schemaDelta.DstTableName,
-			addedColumn.ColumnName, qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
+		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
+			schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName),
+			qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
 		if err != nil {
 			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
-				schemaDelta.SrcTableName, err)
+				schemaDelta.DstTableName, err)
 		}
 		log.WithFields(log.Fields{
-			"flowName":  flowJobName,
-			"tableName": schemaDelta.SrcTableName,
+			"flowName":     flowJobName,
+			"srcTableName": schemaDelta.SrcTableName,
+			"dstTableName": schemaDelta.DstTableName,
 		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
 			addedColumn.ColumnType)
 	}
@@ -410,7 +476,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDe
 	err = tableSchemaModifyTx.Commit()
 	if err != nil {
 		return fmt.Errorf("failed to commit transaction for table schema modification for table %s: %w",
-			schemaDelta.SrcTableName, err)
+			schemaDelta.DstTableName, err)
 	}
 
 	return nil
@@ -1049,7 +1115,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		targetColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
 				"AS %s,", toVariantColumnName, columnName, targetColumnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
@@ -1057,7 +1123,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		// 		"Microseconds*1000) "+
 		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,",
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
 				toVariantColumnName, columnName, sfType, targetColumnName))
 		}
 	}

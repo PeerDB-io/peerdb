@@ -37,28 +37,16 @@ var qValueKindToSnowflakeTypeMap = map[qvalue.QValueKind]string{
 }
 
 var snowflakeTypeToQValueKindMap = map[string]qvalue.QValueKind{
-	"INT":           qvalue.QValueKindInt32,
-	"BIGINT":        qvalue.QValueKindInt64,
-	"FLOAT":         qvalue.QValueKindFloat32,
-	"DOUBLE":        qvalue.QValueKindFloat64,
-	"REAL":          qvalue.QValueKindFloat64,
-	"VARCHAR":       qvalue.QValueKindString,
-	"CHAR":          qvalue.QValueKindString,
+	"FLOAT":         qvalue.QValueKindFloat64,
 	"TEXT":          qvalue.QValueKindString,
 	"BOOLEAN":       qvalue.QValueKindBoolean,
-	"DATETIME":      qvalue.QValueKindTimestamp,
 	"TIMESTAMP":     qvalue.QValueKindTimestamp,
 	"TIMESTAMP_NTZ": qvalue.QValueKindTimestamp,
 	"TIMESTAMP_TZ":  qvalue.QValueKindTimestampTZ,
 	"TIME":          qvalue.QValueKindTime,
 	"DATE":          qvalue.QValueKindDate,
-	"BLOB":          qvalue.QValueKindBytes,
-	"BYTEA":         qvalue.QValueKindBytes,
 	"BINARY":        qvalue.QValueKindBytes,
-	"FIXED":         qvalue.QValueKindNumeric,
 	"NUMBER":        qvalue.QValueKindNumeric,
-	"DECIMAL":       qvalue.QValueKindNumeric,
-	"NUMERIC":       qvalue.QValueKindNumeric,
 	"VARIANT":       qvalue.QValueKindJSON,
 }
 

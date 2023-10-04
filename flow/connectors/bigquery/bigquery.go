@@ -214,7 +214,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDelta(flowJobName string,
 	}
 
 	for _, droppedColumn := range schemaDelta.DroppedColumns {
-		_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s DROP COLUMN %s", c.datasetID,
+		_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s DROP COLUMN `%s`", c.datasetID,
 			schemaDelta.DstTableName, droppedColumn)).Read(c.ctx)
 		if err != nil {
 			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
@@ -226,8 +226,9 @@ func (c *BigQueryConnector) ReplayTableSchemaDelta(flowJobName string,
 		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
 	}
 	for _, addedColumn := range schemaDelta.AddedColumns {
-		_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN %s %s", c.datasetID,
-			schemaDelta.DstTableName, addedColumn.ColumnName, addedColumn.ColumnType)).Read(c.ctx)
+		_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN `%s` %s", c.datasetID,
+			schemaDelta.DstTableName, addedColumn.ColumnName,
+			qValueKindToBigQueryType(addedColumn.ColumnType))).Read(c.ctx)
 		if err != nil {
 			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 				schemaDelta.SrcTableName, err)
