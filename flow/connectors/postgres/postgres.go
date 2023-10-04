@@ -688,8 +688,8 @@ func (c *PostgresConnector) ReplayTableSchemaDelta(flowJobName string, schemaDel
 	}()
 
 	for _, droppedColumn := range schemaDelta.DroppedColumns {
-		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN \"%s\"", schemaDelta.DstTableName,
-			droppedColumn))
+		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN \"%s\"",
+			schemaDelta.DstTableName, droppedColumn))
 		if err != nil {
 			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
 				schemaDelta.DstTableName, err)

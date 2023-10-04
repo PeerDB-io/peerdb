@@ -545,13 +545,17 @@ func (p *PostgresCDCSource) processRelationMessage(
 	// retrieve initial RelationMessage for table changed.
 	prevRel := p.relationMessageMapping[currRel.RelationId]
 	// creating maps for lookup later
-	prevRelMap := make(map[string]*uint32)
-	currRelMap := make(map[string]*uint32)
+	prevRelMap := make(map[string]*protos.PostgresTableIdentifier)
+	currRelMap := make(map[string]*protos.PostgresTableIdentifier)
 	for _, column := range prevRel.Columns {
-		prevRelMap[column.Name] = &column.DataType
+		prevRelMap[column.Name] = &protos.PostgresTableIdentifier{
+			RelId: column.DataType,
+		}
 	}
 	for _, column := range currRel.Columns {
-		currRelMap[column.Name] = &column.DataType
+		currRelMap[column.Name] = &protos.PostgresTableIdentifier{
+			RelId: column.DataType,
+		}
 	}
 
 	schemaDelta := &protos.TableSchemaDelta{
@@ -571,7 +575,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 			})
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
-		} else if *prevRelMap[column.Name] != *currRelMap[column.Name] {
+		} else if prevRelMap[column.Name].RelId != currRelMap[column.Name].RelId {
 			schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
 			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 				ColumnName: column.Name,

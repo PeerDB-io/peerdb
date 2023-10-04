@@ -256,7 +256,10 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 
 	var columnName, columnType string
 	for rows.Next() {
-		rows.Scan(&columnName, &columnType)
+		err = rows.Scan(&columnName, &columnType)
+		if err != nil {
+			return nil, fmt.Errorf("error reading row for schema of table %s: %w", tableName, err)
+		}
 		genericColType, err := snowflakeTypeToQValueKind(columnType)
 		if err != nil {
 			// we use string for invalid types
