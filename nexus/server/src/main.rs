@@ -206,7 +206,7 @@ impl NexusBackend {
 
     async fn validate_peer<'a>(&self, peer_type: i32, peer: &Peer) -> anyhow::Result<()> {
         if peer_type != 6 {
-            let peer_executor = self.get_peer_executor(&peer).await.map_err(|err| {
+            let peer_executor = self.get_peer_executor(peer).await.map_err(|err| {
                 PgWireError::ApiError(Box::new(PgError::Internal {
                     err_msg: format!("unable to get peer executor: {:?}", err),
                 }))
@@ -239,14 +239,14 @@ impl NexusBackend {
                     }))
                 })?;
             if let PeerValidationResult::Invalid(validation_err) = validity {
-                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
                     "internal_error".to_owned(),
                     format!("[peer]: invalid configuration: {}", validation_err),
                 )))
-                .into());
+                .into())
             } else {
-                return Ok(());
+                Ok(())
             }
         }
     }
