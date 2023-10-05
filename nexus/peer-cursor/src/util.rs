@@ -88,7 +88,7 @@ pub fn records_to_query_response<'a>(records: Records) -> PgWireResult<Response<
     let pg_schema: Arc<Vec<FieldInfo>> = Arc::new(records.schema.fields.clone());
     let schema_copy = pg_schema.clone();
 
-    let data_row_stream = stream::iter(records.records.into_iter())
+    let data_row_stream = stream::iter(records.records)
         .map(move |record| {
             let mut encoder = DataRowEncoder::new(schema_copy.clone());
             for value in record.values.iter() {
