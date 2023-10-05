@@ -1,7 +1,7 @@
 name: Flow build and test
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
   push:
     branches: [main]
@@ -10,7 +10,7 @@ jobs:
   flow_test:
     strategy:
       matrix:
-        runner: [ubicloud-standard-8]
+        runner: [ubicloud-standard-4]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -73,7 +73,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 4 ./... -timeout 1200s
+          gotestsum --format testname -- -p 4 ./... -timeout 2400s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

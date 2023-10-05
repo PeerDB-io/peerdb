@@ -1,5 +1,5 @@
 name: clippy-action
-on: [pull_request]
+on: [pull_request_target]
 jobs:
   clippy:
     permissions:
@@ -8,23 +8,18 @@ jobs:
       pull-requests: write
     strategy:
       matrix:
-        runner: [ubuntu-latest, ubicloud]
+        runner: [ubicloud]
     runs-on: ${{ matrix.runner }}
     steps:
-    - name: checkout
-      uses: actions/checkout@v3
-      with:
-        submodules: recursive
-        token: ${{ secrets.SUBMODULE_CHECKOUT }}
+      - name: checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
 
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
-    - uses: giraffate/clippy-action@v1
-      with:
-        reporter: 'github-pr-review'
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        workdir: ./nexus
-      env:
-        REVIEWDOG_TOKEN: ${{ secrets.REVIEWDOG_TOKEN }}
+      - name: clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: ./nexus
