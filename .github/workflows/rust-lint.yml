@@ -1,5 +1,10 @@
 name: clippy-action
-on: [pull_request_target]
+
+on:
+  pull_request:
+    branches:
+      - "main"
+
 jobs:
   clippy:
     permissions:

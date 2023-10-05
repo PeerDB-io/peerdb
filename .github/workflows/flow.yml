@@ -1,8 +1,9 @@
 name: Flow build and test
 
 on:
-  pull_request_target:
-    branches: [main]
+  pull_request:
+    branches:
+      - "main"
   push:
     branches: [main]
 
@@ -10,7 +11,7 @@ jobs:
   flow_test:
     strategy:
       matrix:
-        runner: [ubicloud-standard-4]
+        runner: [ubicloud-standard-8]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -34,7 +35,7 @@ jobs:
 
       - uses: actions/setup-go@v3
         with:
-          go-version: '>=1.19.0'
+          go-version: ">=1.19.0"
 
       - name: install gotestsum
         run: |
