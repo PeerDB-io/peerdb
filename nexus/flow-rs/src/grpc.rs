@@ -291,9 +291,17 @@ impl FlowGrpcClient {
             }
         }
         if !cfg.initial_copy_only {
-            return anyhow::Result::Err(anyhow::anyhow!(
-                "write mode overwrite can only be set with initial_copy_only = true"
-            ));
+            if let Some(QRepWriteMode {
+                write_type: wt,
+                upsert_key_columns: _,
+            }) = cfg.write_mode
+            {
+                if wt == QRepWriteType::QrepWriteModeOverwrite as i32 {
+                    return anyhow::Result::Err(anyhow::anyhow!(
+                        "write mode overwrite can only be set with initial_copy_only = true"
+                    ));
+                }
+            }
         }
         self.start_query_replication_flow(&cfg).await
     }
