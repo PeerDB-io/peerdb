@@ -13,7 +13,7 @@ jobs:
     name: Build & Test UI
     strategy:
       matrix:
-        runner: [ubuntu-latest, ubicloud]
+        runner: [ubicloud]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout

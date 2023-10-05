@@ -13,7 +13,6 @@ use pgwire::{
 };
 use secrecy::ExposeSecret;
 use serde::Deserialize;
-use serde_json;
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -146,17 +145,21 @@ impl SnowflakeRecordStream {
                         // really hacky workaround for parsing the UTC timezone specifically.
                         SnowflakeDataType::TimestampLtz => {
                             match DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT) {
-                                Ok(_) => TimestampWithTimeZone(Utc.from_utc_datetime(
-                                    &DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT)?
+                                Ok(_) => TimestampWithTimeZone(
+                                    Utc.from_utc_datetime(
+                                        &DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT)?
+                                            .naive_utc(),
+                                    ),
+                                ),
+                                Err(_) => TimestampWithTimeZone(
+                                    Utc.from_utc_datetime(
+                                        &DateTime::parse_from_str(
+                                            &elem.replace('Z', "+0000"),
+                                            TIMESTAMP_TZ_PARSE_FORMAT,
+                                        )?
                                         .naive_utc(),
-                                )),
-                                Err(_) => TimestampWithTimeZone(Utc.from_utc_datetime(
-                                    &DateTime::parse_from_str(
-                                        &elem.replace("Z", "+0000"),
-                                        TIMESTAMP_TZ_PARSE_FORMAT,
-                                    )?
-                                    .naive_utc(),
-                                )),
+                                    ),
+                                ),
                             }
                         }
                         SnowflakeDataType::TimestampNtz => PostgresTimestamp(
@@ -164,21 +167,25 @@ impl SnowflakeRecordStream {
                         ),
                         SnowflakeDataType::TimestampTz => {
                             match DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT) {
-                                Ok(_) => TimestampWithTimeZone(Utc.from_utc_datetime(
-                                    &DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT)?
+                                Ok(_) => TimestampWithTimeZone(
+                                    Utc.from_utc_datetime(
+                                        &DateTime::parse_from_str(elem, TIMESTAMP_TZ_PARSE_FORMAT)?
+                                            .naive_utc(),
+                                    ),
+                                ),
+                                Err(_) => TimestampWithTimeZone(
+                                    Utc.from_utc_datetime(
+                                        &DateTime::parse_from_str(
+                                            &elem.replace('Z', "+0000"),
+                                            TIMESTAMP_TZ_PARSE_FORMAT,
+                                        )?
                                         .naive_utc(),
-                                )),
-                                Err(_) => TimestampWithTimeZone(Utc.from_utc_datetime(
-                                    &DateTime::parse_from_str(
-                                        &elem.replace("Z", "+0000"),
-                                        TIMESTAMP_TZ_PARSE_FORMAT,
-                                    )?
-                                    .naive_utc(),
-                                )),
+                                    ),
+                                ),
                             }
                         }
                         SnowflakeDataType::Variant => {
-                            let jsonb: serde_json::Value = serde_json::from_str(&elem)?;
+                            let jsonb: serde_json::Value = serde_json::from_str(elem)?;
                             Value::JsonB(jsonb)
                         }
                     },
@@ -188,7 +195,7 @@ impl SnowflakeRecordStream {
             row_values.push(row_value.unwrap_or(Value::Null));
         }
 
-        self.partition_index = self.partition_index + 1;
+        self.partition_index += 1;
 
         Ok(Record {
             values: row_values,
@@ -200,7 +207,7 @@ impl SnowflakeRecordStream {
         if (self.partition_number + 1) == self.result_set.resultSetMetaData.partitionInfo.len() {
             return Ok(false);
         }
-        self.partition_number = self.partition_number + 1;
+        self.partition_number += 1;
         self.partition_index = 0;
         let partition_number = self.partition_number;
         let secret = self.auth.get_jwt()?.expose_secret().clone();

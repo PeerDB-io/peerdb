@@ -128,7 +128,7 @@ impl ArrayValue {
     }
 }
 
-impl<'a> ToSql for ArrayValue {
+impl ToSql for ArrayValue {
     fn to_sql(
         &self,
         ty: &Type,
@@ -235,7 +235,6 @@ impl ToSqlText for ArrayValue {
             ArrayValue::Timestamp(arr) => array_to_sql_text!(arr, ty, out),
             ArrayValue::TimestampWithTimeZone(arr) => array_to_sql_text!(arr, ty, out),
             ArrayValue::Empty => {}
-            _ => todo!(),
         }
 
         // remove trailing comma

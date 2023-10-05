@@ -1,6 +1,9 @@
 name: GolangCI-Lint
 
-on: [pull_request]
+on:
+  pull_request:
+    branches:
+      - "main"
 
 jobs:
   golangci-lint:
@@ -10,14 +13,13 @@ jobs:
       pull-requests: write
     strategy:
       matrix:
-        runner: [ubuntu-latest, ubicloud]
+        runner: [ubicloud]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
       - name: golangci-lint
         uses: reviewdog/action-golangci-lint@v2

@@ -298,8 +298,6 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 }
 
 func (suite *PostgresCDCTestSuite) SetupSuite() {
-	rand.Seed(time.Now().UnixNano())
-
 	var err error
 	suite.connector, err = NewPostgresConnector(context.Background(), &protos.PostgresConfig{
 		Host:     "localhost",
@@ -828,6 +826,6 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 	suite.dropTable(toastHappyFlowSrcTableName)
 }
 
-func TestPostgresTestSuite(t *testing.T) {
+func TestPostgresCDCTestSuite(t *testing.T) {
 	suite.Run(t, new(PostgresCDCTestSuite))
 }
