@@ -41,10 +41,11 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           platforms: linux/amd64,linux/arm64
           context: .
-          file: stacks/nexus.Dockerfile
+          file: stacks/peerdb-server.Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/peerdb-io/peerdb-server:dev-${{ steps.vars.outputs.sha_short }}
+            ghcr.io/peerdb-io/peerdb-server:latest-dev
 
       - name: Build (optionally publish) Flow API Dev Image
         uses: depot/build-push-action@v1
@@ -56,6 +57,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/peerdb-io/flow-api:dev-${{ steps.vars.outputs.sha_short }}
+            ghcr.io/peerdb-io/flow-api:latest-dev
 
       - name: Build (optionally publish) Flow Worker Dev Image
         uses: depot/build-push-action@v1
@@ -67,6 +69,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/peerdb-io/flow-worker:dev-${{ steps.vars.outputs.sha_short }}
+            ghcr.io/peerdb-io/flow-worker:latest-dev
 
       - name: Build (optionally publish) Flow Snapshot Worker Dev Image
         uses: depot/build-push-action@v1
@@ -78,3 +81,16 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: |
             ghcr.io/peerdb-io/flow-snapshot-worker:dev-${{ steps.vars.outputs.sha_short }}
+            ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev
+
+      - name: Build (optionally publish) PeerDB UI Dev Image
+        uses: depot/build-push-action@v1
+        with:
+          token: ${{ secrets.DEPOT_TOKEN }}
+          platforms: linux/amd64,linux/arm64
+          context: .
+          file: stacks/peerdb-ui.Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/peerdb-io/peerdb-ui:dev-${{ steps.vars.outputs.sha_short }}
+            ghcr.io/peerdb-io/peerdb-ui:latest-dev
