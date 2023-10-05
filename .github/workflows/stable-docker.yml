@@ -9,7 +9,7 @@ jobs:
   docker-build:
     strategy:
       matrix:
-        runner: [ubuntu-latest, ubicloud]
+        runner: [ubicloud]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -19,7 +19,6 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
       - uses: depot/setup-action@v1
 

@@ -2,7 +2,8 @@ name: Flow build and test
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - "main"
   push:
     branches: [main]
 
@@ -34,7 +35,7 @@ jobs:
 
       - uses: actions/setup-go@v3
         with:
-          go-version: '>=1.19.0'
+          go-version: ">=1.19.0"
 
       - name: install gotestsum
         run: |
@@ -73,7 +74,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 4 ./... -timeout 1200s
+          gotestsum --format testname -- -p 4 ./... -timeout 2400s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

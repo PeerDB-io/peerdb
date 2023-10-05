@@ -24,7 +24,7 @@ impl PeerCursors {
         self.cursors.remove(&name);
     }
 
-    pub fn get_peer(&self, name: &str) -> Option<&Box<Peer>> {
-        self.cursors.get(name)
+    pub fn get_peer(&self, name: &str) -> Option<&Peer> {
+        self.cursors.get(name).map(|peer| peer.as_ref())
     }
 }
