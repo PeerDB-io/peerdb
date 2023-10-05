@@ -560,14 +560,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	// Get the column names and types
-	rows, err := c.pool.Query(c.ctx,
-		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName))
-	if err != nil {
-		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
-	}
-	defer rows.Close()
-
 	isFullReplica, replErr := c.isTableFullReplica(schemaTable)
 	if replErr != nil {
 		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
@@ -586,6 +578,14 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		PrimaryKeyColumn:      pkey,
 		IsReplicaIdentityFull: isFullReplica,
 	}
+
+	// Get the column names and types
+	rows, err := c.pool.Query(c.ctx,
+		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName), pgx.QueryExecModeSimpleProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
+	}
+	defer rows.Close()
 
 	for _, fieldDescription := range rows.FieldDescriptions() {
 		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
@@ -676,7 +676,7 @@ func (c *PostgresConnector) ReplayTableSchemaDelta(flowJobName string, schemaDel
 	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification for table %s: %w",
-			schemaDelta.SrcTableName, err)
+			schemaDelta.DstTableName, err)
 	}
 	defer func() {
 		deferErr := tableSchemaModifyTx.Rollback(c.ctx)
@@ -688,28 +688,30 @@ func (c *PostgresConnector) ReplayTableSchemaDelta(flowJobName string, schemaDel
 	}()
 
 	for _, droppedColumn := range schemaDelta.DroppedColumns {
-		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", schemaDelta.DstTableName,
-			droppedColumn))
+		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN \"%s\"",
+			schemaDelta.DstTableName, droppedColumn))
 		if err != nil {
 			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
-				schemaDelta.SrcTableName, err)
+				schemaDelta.DstTableName, err)
 		}
 		log.WithFields(log.Fields{
-			"flowName":  flowJobName,
-			"tableName": schemaDelta.SrcTableName,
+			"flowName":     flowJobName,
+			"srcTableName": schemaDelta.SrcTableName,
+			"dstTableName": schemaDelta.DstTableName,
 		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
 	}
 	for _, addedColumn := range schemaDelta.AddedColumns {
-		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s",
+		_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
 			schemaDelta.DstTableName, addedColumn.ColumnName,
 			qValueKindToPostgresType(addedColumn.ColumnType)))
 		if err != nil {
 			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
-				schemaDelta.SrcTableName, err)
+				schemaDelta.DstTableName, err)
 		}
 		log.WithFields(log.Fields{
-			"flowName":  flowJobName,
-			"tableName": schemaDelta.SrcTableName,
+			"flowName":     flowJobName,
+			"srcTableName": schemaDelta.SrcTableName,
+			"dstTableName": schemaDelta.DstTableName,
 		}).Infof("[schema delta replay] added column %s with data type %s",
 			addedColumn.ColumnName, addedColumn.ColumnType)
 	}
@@ -717,7 +719,7 @@ func (c *PostgresConnector) ReplayTableSchemaDelta(flowJobName string, schemaDel
 	err = tableSchemaModifyTx.Commit(c.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to commit transaction for table schema modification for table %s: %w",
-			schemaDelta.SrcTableName, err)
+			schemaDelta.DstTableName, err)
 	}
 
 	return nil

@@ -545,13 +545,17 @@ func (p *PostgresCDCSource) processRelationMessage(
 	// retrieve initial RelationMessage for table changed.
 	prevRel := p.relationMessageMapping[currRel.RelationId]
 	// creating maps for lookup later
-	prevRelMap := make(map[string]bool)
-	currRelMap := make(map[string]bool)
+	prevRelMap := make(map[string]*protos.PostgresTableIdentifier)
+	currRelMap := make(map[string]*protos.PostgresTableIdentifier)
 	for _, column := range prevRel.Columns {
-		prevRelMap[column.Name] = true
+		prevRelMap[column.Name] = &protos.PostgresTableIdentifier{
+			RelId: column.DataType,
+		}
 	}
 	for _, column := range currRel.Columns {
-		currRelMap[column.Name] = true
+		currRelMap[column.Name] = &protos.PostgresTableIdentifier{
+			RelId: column.DataType,
+		}
 	}
 
 	schemaDelta := &protos.TableSchemaDelta{
@@ -564,7 +568,15 @@ func (p *PostgresCDCSource) processRelationMessage(
 	}
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
-		if !prevRelMap[column.Name] {
+		if prevRelMap[column.Name] == nil {
+			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
+				ColumnName: column.Name,
+				ColumnType: string(postgresOIDToQValueKind(column.DataType)),
+			})
+			// present in previous and current relation messages, but data types have changed.
+			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
+		} else if prevRelMap[column.Name].RelId != currRelMap[column.Name].RelId {
+			schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
 			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 				ColumnName: column.Name,
 				ColumnType: string(postgresOIDToQValueKind(column.DataType)),
@@ -573,7 +585,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 	}
 	for _, column := range prevRel.Columns {
 		// present in previous relation message, but not in current one, so dropped.
-		if !currRelMap[column.Name] {
+		if currRelMap[column.Name] == nil {
 			schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
 		}
 	}
