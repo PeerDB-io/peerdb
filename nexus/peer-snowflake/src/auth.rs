@@ -47,9 +47,8 @@ impl SnowflakeAuth {
         expiry_threshold: u64,
     ) -> anyhow::Result<Self> {
         let pkey = match password {
-            Some(pw) => {
-                DecodePrivateKey::from_pkcs8_encrypted_pem(&private_key, pw).context("Invalid private key or decryption failed")?
-            },
+            Some(pw) => DecodePrivateKey::from_pkcs8_encrypted_pem(&private_key, pw)
+                .context("Invalid private key or decryption failed")?,
             None => {
                 DecodePrivateKey::from_pkcs8_pem(&private_key).context("Invalid private key")?
             }
@@ -77,16 +76,15 @@ impl SnowflakeAuth {
     // Normalize the account identifer to a form that is embedded into the JWT.
     // Logic adapted from Snowflake's example Python code for key-pair authentication "sql-api-generate-jwt.py".
     fn normalize_account_identifier(raw_account: &str) -> String {
-        let split_index: usize;
-        if !raw_account.contains(".global") {
-            split_index = *raw_account
-                .find(".")
-                .get_or_insert(raw_account.chars().count());
+        let split_index = if !raw_account.contains(".global") {
+            *raw_account
+                .find('.')
+                .get_or_insert(raw_account.chars().count())
         } else {
-            split_index = *raw_account
-                .find("-")
-                .get_or_insert(raw_account.chars().count());
-        }
+            *raw_account
+                .find('-')
+                .get_or_insert(raw_account.chars().count())
+        };
         raw_account
             .to_uppercase()
             .chars()

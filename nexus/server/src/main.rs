@@ -160,10 +160,10 @@ impl NexusBackend {
 
     async fn check_for_mirror(
         catalog: &MutexGuard<'_, Catalog>,
-        flow_name: String,
+        flow_name: &str,
     ) -> PgWireResult<Option<WorkflowDetails>> {
         let workflow_details = catalog
-            .get_workflow_details_for_flow_job(&flow_name)
+            .get_workflow_details_for_flow_job(flow_name)
             .await
             .map_err(|err| {
                 PgWireError::ApiError(Box::new(PgError::Internal {
@@ -257,14 +257,14 @@ impl NexusBackend {
     ) -> PgWireResult<Vec<Response<'a>>> {
         let mut peer_holder: Option<Box<Peer>> = None;
         match nexus_stmt {
-            NexusStatement::PeerDDL { stmt: _, ddl } => match ddl {
+            NexusStatement::PeerDDL { stmt: _, ddl } => match ddl.as_ref() {
                 PeerDDL::CreatePeer {
                     peer,
                     if_not_exists: _,
                 } => {
                     let peer_type = peer.r#type;
                     if Self::is_peer_validity_supported(peer_type) {
-                        self.validate_peer(peer_type, &peer).await.map_err(|e| {
+                        self.validate_peer(peer_type, peer).await.map_err(|e| {
                             PgWireError::UserError(Box::new(ErrorInfo::new(
                                 "ERROR".to_owned(),
                                 "internal_error".to_owned(),
@@ -295,11 +295,10 @@ impl NexusBackend {
                         })));
                     }
                     let catalog = self.catalog.lock().await;
-                    let mirror_details =
-                        Self::check_for_mirror(&catalog, flow_job.name.clone()).await?;
+                    let mirror_details = Self::check_for_mirror(&catalog, &flow_job.name).await?;
                     if mirror_details.is_none() {
                         catalog
-                            .create_flow_job_entry(&flow_job)
+                            .create_flow_job_entry(flow_job)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
@@ -321,7 +320,7 @@ impl NexusBackend {
                         // make a request to the flow service to start the job.
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         let workflow_id = flow_handler
-                            .start_peer_flow_job(&flow_job, src_peer, dst_peer)
+                            .start_peer_flow_job(flow_job, src_peer, dst_peer)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
@@ -344,7 +343,7 @@ impl NexusBackend {
                             None,
                         ))])
                     } else {
-                        Self::handle_mirror_existence(if_not_exists, flow_job.name)
+                        Self::handle_mirror_existence(*if_not_exists, flow_job.name.clone())
                     }
                 }
                 PeerDDL::CreateMirrorForSelect {
@@ -360,13 +359,13 @@ impl NexusBackend {
                     {
                         let catalog = self.catalog.lock().await;
                         mirror_details =
-                            Self::check_for_mirror(&catalog, qrep_flow_job.name.clone()).await?;
+                            Self::check_for_mirror(&catalog, &qrep_flow_job.name).await?;
                     }
                     if mirror_details.is_none() {
                         {
                             let catalog = self.catalog.lock().await;
                             catalog
-                                .create_qrep_flow_job_entry(&qrep_flow_job)
+                                .create_qrep_flow_job_entry(qrep_flow_job)
                                 .await
                                 .map_err(|err| {
                                     PgWireError::ApiError(Box::new(PgError::Internal {
@@ -387,14 +386,14 @@ impl NexusBackend {
                             ))]);
                         }
 
-                        let _workflow_id = self.run_qrep_mirror(&qrep_flow_job).await?;
+                        let _workflow_id = self.run_qrep_mirror(qrep_flow_job).await?;
                         let create_mirror_success = format!("CREATE MIRROR {}", qrep_flow_job.name);
                         Ok(vec![Response::Execution(Tag::new_for_execution(
                             &create_mirror_success,
                             None,
                         ))])
                     } else {
-                        Self::handle_mirror_existence(if_not_exists, qrep_flow_job.name)
+                        Self::handle_mirror_existence(*if_not_exists, qrep_flow_job.name.clone())
                     }
                 }
                 PeerDDL::ExecuteMirrorForSelect { flow_job_name } => {
@@ -407,7 +406,7 @@ impl NexusBackend {
                     if let Some(job) = {
                         let catalog = self.catalog.lock().await;
                         catalog
-                            .get_qrep_flow_job_by_name(&flow_job_name)
+                            .get_qrep_flow_job_by_name(flow_job_name)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
@@ -442,7 +441,7 @@ impl NexusBackend {
                     let catalog = self.catalog.lock().await;
                     tracing::info!("mirror_name: {}, if_exists: {}", flow_job_name, if_exists);
                     let workflow_details = catalog
-                        .get_workflow_details_for_flow_job(&flow_job_name)
+                        .get_workflow_details_for_flow_job(flow_job_name)
                         .await
                         .map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
@@ -460,7 +459,7 @@ impl NexusBackend {
                         let workflow_details = workflow_details.unwrap();
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler
-                            .shutdown_flow_job(&flow_job_name, workflow_details)
+                            .shutdown_flow_job(flow_job_name, workflow_details)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
@@ -468,7 +467,7 @@ impl NexusBackend {
                                 }))
                             })?;
                         catalog
-                            .delete_flow_job_entry(&flow_job_name)
+                            .delete_flow_job_entry(flow_job_name)
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(Box::new(PgError::Internal {
@@ -480,7 +479,7 @@ impl NexusBackend {
                             &drop_mirror_success,
                             None,
                         ))])
-                    } else if if_exists {
+                    } else if *if_exists {
                         let no_mirror_success = "NO SUCH MIRROR";
                         Ok(vec![Response::Execution(Tag::new_for_execution(
                             no_mirror_success,
