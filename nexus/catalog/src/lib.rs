@@ -527,7 +527,14 @@ impl Catalog {
         }
 
         let first_row = rows.get(0).unwrap();
-        let workflow_id: String = first_row.get(0);
+        let workflow_id: Option<String> = first_row.get(0);
+        if workflow_id.is_none() {
+            return Err(anyhow!(
+                "workflow id not found for existing flow job {}",
+                flow_job_name
+            ));
+        }
+        let workflow_id = workflow_id.unwrap();
         let source_peer_id: i32 = first_row.get(1);
         let destination_peer_id: i32 = first_row.get(2);
 
