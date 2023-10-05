@@ -23,7 +23,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: debezium/postgres:15-alpine
+    image: debezium/postgres:16-alpine
     ports:
       - 9901:5432
     environment:
@@ -95,7 +95,7 @@ services:
     ports:
       - 8085:8080
 
-  flow_api:
+  flow-api:
     container_name: flow_api
     build:
       context: .
@@ -109,8 +109,8 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_snapshot_worker:
-    container_name: flow_snapshot_worker
+  flow-snapshot-worker:
+    container_name: flow-snapshot-worker
     build:
       context: .
       dockerfile: stacks/flow-snapshot-worker.Dockerfile
@@ -120,8 +120,8 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_worker1:
-    container_name: flow_worker1
+  flow-worker1:
+    container_name: flow-worker1
     build:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
@@ -135,8 +135,8 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_worker2:
-    container_name: flow_worker2
+  flow-worker2:
+    container_name: flow-worker2
     build:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
@@ -153,8 +153,8 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_worker3:
-    container_name: flow_worker3
+  flow-worker3:
+    container_name: flow-worker3
     build:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
@@ -172,10 +172,10 @@ services:
         condition: service_healthy
 
   peerdb:
-    container_name: peerdb_server
+    container_name: peerdb-server
     build:
       context: .
-      dockerfile: stacks/nexus.Dockerfile
+      dockerfile: stacks/peerdb-server.Dockerfile
     environment:
       <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
@@ -189,8 +189,8 @@ services:
       catalog:
         condition: service_healthy
 
-  peerdb_prometheus:
-    container_name: peerdb_prometheus
+  peerdb-prometheus:
+    container_name: peerdb-prometheus
     build:
       context: .
       dockerfile: stacks/prometheus.Dockerfile
@@ -202,8 +202,9 @@ services:
       - multi-metrics
       - metrics
 
-  peerdb_grafana:
-    container_name: peerdb_grafana
+
+  peerdb-grafana:
+    container_name: peerdb-grafana
     build:
       context: .
       dockerfile: stacks/grafana.Dockerfile
@@ -216,11 +217,12 @@ services:
       - multi-metrics
       - metrics
 
-  peerdb_ui:
-    container_name: peerdb_ui
+
+  peerdb-ui:
+    container_name: peerdb-ui
     build:
       context: .
-      dockerfile: stacks/ui.Dockerfile
+      dockerfile: stacks/peerdb-ui.Dockerfile
     ports:
       - 3001:3000
     environment:
