@@ -1,5 +1,4 @@
 import { Peer } from '@/grpc_generated/peers';
-import { fetchPeers } from './handler';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
@@ -9,6 +8,7 @@ import { Panel } from '@/lib/Panel';
 import { SearchField } from '@/lib/SearchField';
 import { Select } from '@/lib/Select';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { fetchPeers } from './handler';
 
 import Link from 'next/link';
 import { Suspense } from 'react';
