@@ -70,7 +70,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	syncRecordsStartTime := time.Now()
 	syncedRows, err := tx.CopyFrom(
 		context.Background(),
-		pgx.Identifier{dstTableName.String()},
+		pgx.Identifier{dstTableName.Schema, dstTableName.Table},
 		schema.GetColumnNames(),
 		copySource,
 	)
