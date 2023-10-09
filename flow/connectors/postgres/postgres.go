@@ -575,20 +575,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 	}
 
-	pkey, err := c.getPrimaryKeyColumn(schemaTable)
-	if err != nil {
-		if !isFullReplica {
-			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
-		}
-	}
-
-	res := &protos.TableSchema{
-		TableIdentifier:       tableName,
-		Columns:               make(map[string]string),
-		PrimaryKeyColumn:      pkey,
-		IsReplicaIdentityFull: isFullReplica,
-	}
-
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
 		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName), pgx.QueryExecModeSimpleProtocol)
@@ -603,9 +589,10 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	res := &protos.TableSchema{
-		TableIdentifier:   req.TableIdentifier,
-		Columns:           make(map[string]string),
-		PrimaryKeyColumns: pKeyCols,
+		TableIdentifier:       tableName,
+		Columns:               make(map[string]string),
+		PrimaryKeyColumns:     pKeyCols,
+		IsReplicaIdentityFull: isFullReplica,
 	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {

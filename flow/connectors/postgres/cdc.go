@@ -253,19 +253,17 @@ func (p *PostgresCDCSource) consumeStream(
 					}
 					_, ok := records.TablePKeyLastSeen[tablePkeyVal]
 					if !ok {
-						result.Records = append(result.Records, rec)
-						result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
+						records.Records = append(records.Records, rec)
+						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					} else {
-						oldRec := result.Records[result.TablePKeyLastSeen[tablePkeyVal]]
-						// iterate through unchanged toast cols and set them
-						for col, val := range oldRec.GetItems() {
-							if _, ok := r.NewItems[col]; !ok {
-								r.NewItems[col] = val
-								delete(r.UnchangedToastColumns, col)
-							}
-							records.Records = append(records.Records, rec)
-							records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+						oldRec := records.Records[records.TablePKeyLastSeen[tablePkeyVal]]
+						// iterate through unchanged toast cols and set them in new record
+						updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
+						for _, col := range updatedCols {
+							delete(r.UnchangedToastColumns, col)
 						}
+						records.Records = append(records.Records, rec)
+						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					}
 				case *model.InsertRecord:
 					pkeyColsMerged := make([]string, 0)
@@ -281,9 +279,9 @@ func (p *PostgresCDCSource) consumeStream(
 						TableName:  tableName,
 						PkeyColVal: strings.Join(pkeyColsMerged, " "),
 					}
-					result.Records = append(result.Records, rec)
+					records.Records = append(records.Records, rec)
 					// all columns will be set in insert record, so add it to the map
-					result.TablePKeyLastSeen[tablePkeyVal] = len(result.Records) - 1
+					records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 				case *model.DeleteRecord:
 					records.Records = append(records.Records, rec)
 				case *model.RelationRecord:

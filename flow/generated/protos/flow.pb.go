@@ -3537,7 +3537,7 @@ func file_flow_proto_rawDescGZIP() []byte {
 }
 
 var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
 var file_flow_proto_goTypes = []interface{}{
 	(QRepSyncMode)(0),                       // 0: peerdb_flow.QRepSyncMode
 	(QRepWriteType)(0),                      // 1: peerdb_flow.QRepWriteType
@@ -4207,7 +4207,7 @@ func file_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_flow_proto_rawDesc,
 			NumEnums:      2,
-			NumMessages:   51,
+			NumMessages:   54,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

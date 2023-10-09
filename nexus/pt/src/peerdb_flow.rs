@@ -252,6 +252,20 @@ pub struct TableSchema {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetTableSchemaBatchInput {
+    #[prost(message, optional, tag="1")]
+    pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(string, repeated, tag="2")]
+    pub table_identifiers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetTableSchemaBatchOutput {
+    #[prost(map="string, message", tag="1")]
+    pub table_name_schema_mapping: ::std::collections::HashMap<::prost::alloc::string::String, TableSchema>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetupNormalizedTableInput {
     #[prost(message, optional, tag="1")]
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,

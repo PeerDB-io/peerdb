@@ -271,6 +271,20 @@ export interface TableSchema_ColumnsEntry {
   value: string;
 }
 
+export interface GetTableSchemaBatchInput {
+  peerConnectionConfig: Peer | undefined;
+  tableIdentifiers: string[];
+}
+
+export interface GetTableSchemaBatchOutput {
+  tableNameSchemaMapping: { [key: string]: TableSchema };
+}
+
+export interface GetTableSchemaBatchOutput_TableNameSchemaMappingEntry {
+  key: string;
+  value: TableSchema | undefined;
+}
+
 export interface SetupNormalizedTableInput {
   peerConnectionConfig: Peer | undefined;
   tableIdentifier: string;
@@ -3362,6 +3376,248 @@ export const TableSchema_ColumnsEntry = {
     const message = createBaseTableSchema_ColumnsEntry();
     message.key = object.key ?? "";
     message.value = object.value ?? "";
+    return message;
+  },
+};
+
+function createBaseGetTableSchemaBatchInput(): GetTableSchemaBatchInput {
+  return { peerConnectionConfig: undefined, tableIdentifiers: [] };
+}
+
+export const GetTableSchemaBatchInput = {
+  encode(message: GetTableSchemaBatchInput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.peerConnectionConfig !== undefined) {
+      Peer.encode(message.peerConnectionConfig, writer.uint32(10).fork()).ldelim();
+    }
+    for (const v of message.tableIdentifiers) {
+      writer.uint32(18).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GetTableSchemaBatchInput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetTableSchemaBatchInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.peerConnectionConfig = Peer.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.tableIdentifiers.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetTableSchemaBatchInput {
+    return {
+      peerConnectionConfig: isSet(object.peerConnectionConfig) ? Peer.fromJSON(object.peerConnectionConfig) : undefined,
+      tableIdentifiers: Array.isArray(object?.tableIdentifiers)
+        ? object.tableIdentifiers.map((e: any) => String(e))
+        : [],
+    };
+  },
+
+  toJSON(message: GetTableSchemaBatchInput): unknown {
+    const obj: any = {};
+    if (message.peerConnectionConfig !== undefined) {
+      obj.peerConnectionConfig = Peer.toJSON(message.peerConnectionConfig);
+    }
+    if (message.tableIdentifiers?.length) {
+      obj.tableIdentifiers = message.tableIdentifiers;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GetTableSchemaBatchInput>, I>>(base?: I): GetTableSchemaBatchInput {
+    return GetTableSchemaBatchInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetTableSchemaBatchInput>, I>>(object: I): GetTableSchemaBatchInput {
+    const message = createBaseGetTableSchemaBatchInput();
+    message.peerConnectionConfig = (object.peerConnectionConfig !== undefined && object.peerConnectionConfig !== null)
+      ? Peer.fromPartial(object.peerConnectionConfig)
+      : undefined;
+    message.tableIdentifiers = object.tableIdentifiers?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseGetTableSchemaBatchOutput(): GetTableSchemaBatchOutput {
+  return { tableNameSchemaMapping: {} };
+}
+
+export const GetTableSchemaBatchOutput = {
+  encode(message: GetTableSchemaBatchOutput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    Object.entries(message.tableNameSchemaMapping).forEach(([key, value]) => {
+      GetTableSchemaBatchOutput_TableNameSchemaMappingEntry.encode({ key: key as any, value }, writer.uint32(10).fork())
+        .ldelim();
+    });
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GetTableSchemaBatchOutput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetTableSchemaBatchOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          const entry1 = GetTableSchemaBatchOutput_TableNameSchemaMappingEntry.decode(reader, reader.uint32());
+          if (entry1.value !== undefined) {
+            message.tableNameSchemaMapping[entry1.key] = entry1.value;
+          }
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetTableSchemaBatchOutput {
+    return {
+      tableNameSchemaMapping: isObject(object.tableNameSchemaMapping)
+        ? Object.entries(object.tableNameSchemaMapping).reduce<{ [key: string]: TableSchema }>((acc, [key, value]) => {
+          acc[key] = TableSchema.fromJSON(value);
+          return acc;
+        }, {})
+        : {},
+    };
+  },
+
+  toJSON(message: GetTableSchemaBatchOutput): unknown {
+    const obj: any = {};
+    if (message.tableNameSchemaMapping) {
+      const entries = Object.entries(message.tableNameSchemaMapping);
+      if (entries.length > 0) {
+        obj.tableNameSchemaMapping = {};
+        entries.forEach(([k, v]) => {
+          obj.tableNameSchemaMapping[k] = TableSchema.toJSON(v);
+        });
+      }
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GetTableSchemaBatchOutput>, I>>(base?: I): GetTableSchemaBatchOutput {
+    return GetTableSchemaBatchOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetTableSchemaBatchOutput>, I>>(object: I): GetTableSchemaBatchOutput {
+    const message = createBaseGetTableSchemaBatchOutput();
+    message.tableNameSchemaMapping = Object.entries(object.tableNameSchemaMapping ?? {}).reduce<
+      { [key: string]: TableSchema }
+    >((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = TableSchema.fromPartial(value);
+      }
+      return acc;
+    }, {});
+    return message;
+  },
+};
+
+function createBaseGetTableSchemaBatchOutput_TableNameSchemaMappingEntry(): GetTableSchemaBatchOutput_TableNameSchemaMappingEntry {
+  return { key: "", value: undefined };
+}
+
+export const GetTableSchemaBatchOutput_TableNameSchemaMappingEntry = {
+  encode(
+    message: GetTableSchemaBatchOutput_TableNameSchemaMappingEntry,
+    writer: _m0.Writer = _m0.Writer.create(),
+  ): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== undefined) {
+      TableSchema.encode(message.value, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GetTableSchemaBatchOutput_TableNameSchemaMappingEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetTableSchemaBatchOutput_TableNameSchemaMappingEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = TableSchema.decode(reader, reader.uint32());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetTableSchemaBatchOutput_TableNameSchemaMappingEntry {
+    return {
+      key: isSet(object.key) ? String(object.key) : "",
+      value: isSet(object.value) ? TableSchema.fromJSON(object.value) : undefined,
+    };
+  },
+
+  toJSON(message: GetTableSchemaBatchOutput_TableNameSchemaMappingEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== undefined) {
+      obj.value = TableSchema.toJSON(message.value);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GetTableSchemaBatchOutput_TableNameSchemaMappingEntry>, I>>(
+    base?: I,
+  ): GetTableSchemaBatchOutput_TableNameSchemaMappingEntry {
+    return GetTableSchemaBatchOutput_TableNameSchemaMappingEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetTableSchemaBatchOutput_TableNameSchemaMappingEntry>, I>>(
+    object: I,
+  ): GetTableSchemaBatchOutput_TableNameSchemaMappingEntry {
+    const message = createBaseGetTableSchemaBatchOutput_TableNameSchemaMappingEntry();
+    message.key = object.key ?? "";
+    message.value = (object.value !== undefined && object.value !== null)
+      ? TableSchema.fromPartial(object.value)
+      : undefined;
     return message;
   },
 };

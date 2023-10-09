@@ -543,45 +543,25 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
 
-	// 	return fmt.Sprintf(mergeStatementSQL, primaryKeyColumnCast, internalSchema, rawTableIdentifier,
-	// 		destinationTableIdentifier, flattenedCastsSQL, normalizedTableSchema.PrimaryKeyColumn,
-	// 		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL, updateStatements)
-	// }
+	return fmt.Sprintf(mergeStatementSQL, primaryKeyColumnCast, internalSchema, rawTableIdentifier,
+		destinationTableIdentifier, flattenedCastsSQL, normalizedTableSchema.PrimaryKeyColumn,
+		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL, updateStatements)
+}
 
-	// func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedToastColsLists []string) string {
-	// 	updateStmts := make([]string, 0)
-
-	// 	for _, cols := range unchangedToastColsLists {
-	// 		unchangedColsArray := strings.Split(cols, ",")
-	// 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
-	// 		tmpArray := make([]string, 0)
-	// 		for _, colName := range otherCols {
-	// 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
-	// 		}
-	// 		ssep := strings.Join(tmpArray, ",")
-	// 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
-	// 		src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
-	// 		THEN UPDATE SET %s `, cols, ssep)
-	// 		updateStmts = append(updateStmts, updateStmt)
-	// 	}
-	// 	return strings.Join(updateStmts, "\n")
-	// }
+func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedToastColsLists []string) string {
+	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastColsLists {
 		unchangedColsArray := strings.Split(cols, ",")
-		for i, col := range unchangedColsArray {
-			unchangedColsArray[i] = fmt.Sprintf("\"%s\"", col)
-		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ",")
-		quotedCols := strings.Join(unchangedColsArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
-		src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
-		THEN UPDATE SET %s `, quotedCols, ssep)
+			src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
+			THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return strings.Join(updateStmts, "\n")
