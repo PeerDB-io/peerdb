@@ -152,14 +152,14 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 match create_mirror {
                     CDC(cdc) => {
                         let mut flow_job_table_mappings = vec![];
-                        for table_mapping in &cdc.table_mappings {
+                        for table_mapping in &cdc.mappings {
                             flow_job_table_mappings.push(FlowJobTableMapping {
                                 source_table_identifier: table_mapping
                                     .source_table_identifier
                                     .to_string()
                                     .to_lowercase(),
                                 target_table_identifier: table_mapping
-                                    .target_table_identifier
+                                    .target_identifier
                                     .to_string()
                                     .to_lowercase(),
                             });
