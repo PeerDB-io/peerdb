@@ -43,9 +43,9 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	return id, peerType, nil
 }
 
-func schemaForTableIdentifier(tableIdentifier string, peerDbType int32) string {
+func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
 	tableIdentifierParts := strings.Split(tableIdentifier, ".")
-	if len(tableIdentifierParts) == 1 && peerDbType != int32(protos.DBType_BIGQUERY) {
+	if len(tableIdentifierParts) == 1 && peerDBType != int32(protos.DBType_BIGQUERY) {
 		tableIdentifierParts = append([]string{"public"}, tableIdentifierParts...)
 	}
 	return strings.Join(tableIdentifierParts, ".")
