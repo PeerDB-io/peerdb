@@ -1,14 +1,14 @@
 'use client';
-import { Setting } from '@/app/peers/create/configuration/helpers/common';
+import { PeerSetting } from '@/app/peers/create/configuration/helpers/common';
+import { PeerSetter } from '@/app/peers/create/configuration/types';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { PeerSetter } from '../app/peers/create/configuration/types';
 import { InfoPopover } from './InfoPopover';
 
 interface ConfigProps {
-  settings: Setting[];
+  settings: PeerSetting[];
   setter: PeerSetter;
 }
 
@@ -31,7 +31,7 @@ export default function ConfigForm(props: ConfigProps) {
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement>,
-    setting: Setting
+    setting: PeerSetting
   ) => {
     if (setting.type === 'file') {
       if (e.target.files) handleFile(e.target.files[0], setting.stateHandler);

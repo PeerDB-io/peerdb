@@ -15,7 +15,7 @@ import { Suspense } from 'react';
 import { Header } from '../../lib/Header';
 export const dynamic = 'force-dynamic';
 
-async function fetchPeers() {
+export async function fetchPeers() {
   let flowServiceClient = GetFlowServiceClientFromEnv();
   let req: ListPeersRequest = {};
   let peers = await flowServiceClient.listPeers(req);

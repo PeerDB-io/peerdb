@@ -1,7 +1,7 @@
 import { PostgresConfig } from '@/grpc_generated/peers';
-import { Setting } from './common';
+import { PeerSetting } from './common';
 
-export const postgresSetting: Setting[] = [
+export const postgresSetting: PeerSetting[] = [
   {
     label: 'Host',
     stateHandler: (value, setter) =>

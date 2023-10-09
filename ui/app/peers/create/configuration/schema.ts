@@ -6,7 +6,7 @@ export const pgSchema = z.object({
       required_error: 'Host is required',
       invalid_type_error: 'Host must be a string',
     })
-    .nonempty()
+    .nonempty({ message: 'Host cannot be empty' })
     .max(255, 'Host must be less than 255 characters'),
   port: z
     .number({

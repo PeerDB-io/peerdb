@@ -1,7 +1,7 @@
 import { SnowflakeConfig } from '@/grpc_generated/peers';
-import { Setting } from './common';
+import { PeerSetting } from './common';
 
-export const snowflakeSetting: Setting[] = [
+export const snowflakeSetting: PeerSetting[] = [
   {
     label: 'Account ID',
     stateHandler: (value, setter) =>

@@ -11,7 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import ConfigForm from '../../../../components/ConfigForm';
 import { handleCreate, handleValidate } from './handlers';
-import { Setting, getBlankSetting } from './helpers/common';
+import { PeerSetting, getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
 import { PeerConfig } from './types';
@@ -28,7 +28,7 @@ export default function CreateConfig() {
   });
   const [loading, setLoading] = useState<boolean>(false);
   const configComponentMap = (dbType: string) => {
-    const configForm = (settingList: Setting[]) => (
+    const configForm = (settingList: PeerSetting[]) => (
       <ConfigForm settings={settingList} setter={setConfig} />
     );
     switch (dbType) {
@@ -69,6 +69,7 @@ export default function CreateConfig() {
           action={
             <TextField
               variant='simple'
+              value={name}
               onChange={(e) => setName(e.target.value)}
             />
           }

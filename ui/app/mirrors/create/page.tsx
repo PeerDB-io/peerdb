@@ -1,12 +1,40 @@
+'use client';
+import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
 import { LayoutMain, RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
-import { Select } from '@/lib/Select';
+import { Select, SelectItem } from '@/lib/Select';
 import { TextField } from '@/lib/TextField';
-
+import { Divider } from '@tremor/react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { TableMapRow } from '../types';
+import MirrorConfig from './config';
+import { handleCreate, listAllPeers } from './handlers';
+import { cdcSettings } from './helpers/cdc';
+import { blankCDCSetting } from './helpers/common';
+import TableMapping from './tablemapping';
 export default function CreateMirrors() {
+  const router = useRouter();
+  const [mirrorName, setMirrorName] = useState<string>('');
+  const [mirrorType, setMirrorType] = useState<'CDC' | 'QREP'>('CDC');
+  const [formMessage, setFormMessage] = useState<{ ok: boolean; msg: string }>({
+    ok: true,
+    msg: '',
+  });
+  const [loading, setLoading] = useState<boolean>(false);
+  const [config, setConfig] = useState<FlowConnectionConfigs>(blankCDCSetting);
+  const [peers, setPeers] = useState<Peer[]>([]);
+  const [rows, setRows] = useState<TableMapRow[]>([
+    { source: '', destination: '' },
+  ]);
+  useEffect(() => {
+    listAllPeers().then((peers) => setPeers(peers.peers));
+  }, []);
   return (
     <LayoutMain width='xxLarge' alignSelf='center' justifySelf='center'>
       <Panel>
@@ -18,100 +46,69 @@ export default function CreateMirrors() {
         </Label>
       </Panel>
       <Panel>
-        <Label colorName='lowContrast' variant='subheadline'>
-          Details
-        </Label>
         <RowWithSelect
           label={
             <Label as='label' htmlFor='mirror'>
               Mirror type
             </Label>
           }
-          action={<Select placeholder='Select' id='mirror' />}
-        />
-        <RowWithTextField
-          label={
-            <Label as='label' htmlFor='name'>
-              Name
-            </Label>
-          }
           action={
-            <TextField placeholder='Placeholder' variant='simple' id='name' />
-          }
-        />
-        <RowWithSelect
-          label={
-            <Label as='label' htmlFor='source'>
-              Source
-            </Label>
-          }
-          action={<Select placeholder='Select' id='source' />}
-        />
-        <RowWithSelect
-          label={
-            <Label as='label' htmlFor='destination'>
-              Destination
-            </Label>
-          }
-          action={<Select placeholder='Select' id='destination' />}
-        />
-        <RowWithTextField
-          label={
-            <Label as='label' htmlFor='query'>
-              Query
-            </Label>
-          }
-          action={
-            <TextField placeholder='Placeholder' variant='simple' id='query' />
+            <Select placeholder='Select mirror type' defaultValue={mirrorType}>
+              <SelectItem value='CDC'>CDC</SelectItem>
+            </Select>
           }
         />
         <RowWithTextField
-          label={
-            <Label as='label' htmlFor='watermark-id'>
-              Watermark ID
-            </Label>
-          }
+          label={<Label>Name</Label>}
           action={
             <TextField
-              placeholder='Placeholder'
               variant='simple'
-              id='watermark-id'
+              value={mirrorName}
+              onChange={(e) => setMirrorName(e.target.value)}
             />
           }
         />
-        <RowWithTextField
-          label={
-            <Label as='label' htmlFor='watermark-table'>
-              Watermark table
-            </Label>
-          }
-          action={
-            <TextField
-              placeholder='Placeholder'
-              variant='simple'
-              id='watermark-table'
-            />
-          }
-        />
-        <RowWithTextField
-          label={
-            <Label as='label' htmlFor='partitions'>
-              Rows per partition
-            </Label>
-          }
-          action={
-            <TextField
-              placeholder='Placeholder'
-              variant='simple'
-              id='partitions'
-            />
-          }
+        <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
+        <Label colorName='lowContrast'>Table Mapping</Label>
+        <TableMapping rows={rows} setRows={setRows} />
+        <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
+        <Label colorName='lowContrast'>Configuration</Label>
+        {!loading && formMessage.msg.length > 0 && (
+          <Label
+            colorName='lowContrast'
+            colorSet={formMessage.ok ? 'positive' : 'destructive'}
+            variant='subheadline'
+          >
+            {formMessage.msg}
+          </Label>
+        )}
+        <MirrorConfig
+          settings={cdcSettings}
+          mirrorConfig={config}
+          peers={peers}
+          setter={setConfig}
         />
       </Panel>
       <Panel>
         <ButtonGroup className='justify-end'>
-          <Button>Cancel</Button>
-          <Button variant='normalSolid'>Continue</Button>
+          <Button as={Link} href='/mirrors'>
+            Cancel
+          </Button>
+          <Button
+            variant='normalSolid'
+            onClick={() =>
+              handleCreate(
+                mirrorName,
+                rows,
+                config,
+                setFormMessage,
+                setLoading,
+                router
+              )
+            }
+          >
+            Create Mirror
+          </Button>
         </ButtonGroup>
       </Panel>
     </LayoutMain>
