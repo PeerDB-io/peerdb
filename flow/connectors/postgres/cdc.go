@@ -66,6 +66,8 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
 	if p.publication != "" {
 		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
 		pluginArguments = append(pluginArguments, pubOpt)
+	} else {
+		return nil, fmt.Errorf("publication name is not set")
 	}
 
 	replicationOpts := pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}
