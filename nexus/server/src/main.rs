@@ -455,8 +455,7 @@ impl NexusBackend {
                         "got workflow id: {:?}",
                         workflow_details.as_ref().map(|w| &w.workflow_id)
                     );
-                    if workflow_details.is_some() {
-                        let workflow_details = workflow_details.unwrap();
+                    if let Some(workflow_details) = workflow_details {
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler
                             .shutdown_flow_job(flow_job_name, workflow_details)

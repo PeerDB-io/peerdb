@@ -10,6 +10,7 @@ export async function POST(request: Request) {
   const flowServiceClient = GetFlowServiceClientFromEnv();
   const req: CreateCDCFlowRequest = {
     connectionConfigs: config,
+    createCatalogEntry: true
   };
   const createStatus: CreateCDCFlowResponse =
     await flowServiceClient.createCdcFlow(req);

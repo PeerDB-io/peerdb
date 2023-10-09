@@ -10,9 +10,15 @@ impl serde::Serialize for CreateCdcFlowRequest {
         if self.connection_configs.is_some() {
             len += 1;
         }
+        if self.create_catalog_entry {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_route.CreateCDCFlowRequest", len)?;
         if let Some(v) = self.connection_configs.as_ref() {
             struct_ser.serialize_field("connectionConfigs", v)?;
+        }
+        if self.create_catalog_entry {
+            struct_ser.serialize_field("createCatalogEntry", &self.create_catalog_entry)?;
         }
         struct_ser.end()
     }
@@ -26,11 +32,14 @@ impl<'de> serde::Deserialize<'de> for CreateCdcFlowRequest {
         const FIELDS: &[&str] = &[
             "connection_configs",
             "connectionConfigs",
+            "create_catalog_entry",
+            "createCatalogEntry",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ConnectionConfigs,
+            CreateCatalogEntry,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -54,6 +63,7 @@ impl<'de> serde::Deserialize<'de> for CreateCdcFlowRequest {
                     {
                         match value {
                             "connectionConfigs" | "connection_configs" => Ok(GeneratedField::ConnectionConfigs),
+                            "createCatalogEntry" | "create_catalog_entry" => Ok(GeneratedField::CreateCatalogEntry),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -74,6 +84,7 @@ impl<'de> serde::Deserialize<'de> for CreateCdcFlowRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut connection_configs__ = None;
+                let mut create_catalog_entry__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::ConnectionConfigs => {
@@ -82,6 +93,12 @@ impl<'de> serde::Deserialize<'de> for CreateCdcFlowRequest {
                             }
                             connection_configs__ = map.next_value()?;
                         }
+                        GeneratedField::CreateCatalogEntry => {
+                            if create_catalog_entry__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createCatalogEntry"));
+                            }
+                            create_catalog_entry__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -89,6 +106,7 @@ impl<'de> serde::Deserialize<'de> for CreateCdcFlowRequest {
                 }
                 Ok(CreateCdcFlowRequest {
                     connection_configs: connection_configs__,
+                    create_catalog_entry: create_catalog_entry__.unwrap_or_default(),
                 })
             }
         }

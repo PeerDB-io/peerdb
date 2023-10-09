@@ -4,6 +4,8 @@
 pub struct CreateCdcFlowRequest {
     #[prost(message, optional, tag="1")]
     pub connection_configs: ::core::option::Option<super::peerdb_flow::FlowConnectionConfigs>,
+    #[prost(bool, tag="2")]
+    pub create_catalog_entry: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
