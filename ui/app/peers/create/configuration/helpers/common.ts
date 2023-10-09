@@ -2,7 +2,7 @@ import { PeerConfig, PeerSetter } from '../types';
 import { blankPostgresSetting } from './pg';
 import { blankSnowflakeSetting } from './sf';
 
-export interface Setting {
+export interface PeerSetting {
   label: string;
   stateHandler: (value: string, setter: PeerSetter) => void;
   type?: string;

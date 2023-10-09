@@ -8,6 +8,7 @@ package peerdb_route;
 
 message CreateCDCFlowRequest {
   peerdb_flow.FlowConnectionConfigs connection_configs = 1;
+  bool create_catalog_entry = 2;
 }
 
 message CreateCDCFlowResponse {

@@ -9,6 +9,7 @@ import {
   CreatePeerRequest,
   CreatePeerResponse,
   CreatePeerStatus,
+  ListPeersRequest,
   ValidatePeerRequest,
   ValidatePeerResponse,
   ValidatePeerStatus,
@@ -62,4 +63,11 @@ export async function POST(request: Request) {
       return new Response('created');
     } else return new Response('status of peer creation is unknown');
   } else return new Response('mode of peer creation is unknown');
+}
+
+export async function GET(request: Request) {
+  let flowServiceClient = GetFlowServiceClientFromEnv();
+  let req: ListPeersRequest = {};
+  let peers = await flowServiceClient.listPeers(req);
+  return new Response(JSON.stringify(peers));
 }

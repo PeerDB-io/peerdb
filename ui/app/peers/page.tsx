@@ -1,5 +1,4 @@
 import { Peer } from '@/grpc_generated/peers';
-import { ListPeersRequest } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
@@ -9,18 +8,12 @@ import { Panel } from '@/lib/Panel';
 import { SearchField } from '@/lib/SearchField';
 import { Select } from '@/lib/Select';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { GetFlowServiceClientFromEnv } from '@/rpc/rpc';
+import { fetchPeers } from './handler';
+
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { Header } from '../../lib/Header';
 export const dynamic = 'force-dynamic';
-
-async function fetchPeers() {
-  let flowServiceClient = GetFlowServiceClientFromEnv();
-  let req: ListPeersRequest = {};
-  let peers = await flowServiceClient.listPeers(req);
-  return peers.peers;
-}
 
 function PeerRow({ peer }: { peer: Peer }) {
   return (

@@ -97,6 +97,7 @@ export function createPeerStatusToJSON(object: CreatePeerStatus): string {
 
 export interface CreateCDCFlowRequest {
   connectionConfigs: FlowConnectionConfigs | undefined;
+  createCatalogEntry: boolean;
 }
 
 export interface CreateCDCFlowResponse {
@@ -149,13 +150,16 @@ export interface CreatePeerResponse {
 }
 
 function createBaseCreateCDCFlowRequest(): CreateCDCFlowRequest {
-  return { connectionConfigs: undefined };
+  return { connectionConfigs: undefined, createCatalogEntry: false };
 }
 
 export const CreateCDCFlowRequest = {
   encode(message: CreateCDCFlowRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.connectionConfigs !== undefined) {
       FlowConnectionConfigs.encode(message.connectionConfigs, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.createCatalogEntry === true) {
+      writer.uint32(16).bool(message.createCatalogEntry);
     }
     return writer;
   },
@@ -174,6 +178,13 @@ export const CreateCDCFlowRequest = {
 
           message.connectionConfigs = FlowConnectionConfigs.decode(reader, reader.uint32());
           continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.createCatalogEntry = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -188,6 +199,7 @@ export const CreateCDCFlowRequest = {
       connectionConfigs: isSet(object.connectionConfigs)
         ? FlowConnectionConfigs.fromJSON(object.connectionConfigs)
         : undefined,
+      createCatalogEntry: isSet(object.createCatalogEntry) ? Boolean(object.createCatalogEntry) : false,
     };
   },
 
@@ -195,6 +207,9 @@ export const CreateCDCFlowRequest = {
     const obj: any = {};
     if (message.connectionConfigs !== undefined) {
       obj.connectionConfigs = FlowConnectionConfigs.toJSON(message.connectionConfigs);
+    }
+    if (message.createCatalogEntry === true) {
+      obj.createCatalogEntry = message.createCatalogEntry;
     }
     return obj;
   },
@@ -207,6 +222,7 @@ export const CreateCDCFlowRequest = {
     message.connectionConfigs = (object.connectionConfigs !== undefined && object.connectionConfigs !== null)
       ? FlowConnectionConfigs.fromPartial(object.connectionConfigs)
       : undefined;
+    message.createCatalogEntry = object.createCatalogEntry ?? false;
     return message;
   },
 };
