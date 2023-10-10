@@ -32,9 +32,12 @@ const validateFlowFields = (
 };
 
 const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
-  const mapping: { [key: string]: string } = {};
-  tableMapping.forEach((row) => {
-    mapping[row.source] = row.destination;
+  const mapping = tableMapping.map((row) => {
+    return {
+      sourceTableIdentifier: row.source,
+      destinationTableIdentifier: row.destination,
+      partitionKey: '',
+    };
   });
   return mapping;
 };
@@ -58,7 +61,7 @@ export const handleCreate = async (
   const isValid = validateFlowFields(rows, setMsg, config);
   if (!isValid) return;
   const tableNameMapping = reformattedTableMapping(rows);
-  config['tableNameMapping'] = tableNameMapping;
+  config['tableMappings'] = tableNameMapping;
   config['flowJobName'] = flowJobName;
   setLoading(true);
   const statusMessage = await fetch('/api/mirrors/cdc', {
