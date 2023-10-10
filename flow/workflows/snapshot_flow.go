@@ -147,7 +147,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		SourcePeer:                 sourcePostgres,
 		DestinationPeer:            s.config.Destination,
 		Query:                      query,
-		WatermarkColumn:            "ctid",
+		WatermarkColumn:            partitionCol,
 		WatermarkTable:             srcName,
 		InitialCopyOnly:            true,
 		DestinationTableIdentifier: dstName,
