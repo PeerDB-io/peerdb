@@ -97,12 +97,18 @@ export interface RelationMessage {
   columns: RelationMessageColumn[];
 }
 
+export interface TableMapping {
+  sourceTableIdentifier: string;
+  destinationTableIdentifier: string;
+  partitionKey: string;
+}
+
 export interface FlowConnectionConfigs {
   source: Peer | undefined;
   destination: Peer | undefined;
   flowJobName: string;
   tableSchema: TableSchema | undefined;
-  tableNameMapping: { [key: string]: string };
+  tableMappings: TableMapping[];
   srcTableIdNameMapping: { [key: number]: string };
   tableNameSchemaMapping: { [key: string]: TableSchema };
   /**
@@ -127,11 +133,6 @@ export interface FlowConnectionConfigs {
   /** the below two are for eventhub only */
   pushBatchSize: number;
   pushParallelism: number;
-}
-
-export interface FlowConnectionConfigs_TableNameMappingEntry {
-  key: string;
-  value: string;
 }
 
 export interface FlowConnectionConfigs_SrcTableIdNameMappingEntry {
@@ -675,13 +676,104 @@ export const RelationMessage = {
   },
 };
 
+function createBaseTableMapping(): TableMapping {
+  return { sourceTableIdentifier: "", destinationTableIdentifier: "", partitionKey: "" };
+}
+
+export const TableMapping = {
+  encode(message: TableMapping, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.sourceTableIdentifier !== "") {
+      writer.uint32(10).string(message.sourceTableIdentifier);
+    }
+    if (message.destinationTableIdentifier !== "") {
+      writer.uint32(18).string(message.destinationTableIdentifier);
+    }
+    if (message.partitionKey !== "") {
+      writer.uint32(26).string(message.partitionKey);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TableMapping {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTableMapping();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.sourceTableIdentifier = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.destinationTableIdentifier = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.partitionKey = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TableMapping {
+    return {
+      sourceTableIdentifier: isSet(object.sourceTableIdentifier) ? String(object.sourceTableIdentifier) : "",
+      destinationTableIdentifier: isSet(object.destinationTableIdentifier)
+        ? String(object.destinationTableIdentifier)
+        : "",
+      partitionKey: isSet(object.partitionKey) ? String(object.partitionKey) : "",
+    };
+  },
+
+  toJSON(message: TableMapping): unknown {
+    const obj: any = {};
+    if (message.sourceTableIdentifier !== "") {
+      obj.sourceTableIdentifier = message.sourceTableIdentifier;
+    }
+    if (message.destinationTableIdentifier !== "") {
+      obj.destinationTableIdentifier = message.destinationTableIdentifier;
+    }
+    if (message.partitionKey !== "") {
+      obj.partitionKey = message.partitionKey;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TableMapping>, I>>(base?: I): TableMapping {
+    return TableMapping.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TableMapping>, I>>(object: I): TableMapping {
+    const message = createBaseTableMapping();
+    message.sourceTableIdentifier = object.sourceTableIdentifier ?? "";
+    message.destinationTableIdentifier = object.destinationTableIdentifier ?? "";
+    message.partitionKey = object.partitionKey ?? "";
+    return message;
+  },
+};
+
 function createBaseFlowConnectionConfigs(): FlowConnectionConfigs {
   return {
     source: undefined,
     destination: undefined,
     flowJobName: "",
     tableSchema: undefined,
-    tableNameMapping: {},
+    tableMappings: [],
     srcTableIdNameMapping: {},
     tableNameSchemaMapping: {},
     metadataPeer: undefined,
@@ -716,9 +808,9 @@ export const FlowConnectionConfigs = {
     if (message.tableSchema !== undefined) {
       TableSchema.encode(message.tableSchema, writer.uint32(34).fork()).ldelim();
     }
-    Object.entries(message.tableNameMapping).forEach(([key, value]) => {
-      FlowConnectionConfigs_TableNameMappingEntry.encode({ key: key as any, value }, writer.uint32(42).fork()).ldelim();
-    });
+    for (const v of message.tableMappings) {
+      TableMapping.encode(v!, writer.uint32(42).fork()).ldelim();
+    }
     Object.entries(message.srcTableIdNameMapping).forEach(([key, value]) => {
       FlowConnectionConfigs_SrcTableIdNameMappingEntry.encode({ key: key as any, value }, writer.uint32(50).fork())
         .ldelim();
@@ -815,10 +907,7 @@ export const FlowConnectionConfigs = {
             break;
           }
 
-          const entry5 = FlowConnectionConfigs_TableNameMappingEntry.decode(reader, reader.uint32());
-          if (entry5.value !== undefined) {
-            message.tableNameMapping[entry5.key] = entry5.value;
-          }
+          message.tableMappings.push(TableMapping.decode(reader, reader.uint32()));
           continue;
         case 6:
           if (tag !== 50) {
@@ -960,12 +1049,9 @@ export const FlowConnectionConfigs = {
       destination: isSet(object.destination) ? Peer.fromJSON(object.destination) : undefined,
       flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
       tableSchema: isSet(object.tableSchema) ? TableSchema.fromJSON(object.tableSchema) : undefined,
-      tableNameMapping: isObject(object.tableNameMapping)
-        ? Object.entries(object.tableNameMapping).reduce<{ [key: string]: string }>((acc, [key, value]) => {
-          acc[key] = String(value);
-          return acc;
-        }, {})
-        : {},
+      tableMappings: Array.isArray(object?.tableMappings)
+        ? object.tableMappings.map((e: any) => TableMapping.fromJSON(e))
+        : [],
       srcTableIdNameMapping: isObject(object.srcTableIdNameMapping)
         ? Object.entries(object.srcTableIdNameMapping).reduce<{ [key: number]: string }>((acc, [key, value]) => {
           acc[Number(key)] = String(value);
@@ -1016,14 +1102,8 @@ export const FlowConnectionConfigs = {
     if (message.tableSchema !== undefined) {
       obj.tableSchema = TableSchema.toJSON(message.tableSchema);
     }
-    if (message.tableNameMapping) {
-      const entries = Object.entries(message.tableNameMapping);
-      if (entries.length > 0) {
-        obj.tableNameMapping = {};
-        entries.forEach(([k, v]) => {
-          obj.tableNameMapping[k] = v;
-        });
-      }
+    if (message.tableMappings?.length) {
+      obj.tableMappings = message.tableMappings.map((e) => TableMapping.toJSON(e));
     }
     if (message.srcTableIdNameMapping) {
       const entries = Object.entries(message.srcTableIdNameMapping);
@@ -1106,15 +1186,7 @@ export const FlowConnectionConfigs = {
     message.tableSchema = (object.tableSchema !== undefined && object.tableSchema !== null)
       ? TableSchema.fromPartial(object.tableSchema)
       : undefined;
-    message.tableNameMapping = Object.entries(object.tableNameMapping ?? {}).reduce<{ [key: string]: string }>(
-      (acc, [key, value]) => {
-        if (value !== undefined) {
-          acc[key] = String(value);
-        }
-        return acc;
-      },
-      {},
-    );
+    message.tableMappings = object.tableMappings?.map((e) => TableMapping.fromPartial(e)) || [];
     message.srcTableIdNameMapping = Object.entries(object.srcTableIdNameMapping ?? {}).reduce<
       { [key: number]: string }
     >((acc, [key, value]) => {
@@ -1148,81 +1220,6 @@ export const FlowConnectionConfigs = {
     message.replicationSlotName = object.replicationSlotName ?? "";
     message.pushBatchSize = object.pushBatchSize ?? 0;
     message.pushParallelism = object.pushParallelism ?? 0;
-    return message;
-  },
-};
-
-function createBaseFlowConnectionConfigs_TableNameMappingEntry(): FlowConnectionConfigs_TableNameMappingEntry {
-  return { key: "", value: "" };
-}
-
-export const FlowConnectionConfigs_TableNameMappingEntry = {
-  encode(message: FlowConnectionConfigs_TableNameMappingEntry, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.key !== "") {
-      writer.uint32(10).string(message.key);
-    }
-    if (message.value !== "") {
-      writer.uint32(18).string(message.value);
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): FlowConnectionConfigs_TableNameMappingEntry {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseFlowConnectionConfigs_TableNameMappingEntry();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
-
-          message.key = reader.string();
-          continue;
-        case 2:
-          if (tag !== 18) {
-            break;
-          }
-
-          message.value = reader.string();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): FlowConnectionConfigs_TableNameMappingEntry {
-    return { key: isSet(object.key) ? String(object.key) : "", value: isSet(object.value) ? String(object.value) : "" };
-  },
-
-  toJSON(message: FlowConnectionConfigs_TableNameMappingEntry): unknown {
-    const obj: any = {};
-    if (message.key !== "") {
-      obj.key = message.key;
-    }
-    if (message.value !== "") {
-      obj.value = message.value;
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<FlowConnectionConfigs_TableNameMappingEntry>, I>>(
-    base?: I,
-  ): FlowConnectionConfigs_TableNameMappingEntry {
-    return FlowConnectionConfigs_TableNameMappingEntry.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<FlowConnectionConfigs_TableNameMappingEntry>, I>>(
-    object: I,
-  ): FlowConnectionConfigs_TableNameMappingEntry {
-    const message = createBaseFlowConnectionConfigs_TableNameMappingEntry();
-    message.key = object.key ?? "";
-    message.value = object.value ?? "";
     return message;
   },
 };

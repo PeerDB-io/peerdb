@@ -145,9 +145,17 @@ func GenerateSnowflakePeer(snowflakeConfig *protos.SnowflakeConfig) (*protos.Pee
 }
 
 func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*protos.FlowConnectionConfigs, error) {
+	tblMappings := []*protos.TableMapping{}
+	for k, v := range c.TableNameMapping {
+		tblMappings = append(tblMappings, &protos.TableMapping{
+			SourceTableIdentifier:      k,
+			DestinationTableIdentifier: v,
+		})
+	}
+
 	ret := &protos.FlowConnectionConfigs{}
 	ret.FlowJobName = c.FlowJobName
-	ret.TableNameMapping = c.TableNameMapping
+	ret.TableMappings = tblMappings
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
 	ret.Destination = c.Destination
 	ret.CdcSyncMode = c.CDCSyncMode

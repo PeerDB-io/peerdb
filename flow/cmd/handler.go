@@ -65,18 +65,17 @@ func (h *FlowRequestHandler) createFlowJobEntry(ctx context.Context,
 			req.ConnectionConfigs.Destination.Name, srcErr)
 	}
 
-	for sourceTableIdentifier := range req.ConnectionConfigs.TableNameMapping {
-		destinationTableIdentifier := req.ConnectionConfigs.TableNameMapping[sourceTableIdentifier]
+	for _, v := range req.ConnectionConfigs.TableMappings {
 		_, err := h.pool.Exec(ctx, `
 		INSERT INTO flows (workflow_id, name, source_peer, destination_peer, description,
 		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`, workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
 			"Mirror created via GRPC",
-			schemaForTableIdentifier(sourceTableIdentifier, sourePeerType),
-			schemaForTableIdentifier(destinationTableIdentifier, destinationPeerType))
+			schemaForTableIdentifier(v.SourceTableIdentifier, sourePeerType),
+			schemaForTableIdentifier(v.DestinationTableIdentifier, destinationPeerType))
 		if err != nil {
 			return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
-				req.ConnectionConfigs.FlowJobName, sourceTableIdentifier, err)
+				req.ConnectionConfigs.FlowJobName, v.SourceTableIdentifier, err)
 		}
 	}
 

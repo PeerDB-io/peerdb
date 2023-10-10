@@ -188,11 +188,16 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
 	}).Info("pulling records...")
 
+	tblNameMapping := make(map[string]string)
+	for _, v := range input.FlowConnectionConfigs.TableMappings {
+		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
+	}
+
 	startTime := time.Now()
 	recordsWithTableSchemaDelta, err := srcConn.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
 		SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
-		TableNameMapping:            input.FlowConnectionConfigs.TableNameMapping,
+		TableNameMapping:            tblNameMapping,
 		LastSyncState:               input.LastSyncState,
 		MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
 		IdleTimeout:                 10 * time.Second,
