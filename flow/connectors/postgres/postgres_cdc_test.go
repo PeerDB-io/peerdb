@@ -505,7 +505,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 					"id":   string(qvalue.QValueKindInt32),
 					"name": string(qvalue.QValueKindString),
 				},
-				PrimaryKeyColumn: "id",
+				PrimaryKeyColumns: []string{"id"},
 			},
 		}}, tableNameSchema)
 	tableNameSchemaMapping[simpleHappyFlowDstTableName] =
@@ -666,7 +666,7 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 					"c40": string(qvalue.QValueKindUUID),
 					"c41": string(qvalue.QValueKindString),
 				},
-				PrimaryKeyColumn: "id",
+				PrimaryKeyColumns: []string{"id"},
 			},
 		},
 	}, tableNameSchema)
@@ -765,14 +765,14 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 					"n_b":   string(qvalue.QValueKindBytes),
 					"lz4_b": string(qvalue.QValueKindBytes),
 				},
-				PrimaryKeyColumn: "id",
+				PrimaryKeyColumns: []string{"id"},
 			},
 		}}, tableNameSchema)
 	tableNameSchemaMapping[toastHappyFlowDstTableName] =
 		tableNameSchema.TableNameSchemaMapping[toastHappyFlowSrcTableName]
 
 	suite.insertToastRecords(toastHappyFlowSrcTableName)
-	recordsWithSchemaDelta, err := suite.connector.PullRecords(&model.PullRecordsRequest{
+	_, err = suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            toastHappyFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            10 * time.Second,
@@ -783,7 +783,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
-	recordsWithSchemaDelta, err = suite.connector.PullRecords(&model.PullRecordsRequest{
+	recordsWithSchemaDelta, err := suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            toastHappyFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            10 * time.Second,

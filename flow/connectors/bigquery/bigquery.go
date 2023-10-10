@@ -1294,7 +1294,7 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 
 // generateMergeStmt generates a merge statement.
 func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
-	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
+	pkey := m.NormalizedTableSchema.PrimaryKeyColumns[0]
 
 	// comma separated list of column names
 	backtickColNames := make([]string, 0)

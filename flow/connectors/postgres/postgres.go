@@ -533,7 +533,7 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier,
 		internalSchema, rawTableIdentifier))
 	if err != nil {
-		return nil, fmt.Errorf("error creating batch ID index on raw table: %w", err)
+		return nil, fmt.Errorf("error creating destion table index on raw table: %w", err)
 	}
 
 	err = createRawTableTx.Commit(c.ctx)
