@@ -365,4 +365,29 @@ func (r *RelationRecord) GetItems() *RecordItems {
 	return nil
 }
 
+// CommitRecord is a record that represents a commit.
+type CommitRecord struct {
+	CheckPointID int64
+}
+
+// Implement Record interface for CommitRecord.
+func (r *CommitRecord) GetCheckPointID() int64 {
+	return r.CheckPointID
+}
+
+func (r *CommitRecord) GetTableName() string {
+	return ""
+}
+
+func (r *CommitRecord) GetItems() *RecordItems {
+	return nil
+}
+
+// NewCommitRecord creates a new CommitRecord.
+func NewCommitRecord(checkPointID int64) *CommitRecord {
+	return &CommitRecord{
+		CheckPointID: checkPointID,
+	}
+}
+
 type RelationMessageMapping map[uint32]*protos.RelationMessage
