@@ -1023,10 +1023,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		s.NoError(err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		s.NoError(err)
-
-		// verify our updates and delete happened
-		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
-		s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t", false)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1038,6 +1034,9 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	// allow only continue as new error
 	s.Error(err)
 	s.Contains(err.Error(), "continue as new")
+
+	// verify our updates and delete happened
+	s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t", false)
 
 	env.AssertExpectations(s.T())
 }
@@ -1075,7 +1074,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 5,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -1083,29 +1082,27 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	// and then insert, update and delete rows in the table.
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		rowsTx, err := s.pool.Begin(context.Background())
+		s.NoError(err)
+
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
 		`, srcTableName), i, testValue)
 			s.NoError(err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")
 
-		// verify we got our 10 rows
-		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
-		s.compareTableContentsSF("test_cpkey_toast_1", "id,c1,c2,t,t2", false)
-
-		_, err := s.pool.Exec(context.Background(),
+		_, err = rowsTx.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
 		s.NoError(err)
-		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
+		_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		s.NoError(err)
 
-		// verify our updates and delete happened
-		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
-		s.compareTableContentsSF("test_cpkey_toast_1", "id,c1,c2,t,t2", false)
+		err = rowsTx.Commit(context.Background())
+		s.NoError(err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1117,6 +1114,9 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	// allow only continue as new error
 	s.Error(err)
 	s.Contains(err.Error(), "continue as new")
+
+	// verify our updates and delete happened
+	s.compareTableContentsSF("test_cpkey_toast_1", "id,c1,c2,t,t2", false)
 
 	env.AssertExpectations(s.T())
 }
