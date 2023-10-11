@@ -114,7 +114,7 @@ func (p *PeerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
 	return numRows, nil
 }
 
-func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string) (int, error) {
+func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils.S3PeerCredentials) (int, error) {
 	r, w := io.Pipe()
 	numRowsWritten := make(chan int, 1)
 	go func() {
@@ -126,7 +126,7 @@ func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string) (int, error) 
 		numRowsWritten <- numRows
 	}()
 
-	s3svc, err := utils.CreateS3Client()
+	s3svc, err := utils.CreateS3Client(s3Creds)
 	if err != nil {
 		log.Errorf("failed to create S3 client: %v", err)
 		return 0, fmt.Errorf("failed to create S3 client: %w", err)

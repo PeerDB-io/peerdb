@@ -19,15 +19,42 @@ type AWSSecrets struct {
 	Endpoint        string
 }
 
-func GetAWSSecrets() (*AWSSecrets, error) {
-	awsRegion := os.Getenv("AWS_REGION")
+type S3PeerCredentials struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	AwsRoleArn      string
+	Region          string
+	Endpoint        string
+}
+
+func GetAWSSecrets(creds S3PeerCredentials) (*AWSSecrets, error) {
+	awsRegion := creds.Region
+	if awsRegion == "" {
+		awsRegion = os.Getenv("AWS_REGION")
+	}
 	if awsRegion == "" {
 		return nil, fmt.Errorf("AWS_REGION must be set")
 	}
-	awsEndpoint := os.Getenv("AWS_ENDPOINT")
-	awsKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	awsSecret := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	awsRoleArn := os.Getenv("AWS_ROLE_ARN")
+
+	awsEndpoint := creds.Endpoint
+	if awsEndpoint == "" {
+		awsEndpoint = os.Getenv("AWS_ENDPOINT")
+	}
+
+	awsKey := creds.AccessKeyID
+	if awsKey == "" {
+		awsKey = os.Getenv("AWS_ACCESS_KEY_ID")
+	}
+
+	awsSecret := creds.SecretAccessKey
+	if awsSecret == "" {
+		awsSecret = os.Getenv("AWS_SECRET_ACCESS_KEY")
+	}
+
+	awsRoleArn := creds.AwsRoleArn
+	if awsRoleArn == "" {
+		awsRoleArn = os.Getenv("AWS_ROLE_ARN")
+	}
 
 	// one of (awsKey and awsSecret) or awsRoleArn must be set
 	if awsKey == "" && awsSecret == "" && awsRoleArn == "" {
@@ -69,8 +96,8 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 	}, nil
 }
 
-func CreateS3Client() (*s3.S3, error) {
-	awsSecrets, err := GetAWSSecrets()
+func CreateS3Client(s3Creds S3PeerCredentials) (*s3.S3, error) {
+	awsSecrets, err := GetAWSSecrets(s3Creds)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get AWS secrets: %w", err)
 	}

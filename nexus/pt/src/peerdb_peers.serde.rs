@@ -1299,9 +1299,39 @@ impl serde::Serialize for S3Config {
         if !self.url.is_empty() {
             len += 1;
         }
+        if self.access_key_id.is_some() {
+            len += 1;
+        }
+        if self.secret_access_key.is_some() {
+            len += 1;
+        }
+        if self.role_arn.is_some() {
+            len += 1;
+        }
+        if self.region.is_some() {
+            len += 1;
+        }
+        if self.endpoint.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.S3Config", len)?;
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
+        }
+        if let Some(v) = self.access_key_id.as_ref() {
+            struct_ser.serialize_field("accessKeyId", v)?;
+        }
+        if let Some(v) = self.secret_access_key.as_ref() {
+            struct_ser.serialize_field("secretAccessKey", v)?;
+        }
+        if let Some(v) = self.role_arn.as_ref() {
+            struct_ser.serialize_field("roleArn", v)?;
+        }
+        if let Some(v) = self.region.as_ref() {
+            struct_ser.serialize_field("region", v)?;
+        }
+        if let Some(v) = self.endpoint.as_ref() {
+            struct_ser.serialize_field("endpoint", v)?;
         }
         struct_ser.end()
     }
@@ -1314,11 +1344,24 @@ impl<'de> serde::Deserialize<'de> for S3Config {
     {
         const FIELDS: &[&str] = &[
             "url",
+            "access_key_id",
+            "accessKeyId",
+            "secret_access_key",
+            "secretAccessKey",
+            "role_arn",
+            "roleArn",
+            "region",
+            "endpoint",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Url,
+            AccessKeyId,
+            SecretAccessKey,
+            RoleArn,
+            Region,
+            Endpoint,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1342,6 +1385,11 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                     {
                         match value {
                             "url" => Ok(GeneratedField::Url),
+                            "accessKeyId" | "access_key_id" => Ok(GeneratedField::AccessKeyId),
+                            "secretAccessKey" | "secret_access_key" => Ok(GeneratedField::SecretAccessKey),
+                            "roleArn" | "role_arn" => Ok(GeneratedField::RoleArn),
+                            "region" => Ok(GeneratedField::Region),
+                            "endpoint" => Ok(GeneratedField::Endpoint),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1362,6 +1410,11 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut url__ = None;
+                let mut access_key_id__ = None;
+                let mut secret_access_key__ = None;
+                let mut role_arn__ = None;
+                let mut region__ = None;
+                let mut endpoint__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Url => {
@@ -1370,6 +1423,36 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                             }
                             url__ = Some(map.next_value()?);
                         }
+                        GeneratedField::AccessKeyId => {
+                            if access_key_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accessKeyId"));
+                            }
+                            access_key_id__ = map.next_value()?;
+                        }
+                        GeneratedField::SecretAccessKey => {
+                            if secret_access_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("secretAccessKey"));
+                            }
+                            secret_access_key__ = map.next_value()?;
+                        }
+                        GeneratedField::RoleArn => {
+                            if role_arn__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roleArn"));
+                            }
+                            role_arn__ = map.next_value()?;
+                        }
+                        GeneratedField::Region => {
+                            if region__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("region"));
+                            }
+                            region__ = map.next_value()?;
+                        }
+                        GeneratedField::Endpoint => {
+                            if endpoint__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("endpoint"));
+                            }
+                            endpoint__ = map.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1377,6 +1460,11 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                 }
                 Ok(S3Config {
                     url: url__.unwrap_or_default(),
+                    access_key_id: access_key_id__,
+                    secret_access_key: secret_access_key__,
+                    role_arn: role_arn__,
+                    region: region__,
+                    endpoint: endpoint__,
                 })
             }
         }
