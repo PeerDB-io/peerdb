@@ -3,7 +3,6 @@ package peerflow
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/concurrency"
@@ -14,7 +13,6 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-	"golang.org/x/exp/maps"
 )
 
 type SnapshotFlowExecution struct {
@@ -36,10 +34,15 @@ func (s *SnapshotFlowExecution) setupReplication(
 		},
 	})
 
+	tblNameMapping := make(map[string]string)
+	for _, v := range s.config.TableMappings {
+		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
+	}
+
 	setupReplicationInput := &protos.SetupReplicationInput{
 		PeerConnectionConfig:        s.config.Source,
 		FlowJobName:                 flowName,
-		TableNameMapping:            s.config.TableNameMapping,
+		TableNameMapping:            tblNameMapping,
 		DoInitialCopy:               s.config.DoInitialCopy,
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
@@ -79,12 +82,11 @@ func (s *SnapshotFlowExecution) cloneTable(
 	boundSelector *concurrency.BoundSelector,
 	childCtx workflow.Context,
 	snapshotName string,
-	sourceTableName string,
-	destinationTableName string,
+	mapping *protos.TableMapping,
 ) error {
 	flowName := s.config.FlowJobName
-	srcName := sourceTableName
-	dstName := destinationTableName
+	srcName := mapping.SourceTableIdentifier
+	dstName := mapping.DestinationTableIdentifier
 	childWorkflowIDSideEffect := workflow.SideEffect(childCtx, func(ctx workflow.Context) interface{} {
 		childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, dstName, uuid.New().String())
 		reg := regexp.MustCompile("[^a-zA-Z0-9]+")
@@ -123,7 +125,12 @@ func (s *SnapshotFlowExecution) cloneTable(
 	sourcePostgres := s.config.Source
 	sourcePostgres.GetPostgresConfig().TransactionSnapshot = snapshotName
 
-	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", srcName)
+	partitionCol := "ctid"
+	if mapping.PartitionKey != "" {
+		partitionCol = mapping.PartitionKey
+	}
+
+	query := fmt.Sprintf("SELECT * FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}", srcName, partitionCol)
 
 	numWorkers := uint32(8)
 	if s.config.SnapshotMaxParallelWorkers > 0 {
@@ -140,7 +147,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		SourcePeer:                 sourcePostgres,
 		DestinationPeer:            s.config.Destination,
 		Query:                      query,
-		WatermarkColumn:            "ctid",
+		WatermarkColumn:            partitionCol,
 		WatermarkTable:             srcName,
 		InitialCopyOnly:            true,
 		DestinationTableIdentifier: dstName,
@@ -168,14 +175,12 @@ func (s *SnapshotFlowExecution) cloneTables(
 	logrus.Infof("cloning tables for slot name %s and snapshotName %s",
 		slotInfo.SlotName, slotInfo.SnapshotName)
 
-	srcTables := maps.Keys(s.config.TableNameMapping)
-	sort.Strings(srcTables)
+	numTables := len(s.config.TableMappings)
+	boundSelector := concurrency.NewBoundSelector(maxParallelClones, numTables, ctx)
 
-	boundSelector := concurrency.NewBoundSelector(maxParallelClones, len(srcTables), ctx)
-
-	for _, srcTbl := range srcTables {
-		source := srcTbl
-		destination := s.config.TableNameMapping[source]
+	for _, v := range s.config.TableMappings {
+		source := v.SourceTableIdentifier
+		destination := v.DestinationTableIdentifier
 		snapshotName := slotInfo.SnapshotName
 		logrus.WithFields(logrus.Fields{
 			"snapshotName": snapshotName,
@@ -183,7 +188,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 			"Cloning table with source table %s and destination table name %s",
 			source, destination,
 		)
-		err := s.cloneTable(boundSelector, ctx, snapshotName, source, destination)
+		err := s.cloneTable(boundSelector, ctx, snapshotName, v)
 		if err != nil {
 			s.logger.Error("failed to start clone child workflow: ", err)
 			continue

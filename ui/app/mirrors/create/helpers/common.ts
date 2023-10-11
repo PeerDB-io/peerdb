@@ -20,7 +20,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   destination: undefined,
   flowJobName: '',
   tableSchema: undefined,
-  tableNameMapping: {},
+  tableMappings: [],
   srcTableIdNameMapping: {},
   tableNameSchemaMapping: {},
   metadataPeer: undefined,

@@ -403,7 +403,7 @@ impl Catalog {
                             .await?,
                         &self
                             .normalize_schema_for_table_identifier(
-                                &table_mapping.target_table_identifier,
+                                &table_mapping.destination_table_identifier,
                                 destination_peer_id,
                             )
                             .await?,

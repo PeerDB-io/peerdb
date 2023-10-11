@@ -29,6 +29,16 @@ pub struct RelationMessage {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TableMapping {
+    #[prost(string, tag="1")]
+    pub source_table_identifier: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub destination_table_identifier: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub partition_key: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlowConnectionConfigs {
     #[prost(message, optional, tag="1")]
     pub source: ::core::option::Option<super::peerdb_peers::Peer>,
@@ -38,8 +48,8 @@ pub struct FlowConnectionConfigs {
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="4")]
     pub table_schema: ::core::option::Option<TableSchema>,
-    #[prost(map="string, string", tag="5")]
-    pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="5")]
+    pub table_mappings: ::prost::alloc::vec::Vec<TableMapping>,
     #[prost(map="uint32, string", tag="6")]
     pub src_table_id_name_mapping: ::std::collections::HashMap<u32, ::prost::alloc::string::String>,
     #[prost(map="string, message", tag="7")]

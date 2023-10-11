@@ -22,12 +22,18 @@ message RelationMessage {
   repeated RelationMessageColumn columns = 3;
 }
 
+message TableMapping {
+  string source_table_identifier = 1;
+  string destination_table_identifier = 2;
+  string partition_key = 3;
+}
+
 message FlowConnectionConfigs {
   peerdb_peers.Peer source = 1;
   peerdb_peers.Peer destination = 2;
   string flow_job_name = 3;
   TableSchema table_schema = 4;
-  map<string, string> table_name_mapping = 5;
+  repeated TableMapping table_mappings = 5;
   map<uint32, string> src_table_id_name_mapping = 6;
   map<string, TableSchema> table_name_schema_mapping = 7;
 
@@ -58,7 +64,7 @@ message FlowConnectionConfigs {
   int64 push_parallelism = 22;
 }
 
-message SyncFlowOptions { 
+message SyncFlowOptions {
   int32 batch_size = 1;
   map<uint32, RelationMessage> relation_message_mapping = 2;
 }

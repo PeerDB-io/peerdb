@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use anyhow::Context;
 use catalog::WorkflowDetails;
@@ -111,7 +111,7 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_peer_flow_req = pt::peerdb_route::CreateCdcFlowRequest {
             connection_configs: Some(peer_flow_config),
-            create_catalog_entry: false
+            create_catalog_entry: false,
         };
         let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
         let workflow_id = response.into_inner().worflow_id;
@@ -147,12 +147,13 @@ impl FlowGrpcClient {
         src: pt::peerdb_peers::Peer,
         dst: pt::peerdb_peers::Peer,
     ) -> anyhow::Result<String> {
-        let mut src_dst_name_map: HashMap<String, String> = HashMap::new();
+        let mut table_mappings: Vec<pt::peerdb_flow::TableMapping> = vec![];
         job.table_mappings.iter().for_each(|mapping| {
-            src_dst_name_map.insert(
-                mapping.source_table_identifier.clone(),
-                mapping.target_table_identifier.clone(),
-            );
+            table_mappings.push(pt::peerdb_flow::TableMapping {
+                source_table_identifier: mapping.source_table_identifier.clone(),
+                destination_table_identifier: mapping.destination_table_identifier.clone(),
+                partition_key: mapping.partition_key.clone().unwrap_or_default(),
+            });
         });
 
         let do_initial_copy = job.do_initial_copy;
@@ -166,7 +167,7 @@ impl FlowGrpcClient {
             source: Some(src),
             destination: Some(dst),
             flow_job_name: job.name.clone(),
-            table_name_mapping: src_dst_name_map,
+            table_mappings,
             do_initial_copy,
             publication_name: publication_name.unwrap_or_default(),
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
