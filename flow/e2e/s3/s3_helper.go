@@ -23,7 +23,7 @@ type S3TestHelper struct {
 }
 
 func NewS3TestHelper() (*S3TestHelper, error) {
-	client, err := utils.CreateS3Client()
+	client, err := utils.CreateS3Client(utils.S3PeerCredentials{})
 	if err != nil {
 		return nil, err
 	}

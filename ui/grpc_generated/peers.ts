@@ -146,6 +146,11 @@ export interface EventHubGroupConfig_EventhubsEntry {
 
 export interface S3Config {
   url: string;
+  accessKeyId?: string | undefined;
+  secretAccessKey?: string | undefined;
+  roleArn?: string | undefined;
+  region?: string | undefined;
+  endpoint?: string | undefined;
 }
 
 export interface SqlServerConfig {
@@ -1185,13 +1190,35 @@ export const EventHubGroupConfig_EventhubsEntry = {
 };
 
 function createBaseS3Config(): S3Config {
-  return { url: "" };
+  return {
+    url: "",
+    accessKeyId: undefined,
+    secretAccessKey: undefined,
+    roleArn: undefined,
+    region: undefined,
+    endpoint: undefined,
+  };
 }
 
 export const S3Config = {
   encode(message: S3Config, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.url !== "") {
       writer.uint32(10).string(message.url);
+    }
+    if (message.accessKeyId !== undefined) {
+      writer.uint32(18).string(message.accessKeyId);
+    }
+    if (message.secretAccessKey !== undefined) {
+      writer.uint32(26).string(message.secretAccessKey);
+    }
+    if (message.roleArn !== undefined) {
+      writer.uint32(34).string(message.roleArn);
+    }
+    if (message.region !== undefined) {
+      writer.uint32(42).string(message.region);
+    }
+    if (message.endpoint !== undefined) {
+      writer.uint32(50).string(message.endpoint);
     }
     return writer;
   },
@@ -1210,6 +1237,41 @@ export const S3Config = {
 
           message.url = reader.string();
           continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.accessKeyId = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.secretAccessKey = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.roleArn = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.region = reader.string();
+          continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.endpoint = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1220,13 +1282,35 @@ export const S3Config = {
   },
 
   fromJSON(object: any): S3Config {
-    return { url: isSet(object.url) ? String(object.url) : "" };
+    return {
+      url: isSet(object.url) ? String(object.url) : "",
+      accessKeyId: isSet(object.accessKeyId) ? String(object.accessKeyId) : undefined,
+      secretAccessKey: isSet(object.secretAccessKey) ? String(object.secretAccessKey) : undefined,
+      roleArn: isSet(object.roleArn) ? String(object.roleArn) : undefined,
+      region: isSet(object.region) ? String(object.region) : undefined,
+      endpoint: isSet(object.endpoint) ? String(object.endpoint) : undefined,
+    };
   },
 
   toJSON(message: S3Config): unknown {
     const obj: any = {};
     if (message.url !== "") {
       obj.url = message.url;
+    }
+    if (message.accessKeyId !== undefined) {
+      obj.accessKeyId = message.accessKeyId;
+    }
+    if (message.secretAccessKey !== undefined) {
+      obj.secretAccessKey = message.secretAccessKey;
+    }
+    if (message.roleArn !== undefined) {
+      obj.roleArn = message.roleArn;
+    }
+    if (message.region !== undefined) {
+      obj.region = message.region;
+    }
+    if (message.endpoint !== undefined) {
+      obj.endpoint = message.endpoint;
     }
     return obj;
   },
@@ -1237,6 +1321,11 @@ export const S3Config = {
   fromPartial<I extends Exact<DeepPartial<S3Config>, I>>(object: I): S3Config {
     const message = createBaseS3Config();
     message.url = object.url ?? "";
+    message.accessKeyId = object.accessKeyId ?? undefined;
+    message.secretAccessKey = object.secretAccessKey ?? undefined;
+    message.roleArn = object.roleArn ?? undefined;
+    message.region = object.region ?? undefined;
+    message.endpoint = object.endpoint ?? undefined;
     return message;
   },
 };

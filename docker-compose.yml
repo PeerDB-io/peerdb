@@ -9,9 +9,15 @@ x-catalog-config: &catalog-config
 
 x-flow-worker-env: &flow-worker-env
   TEMPORAL_HOST_PORT: temporal:7233
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
-  AWS_REGION: ${AWS_REGION:-""}
+  # For GCS, these will be your HMAC keys instead
+  # For more information: 
+  # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  # For GCS, set this to "auto" without the quotes
+  AWS_REGION: ${AWS_REGION:-}
+  # For GCS, set this as: https://storage.googleapis.com
+  AWS_ENDPOINT: ${AWS_ENDPOINT:-}
   # enables worker profiling using Go's pprof
   ENABLE_PROFILING: "true"
   # enables exporting of mirror metrics to Prometheus for visualization using Grafana

@@ -203,7 +203,7 @@ func (c *SnowflakeConnector) createStage(stageName string, config *protos.QRepCo
 }
 
 func (c *SnowflakeConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
-	awsCreds, err := utils.GetAWSSecrets()
+	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
 	if err != nil {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
@@ -342,7 +342,7 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		log.Infof("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job)
 
 		// deleting the contents of the bucket with prefix
-		s3svc, err := utils.CreateS3Client()
+		s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
 		if err != nil {
 			log.WithFields(log.Fields{
 				"flowName": job,

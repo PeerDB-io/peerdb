@@ -69,6 +69,11 @@ message EventHubGroupConfig {
 
 message S3Config {
   string url = 1;
+  optional string access_key_id = 2;
+  optional string secret_access_key = 3;
+  optional string role_arn = 4;
+  optional string region = 5;
+  optional string endpoint = 6;
 }
 
 message SqlServerConfig {

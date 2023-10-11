@@ -612,6 +612,11 @@ fn parse_db_options(
                     .get("url")
                     .context("S3 bucket url not specified")?
                     .to_string(),
+                access_key_id: opts.get("access_key_id").map(|s| s.to_string()),
+                secret_access_key: opts.get("secret_access_key").map(|s| s.to_string()),
+                region: opts.get("region").map(|s| s.to_string()),
+                role_arn: opts.get("role_arn").map(|s| s.to_string()),
+                endpoint: opts.get("endpoint").map(|s| s.to_string()),
             };
             let config = Config::S3Config(s3_config);
             Some(config)
