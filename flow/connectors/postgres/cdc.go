@@ -526,6 +526,26 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 			return nil, err
 		}
 		return retVal, nil
+	} else { // For custom types, let's identify with schema information
+		var typeName string
+		res, err := p.replPool.Query(p.ctx, "SELECT typname FROM pg_type WHERE oid = $1", dataType)
+		if err != nil {
+			return nil, fmt.Errorf("error querying type name for column: %w", err)
+		}
+		scanErr := res.Scan(&typeName)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning type name: %w", scanErr)
+		}
+		fmt.Println("datatype: ", dataType)
+		fmt.Println("typeName: ", typeName)
+		// POSTGIS and HSTORE support
+		switch typeName {
+		case "geometry":
+
+		case "geography":
+		case "hstore":
+		case "point":
+		}
 	}
 	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }
