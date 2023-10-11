@@ -29,6 +29,7 @@ type PostgresCDCSource struct {
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
 	startLSN               pglogrepl.LSN
+	commitLock             bool
 }
 
 type PostgresCDCConfig struct {
@@ -52,6 +53,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, err
 		publication:            cdcConfig.Publication,
 		relationMessageMapping: cdcConfig.RelationMessageMapping,
 		typeMap:                pgtype.NewMap(),
+		commitLock:             false,
 	}, nil
 }
 
@@ -131,7 +133,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
-	stopAtNextCommit := false
+	earlyReturn := false
 
 	defer func() {
 		err := conn.Close(p.ctx)
@@ -151,11 +153,9 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 
 	for {
-		if len(records.Records) >= int(req.MaxBatchSize) {
-			stopAtNextCommit = true
-		}
-
-		if time.Now().After(nextStandbyMessageDeadline) {
+		if time.Now().After(nextStandbyMessageDeadline) ||
+			earlyReturn ||
+			(len(records.Records) == int(req.MaxBatchSize)) {
 			// Update XLogPos to the last processed position, we can only confirm
 			// that this is the last row committed on the destination.
 			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
@@ -168,16 +168,19 @@ func (p *PostgresCDCSource) consumeStream(
 			utils.RecordHeartbeatWithRecover(p.ctx, numRowsProcessedMessage)
 			log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
+
+			if !p.commitLock && (earlyReturn || (len(records.Records) == int(req.MaxBatchSize))) {
+				return result, nil
+			}
 		}
 
 		ctx, cancel := context.WithDeadline(p.ctx, nextStandbyMessageDeadline)
 		rawMsg, err := conn.ReceiveMessage(ctx)
 		cancel()
-		if err != nil {
+		if err != nil && !p.commitLock {
 			if pgconn.Timeout(err) {
-				// TODO (kaushik): consider returning the records accumulated so far
-				// if last message seen was a commit, then we can return right away as well.
-				stopAtNextCommit = true
+				log.Infof("Idle timeout reached, returning currently accumulated records")
+				return result, nil
 			} else {
 				return nil, fmt.Errorf("ReceiveMessage failed: %w", err)
 			}
@@ -292,11 +295,7 @@ func (p *PostgresCDCSource) consumeStream(
 						result.TableSchemaDelta = tableSchemaDelta
 						log.Infof("Detected schema change for table %s, returning currently accumulated records",
 							result.TableSchemaDelta.SrcTableName)
-						stopAtNextCommit = true
-					}
-				case *model.CommitRecord:
-					if stopAtNextCommit {
-						return result, nil
+						earlyReturn = true
 					}
 				}
 			}
@@ -317,7 +316,8 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
-		log.Debugf("Ignoring BeginMessage")
+		log.Debugf("Locking PullRecords at BeginMessage, awaiting CommitMessage")
+		p.commitLock = true
 	case *pglogrepl.InsertMessage:
 		return p.processInsertMessage(xld.WALStart, msg)
 	case *pglogrepl.UpdateMessage:
@@ -326,8 +326,10 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 		return p.processDeleteMessage(xld.WALStart, msg)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
+		log.Warnf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
+			msg.CommitLSN, msg.TransactionEndLSN)
 		batch.LastCheckPointID = int64(xld.WALStart)
-		return model.NewCommitRecord(batch.LastCheckPointID), nil
+		p.commitLock = false
 	case *pglogrepl.RelationMessage:
 		// TODO (kaushik): consider persistent state for a mirror job
 		// to be stored somewhere in temporal state. We might need to persist
