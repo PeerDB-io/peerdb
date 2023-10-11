@@ -175,10 +175,12 @@ func (p *PostgresCDCSource) consumeStream(
 		cancel()
 		if err != nil {
 			if pgconn.Timeout(err) {
-				log.Infof("Idle timeout reached, returning currently accumulated records")
-				return result, nil
+				// TODO (kaushik): consider returning the records accumulated so far
+				// if last message seen was a commit, then we can return right away as well.
+				stopAtNextCommit = true
+			} else {
+				return nil, fmt.Errorf("ReceiveMessage failed: %w", err)
 			}
-			return nil, fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 
 		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
