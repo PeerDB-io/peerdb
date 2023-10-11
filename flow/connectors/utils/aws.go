@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
@@ -15,6 +16,7 @@ type AWSSecrets struct {
 	SecretAccessKey string
 	AwsRoleArn      string
 	Region          string
+	Endpoint        string
 }
 
 func GetAWSSecrets() (*AWSSecrets, error) {
@@ -22,7 +24,7 @@ func GetAWSSecrets() (*AWSSecrets, error) {
 	if awsRegion == "" {
 		return nil, fmt.Errorf("AWS_REGION must be set")
 	}
-
+	awsEndpoint := os.Getenv("AWS_ENDPOINT")
 	awsKey := os.Getenv("AWS_ACCESS_KEY_ID")
 	awsSecret := os.Getenv("AWS_SECRET_ACCESS_KEY")
 	awsRoleArn := os.Getenv("AWS_ROLE_ARN")
@@ -37,6 +39,7 @@ func GetAWSSecrets() (*AWSSecrets, error) {
 		SecretAccessKey: awsSecret,
 		AwsRoleArn:      awsRoleArn,
 		Region:          awsRegion,
+		Endpoint:        awsEndpoint,
 	}, nil
 }
 
@@ -73,7 +76,10 @@ func CreateS3Client() (*s3.S3, error) {
 	}
 
 	sess := session.Must(session.NewSession(&aws.Config{
-		Region: aws.String(awsSecrets.Region),
+		Region:   aws.String(awsSecrets.Region),
+		Endpoint: aws.String(awsSecrets.Endpoint),
+		Credentials: credentials.NewStaticCredentials(
+			awsSecrets.AccessKeyID, awsSecrets.SecretAccessKey, ""),
 	}))
 
 	s3svc := s3.New(sess)
