@@ -142,11 +142,15 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	numRows := 10
 
+	//nolint:gosec
 	srcTable := "test_qrep_flow_avro_pg_1"
 	s.setupSourceTable(srcTable, numRows)
 
+	//nolint:gosec
 	dstTable := "test_qrep_flow_avro_pg_2"
-	e2e.CreateSourceTableQRep(s.pool, postgresSuffix, dstTable) // the name is misleading, but this is the destination table
+	// the name is misleading, but this is the destination table
+	err := e2e.CreateSourceTableQRep(s.pool, postgresSuffix, dstTable)
+	s.NoError(err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, srcTable)
 	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, dstTable)
