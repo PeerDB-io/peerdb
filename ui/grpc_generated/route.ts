@@ -11,8 +11,10 @@ import {
   ServiceError,
   UntypedServiceImplementation,
 } from "@grpc/grpc-js";
+import Long from "long";
 import _m0 from "protobufjs/minimal";
 import { FlowConnectionConfigs, QRepConfig } from "./flow";
+import { Timestamp } from "./google/protobuf/timestamp";
 import { Peer } from "./peers";
 
 export const protobufPackage = "peerdb_route";
@@ -147,6 +149,53 @@ export interface ValidatePeerResponse {
 export interface CreatePeerResponse {
   status: CreatePeerStatus;
   message: string;
+}
+
+export interface MirrorStatusRequest {
+  flowJobName: string;
+}
+
+export interface PartitionStatus {
+  partitionId: string;
+  startTime: Date | undefined;
+  endTime: Date | undefined;
+  numRows: number;
+}
+
+export interface QRepMirrorStatus {
+  config:
+    | QRepConfig
+    | undefined;
+  /**
+   * TODO make note to see if we are still in initial copy
+   * or if we are in the continuous streaming mode.
+   */
+  partitions: PartitionStatus[];
+}
+
+export interface CDCSyncStatus {
+  startLsn: number;
+  endLsn: number;
+  numRows: number;
+  startTime: Date | undefined;
+  endTime: Date | undefined;
+}
+
+export interface SnapshotStatus {
+  clones: QRepMirrorStatus[];
+}
+
+export interface CDCMirrorStatus {
+  config: FlowConnectionConfigs | undefined;
+  snapshotStatus: SnapshotStatus | undefined;
+  cdcSyncs: CDCSyncStatus[];
+}
+
+export interface MirrorStatusResponse {
+  flowJobName: string;
+  qrepStatus?: QRepMirrorStatus | undefined;
+  cdcStatus?: CDCMirrorStatus | undefined;
+  errorMessage: string;
 }
 
 function createBaseCreateCDCFlowRequest(): CreateCDCFlowRequest {
@@ -944,6 +993,622 @@ export const CreatePeerResponse = {
   },
 };
 
+function createBaseMirrorStatusRequest(): MirrorStatusRequest {
+  return { flowJobName: "" };
+}
+
+export const MirrorStatusRequest = {
+  encode(message: MirrorStatusRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowJobName !== "") {
+      writer.uint32(10).string(message.flowJobName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): MirrorStatusRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMirrorStatusRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MirrorStatusRequest {
+    return { flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "" };
+  },
+
+  toJSON(message: MirrorStatusRequest): unknown {
+    const obj: any = {};
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MirrorStatusRequest>, I>>(base?: I): MirrorStatusRequest {
+    return MirrorStatusRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MirrorStatusRequest>, I>>(object: I): MirrorStatusRequest {
+    const message = createBaseMirrorStatusRequest();
+    message.flowJobName = object.flowJobName ?? "";
+    return message;
+  },
+};
+
+function createBasePartitionStatus(): PartitionStatus {
+  return { partitionId: "", startTime: undefined, endTime: undefined, numRows: 0 };
+}
+
+export const PartitionStatus = {
+  encode(message: PartitionStatus, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.partitionId !== "") {
+      writer.uint32(10).string(message.partitionId);
+    }
+    if (message.startTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.startTime), writer.uint32(18).fork()).ldelim();
+    }
+    if (message.endTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.endTime), writer.uint32(26).fork()).ldelim();
+    }
+    if (message.numRows !== 0) {
+      writer.uint32(32).int32(message.numRows);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PartitionStatus {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePartitionStatus();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.partitionId = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.startTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.endTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.numRows = reader.int32();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PartitionStatus {
+    return {
+      partitionId: isSet(object.partitionId) ? String(object.partitionId) : "",
+      startTime: isSet(object.startTime) ? fromJsonTimestamp(object.startTime) : undefined,
+      endTime: isSet(object.endTime) ? fromJsonTimestamp(object.endTime) : undefined,
+      numRows: isSet(object.numRows) ? Number(object.numRows) : 0,
+    };
+  },
+
+  toJSON(message: PartitionStatus): unknown {
+    const obj: any = {};
+    if (message.partitionId !== "") {
+      obj.partitionId = message.partitionId;
+    }
+    if (message.startTime !== undefined) {
+      obj.startTime = message.startTime.toISOString();
+    }
+    if (message.endTime !== undefined) {
+      obj.endTime = message.endTime.toISOString();
+    }
+    if (message.numRows !== 0) {
+      obj.numRows = Math.round(message.numRows);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PartitionStatus>, I>>(base?: I): PartitionStatus {
+    return PartitionStatus.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PartitionStatus>, I>>(object: I): PartitionStatus {
+    const message = createBasePartitionStatus();
+    message.partitionId = object.partitionId ?? "";
+    message.startTime = object.startTime ?? undefined;
+    message.endTime = object.endTime ?? undefined;
+    message.numRows = object.numRows ?? 0;
+    return message;
+  },
+};
+
+function createBaseQRepMirrorStatus(): QRepMirrorStatus {
+  return { config: undefined, partitions: [] };
+}
+
+export const QRepMirrorStatus = {
+  encode(message: QRepMirrorStatus, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.config !== undefined) {
+      QRepConfig.encode(message.config, writer.uint32(10).fork()).ldelim();
+    }
+    for (const v of message.partitions) {
+      PartitionStatus.encode(v!, writer.uint32(18).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): QRepMirrorStatus {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQRepMirrorStatus();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.config = QRepConfig.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.partitions.push(PartitionStatus.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QRepMirrorStatus {
+    return {
+      config: isSet(object.config) ? QRepConfig.fromJSON(object.config) : undefined,
+      partitions: Array.isArray(object?.partitions)
+        ? object.partitions.map((e: any) => PartitionStatus.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: QRepMirrorStatus): unknown {
+    const obj: any = {};
+    if (message.config !== undefined) {
+      obj.config = QRepConfig.toJSON(message.config);
+    }
+    if (message.partitions?.length) {
+      obj.partitions = message.partitions.map((e) => PartitionStatus.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QRepMirrorStatus>, I>>(base?: I): QRepMirrorStatus {
+    return QRepMirrorStatus.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QRepMirrorStatus>, I>>(object: I): QRepMirrorStatus {
+    const message = createBaseQRepMirrorStatus();
+    message.config = (object.config !== undefined && object.config !== null)
+      ? QRepConfig.fromPartial(object.config)
+      : undefined;
+    message.partitions = object.partitions?.map((e) => PartitionStatus.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseCDCSyncStatus(): CDCSyncStatus {
+  return { startLsn: 0, endLsn: 0, numRows: 0, startTime: undefined, endTime: undefined };
+}
+
+export const CDCSyncStatus = {
+  encode(message: CDCSyncStatus, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.startLsn !== 0) {
+      writer.uint32(8).int64(message.startLsn);
+    }
+    if (message.endLsn !== 0) {
+      writer.uint32(16).int64(message.endLsn);
+    }
+    if (message.numRows !== 0) {
+      writer.uint32(24).int32(message.numRows);
+    }
+    if (message.startTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.startTime), writer.uint32(34).fork()).ldelim();
+    }
+    if (message.endTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.endTime), writer.uint32(42).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CDCSyncStatus {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCDCSyncStatus();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.startLsn = longToNumber(reader.int64() as Long);
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.endLsn = longToNumber(reader.int64() as Long);
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.numRows = reader.int32();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.startTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.endTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CDCSyncStatus {
+    return {
+      startLsn: isSet(object.startLsn) ? Number(object.startLsn) : 0,
+      endLsn: isSet(object.endLsn) ? Number(object.endLsn) : 0,
+      numRows: isSet(object.numRows) ? Number(object.numRows) : 0,
+      startTime: isSet(object.startTime) ? fromJsonTimestamp(object.startTime) : undefined,
+      endTime: isSet(object.endTime) ? fromJsonTimestamp(object.endTime) : undefined,
+    };
+  },
+
+  toJSON(message: CDCSyncStatus): unknown {
+    const obj: any = {};
+    if (message.startLsn !== 0) {
+      obj.startLsn = Math.round(message.startLsn);
+    }
+    if (message.endLsn !== 0) {
+      obj.endLsn = Math.round(message.endLsn);
+    }
+    if (message.numRows !== 0) {
+      obj.numRows = Math.round(message.numRows);
+    }
+    if (message.startTime !== undefined) {
+      obj.startTime = message.startTime.toISOString();
+    }
+    if (message.endTime !== undefined) {
+      obj.endTime = message.endTime.toISOString();
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CDCSyncStatus>, I>>(base?: I): CDCSyncStatus {
+    return CDCSyncStatus.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CDCSyncStatus>, I>>(object: I): CDCSyncStatus {
+    const message = createBaseCDCSyncStatus();
+    message.startLsn = object.startLsn ?? 0;
+    message.endLsn = object.endLsn ?? 0;
+    message.numRows = object.numRows ?? 0;
+    message.startTime = object.startTime ?? undefined;
+    message.endTime = object.endTime ?? undefined;
+    return message;
+  },
+};
+
+function createBaseSnapshotStatus(): SnapshotStatus {
+  return { clones: [] };
+}
+
+export const SnapshotStatus = {
+  encode(message: SnapshotStatus, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.clones) {
+      QRepMirrorStatus.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SnapshotStatus {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSnapshotStatus();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.clones.push(QRepMirrorStatus.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SnapshotStatus {
+    return { clones: Array.isArray(object?.clones) ? object.clones.map((e: any) => QRepMirrorStatus.fromJSON(e)) : [] };
+  },
+
+  toJSON(message: SnapshotStatus): unknown {
+    const obj: any = {};
+    if (message.clones?.length) {
+      obj.clones = message.clones.map((e) => QRepMirrorStatus.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SnapshotStatus>, I>>(base?: I): SnapshotStatus {
+    return SnapshotStatus.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SnapshotStatus>, I>>(object: I): SnapshotStatus {
+    const message = createBaseSnapshotStatus();
+    message.clones = object.clones?.map((e) => QRepMirrorStatus.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseCDCMirrorStatus(): CDCMirrorStatus {
+  return { config: undefined, snapshotStatus: undefined, cdcSyncs: [] };
+}
+
+export const CDCMirrorStatus = {
+  encode(message: CDCMirrorStatus, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.config !== undefined) {
+      FlowConnectionConfigs.encode(message.config, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.snapshotStatus !== undefined) {
+      SnapshotStatus.encode(message.snapshotStatus, writer.uint32(18).fork()).ldelim();
+    }
+    for (const v of message.cdcSyncs) {
+      CDCSyncStatus.encode(v!, writer.uint32(26).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CDCMirrorStatus {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCDCMirrorStatus();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.config = FlowConnectionConfigs.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.snapshotStatus = SnapshotStatus.decode(reader, reader.uint32());
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.cdcSyncs.push(CDCSyncStatus.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CDCMirrorStatus {
+    return {
+      config: isSet(object.config) ? FlowConnectionConfigs.fromJSON(object.config) : undefined,
+      snapshotStatus: isSet(object.snapshotStatus) ? SnapshotStatus.fromJSON(object.snapshotStatus) : undefined,
+      cdcSyncs: Array.isArray(object?.cdcSyncs) ? object.cdcSyncs.map((e: any) => CDCSyncStatus.fromJSON(e)) : [],
+    };
+  },
+
+  toJSON(message: CDCMirrorStatus): unknown {
+    const obj: any = {};
+    if (message.config !== undefined) {
+      obj.config = FlowConnectionConfigs.toJSON(message.config);
+    }
+    if (message.snapshotStatus !== undefined) {
+      obj.snapshotStatus = SnapshotStatus.toJSON(message.snapshotStatus);
+    }
+    if (message.cdcSyncs?.length) {
+      obj.cdcSyncs = message.cdcSyncs.map((e) => CDCSyncStatus.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CDCMirrorStatus>, I>>(base?: I): CDCMirrorStatus {
+    return CDCMirrorStatus.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CDCMirrorStatus>, I>>(object: I): CDCMirrorStatus {
+    const message = createBaseCDCMirrorStatus();
+    message.config = (object.config !== undefined && object.config !== null)
+      ? FlowConnectionConfigs.fromPartial(object.config)
+      : undefined;
+    message.snapshotStatus = (object.snapshotStatus !== undefined && object.snapshotStatus !== null)
+      ? SnapshotStatus.fromPartial(object.snapshotStatus)
+      : undefined;
+    message.cdcSyncs = object.cdcSyncs?.map((e) => CDCSyncStatus.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseMirrorStatusResponse(): MirrorStatusResponse {
+  return { flowJobName: "", qrepStatus: undefined, cdcStatus: undefined, errorMessage: "" };
+}
+
+export const MirrorStatusResponse = {
+  encode(message: MirrorStatusResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowJobName !== "") {
+      writer.uint32(10).string(message.flowJobName);
+    }
+    if (message.qrepStatus !== undefined) {
+      QRepMirrorStatus.encode(message.qrepStatus, writer.uint32(18).fork()).ldelim();
+    }
+    if (message.cdcStatus !== undefined) {
+      CDCMirrorStatus.encode(message.cdcStatus, writer.uint32(26).fork()).ldelim();
+    }
+    if (message.errorMessage !== "") {
+      writer.uint32(34).string(message.errorMessage);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): MirrorStatusResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMirrorStatusResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.qrepStatus = QRepMirrorStatus.decode(reader, reader.uint32());
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.cdcStatus = CDCMirrorStatus.decode(reader, reader.uint32());
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.errorMessage = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MirrorStatusResponse {
+    return {
+      flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
+      qrepStatus: isSet(object.qrepStatus) ? QRepMirrorStatus.fromJSON(object.qrepStatus) : undefined,
+      cdcStatus: isSet(object.cdcStatus) ? CDCMirrorStatus.fromJSON(object.cdcStatus) : undefined,
+      errorMessage: isSet(object.errorMessage) ? String(object.errorMessage) : "",
+    };
+  },
+
+  toJSON(message: MirrorStatusResponse): unknown {
+    const obj: any = {};
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    if (message.qrepStatus !== undefined) {
+      obj.qrepStatus = QRepMirrorStatus.toJSON(message.qrepStatus);
+    }
+    if (message.cdcStatus !== undefined) {
+      obj.cdcStatus = CDCMirrorStatus.toJSON(message.cdcStatus);
+    }
+    if (message.errorMessage !== "") {
+      obj.errorMessage = message.errorMessage;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MirrorStatusResponse>, I>>(base?: I): MirrorStatusResponse {
+    return MirrorStatusResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MirrorStatusResponse>, I>>(object: I): MirrorStatusResponse {
+    const message = createBaseMirrorStatusResponse();
+    message.flowJobName = object.flowJobName ?? "";
+    message.qrepStatus = (object.qrepStatus !== undefined && object.qrepStatus !== null)
+      ? QRepMirrorStatus.fromPartial(object.qrepStatus)
+      : undefined;
+    message.cdcStatus = (object.cdcStatus !== undefined && object.cdcStatus !== null)
+      ? CDCMirrorStatus.fromPartial(object.cdcStatus)
+      : undefined;
+    message.errorMessage = object.errorMessage ?? "";
+    return message;
+  },
+};
+
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
   listPeers: {
@@ -1000,6 +1665,15 @@ export const FlowServiceService = {
     responseSerialize: (value: ShutdownResponse) => Buffer.from(ShutdownResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => ShutdownResponse.decode(value),
   },
+  mirrorStatus: {
+    path: "/peerdb_route.FlowService/MirrorStatus",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: MirrorStatusRequest) => Buffer.from(MirrorStatusRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => MirrorStatusRequest.decode(value),
+    responseSerialize: (value: MirrorStatusResponse) => Buffer.from(MirrorStatusResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => MirrorStatusResponse.decode(value),
+  },
 } as const;
 
 export interface FlowServiceServer extends UntypedServiceImplementation {
@@ -1009,6 +1683,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   createCdcFlow: handleUnaryCall<CreateCDCFlowRequest, CreateCDCFlowResponse>;
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
+  mirrorStatus: handleUnaryCall<MirrorStatusRequest, MirrorStatusResponse>;
 }
 
 export interface FlowServiceClient extends Client {
@@ -1102,6 +1777,21 @@ export interface FlowServiceClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ShutdownResponse) => void,
   ): ClientUnaryCall;
+  mirrorStatus(
+    request: MirrorStatusRequest,
+    callback: (error: ServiceError | null, response: MirrorStatusResponse) => void,
+  ): ClientUnaryCall;
+  mirrorStatus(
+    request: MirrorStatusRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: MirrorStatusResponse) => void,
+  ): ClientUnaryCall;
+  mirrorStatus(
+    request: MirrorStatusRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: MirrorStatusResponse) => void,
+  ): ClientUnaryCall;
 }
 
 export const FlowServiceClient = makeGenericClientConstructor(
@@ -1111,6 +1801,25 @@ export const FlowServiceClient = makeGenericClientConstructor(
   new (address: string, credentials: ChannelCredentials, options?: Partial<ClientOptions>): FlowServiceClient;
   service: typeof FlowServiceService;
 };
+
+declare const self: any | undefined;
+declare const window: any | undefined;
+declare const global: any | undefined;
+const tsProtoGlobalThis: any = (() => {
+  if (typeof globalThis !== "undefined") {
+    return globalThis;
+  }
+  if (typeof self !== "undefined") {
+    return self;
+  }
+  if (typeof window !== "undefined") {
+    return window;
+  }
+  if (typeof global !== "undefined") {
+    return global;
+  }
+  throw "Unable to locate global object";
+})();
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
@@ -1122,6 +1831,40 @@ export type DeepPartial<T> = T extends Builtin ? T
 type KeysOfUnion<T> = T extends T ? keyof T : never;
 export type Exact<P, I extends P> = P extends Builtin ? P
   : P & { [K in keyof P]: Exact<P[K], I[K]> } & { [K in Exclude<keyof I, KeysOfUnion<P>>]: never };
+
+function toTimestamp(date: Date): Timestamp {
+  const seconds = date.getTime() / 1_000;
+  const nanos = (date.getTime() % 1_000) * 1_000_000;
+  return { seconds, nanos };
+}
+
+function fromTimestamp(t: Timestamp): Date {
+  let millis = (t.seconds || 0) * 1_000;
+  millis += (t.nanos || 0) / 1_000_000;
+  return new Date(millis);
+}
+
+function fromJsonTimestamp(o: any): Date {
+  if (o instanceof Date) {
+    return o;
+  } else if (typeof o === "string") {
+    return new Date(o);
+  } else {
+    return fromTimestamp(Timestamp.fromJSON(o));
+  }
+}
+
+function longToNumber(long: Long): number {
+  if (long.gt(Number.MAX_SAFE_INTEGER)) {
+    throw new tsProtoGlobalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
+  }
+  return long.toNumber();
+}
+
+if (_m0.util.Long !== Long) {
+  _m0.util.Long = Long as any;
+  _m0.configure();
+}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;

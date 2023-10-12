@@ -117,8 +117,14 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		}
 	}
 
+	var err error
+	err = h.updateFlowConfigInCatalog(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
+	}
+
 	state := peerflow.NewCDCFlowState()
-	_, err := h.temporalClient.ExecuteWorkflow(
+	_, err = h.temporalClient.ExecuteWorkflow(
 		ctx,                                // context
 		workflowOptions,                    // workflow start options
 		peerflow.CDCFlowWorkflowWithConfig, // workflow function
@@ -133,6 +139,27 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	return &protos.CreateCDCFlowResponse{
 		WorflowId: workflowID,
 	}, nil
+}
+
+func (h *FlowRequestHandler) updateFlowConfigInCatalog(
+	cfg *protos.FlowConnectionConfigs,
+) error {
+	var cfgBytes []byte
+	var err error
+
+	cfgBytes, err = proto.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to marshal flow config: %w", err)
+	}
+
+	_, err = h.pool.Exec(context.Background(),
+		"UPDATE flows SET config_proto = $1 WHERE name = $2",
+		cfgBytes, cfg.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to update flow config in catalog: %w", err)
+	}
+
+	return nil
 }
 
 func (h *FlowRequestHandler) CreateQRepFlow(
@@ -162,9 +189,36 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
+	err = h.updateQRepConfigInCatalog(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to update qrep config in catalog: %w", err)
+	}
+
 	return &protos.CreateQRepFlowResponse{
 		WorflowId: workflowID,
 	}, nil
+}
+
+// updateQRepConfigInCatalog updates the qrep config in the catalog
+func (h *FlowRequestHandler) updateQRepConfigInCatalog(
+	cfg *protos.QRepConfig,
+) error {
+	var cfgBytes []byte
+	var err error
+
+	cfgBytes, err = proto.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to marshal qrep config: %w", err)
+	}
+
+	_, err = h.pool.Exec(context.Background(),
+		"UPDATE flows SET config_proto = $1 WHERE name = $2",
+		cfgBytes, cfg.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to update qrep config in catalog: %w", err)
+	}
+
+	return nil
 }
 
 func (h *FlowRequestHandler) ShutdownFlow(

@@ -245,7 +245,10 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 			numTablesInParallel = 1
 		}
 
+		logger.Info("cloning tables in parallel: ", numTablesInParallel)
 		se.cloneTables(ctx, slotInfo, numTablesInParallel)
+	} else {
+		logger.Info("skipping initial copy as 'doInitialCopy' is false")
 	}
 
 	if err := se.closeSlotKeepAlive(replCtx); err != nil {

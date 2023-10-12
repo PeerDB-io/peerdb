@@ -10,7 +10,7 @@ x-catalog-config: &catalog-config
 x-flow-worker-env: &flow-worker-env
   TEMPORAL_HOST_PORT: temporal:7233
   # For GCS, these will be your HMAC keys instead
-  # For more information: 
+  # For more information:
   # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
@@ -59,7 +59,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.21.3
+    image: temporalio/auto-setup:1.22.2
     ports:
       - 7233:7233
     volumes:
@@ -80,7 +80,7 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
-    image: temporalio/admin-tools:1.21.3
+    image: temporalio/admin-tools:1.22.2
     stdin_open: true
     tty: true
     healthcheck:
@@ -208,7 +208,6 @@ services:
       - multi-metrics
       - metrics
 
-
   peerdb-grafana:
     container_name: peerdb-grafana
     build:
@@ -222,7 +221,6 @@ services:
     profiles:
       - multi-metrics
       - metrics
-
 
   peerdb-ui:
     container_name: peerdb-ui

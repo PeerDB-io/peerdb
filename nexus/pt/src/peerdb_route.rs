@@ -83,6 +83,85 @@ pub struct CreatePeerResponse {
     #[prost(string, tag="2")]
     pub message: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MirrorStatusRequest {
+    #[prost(string, tag="1")]
+    pub flow_job_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PartitionStatus {
+    #[prost(string, tag="1")]
+    pub partition_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="3")]
+    pub end_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(int32, tag="4")]
+    pub num_rows: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QRepMirrorStatus {
+    #[prost(message, optional, tag="1")]
+    pub config: ::core::option::Option<super::peerdb_flow::QRepConfig>,
+    /// TODO make note to see if we are still in initial copy
+    /// or if we are in the continuous streaming mode.
+    #[prost(message, repeated, tag="2")]
+    pub partitions: ::prost::alloc::vec::Vec<PartitionStatus>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CdcSyncStatus {
+    #[prost(int64, tag="1")]
+    pub start_lsn: i64,
+    #[prost(int64, tag="2")]
+    pub end_lsn: i64,
+    #[prost(int32, tag="3")]
+    pub num_rows: i32,
+    #[prost(message, optional, tag="4")]
+    pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="5")]
+    pub end_time: ::core::option::Option<::pbjson_types::Timestamp>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SnapshotStatus {
+    #[prost(message, repeated, tag="1")]
+    pub clones: ::prost::alloc::vec::Vec<QRepMirrorStatus>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CdcMirrorStatus {
+    #[prost(message, optional, tag="1")]
+    pub config: ::core::option::Option<super::peerdb_flow::FlowConnectionConfigs>,
+    #[prost(message, optional, tag="2")]
+    pub snapshot_status: ::core::option::Option<SnapshotStatus>,
+    #[prost(message, repeated, tag="3")]
+    pub cdc_syncs: ::prost::alloc::vec::Vec<CdcSyncStatus>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MirrorStatusResponse {
+    #[prost(string, tag="1")]
+    pub flow_job_name: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub error_message: ::prost::alloc::string::String,
+    #[prost(oneof="mirror_status_response::Status", tags="2, 3")]
+    pub status: ::core::option::Option<mirror_status_response::Status>,
+}
+/// Nested message and enum types in `MirrorStatusResponse`.
+pub mod mirror_status_response {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Status {
+        #[prost(message, tag="2")]
+        QrepStatus(super::QRepMirrorStatus),
+        #[prost(message, tag="3")]
+        CdcStatus(super::CdcMirrorStatus),
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ValidatePeerStatus {

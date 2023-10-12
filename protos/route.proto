@@ -72,6 +72,51 @@ message CreatePeerResponse {
   string message = 2;
 }
 
+message MirrorStatusRequest {
+  string flow_job_name = 1;
+}
+
+message PartitionStatus {
+  string partition_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  int32 num_rows = 4;
+}
+
+message QRepMirrorStatus {
+  peerdb_flow.QRepConfig config = 1;
+  repeated PartitionStatus partitions = 2;
+  // TODO make note to see if we are still in initial copy
+  // or if we are in the continuous streaming mode.
+}
+
+message CDCSyncStatus {
+  int64 start_lsn = 1;
+  int64 end_lsn = 2;
+  int32 num_rows = 3;
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+}
+
+message SnapshotStatus {
+  repeated QRepMirrorStatus clones = 1;
+}
+
+message CDCMirrorStatus {
+  peerdb_flow.FlowConnectionConfigs config = 1;
+  SnapshotStatus snapshot_status = 2;
+  repeated CDCSyncStatus cdc_syncs = 3;
+}
+
+message MirrorStatusResponse {
+  string flow_job_name = 1;
+  oneof status {
+    QRepMirrorStatus qrep_status = 2;
+    CDCMirrorStatus cdc_status = 3;
+  }
+  string error_message = 4;
+}
+
 service FlowService {
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {}
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {}
@@ -79,4 +124,5 @@ service FlowService {
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {}
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
+  rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {}
 }
