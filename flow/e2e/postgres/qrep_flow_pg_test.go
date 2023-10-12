@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,8 +22,9 @@ type PeerFlowE2ETestSuitePG struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
-	pool *pgxpool.Pool
-	peer *protos.Peer
+	pool      *pgxpool.Pool
+	peer      *protos.Peer
+	connector *connpostgres.PostgresConnector
 }
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
@@ -46,6 +48,16 @@ func (s *PeerFlowE2ETestSuitePG) SetupSuite() {
 	}
 	s.pool = pool
 	s.peer = generatePGPeer(e2e.GetTestPostgresConf())
+
+	s.connector, err = connpostgres.NewPostgresConnector(context.Background(),
+		&protos.PostgresConfig{
+			Host:     "localhost",
+			Port:     7132,
+			User:     "postgres",
+			Password: "postgres",
+			Database: "postgres",
+		})
+	s.NoError(err)
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite

@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 )
 
@@ -121,6 +123,19 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our first row.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
+		expectedTableSchema := &protos.TableSchema{
+			TableIdentifier: dstTableName,
+			Columns: map[string]string{
+				"id": string(qvalue.QValueKindInt64),
+				"c1": string(qvalue.QValueKindInt64),
+			},
+			PrimaryKeyColumn: "id",
+		}
+		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		s.NoError(err)
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
 		s.NoError(err)
 
@@ -136,6 +151,20 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
+		expectedTableSchema = &protos.TableSchema{
+			TableIdentifier: dstTableName,
+			Columns: map[string]string{
+				"id": string(qvalue.QValueKindInt64),
+				"c1": string(qvalue.QValueKindInt64),
+				"c2": string(qvalue.QValueKindInt64),
+			},
+			PrimaryKeyColumn: "id",
+		}
+		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		s.NoError(err)
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2")
 		s.NoError(err)
 
@@ -151,6 +180,21 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
+		expectedTableSchema = &protos.TableSchema{
+			TableIdentifier: dstTableName,
+			Columns: map[string]string{
+				"id": string(qvalue.QValueKindInt64),
+				"c1": string(qvalue.QValueKindInt64),
+				"c2": string(qvalue.QValueKindInt64),
+				"c3": string(qvalue.QValueKindInt64),
+			},
+			PrimaryKeyColumn: "id",
+		}
+		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		s.NoError(err)
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c3")
 		s.NoError(err)
 
@@ -166,6 +210,21 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
+		expectedTableSchema = &protos.TableSchema{
+			TableIdentifier: dstTableName,
+			Columns: map[string]string{
+				"id": string(qvalue.QValueKindInt64),
+				"c1": string(qvalue.QValueKindInt64),
+				"c2": string(qvalue.QValueKindInt64),
+				"c3": string(qvalue.QValueKindInt64),
+			},
+			PrimaryKeyColumn: "id",
+		}
+		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		s.NoError(err)
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
 		s.NoError(err)
 	}()
