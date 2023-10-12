@@ -103,7 +103,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	}
 
 	replayTableSchemaDeltaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 30 * time.Minute,
 	})
 	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
 		FlowConnectionConfigs: config,

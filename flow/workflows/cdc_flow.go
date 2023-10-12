@@ -13,7 +13,6 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-	"golang.org/x/exp/maps"
 )
 
 const (
@@ -311,10 +310,12 @@ func CDCFlowWorkflowWithConfig(
 
 		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
 		if tableSchemaDeltas != nil {
-			modifiedTablesMapping := make(map[string]string)
+			modifiedSrcTables := make([]string, 0)
+			modifiedDstTables := make([]string, 0)
 
 			for _, tableSchemaDelta := range tableSchemaDeltas {
-				modifiedTablesMapping[tableSchemaDelta.DstTableName] = tableSchemaDelta.SrcTableName
+				modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
+				modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
 			}
 
 			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -323,7 +324,7 @@ func CDCFlowWorkflowWithConfig(
 			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
 				&protos.GetTableSchemaBatchInput{
 					PeerConnectionConfig: cfg.Source,
-					TableIdentifiers:     maps.Values(modifiedTablesMapping),
+					TableIdentifiers:     modifiedSrcTables,
 				})
 
 			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
@@ -331,9 +332,9 @@ func CDCFlowWorkflowWithConfig(
 				w.logger.Error("failed to execute schema update at source: ", err)
 				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
 			} else {
-				for dstTableName, srcTableName := range modifiedTablesMapping {
-					cfg.TableNameSchemaMapping[dstTableName] =
-						getModifiedSchemaRes.TableNameSchemaMapping[srcTableName]
+				for i := range modifiedSrcTables {
+					cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
+						getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
 				}
 
 			}
