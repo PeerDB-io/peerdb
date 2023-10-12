@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 use peerdb_peers::DbType;
 use sqlparser::ast::PeerType;
 
