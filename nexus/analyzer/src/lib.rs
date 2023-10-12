@@ -176,7 +176,19 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         }
                         let do_initial_copy = match raw_options.remove("do_initial_copy") {
                             Some(sqlparser::ast::Value::Boolean(b)) => *b,
-                            _ => false,
+                            // also support "true" and "false" as strings
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                match s.as_ref() {
+                                    "true" => true,
+                                    "false" => false,
+                                    _ => {
+                                        return Err(anyhow::anyhow!(
+                                            "do_initial_copy must be a boolean"
+                                        ))
+                                    }
+                                }
+                            }
+                            _ => return Err(anyhow::anyhow!("do_initial_copy must be a boolean")),
                         };
 
                         let publication_name: Option<String> = match raw_options

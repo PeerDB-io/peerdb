@@ -25,6 +25,7 @@ const (
 	FlowService_CreateCDCFlow_FullMethodName  = "/peerdb_route.FlowService/CreateCDCFlow"
 	FlowService_CreateQRepFlow_FullMethodName = "/peerdb_route.FlowService/CreateQRepFlow"
 	FlowService_ShutdownFlow_FullMethodName   = "/peerdb_route.FlowService/ShutdownFlow"
+	FlowService_MirrorStatus_FullMethodName   = "/peerdb_route.FlowService/MirrorStatus"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -37,6 +38,7 @@ type FlowServiceClient interface {
 	CreateCDCFlow(ctx context.Context, in *CreateCDCFlowRequest, opts ...grpc.CallOption) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error)
 	ShutdownFlow(ctx context.Context, in *ShutdownRequest, opts ...grpc.CallOption) (*ShutdownResponse, error)
+	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
 }
 
 type flowServiceClient struct {
@@ -101,6 +103,15 @@ func (c *flowServiceClient) ShutdownFlow(ctx context.Context, in *ShutdownReques
 	return out, nil
 }
 
+func (c *flowServiceClient) MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error) {
+	out := new(MirrorStatusResponse)
+	err := c.cc.Invoke(ctx, FlowService_MirrorStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServiceServer is the server API for FlowService service.
 // All implementations must embed UnimplementedFlowServiceServer
 // for forward compatibility
@@ -111,6 +122,7 @@ type FlowServiceServer interface {
 	CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error)
 	ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
+	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -135,6 +147,9 @@ func (UnimplementedFlowServiceServer) CreateQRepFlow(context.Context, *CreateQRe
 }
 func (UnimplementedFlowServiceServer) ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ShutdownFlow not implemented")
+}
+func (UnimplementedFlowServiceServer) MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MirrorStatus not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 
@@ -257,6 +272,24 @@ func _FlowService_ShutdownFlow_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_MirrorStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MirrorStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).MirrorStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_MirrorStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).MirrorStatus(ctx, req.(*MirrorStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FlowService_ServiceDesc is the grpc.ServiceDesc for FlowService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -287,6 +320,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ShutdownFlow",
 			Handler:    _FlowService_ShutdownFlow_Handler,
+		},
+		{
+			MethodName: "MirrorStatus",
+			Handler:    _FlowService_MirrorStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

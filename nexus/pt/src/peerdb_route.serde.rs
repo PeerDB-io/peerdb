@@ -1,4 +1,309 @@
 // @generated
+impl serde::Serialize for CdcMirrorStatus {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.config.is_some() {
+            len += 1;
+        }
+        if self.snapshot_status.is_some() {
+            len += 1;
+        }
+        if !self.cdc_syncs.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.CDCMirrorStatus", len)?;
+        if let Some(v) = self.config.as_ref() {
+            struct_ser.serialize_field("config", v)?;
+        }
+        if let Some(v) = self.snapshot_status.as_ref() {
+            struct_ser.serialize_field("snapshotStatus", v)?;
+        }
+        if !self.cdc_syncs.is_empty() {
+            struct_ser.serialize_field("cdcSyncs", &self.cdc_syncs)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for CdcMirrorStatus {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "config",
+            "snapshot_status",
+            "snapshotStatus",
+            "cdc_syncs",
+            "cdcSyncs",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Config,
+            SnapshotStatus,
+            CdcSyncs,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "config" => Ok(GeneratedField::Config),
+                            "snapshotStatus" | "snapshot_status" => Ok(GeneratedField::SnapshotStatus),
+                            "cdcSyncs" | "cdc_syncs" => Ok(GeneratedField::CdcSyncs),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = CdcMirrorStatus;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.CDCMirrorStatus")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<CdcMirrorStatus, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut config__ = None;
+                let mut snapshot_status__ = None;
+                let mut cdc_syncs__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Config => {
+                            if config__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("config"));
+                            }
+                            config__ = map.next_value()?;
+                        }
+                        GeneratedField::SnapshotStatus => {
+                            if snapshot_status__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("snapshotStatus"));
+                            }
+                            snapshot_status__ = map.next_value()?;
+                        }
+                        GeneratedField::CdcSyncs => {
+                            if cdc_syncs__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cdcSyncs"));
+                            }
+                            cdc_syncs__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(CdcMirrorStatus {
+                    config: config__,
+                    snapshot_status: snapshot_status__,
+                    cdc_syncs: cdc_syncs__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.CDCMirrorStatus", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for CdcSyncStatus {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.start_lsn != 0 {
+            len += 1;
+        }
+        if self.end_lsn != 0 {
+            len += 1;
+        }
+        if self.num_rows != 0 {
+            len += 1;
+        }
+        if self.start_time.is_some() {
+            len += 1;
+        }
+        if self.end_time.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.CDCSyncStatus", len)?;
+        if self.start_lsn != 0 {
+            struct_ser.serialize_field("startLsn", ToString::to_string(&self.start_lsn).as_str())?;
+        }
+        if self.end_lsn != 0 {
+            struct_ser.serialize_field("endLsn", ToString::to_string(&self.end_lsn).as_str())?;
+        }
+        if self.num_rows != 0 {
+            struct_ser.serialize_field("numRows", &self.num_rows)?;
+        }
+        if let Some(v) = self.start_time.as_ref() {
+            struct_ser.serialize_field("startTime", v)?;
+        }
+        if let Some(v) = self.end_time.as_ref() {
+            struct_ser.serialize_field("endTime", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for CdcSyncStatus {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "start_lsn",
+            "startLsn",
+            "end_lsn",
+            "endLsn",
+            "num_rows",
+            "numRows",
+            "start_time",
+            "startTime",
+            "end_time",
+            "endTime",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            StartLsn,
+            EndLsn,
+            NumRows,
+            StartTime,
+            EndTime,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "startLsn" | "start_lsn" => Ok(GeneratedField::StartLsn),
+                            "endLsn" | "end_lsn" => Ok(GeneratedField::EndLsn),
+                            "numRows" | "num_rows" => Ok(GeneratedField::NumRows),
+                            "startTime" | "start_time" => Ok(GeneratedField::StartTime),
+                            "endTime" | "end_time" => Ok(GeneratedField::EndTime),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = CdcSyncStatus;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.CDCSyncStatus")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<CdcSyncStatus, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut start_lsn__ = None;
+                let mut end_lsn__ = None;
+                let mut num_rows__ = None;
+                let mut start_time__ = None;
+                let mut end_time__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::StartLsn => {
+                            if start_lsn__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("startLsn"));
+                            }
+                            start_lsn__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::EndLsn => {
+                            if end_lsn__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("endLsn"));
+                            }
+                            end_lsn__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::NumRows => {
+                            if num_rows__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("numRows"));
+                            }
+                            num_rows__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::StartTime => {
+                            if start_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("startTime"));
+                            }
+                            start_time__ = map.next_value()?;
+                        }
+                        GeneratedField::EndTime => {
+                            if end_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("endTime"));
+                            }
+                            end_time__ = map.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(CdcSyncStatus {
+                    start_lsn: start_lsn__.unwrap_or_default(),
+                    end_lsn: end_lsn__.unwrap_or_default(),
+                    num_rows: num_rows__.unwrap_or_default(),
+                    start_time: start_time__,
+                    end_time: end_time__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.CDCSyncStatus", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for CreateCdcFlowRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -853,6 +1158,517 @@ impl<'de> serde::Deserialize<'de> for ListPeersResponse {
         deserializer.deserialize_struct("peerdb_route.ListPeersResponse", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for MirrorStatusRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.flow_job_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.MirrorStatusRequest", len)?;
+        if !self.flow_job_name.is_empty() {
+            struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for MirrorStatusRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "flow_job_name",
+            "flowJobName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            FlowJobName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = MirrorStatusRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.MirrorStatusRequest")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<MirrorStatusRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut flow_job_name__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::FlowJobName => {
+                            if flow_job_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowJobName"));
+                            }
+                            flow_job_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(MirrorStatusRequest {
+                    flow_job_name: flow_job_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.MirrorStatusRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for MirrorStatusResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.flow_job_name.is_empty() {
+            len += 1;
+        }
+        if !self.error_message.is_empty() {
+            len += 1;
+        }
+        if self.status.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.MirrorStatusResponse", len)?;
+        if !self.flow_job_name.is_empty() {
+            struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
+        }
+        if !self.error_message.is_empty() {
+            struct_ser.serialize_field("errorMessage", &self.error_message)?;
+        }
+        if let Some(v) = self.status.as_ref() {
+            match v {
+                mirror_status_response::Status::QrepStatus(v) => {
+                    struct_ser.serialize_field("qrepStatus", v)?;
+                }
+                mirror_status_response::Status::CdcStatus(v) => {
+                    struct_ser.serialize_field("cdcStatus", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for MirrorStatusResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "flow_job_name",
+            "flowJobName",
+            "error_message",
+            "errorMessage",
+            "qrep_status",
+            "qrepStatus",
+            "cdc_status",
+            "cdcStatus",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            FlowJobName,
+            ErrorMessage,
+            QrepStatus,
+            CdcStatus,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
+                            "errorMessage" | "error_message" => Ok(GeneratedField::ErrorMessage),
+                            "qrepStatus" | "qrep_status" => Ok(GeneratedField::QrepStatus),
+                            "cdcStatus" | "cdc_status" => Ok(GeneratedField::CdcStatus),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = MirrorStatusResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.MirrorStatusResponse")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<MirrorStatusResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut flow_job_name__ = None;
+                let mut error_message__ = None;
+                let mut status__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::FlowJobName => {
+                            if flow_job_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowJobName"));
+                            }
+                            flow_job_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::ErrorMessage => {
+                            if error_message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("errorMessage"));
+                            }
+                            error_message__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::QrepStatus => {
+                            if status__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("qrepStatus"));
+                            }
+                            status__ = map.next_value::<::std::option::Option<_>>()?.map(mirror_status_response::Status::QrepStatus)
+;
+                        }
+                        GeneratedField::CdcStatus => {
+                            if status__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cdcStatus"));
+                            }
+                            status__ = map.next_value::<::std::option::Option<_>>()?.map(mirror_status_response::Status::CdcStatus)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(MirrorStatusResponse {
+                    flow_job_name: flow_job_name__.unwrap_or_default(),
+                    error_message: error_message__.unwrap_or_default(),
+                    status: status__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.MirrorStatusResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PartitionStatus {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.partition_id.is_empty() {
+            len += 1;
+        }
+        if self.start_time.is_some() {
+            len += 1;
+        }
+        if self.end_time.is_some() {
+            len += 1;
+        }
+        if self.num_rows != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.PartitionStatus", len)?;
+        if !self.partition_id.is_empty() {
+            struct_ser.serialize_field("partitionId", &self.partition_id)?;
+        }
+        if let Some(v) = self.start_time.as_ref() {
+            struct_ser.serialize_field("startTime", v)?;
+        }
+        if let Some(v) = self.end_time.as_ref() {
+            struct_ser.serialize_field("endTime", v)?;
+        }
+        if self.num_rows != 0 {
+            struct_ser.serialize_field("numRows", &self.num_rows)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PartitionStatus {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "partition_id",
+            "partitionId",
+            "start_time",
+            "startTime",
+            "end_time",
+            "endTime",
+            "num_rows",
+            "numRows",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PartitionId,
+            StartTime,
+            EndTime,
+            NumRows,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "partitionId" | "partition_id" => Ok(GeneratedField::PartitionId),
+                            "startTime" | "start_time" => Ok(GeneratedField::StartTime),
+                            "endTime" | "end_time" => Ok(GeneratedField::EndTime),
+                            "numRows" | "num_rows" => Ok(GeneratedField::NumRows),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PartitionStatus;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.PartitionStatus")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PartitionStatus, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut partition_id__ = None;
+                let mut start_time__ = None;
+                let mut end_time__ = None;
+                let mut num_rows__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::PartitionId => {
+                            if partition_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("partitionId"));
+                            }
+                            partition_id__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::StartTime => {
+                            if start_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("startTime"));
+                            }
+                            start_time__ = map.next_value()?;
+                        }
+                        GeneratedField::EndTime => {
+                            if end_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("endTime"));
+                            }
+                            end_time__ = map.next_value()?;
+                        }
+                        GeneratedField::NumRows => {
+                            if num_rows__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("numRows"));
+                            }
+                            num_rows__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(PartitionStatus {
+                    partition_id: partition_id__.unwrap_or_default(),
+                    start_time: start_time__,
+                    end_time: end_time__,
+                    num_rows: num_rows__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.PartitionStatus", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for QRepMirrorStatus {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.config.is_some() {
+            len += 1;
+        }
+        if !self.partitions.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.QRepMirrorStatus", len)?;
+        if let Some(v) = self.config.as_ref() {
+            struct_ser.serialize_field("config", v)?;
+        }
+        if !self.partitions.is_empty() {
+            struct_ser.serialize_field("partitions", &self.partitions)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for QRepMirrorStatus {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "config",
+            "partitions",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Config,
+            Partitions,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "config" => Ok(GeneratedField::Config),
+                            "partitions" => Ok(GeneratedField::Partitions),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = QRepMirrorStatus;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.QRepMirrorStatus")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<QRepMirrorStatus, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut config__ = None;
+                let mut partitions__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Config => {
+                            if config__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("config"));
+                            }
+                            config__ = map.next_value()?;
+                        }
+                        GeneratedField::Partitions => {
+                            if partitions__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("partitions"));
+                            }
+                            partitions__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(QRepMirrorStatus {
+                    config: config__,
+                    partitions: partitions__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.QRepMirrorStatus", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ShutdownRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1114,6 +1930,101 @@ impl<'de> serde::Deserialize<'de> for ShutdownResponse {
             }
         }
         deserializer.deserialize_struct("peerdb_route.ShutdownResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SnapshotStatus {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.clones.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.SnapshotStatus", len)?;
+        if !self.clones.is_empty() {
+            struct_ser.serialize_field("clones", &self.clones)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SnapshotStatus {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "clones",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Clones,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "clones" => Ok(GeneratedField::Clones),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SnapshotStatus;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.SnapshotStatus")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<SnapshotStatus, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut clones__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Clones => {
+                            if clones__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clones"));
+                            }
+                            clones__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SnapshotStatus {
+                    clones: clones__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.SnapshotStatus", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ValidatePeerRequest {
