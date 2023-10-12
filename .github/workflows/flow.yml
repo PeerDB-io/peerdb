@@ -96,8 +96,8 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
-          TEST_S3_CREDS: ${{ secrets.S3_CREDS }}/s3_creds.json
-          TEST_GCS_CREDS: ${{ secrets.S3_CREDS }}/gcs_creds.json
+          TEST_S3_CREDS: ${{ github.workspace }}/s3_creds.json
+          TEST_GCS_CREDS: ${{ github.workspace }}/gcs_creds.json
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
