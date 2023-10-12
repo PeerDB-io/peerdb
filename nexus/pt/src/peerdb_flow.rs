@@ -461,16 +461,14 @@ pub struct TableSchemaDelta {
     pub dst_table_name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="3")]
     pub added_columns: ::prost::alloc::vec::Vec<DeltaAddedColumn>,
-    #[prost(string, repeated, tag="4")]
-    pub dropped_columns: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReplayTableSchemaDeltaInput {
     #[prost(message, optional, tag="1")]
     pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
-    #[prost(message, optional, tag="2")]
-    pub table_schema_delta: ::core::option::Option<TableSchemaDelta>,
+    #[prost(message, repeated, tag="2")]
+    pub table_schema_deltas: ::prost::alloc::vec::Vec<TableSchemaDelta>,
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

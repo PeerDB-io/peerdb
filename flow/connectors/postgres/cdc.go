@@ -29,6 +29,7 @@ type PostgresCDCSource struct {
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
 	startLSN               pglogrepl.LSN
+	commitLock             bool
 }
 
 type PostgresCDCConfig struct {
@@ -52,6 +53,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, err
 		publication:            cdcConfig.Publication,
 		relationMessageMapping: cdcConfig.RelationMessageMapping,
 		typeMap:                pgtype.NewMap(),
+		commitLock:             false,
 	}, nil
 }
 
@@ -125,13 +127,12 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 	result := &model.RecordsWithTableSchemaDelta{
 		RecordBatch:            records,
-		TableSchemaDelta:       nil,
+		TableSchemaDeltas:      nil,
 		RelationMessageMapping: p.relationMessageMapping,
 	}
 
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
-	earlyReturn := false
 
 	defer func() {
 		err := conn.Close(p.ctx)
@@ -142,20 +143,21 @@ func (p *PostgresCDCSource) consumeStream(
 		}
 	}()
 
+	// clientXLogPos is the last checkpoint id + 1, we need to ack that we have processed
+	// until clientXLogPos - 1 each time we send a standby status update.
+	// consumedXLogPos is the lsn that has been committed on the destination.
+	consumedXLogPos := pglogrepl.LSN(0)
+	if clientXLogPos > 0 {
+		consumedXLogPos = clientXLogPos - 1
+	}
+
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) ||
-			earlyReturn ||
 			(len(records.Records) == int(req.MaxBatchSize)) {
-			// update the WALWritePosition to be clientXLogPos - 1
-			// as the clientXLogPos is the last checkpoint id + 1
-			// and we want to send the last checkpoint id as the last
-			// checkpoint id that we have processed.
-			lastProcessedXLogPos := clientXLogPos
-			if clientXLogPos > 0 {
-				lastProcessedXLogPos = clientXLogPos - 1
-			}
+			// Update XLogPos to the last processed position, we can only confirm
+			// that this is the last row committed on the destination.
 			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
-				pglogrepl.StandbyStatusUpdate{WALWritePosition: lastProcessedXLogPos})
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
 			if err != nil {
 				return nil, fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
 			}
@@ -165,7 +167,7 @@ func (p *PostgresCDCSource) consumeStream(
 			log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 
-			if earlyReturn || (len(records.Records) == int(req.MaxBatchSize)) {
+			if !p.commitLock && (len(records.Records) == int(req.MaxBatchSize)) {
 				return result, nil
 			}
 		}
@@ -173,12 +175,13 @@ func (p *PostgresCDCSource) consumeStream(
 		ctx, cancel := context.WithDeadline(p.ctx, nextStandbyMessageDeadline)
 		rawMsg, err := conn.ReceiveMessage(ctx)
 		cancel()
-		if err != nil {
+		if err != nil && !p.commitLock {
 			if pgconn.Timeout(err) {
 				log.Infof("Idle timeout reached, returning currently accumulated records")
 				return result, nil
+			} else {
+				return nil, fmt.Errorf("ReceiveMessage failed: %w", err)
 			}
-			return nil, fmt.Errorf("ReceiveMessage failed: %w", err)
 		}
 
 		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
@@ -285,12 +288,11 @@ func (p *PostgresCDCSource) consumeStream(
 				case *model.DeleteRecord:
 					records.Records = append(records.Records, rec)
 				case *model.RelationRecord:
-					tableSchemaDelta := rec.(*model.RelationRecord).TableSchemaDelta
-					if len(tableSchemaDelta.AddedColumns) > 0 || len(tableSchemaDelta.DroppedColumns) > 0 {
-						result.TableSchemaDelta = tableSchemaDelta
-						log.Infof("Detected schema change for table %s, returning currently accumulated records",
-							result.TableSchemaDelta.SrcTableName)
-						earlyReturn = true
+					tableSchemaDelta := r.TableSchemaDelta
+					if len(tableSchemaDelta.AddedColumns) > 0 {
+						log.Infof("Detected schema change for table %s, addedColumns: %v",
+							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns)
+						result.TableSchemaDeltas = append(result.TableSchemaDeltas, tableSchemaDelta)
 					}
 				}
 			}
@@ -311,7 +313,9 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
-		log.Debugf("Ignoring BeginMessage")
+		log.Debugf("BeginMessage => FinalLSN: %v, XID: %v", msg.FinalLSN, msg.Xid)
+		log.Debugf("Locking PullRecords at BeginMessage, awaiting CommitMessage")
+		p.commitLock = true
 	case *pglogrepl.InsertMessage:
 		return p.processInsertMessage(xld.WALStart, msg)
 	case *pglogrepl.UpdateMessage:
@@ -320,7 +324,10 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 		return p.processDeleteMessage(xld.WALStart, msg)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
+		log.Debugf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
+			msg.CommitLSN, msg.TransactionEndLSN)
 		batch.LastCheckPointID = int64(xld.WALStart)
+		p.commitLock = false
 	case *pglogrepl.RelationMessage:
 		// TODO (kaushik): consider persistent state for a mirror job
 		// to be stored somewhere in temporal state. We might need to persist
@@ -563,10 +570,9 @@ func (p *PostgresCDCSource) processRelationMessage(
 	schemaDelta := &protos.TableSchemaDelta{
 		// set it to the source table for now, so we can update the schema on the source side
 		// then at the Workflow level we set it t
-		SrcTableName:   p.SrcTableIDNameMapping[currRel.RelationId],
-		DstTableName:   p.TableNameMapping[p.SrcTableIDNameMapping[currRel.RelationId]],
-		AddedColumns:   make([]*protos.DeltaAddedColumn, 0),
-		DroppedColumns: make([]string, 0),
+		SrcTableName: p.SrcTableIDNameMapping[currRel.RelationId],
+		DstTableName: p.TableNameMapping[p.SrcTableIDNameMapping[currRel.RelationId]],
+		AddedColumns: make([]*protos.DeltaAddedColumn, 0),
 	}
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
@@ -578,17 +584,15 @@ func (p *PostgresCDCSource) processRelationMessage(
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
 		} else if prevRelMap[column.Name].RelId != currRelMap[column.Name].RelId {
-			schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
-			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
-				ColumnName: column.Name,
-				ColumnType: string(postgresOIDToQValueKind(column.DataType)),
-			})
+			log.Warnf("Detected dropped column %s in table %s, but not propagating", column,
+				schemaDelta.SrcTableName)
 		}
 	}
 	for _, column := range prevRel.Columns {
 		// present in previous relation message, but not in current one, so dropped.
 		if currRelMap[column.Name] == nil {
-			schemaDelta.DroppedColumns = append(schemaDelta.DroppedColumns, column.Name)
+			log.Warnf("Detected dropped column %s in table %s, but not propagating", column,
+				schemaDelta.SrcTableName)
 		}
 	}
 

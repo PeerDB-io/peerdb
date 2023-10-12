@@ -3567,15 +3567,15 @@ impl serde::Serialize for ReplayTableSchemaDeltaInput {
         if self.flow_connection_configs.is_some() {
             len += 1;
         }
-        if self.table_schema_delta.is_some() {
+        if !self.table_schema_deltas.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.ReplayTableSchemaDeltaInput", len)?;
         if let Some(v) = self.flow_connection_configs.as_ref() {
             struct_ser.serialize_field("flowConnectionConfigs", v)?;
         }
-        if let Some(v) = self.table_schema_delta.as_ref() {
-            struct_ser.serialize_field("tableSchemaDelta", v)?;
+        if !self.table_schema_deltas.is_empty() {
+            struct_ser.serialize_field("tableSchemaDeltas", &self.table_schema_deltas)?;
         }
         struct_ser.end()
     }
@@ -3589,14 +3589,14 @@ impl<'de> serde::Deserialize<'de> for ReplayTableSchemaDeltaInput {
         const FIELDS: &[&str] = &[
             "flow_connection_configs",
             "flowConnectionConfigs",
-            "table_schema_delta",
-            "tableSchemaDelta",
+            "table_schema_deltas",
+            "tableSchemaDeltas",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             FlowConnectionConfigs,
-            TableSchemaDelta,
+            TableSchemaDeltas,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3620,7 +3620,7 @@ impl<'de> serde::Deserialize<'de> for ReplayTableSchemaDeltaInput {
                     {
                         match value {
                             "flowConnectionConfigs" | "flow_connection_configs" => Ok(GeneratedField::FlowConnectionConfigs),
-                            "tableSchemaDelta" | "table_schema_delta" => Ok(GeneratedField::TableSchemaDelta),
+                            "tableSchemaDeltas" | "table_schema_deltas" => Ok(GeneratedField::TableSchemaDeltas),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3641,7 +3641,7 @@ impl<'de> serde::Deserialize<'de> for ReplayTableSchemaDeltaInput {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut flow_connection_configs__ = None;
-                let mut table_schema_delta__ = None;
+                let mut table_schema_deltas__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::FlowConnectionConfigs => {
@@ -3650,11 +3650,11 @@ impl<'de> serde::Deserialize<'de> for ReplayTableSchemaDeltaInput {
                             }
                             flow_connection_configs__ = map.next_value()?;
                         }
-                        GeneratedField::TableSchemaDelta => {
-                            if table_schema_delta__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("tableSchemaDelta"));
+                        GeneratedField::TableSchemaDeltas => {
+                            if table_schema_deltas__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tableSchemaDeltas"));
                             }
-                            table_schema_delta__ = map.next_value()?;
+                            table_schema_deltas__ = Some(map.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
@@ -3663,7 +3663,7 @@ impl<'de> serde::Deserialize<'de> for ReplayTableSchemaDeltaInput {
                 }
                 Ok(ReplayTableSchemaDeltaInput {
                     flow_connection_configs: flow_connection_configs__,
-                    table_schema_delta: table_schema_delta__,
+                    table_schema_deltas: table_schema_deltas__.unwrap_or_default(),
                 })
             }
         }
@@ -5563,9 +5563,6 @@ impl serde::Serialize for TableSchemaDelta {
         if !self.added_columns.is_empty() {
             len += 1;
         }
-        if !self.dropped_columns.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.TableSchemaDelta", len)?;
         if !self.src_table_name.is_empty() {
             struct_ser.serialize_field("srcTableName", &self.src_table_name)?;
@@ -5575,9 +5572,6 @@ impl serde::Serialize for TableSchemaDelta {
         }
         if !self.added_columns.is_empty() {
             struct_ser.serialize_field("addedColumns", &self.added_columns)?;
-        }
-        if !self.dropped_columns.is_empty() {
-            struct_ser.serialize_field("droppedColumns", &self.dropped_columns)?;
         }
         struct_ser.end()
     }
@@ -5595,8 +5589,6 @@ impl<'de> serde::Deserialize<'de> for TableSchemaDelta {
             "dstTableName",
             "added_columns",
             "addedColumns",
-            "dropped_columns",
-            "droppedColumns",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -5604,7 +5596,6 @@ impl<'de> serde::Deserialize<'de> for TableSchemaDelta {
             SrcTableName,
             DstTableName,
             AddedColumns,
-            DroppedColumns,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5630,7 +5621,6 @@ impl<'de> serde::Deserialize<'de> for TableSchemaDelta {
                             "srcTableName" | "src_table_name" => Ok(GeneratedField::SrcTableName),
                             "dstTableName" | "dst_table_name" => Ok(GeneratedField::DstTableName),
                             "addedColumns" | "added_columns" => Ok(GeneratedField::AddedColumns),
-                            "droppedColumns" | "dropped_columns" => Ok(GeneratedField::DroppedColumns),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5653,7 +5643,6 @@ impl<'de> serde::Deserialize<'de> for TableSchemaDelta {
                 let mut src_table_name__ = None;
                 let mut dst_table_name__ = None;
                 let mut added_columns__ = None;
-                let mut dropped_columns__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::SrcTableName => {
@@ -5674,12 +5663,6 @@ impl<'de> serde::Deserialize<'de> for TableSchemaDelta {
                             }
                             added_columns__ = Some(map.next_value()?);
                         }
-                        GeneratedField::DroppedColumns => {
-                            if dropped_columns__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("droppedColumns"));
-                            }
-                            dropped_columns__ = Some(map.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -5689,7 +5672,6 @@ impl<'de> serde::Deserialize<'de> for TableSchemaDelta {
                     src_table_name: src_table_name__.unwrap_or_default(),
                     dst_table_name: dst_table_name__.unwrap_or_default(),
                     added_columns: added_columns__.unwrap_or_default(),
-                    dropped_columns: dropped_columns__.unwrap_or_default(),
                 })
             }
         }

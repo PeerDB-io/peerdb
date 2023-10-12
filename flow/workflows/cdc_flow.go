@@ -303,16 +303,47 @@ func CDCFlowWorkflowWithConfig(
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 
-		var tableSchemaDelta *protos.TableSchemaDelta = nil
+		var tableSchemaDeltas []*protos.TableSchemaDelta = nil
 		if childSyncFlowRes != nil {
-			tableSchemaDelta = childSyncFlowRes.TableSchemaDelta
+			tableSchemaDeltas = childSyncFlowRes.TableSchemaDeltas
+		}
+
+		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+		if tableSchemaDeltas != nil {
+			modifiedSrcTables := make([]string, 0)
+			modifiedDstTables := make([]string, 0)
+
+			for _, tableSchemaDelta := range tableSchemaDeltas {
+				modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
+				modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
+			}
+
+			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 5 * time.Minute,
+			})
+			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
+				&protos.GetTableSchemaBatchInput{
+					PeerConnectionConfig: cfg.Source,
+					TableIdentifiers:     modifiedSrcTables,
+				})
+
+			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
+			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+				w.logger.Error("failed to execute schema update at source: ", err)
+				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+			} else {
+				for i := range modifiedSrcTables {
+					cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
+						getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
+				}
+
+			}
 		}
 
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			NormalizeFlowWorkflow,
 			cfg,
-			tableSchemaDelta,
 		)
 
 		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
@@ -325,27 +356,6 @@ func CDCFlowWorkflowWithConfig(
 			}
 		})
 		selector.Select(ctx)
-
-		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-		if tableSchemaDelta != nil {
-			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 5 * time.Minute,
-			})
-			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
-				&protos.GetTableSchemaBatchInput{
-					PeerConnectionConfig: cfg.Source,
-					TableIdentifiers:     []string{tableSchemaDelta.SrcTableName},
-				})
-
-			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
-			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
-				w.logger.Error("failed to execute schema update at source: ", err)
-				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
-			} else {
-				cfg.TableNameSchemaMapping[tableSchemaDelta.DstTableName] =
-					getModifiedSchemaRes.TableNameSchemaMapping[tableSchemaDelta.SrcTableName]
-			}
-		}
 	}
 
 	// send WAL heartbeat

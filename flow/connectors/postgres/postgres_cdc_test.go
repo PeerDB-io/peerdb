@@ -524,7 +524,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 	})
 	suite.failTestError(err)
 	suite.Equal(0, len(recordsWithSchemaDelta.RecordBatch.Records))
-	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDeltas)
 	suite.Equal(int64(0), recordsWithSchemaDelta.RecordBatch.FirstCheckPointID)
 	suite.Equal(int64(0), recordsWithSchemaDelta.RecordBatch.LastCheckPointID)
 	relationMessageMapping = recordsWithSchemaDelta.RelationMessageMapping
@@ -542,7 +542,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
-	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDeltas)
 	suite.validateInsertedSimpleRecords(recordsWithSchemaDelta.RecordBatch.Records,
 		simpleHappyFlowSrcTableName, simpleHappyFlowDstTableName)
 	suite.Greater(recordsWithSchemaDelta.RecordBatch.FirstCheckPointID, int64(0))
@@ -567,7 +567,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
-	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDeltas)
 	suite.validateSimpleMutatedRecords(recordsWithSchemaDelta.RecordBatch.Records,
 		simpleHappyFlowSrcTableName, simpleHappyFlowDstTableName)
 	suite.GreaterOrEqual(recordsWithSchemaDelta.RecordBatch.FirstCheckPointID, currentCheckPointID)
@@ -794,7 +794,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
-	suite.Nil(recordsWithSchemaDelta.TableSchemaDelta)
+	suite.Nil(recordsWithSchemaDelta.TableSchemaDeltas)
 	suite.validateInsertedToastRecords(recordsWithSchemaDelta.RecordBatch.Records,
 		toastHappyFlowSrcTableName, toastHappyFlowDstTableName)
 	suite.Greater(recordsWithSchemaDelta.RecordBatch.FirstCheckPointID, int64(0))

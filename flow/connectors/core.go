@@ -90,7 +90,7 @@ type CDCNormalizeConnector interface {
 
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
 	// This could involve adding or dropping multiple columns.
-	ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error
+	ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type QRepPullConnector interface {

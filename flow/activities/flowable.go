@@ -249,7 +249,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0)
 		return &model.SyncResponse{
 			RelationMessageMapping: recordsWithTableSchemaDelta.RelationMessageMapping,
-			TableSchemaDelta:       recordsWithTableSchemaDelta.TableSchemaDelta,
+			TableSchemaDeltas:      recordsWithTableSchemaDelta.TableSchemaDeltas,
 		}, nil
 	}
 
@@ -297,7 +297,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	res.TableSchemaDelta = recordsWithTableSchemaDelta.TableSchemaDelta
+	res.TableSchemaDeltas = recordsWithTableSchemaDelta.TableSchemaDeltas
 	res.RelationMessageMapping = recordsWithTableSchemaDelta.RelationMessageMapping
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
@@ -372,7 +372,7 @@ func (a *FlowableActivity) StartNormalize(
 	return res, nil
 }
 
-func (a *FlowableActivity) ReplayTableSchemaDelta(
+func (a *FlowableActivity) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	input *protos.ReplayTableSchemaDeltaInput,
 ) error {
@@ -384,7 +384,7 @@ func (a *FlowableActivity) ReplayTableSchemaDelta(
 	}
 	defer connectors.CloseConnector(dest)
 
-	return dest.ReplayTableSchemaDelta(input.FlowConnectionConfigs.FlowJobName, input.TableSchemaDelta)
+	return dest.ReplayTableSchemaDeltas(input.FlowConnectionConfigs.FlowJobName, input.TableSchemaDeltas)
 }
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.
