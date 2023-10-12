@@ -136,7 +136,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
-		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
+		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2")
 		s.NoError(err)
 
 		// alter source table, add column c3, drop column c2 and insert another row.
@@ -151,7 +151,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
-		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
+		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c3")
 		s.NoError(err)
 
 		// alter source table, drop column c3 and insert another row.

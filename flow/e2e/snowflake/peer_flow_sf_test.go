@@ -3,10 +3,13 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
+	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -21,8 +24,9 @@ type PeerFlowE2ETestSuiteSF struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
-	pool     *pgxpool.Pool
-	sfHelper *SnowflakeTestHelper
+	pool      *pgxpool.Pool
+	sfHelper  *SnowflakeTestHelper
+	connector *connsnowflake.SnowflakeConnector
 }
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
@@ -69,6 +73,10 @@ func (s *PeerFlowE2ETestSuiteSF) SetupSuite() {
 	if err != nil {
 		s.Fail("failed to setup snowflake", err)
 	}
+
+	s.connector, err = connsnowflake.NewSnowflakeConnector(context.Background(),
+		s.sfHelper.Config)
+	s.NoError(err)
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -84,6 +92,9 @@ func (s *PeerFlowE2ETestSuiteSF) TearDownSuite() {
 			s.Fail("failed to clean up Snowflake", err)
 		}
 	}
+
+	err = s.connector.Close()
+	s.NoError(err)
 }
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
@@ -841,7 +852,19 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 
 		// verify we got our first row.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
-		s.compareTableSchemasSF("test_simple_schema_changes")
+		expectedTableSchema := &protos.TableSchema{
+			TableIdentifier: strings.ToUpper(dstTableName),
+			Columns: map[string]string{
+				"ID":                 string(qvalue.QValueKindNumeric),
+				"C1":                 string(qvalue.QValueKindNumeric),
+				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
+			},
+		}
+		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		s.NoError(err)
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1", false)
 
 		// alter source table, add column c2 and insert another row.
@@ -856,7 +879,20 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
-		s.compareTableSchemasSF("test_simple_schema_changes")
+		expectedTableSchema = &protos.TableSchema{
+			TableIdentifier: strings.ToUpper(dstTableName),
+			Columns: map[string]string{
+				"ID":                 string(qvalue.QValueKindNumeric),
+				"C1":                 string(qvalue.QValueKindNumeric),
+				"C2":                 string(qvalue.QValueKindNumeric),
+				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
+			},
+		}
+		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		s.NoError(err)
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c2", false)
 
 		// alter source table, add column c3, drop column c2 and insert another row.
@@ -871,7 +907,21 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
-		s.compareTableSchemasSF("test_simple_schema_changes")
+		expectedTableSchema = &protos.TableSchema{
+			TableIdentifier: strings.ToUpper(dstTableName),
+			Columns: map[string]string{
+				"ID":                 string(qvalue.QValueKindNumeric),
+				"C1":                 string(qvalue.QValueKindNumeric),
+				"C2":                 string(qvalue.QValueKindNumeric),
+				"C3":                 string(qvalue.QValueKindNumeric),
+				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
+			},
+		}
+		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		s.NoError(err)
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c3", false)
 
 		// alter source table, drop column c3 and insert another row.
@@ -886,7 +936,21 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
-		s.compareTableSchemasSF("test_simple_schema_changes")
+		expectedTableSchema = &protos.TableSchema{
+			TableIdentifier: strings.ToUpper(dstTableName),
+			Columns: map[string]string{
+				"ID":                 string(qvalue.QValueKindNumeric),
+				"C1":                 string(qvalue.QValueKindNumeric),
+				"C2":                 string(qvalue.QValueKindNumeric),
+				"C3":                 string(qvalue.QValueKindNumeric),
+				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
+			},
+		}
+		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		s.NoError(err)
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1", false)
 	}()
 

@@ -219,7 +219,7 @@ func (c *SnowflakeConnector) GetTableSchema(
 	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName)
+		tableSchema, err := c.getTableSchemaForTable(strings.ToUpper(tableName))
 		if err != nil {
 			return nil, err
 		}
@@ -427,17 +427,14 @@ func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableS
 	return nil
 }
 
-// ReplayTableSchemaDelta changes a destination table to match the schema at source
+// ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
-func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error {
-	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
-		return nil
-	}
-
+func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
+	schemaDeltas []*protos.TableSchemaDelta) error {
 	tableSchemaModifyTx, err := c.database.Begin()
 	if err != nil {
-		return fmt.Errorf("error starting transaction for schema modification for table %s: %w",
-			schemaDelta.DstTableName, err)
+		return fmt.Errorf("error starting transaction for schema modification: %w",
+			err)
 	}
 	defer func() {
 		deferErr := tableSchemaModifyTx.Rollback()
@@ -448,39 +445,32 @@ func (c *SnowflakeConnector) ReplayTableSchemaDelta(flowJobName string, schemaDe
 		}
 	}()
 
-	for _, droppedColumn := range schemaDelta.DroppedColumns {
-		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN \"%s\"", schemaDelta.DstTableName,
-			strings.ToUpper(droppedColumn)))
-		if err != nil {
-			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
-				schemaDelta.DstTableName, err)
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+			return nil
 		}
-		log.WithFields(log.Fields{
-			"flowName":     flowJobName,
-			"srcTableName": schemaDelta.SrcTableName,
-			"dstTableName": schemaDelta.DstTableName,
-		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
-	}
-	for _, addedColumn := range schemaDelta.AddedColumns {
-		_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
-			schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName),
-			qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
-		if err != nil {
-			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
-				schemaDelta.DstTableName, err)
+
+		for _, addedColumn := range schemaDelta.AddedColumns {
+			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
+				schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName),
+				qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
+			if err != nil {
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+					schemaDelta.DstTableName, err)
+			}
+			log.WithFields(log.Fields{
+				"flowName":     flowJobName,
+				"srcTableName": schemaDelta.SrcTableName,
+				"dstTableName": schemaDelta.DstTableName,
+			}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+				addedColumn.ColumnType)
 		}
-		log.WithFields(log.Fields{
-			"flowName":     flowJobName,
-			"srcTableName": schemaDelta.SrcTableName,
-			"dstTableName": schemaDelta.DstTableName,
-		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-			addedColumn.ColumnType)
 	}
 
 	err = tableSchemaModifyTx.Commit()
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction for table schema modification for table %s: %w",
-			schemaDelta.DstTableName, err)
+		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
+			err)
 	}
 
 	return nil
@@ -968,7 +958,8 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	if err != nil {
 		return nil, err
 	}
-	// there is no easy way to check if a table has the same schema in Snowflake, so just executing the CREATE TABLE IF NOT EXISTS blindly.
+	// there is no easy way to check if a table has the same schema in Snowflake,
+	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
 	_, err = createRawTableTx.ExecContext(c.ctx,
 		fmt.Sprintf(createRawTableSQL, peerDBInternalSchema, rawTableIdentifier))
 	if err != nil {
@@ -1237,7 +1228,8 @@ func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64
 	return nil
 }
 
-func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64, normalizeRecordsTx *sql.Tx) error {
+func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string,
+	normalizeBatchID int64, normalizeRecordsTx *sql.Tx) error {
 	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)

@@ -416,12 +416,11 @@ export interface TableSchemaDelta {
   srcTableName: string;
   dstTableName: string;
   addedColumns: DeltaAddedColumn[];
-  droppedColumns: string[];
 }
 
 export interface ReplayTableSchemaDeltaInput {
   flowConnectionConfigs: FlowConnectionConfigs | undefined;
-  tableSchemaDelta: TableSchemaDelta | undefined;
+  tableSchemaDeltas: TableSchemaDelta[];
 }
 
 function createBaseTableNameMapping(): TableNameMapping {
@@ -5359,7 +5358,7 @@ export const DeltaAddedColumn = {
 };
 
 function createBaseTableSchemaDelta(): TableSchemaDelta {
-  return { srcTableName: "", dstTableName: "", addedColumns: [], droppedColumns: [] };
+  return { srcTableName: "", dstTableName: "", addedColumns: [] };
 }
 
 export const TableSchemaDelta = {
@@ -5372,9 +5371,6 @@ export const TableSchemaDelta = {
     }
     for (const v of message.addedColumns) {
       DeltaAddedColumn.encode(v!, writer.uint32(26).fork()).ldelim();
-    }
-    for (const v of message.droppedColumns) {
-      writer.uint32(34).string(v!);
     }
     return writer;
   },
@@ -5407,13 +5403,6 @@ export const TableSchemaDelta = {
 
           message.addedColumns.push(DeltaAddedColumn.decode(reader, reader.uint32()));
           continue;
-        case 4:
-          if (tag !== 34) {
-            break;
-          }
-
-          message.droppedColumns.push(reader.string());
-          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5430,7 +5419,6 @@ export const TableSchemaDelta = {
       addedColumns: Array.isArray(object?.addedColumns)
         ? object.addedColumns.map((e: any) => DeltaAddedColumn.fromJSON(e))
         : [],
-      droppedColumns: Array.isArray(object?.droppedColumns) ? object.droppedColumns.map((e: any) => String(e)) : [],
     };
   },
 
@@ -5445,9 +5433,6 @@ export const TableSchemaDelta = {
     if (message.addedColumns?.length) {
       obj.addedColumns = message.addedColumns.map((e) => DeltaAddedColumn.toJSON(e));
     }
-    if (message.droppedColumns?.length) {
-      obj.droppedColumns = message.droppedColumns;
-    }
     return obj;
   },
 
@@ -5459,13 +5444,12 @@ export const TableSchemaDelta = {
     message.srcTableName = object.srcTableName ?? "";
     message.dstTableName = object.dstTableName ?? "";
     message.addedColumns = object.addedColumns?.map((e) => DeltaAddedColumn.fromPartial(e)) || [];
-    message.droppedColumns = object.droppedColumns?.map((e) => e) || [];
     return message;
   },
 };
 
 function createBaseReplayTableSchemaDeltaInput(): ReplayTableSchemaDeltaInput {
-  return { flowConnectionConfigs: undefined, tableSchemaDelta: undefined };
+  return { flowConnectionConfigs: undefined, tableSchemaDeltas: [] };
 }
 
 export const ReplayTableSchemaDeltaInput = {
@@ -5473,8 +5457,8 @@ export const ReplayTableSchemaDeltaInput = {
     if (message.flowConnectionConfigs !== undefined) {
       FlowConnectionConfigs.encode(message.flowConnectionConfigs, writer.uint32(10).fork()).ldelim();
     }
-    if (message.tableSchemaDelta !== undefined) {
-      TableSchemaDelta.encode(message.tableSchemaDelta, writer.uint32(18).fork()).ldelim();
+    for (const v of message.tableSchemaDeltas) {
+      TableSchemaDelta.encode(v!, writer.uint32(18).fork()).ldelim();
     }
     return writer;
   },
@@ -5498,7 +5482,7 @@ export const ReplayTableSchemaDeltaInput = {
             break;
           }
 
-          message.tableSchemaDelta = TableSchemaDelta.decode(reader, reader.uint32());
+          message.tableSchemaDeltas.push(TableSchemaDelta.decode(reader, reader.uint32()));
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -5514,7 +5498,9 @@ export const ReplayTableSchemaDeltaInput = {
       flowConnectionConfigs: isSet(object.flowConnectionConfigs)
         ? FlowConnectionConfigs.fromJSON(object.flowConnectionConfigs)
         : undefined,
-      tableSchemaDelta: isSet(object.tableSchemaDelta) ? TableSchemaDelta.fromJSON(object.tableSchemaDelta) : undefined,
+      tableSchemaDeltas: Array.isArray(object?.tableSchemaDeltas)
+        ? object.tableSchemaDeltas.map((e: any) => TableSchemaDelta.fromJSON(e))
+        : [],
     };
   },
 
@@ -5523,8 +5509,8 @@ export const ReplayTableSchemaDeltaInput = {
     if (message.flowConnectionConfigs !== undefined) {
       obj.flowConnectionConfigs = FlowConnectionConfigs.toJSON(message.flowConnectionConfigs);
     }
-    if (message.tableSchemaDelta !== undefined) {
-      obj.tableSchemaDelta = TableSchemaDelta.toJSON(message.tableSchemaDelta);
+    if (message.tableSchemaDeltas?.length) {
+      obj.tableSchemaDeltas = message.tableSchemaDeltas.map((e) => TableSchemaDelta.toJSON(e));
     }
     return obj;
   },
@@ -5538,9 +5524,7 @@ export const ReplayTableSchemaDeltaInput = {
       (object.flowConnectionConfigs !== undefined && object.flowConnectionConfigs !== null)
         ? FlowConnectionConfigs.fromPartial(object.flowConnectionConfigs)
         : undefined;
-    message.tableSchemaDelta = (object.tableSchemaDelta !== undefined && object.tableSchemaDelta !== null)
-      ? TableSchemaDelta.fromPartial(object.tableSchemaDelta)
-      : undefined;
+    message.tableSchemaDeltas = object.tableSchemaDeltas?.map((e) => TableSchemaDelta.fromPartial(e)) || [];
     return message;
   },
 };

@@ -39,6 +39,8 @@ func (suite *SnowflakeSchemaDeltaTestSuite) SetupSuite() {
 func (suite *SnowflakeSchemaDeltaTestSuite) TearDownSuite() {
 	err := suite.sfTestHelper.Cleanup()
 	suite.failTestError(err)
+	err = suite.connector.Close()
+	suite.failTestError(err)
 }
 
 func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
@@ -46,14 +48,14 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	suite.failTestError(err)
 
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
+	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: []*protos.DeltaAddedColumn{{
 			ColumnName: "HI",
 			ColumnType: string(qvalue.QValueKindJSON),
 		}},
-	})
+	}})
 	suite.failTestError(err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -69,89 +71,7 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleDropColumn() {
-	tableName := fmt.Sprintf("%s.SIMPLE_DROP_COLUMN", schemaDeltaTestSchemaName)
-	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY, BYE TEXT)", tableName))
-	suite.failTestError(err)
-
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
-		SrcTableName:   tableName,
-		DstTableName:   tableName,
-		DroppedColumns: []string{"BYE"},
-	})
-	suite.failTestError(err)
-
-	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
-	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: tableName,
-		Columns: map[string]string{
-			"ID": string(qvalue.QValueKindString),
-		},
-	}, output.TableNameSchemaMapping[tableName])
-}
-
-func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddDropColumn() {
-	tableName := fmt.Sprintf("%s.SIMPLE_ADD_DROP_COLUMN", schemaDeltaTestSchemaName)
-	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY, BYE TEXT)", tableName))
-	suite.failTestError(err)
-
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: []*protos.DeltaAddedColumn{{
-			ColumnName: "HI",
-			ColumnType: string(qvalue.QValueKindFloat64),
-		}},
-		DroppedColumns: []string{"BYE"},
-	})
-	suite.failTestError(err)
-
-	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
-	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: tableName,
-		Columns: map[string]string{
-			"ID": string(qvalue.QValueKindString),
-			"HI": string(qvalue.QValueKindFloat64),
-		},
-	}, output.TableNameSchemaMapping[tableName])
-}
-
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropSameColumn() {
-	tableName := fmt.Sprintf("%s.ADD_DROP_SAME_COLUMN", schemaDeltaTestSchemaName)
-	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY, BYE INTEGER)", tableName))
-	suite.failTestError(err)
-
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
-		SrcTableName: tableName,
-		DstTableName: tableName,
-		AddedColumns: []*protos.DeltaAddedColumn{{
-			ColumnName: "BYE",
-			ColumnType: string(qvalue.QValueKindJSON),
-		}},
-		DroppedColumns: []string{"BYE"},
-	})
-	suite.failTestError(err)
-
-	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
-	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: tableName,
-		Columns: map[string]string{
-			"ID":  string(qvalue.QValueKindString),
-			"BYE": string(qvalue.QValueKindJSON),
-		},
-	}, output.TableNameSchemaMapping[tableName])
-}
-
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropAllColumnTypes() {
+func (suite *SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_ALL_COLUMN_TYPES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	suite.failTestError(err)
@@ -183,11 +103,11 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropAllColumnTypes() {
 		}
 	}
 
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
+	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	})
+	}})
 	suite.failTestError(err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -195,34 +115,9 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropAllColumnTypes() {
 	})
 	suite.failTestError(err)
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
-
-	droppedColumns := make([]string, 0)
-	for columnName := range expectedTableSchema.Columns {
-		if columnName != "ID" {
-			droppedColumns = append(droppedColumns, columnName)
-		}
-	}
-
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
-		SrcTableName:   tableName,
-		DstTableName:   tableName,
-		DroppedColumns: droppedColumns,
-	})
-	suite.failTestError(err)
-
-	output, err = suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
-	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: tableName,
-		Columns: map[string]string{
-			"ID": string(qvalue.QValueKindString),
-		},
-	}, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropTrickyColumnNames() {
+func (suite *SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_TRICKY_COLUMN_NAMES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(id TEXT PRIMARY KEY)", tableName))
 	suite.failTestError(err)
@@ -252,11 +147,11 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropTrickyColumnNames() {
 		}
 	}
 
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
+	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	})
+	}})
 	suite.failTestError(err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -264,34 +159,9 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropTrickyColumnNames() {
 	})
 	suite.failTestError(err)
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
-
-	droppedColumns := make([]string, 0)
-	for columnName := range expectedTableSchema.Columns {
-		if columnName != "ID" {
-			droppedColumns = append(droppedColumns, columnName)
-		}
-	}
-
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
-		SrcTableName:   tableName,
-		DstTableName:   tableName,
-		DroppedColumns: droppedColumns,
-	})
-	suite.failTestError(err)
-
-	output, err = suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
-	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: tableName,
-		Columns: map[string]string{
-			"ID": string(qvalue.QValueKindString),
-		},
-	}, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
+func (suite *SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_WHITESPACE_COLUMN_NAMES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(\" \" TEXT PRIMARY KEY)", tableName))
 	suite.failTestError(err)
@@ -315,12 +185,11 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		}
 	}
 
-	fmt.Println(addedColumns)
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
+	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	})
+	}})
 	suite.failTestError(err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -328,31 +197,6 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	})
 	suite.failTestError(err)
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
-
-	droppedColumns := make([]string, 0)
-	for columnName := range expectedTableSchema.Columns {
-		if columnName != " " {
-			droppedColumns = append(droppedColumns, columnName)
-		}
-	}
-
-	err = suite.connector.ReplayTableSchemaDelta("schema_delta_flow", &protos.TableSchemaDelta{
-		SrcTableName:   tableName,
-		DstTableName:   tableName,
-		DroppedColumns: droppedColumns,
-	})
-	suite.failTestError(err)
-
-	output, err = suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-		TableIdentifiers: []string{tableName},
-	})
-	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
-		TableIdentifier: tableName,
-		Columns: map[string]string{
-			" ": string(qvalue.QValueKindString),
-		},
-	}, output.TableNameSchemaMapping[tableName])
 }
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {

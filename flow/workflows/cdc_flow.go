@@ -13,6 +13,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -303,16 +304,45 @@ func CDCFlowWorkflowWithConfig(
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 
-		var tableSchemaDelta *protos.TableSchemaDelta = nil
+		var tableSchemaDeltas []*protos.TableSchemaDelta = nil
 		if childSyncFlowRes != nil {
-			tableSchemaDelta = childSyncFlowRes.TableSchemaDelta
+			tableSchemaDeltas = childSyncFlowRes.TableSchemaDeltas
+		}
+
+		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+		if tableSchemaDeltas != nil {
+			modifiedTablesMapping := make(map[string]string)
+
+			for _, tableSchemaDelta := range tableSchemaDeltas {
+				modifiedTablesMapping[tableSchemaDelta.DstTableName] = tableSchemaDelta.SrcTableName
+			}
+
+			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 5 * time.Minute,
+			})
+			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
+				&protos.GetTableSchemaBatchInput{
+					PeerConnectionConfig: cfg.Source,
+					TableIdentifiers:     maps.Values(modifiedTablesMapping),
+				})
+
+			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
+			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+				w.logger.Error("failed to execute schema update at source: ", err)
+				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+			} else {
+				for dstTableName, srcTableName := range modifiedTablesMapping {
+					cfg.TableNameSchemaMapping[dstTableName] =
+						getModifiedSchemaRes.TableNameSchemaMapping[srcTableName]
+				}
+
+			}
 		}
 
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			NormalizeFlowWorkflow,
 			cfg,
-			tableSchemaDelta,
 		)
 
 		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
@@ -325,27 +355,6 @@ func CDCFlowWorkflowWithConfig(
 			}
 		})
 		selector.Select(ctx)
-
-		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-		if tableSchemaDelta != nil {
-			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 5 * time.Minute,
-			})
-			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
-				&protos.GetTableSchemaBatchInput{
-					PeerConnectionConfig: cfg.Source,
-					TableIdentifiers:     []string{tableSchemaDelta.SrcTableName},
-				})
-
-			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
-			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
-				w.logger.Error("failed to execute schema update at source: ", err)
-				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
-			} else {
-				cfg.TableNameSchemaMapping[tableSchemaDelta.DstTableName] =
-					getModifiedSchemaRes.TableNameSchemaMapping[tableSchemaDelta.SrcTableName]
-			}
-		}
 	}
 
 	// send WAL heartbeat
