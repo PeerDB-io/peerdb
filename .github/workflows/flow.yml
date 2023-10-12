@@ -59,6 +59,20 @@ jobs:
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
+      
+      - name: setup S3 credentials
+        id: s3-credentials
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "s3_creds.json"
+          json: ${{ secrets.S3_CREDS }}
+      
+      - name: setup GCS credentials
+        id: gcs-credentials
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "gcs_creds.json"
+          json: ${{ secrets.GCS_CREDS }}
 
       - name: create hstore extension and increase logical replication limits
         run: |
@@ -82,6 +96,8 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
+          TEST_S3_CREDS: ${{ secrets.S3_CREDS }}/s3_creds.json
+          TEST_GCS_CREDS: ${{ secrets.S3_CREDS }}/gcs_creds.json
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}

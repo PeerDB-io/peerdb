@@ -74,6 +74,7 @@ message S3Config {
   optional string role_arn = 4;
   optional string region = 5;
   optional string endpoint = 6;
+  PostgresConfig metadata_db = 7;
 }
 
 message SqlServerConfig {

@@ -148,6 +148,8 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 		return nil, fmt.Errorf("use eventhub group config instead")
 	case *protos.Peer_EventhubGroupConfig:
 		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubGroupConfig())
+	case *protos.Peer_S3Config:
+		return conns3.NewS3Connector(ctx, config.GetS3Config())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
