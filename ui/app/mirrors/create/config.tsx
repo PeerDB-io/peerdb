@@ -64,7 +64,9 @@ export default function MirrorConfig(props: MirrorConfigProps) {
                   }}
                 >
                   <Switch
-                    onCheckedChange={(state) => handleChange(state, setting)}
+                    onCheckedChange={(state: boolean) =>
+                      handleChange(state, setting)
+                    }
                   />
                   {setting.tips && (
                     <InfoPopover
