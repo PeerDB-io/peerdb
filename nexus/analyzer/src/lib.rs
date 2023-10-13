@@ -619,6 +619,11 @@ fn parse_db_options(
             Some(config)
         }
         DbType::S3 => {
+            let s3_conn_str: String = opts
+                    .get("metadata_db")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+            let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
@@ -629,6 +634,7 @@ fn parse_db_options(
                 region: opts.get("region").map(|s| s.to_string()),
                 role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
+                metadata_db,
             };
             let config = Config::S3Config(s3_config);
             Some(config)

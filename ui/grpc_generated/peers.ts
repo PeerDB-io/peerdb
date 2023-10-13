@@ -151,6 +151,7 @@ export interface S3Config {
   roleArn?: string | undefined;
   region?: string | undefined;
   endpoint?: string | undefined;
+  metadataDb: PostgresConfig | undefined;
 }
 
 export interface SqlServerConfig {
@@ -1197,6 +1198,7 @@ function createBaseS3Config(): S3Config {
     roleArn: undefined,
     region: undefined,
     endpoint: undefined,
+    metadataDb: undefined,
   };
 }
 
@@ -1219,6 +1221,9 @@ export const S3Config = {
     }
     if (message.endpoint !== undefined) {
       writer.uint32(50).string(message.endpoint);
+    }
+    if (message.metadataDb !== undefined) {
+      PostgresConfig.encode(message.metadataDb, writer.uint32(58).fork()).ldelim();
     }
     return writer;
   },
@@ -1272,6 +1277,13 @@ export const S3Config = {
 
           message.endpoint = reader.string();
           continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.metadataDb = PostgresConfig.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1289,6 +1301,7 @@ export const S3Config = {
       roleArn: isSet(object.roleArn) ? String(object.roleArn) : undefined,
       region: isSet(object.region) ? String(object.region) : undefined,
       endpoint: isSet(object.endpoint) ? String(object.endpoint) : undefined,
+      metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
     };
   },
 
@@ -1312,6 +1325,9 @@ export const S3Config = {
     if (message.endpoint !== undefined) {
       obj.endpoint = message.endpoint;
     }
+    if (message.metadataDb !== undefined) {
+      obj.metadataDb = PostgresConfig.toJSON(message.metadataDb);
+    }
     return obj;
   },
 
@@ -1326,6 +1342,9 @@ export const S3Config = {
     message.roleArn = object.roleArn ?? undefined;
     message.region = object.region ?? undefined;
     message.endpoint = object.endpoint ?? undefined;
+    message.metadataDb = (object.metadataDb !== undefined && object.metadataDb !== null)
+      ? PostgresConfig.fromPartial(object.metadataDb)
+      : undefined;
     return message;
   },
 };

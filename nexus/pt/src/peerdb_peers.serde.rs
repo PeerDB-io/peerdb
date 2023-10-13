@@ -1314,6 +1314,9 @@ impl serde::Serialize for S3Config {
         if self.endpoint.is_some() {
             len += 1;
         }
+        if self.metadata_db.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.S3Config", len)?;
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
@@ -1332,6 +1335,9 @@ impl serde::Serialize for S3Config {
         }
         if let Some(v) = self.endpoint.as_ref() {
             struct_ser.serialize_field("endpoint", v)?;
+        }
+        if let Some(v) = self.metadata_db.as_ref() {
+            struct_ser.serialize_field("metadataDb", v)?;
         }
         struct_ser.end()
     }
@@ -1352,6 +1358,8 @@ impl<'de> serde::Deserialize<'de> for S3Config {
             "roleArn",
             "region",
             "endpoint",
+            "metadata_db",
+            "metadataDb",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1362,6 +1370,7 @@ impl<'de> serde::Deserialize<'de> for S3Config {
             RoleArn,
             Region,
             Endpoint,
+            MetadataDb,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1390,6 +1399,7 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                             "roleArn" | "role_arn" => Ok(GeneratedField::RoleArn),
                             "region" => Ok(GeneratedField::Region),
                             "endpoint" => Ok(GeneratedField::Endpoint),
+                            "metadataDb" | "metadata_db" => Ok(GeneratedField::MetadataDb),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1415,6 +1425,7 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                 let mut role_arn__ = None;
                 let mut region__ = None;
                 let mut endpoint__ = None;
+                let mut metadata_db__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Url => {
@@ -1453,6 +1464,12 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                             }
                             endpoint__ = map.next_value()?;
                         }
+                        GeneratedField::MetadataDb => {
+                            if metadata_db__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadataDb"));
+                            }
+                            metadata_db__ = map.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1465,6 +1482,7 @@ impl<'de> serde::Deserialize<'de> for S3Config {
                     role_arn: role_arn__,
                     region: region__,
                     endpoint: endpoint__,
+                    metadata_db: metadata_db__,
                 })
             }
         }
