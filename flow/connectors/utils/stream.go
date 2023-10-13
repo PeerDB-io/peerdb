@@ -60,7 +60,7 @@ func RecordsToRawTableStream(req model.RecordsToStreamRequest) (*model.RecordsTo
 	}
 
 	first := true
-	var firstCP int64 = req.CP
+	firstCP := req.CP
 	for _, record := range req.Records {
 		var entries [8]qvalue.QValue
 		switch typedRecord := record.(type) {

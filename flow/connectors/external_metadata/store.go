@@ -162,7 +162,6 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 
 // update offset for a job
 func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) error {
-
 	// start a transaction
 	tx, err := p.pool.Begin(p.ctx)
 	if err != nil {
@@ -200,7 +199,6 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 
 // update offset for a job
 func (p *PostgresMetadataStore) IncrementID(jobName string) error {
-
 	log.WithFields(log.Fields{
 		"flowName": jobName,
 	}).Infof("incrementing sync batch id for job `%s`", jobName)
