@@ -108,6 +108,7 @@ services:
       dockerfile: stacks/flow-api.Dockerfile
     ports:
       - 8112:8112
+      - 8113:8113
     environment:
       <<: [*catalog-config]
       TEMPORAL_HOST_PORT: temporal:7233
