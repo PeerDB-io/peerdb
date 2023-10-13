@@ -32,7 +32,7 @@ cd peerdb
 export COMPOSE_PROJECT_NAME=peerdb-stack
 docker compose up
 
-# connect to peerdb and query away
+# connect to peerdb and query away (Use psql version >=14.0, <16.0)
 psql "port=9900 host=localhost password=peerdb"
 ```
 
