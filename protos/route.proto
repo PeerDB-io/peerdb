@@ -1,6 +1,8 @@
 syntax = "proto3";
 
+import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+
 import "peers.proto";
 import "flow.proto";
 
@@ -124,5 +126,7 @@ service FlowService {
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {}
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
-  rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {}
+  rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+  }
 }

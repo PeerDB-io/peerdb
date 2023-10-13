@@ -110,6 +110,11 @@ func main() {
 						Aliases: []string{"p"},
 						Value:   8110,
 					},
+					// gateway port is the port that the grpc-gateway listens on
+					&cli.UintFlag{
+						Name:  "gateway-port",
+						Value: 8111,
+					},
 					temporalHostPortFlag,
 				},
 				Action: func(ctx *cli.Context) error {
@@ -119,6 +124,7 @@ func main() {
 						ctx:              appCtx,
 						Port:             ctx.Uint("port"),
 						TemporalHostPort: temporalHostPort,
+						GatewayPort:      ctx.Uint("gateway-port"),
 					})
 				},
 			},
