@@ -197,22 +197,41 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	return &config, nil
 }
 
-func (h *FlowRequestHandler) getQRepConfigFromCatalog(
-	flowJobName string,
-) *protos.QRepConfig {
+func (h *FlowRequestHandler) getQRepConfigFromCatalog(flowJobName string) *protos.QRepConfig {
 	var configBytes []byte
-	var err error
 	var config protos.QRepConfig
 
-	err = h.pool.QueryRow(context.Background(),
-		"SELECT config_proto FROM flows WHERE name = $1", flowJobName).Scan(&configBytes)
-	if err != nil {
-		logrus.Warnf("unable to query qrep config from catalog: %s", err.Error())
+	queryInfos := []struct {
+		Query   string
+		Warning string
+	}{
+		{
+			Query:   "SELECT config_proto FROM flows WHERE name = $1",
+			Warning: "unable to query qrep config from catalog",
+		},
+		{
+			Query:   "SELECT config_proto FROM peerdb_stats.qrep_runs WHERE flow_name = $1",
+			Warning: "unable to query qrep config from qrep_runs",
+		},
+	}
+
+	// Iterate over queries and attempt to fetch the config
+	for _, qInfo := range queryInfos {
+		err := h.pool.QueryRow(context.Background(), qInfo.Query, flowJobName).Scan(&configBytes)
+		if err == nil {
+			break
+		}
+		logrus.Warnf("%s - %s: %s", qInfo.Warning, flowJobName, err.Error())
+	}
+
+	// If no config was fetched, return nil
+	if len(configBytes) == 0 {
 		return nil
 	}
 
-	err = proto.Unmarshal(configBytes, &config)
-	if err != nil {
+	// Try unmarshaling
+	if err := proto.Unmarshal(configBytes, &config); err != nil {
+		logrus.Warnf("failed to unmarshal config for %s: %s", flowJobName, err.Error())
 		return nil
 	}
 
