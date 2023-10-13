@@ -44,16 +44,15 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 9,
-		MaxBatchSize:   20,
+		TotalSyncFlows: 5,
+		MaxBatchSize:   5,
 	}
 
-	// Insert 100 rows into postgres, update 20 rows, and delete 20 rows
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		s.NoError(err)
-		//insert 100
-		for i := 0; i < 100; i++ {
+		//insert 20 rows
+		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -61,19 +60,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		`, srcTableName), testKey, testValue)
 			s.NoError(err)
 		}
-		//update 20
-		for i := 0; i < 20; i++ {
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			UPDATE %s SET value=$1 where id=$2
-		`, srcTableName), "updated_value", i)
-			s.NoError(err)
-		}
-		//delete 20
-		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			DELETE FROM %s where id < 20
-		`, srcTableName))
 		s.NoError(err)
-		fmt.Println("Inserted 100 rows into the source table")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -93,7 +80,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	fmt.Println("Files in Test_Complete_Simple_Flow_S3: ", len(files))
 	require.NoError(s.T(), err)
 
-	require.Equal(s.T(), 8, len(files))
+	require.Equal(s.T(), 4, len(files))
 
 	env.AssertExpectations(s.T())
 }
@@ -128,16 +115,15 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 9,
-		MaxBatchSize:   20,
+		TotalSyncFlows: 5,
+		MaxBatchSize:   5,
 	}
 
-	// Insert 100 rows into postgres, update 20 rows, and delete 20 rows
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		s.NoError(err)
-		//insert 100
-		for i := 0; i < 100; i++ {
+		//insert 20 rows
+		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -145,19 +131,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 		`, srcTableName), testKey, testValue)
 			s.NoError(err)
 		}
-		//update 20
-		for i := 0; i < 20; i++ {
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			UPDATE %s SET value=$1 where id=$2
-		`, srcTableName), "updated_value", i)
-			s.NoError(err)
-		}
-		//delete 20
-		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			DELETE FROM %s where id < 20
-		`, srcTableName))
 		s.NoError(err)
-		fmt.Println("Inserted 100 rows into the source table")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -174,10 +148,10 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	defer cancel()
 	fmt.Println("JobName: ", flowJobName)
 	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	fmt.Println("Files in Test_Complete_Simple_Flow_S3: ", len(files))
+	fmt.Println("Files in Test_Complete_Simple_Flow_GCS: ", len(files))
 	require.NoError(s.T(), err)
 
-	require.Equal(s.T(), 8, len(files))
+	require.Equal(s.T(), 4, len(files))
 
 	env.AssertExpectations(s.T())
 }

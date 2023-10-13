@@ -1,4 +1,4 @@
-package conneventhub
+package connmetadata
 
 import (
 	"context"
@@ -10,18 +10,18 @@ import (
 )
 
 const (
-	// schema for the peerdb metadata
-	metadataSchema = "peerdb_eventhub_metadata"
-	// The name of the table that stores the last sync state.
 	lastSyncStateTableName = "last_sync_state"
 )
 
 type PostgresMetadataStore struct {
-	config *protos.PostgresConfig
-	pool   *pgxpool.Pool
+	ctx        context.Context
+	config     *protos.PostgresConfig
+	pool       *pgxpool.Pool
+	schemaName string
 }
 
-func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresMetadataStore, error) {
+func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
+	schemaName string) (*PostgresMetadataStore, error) {
 	connectionString := utils.GetPGConnectionString(pgConfig)
 
 	pool, err := pgxpool.New(ctx, connectionString)
@@ -29,11 +29,13 @@ func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConf
 		log.Errorf("failed to create connection pool: %v", err)
 		return nil, err
 	}
-	log.Info("created connection pool for eventhub metadata store")
+	log.Info("created connection pool for metadata store")
 
 	return &PostgresMetadataStore{
-		config: pgConfig,
-		pool:   pool,
+		ctx:        ctx,
+		config:     pgConfig,
+		pool:       pool,
+		schemaName: schemaName,
 	}, nil
 }
 
@@ -45,11 +47,9 @@ func (p *PostgresMetadataStore) Close() error {
 	return nil
 }
 
-func (c *EventHubConnector) NeedsSetupMetadataTables() bool {
-	ms := c.pgMetadata
-
+func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 	// check if schema exists
-	rows := ms.pool.QueryRow(c.ctx, "SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname = $1", metadataSchema)
+	rows := p.pool.QueryRow(p.ctx, "SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname = $1", p.schemaName)
 
 	var exists int64
 	err := rows.Scan(&exists)
@@ -65,26 +65,24 @@ func (c *EventHubConnector) NeedsSetupMetadataTables() bool {
 	return true
 }
 
-func (c *EventHubConnector) SetupMetadataTables() error {
-	ms := c.pgMetadata
-
+func (p *PostgresMetadataStore) SetupMetadata() error {
 	// start a transaction
-	tx, err := ms.pool.Begin(c.ctx)
+	tx, err := p.pool.Begin(p.ctx)
 	if err != nil {
 		log.Errorf("failed to start transaction: %v", err)
 		return err
 	}
 
 	// create the schema
-	_, err = tx.Exec(c.ctx, "CREATE SCHEMA IF NOT EXISTS "+metadataSchema)
+	_, err = tx.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
 	if err != nil {
 		log.Errorf("failed to create schema: %v", err)
 		return err
 	}
 
 	// create the last sync state table
-	_, err = tx.Exec(c.ctx, `
-		CREATE TABLE IF NOT EXISTS `+metadataSchema+`.`+lastSyncStateTableName+` (
+	_, err = tx.Exec(p.ctx, `
+		CREATE TABLE IF NOT EXISTS `+p.schemaName+`.`+lastSyncStateTableName+` (
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -95,9 +93,10 @@ func (c *EventHubConnector) SetupMetadataTables() error {
 		log.Errorf("failed to create last sync state table: %v", err)
 		return err
 	}
+	log.Infof("created external metadata table %s.%s", p.schemaName, lastSyncStateTableName)
 
 	// commit the transaction
-	err = tx.Commit(c.ctx)
+	err = tx.Commit(p.ctx)
 	if err != nil {
 		log.Errorf("failed to commit transaction: %v", err)
 		return err
@@ -106,15 +105,12 @@ func (c *EventHubConnector) SetupMetadataTables() error {
 	return nil
 }
 
-func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
-	ms := c.pgMetadata
-
-	rows := ms.pool.QueryRow(c.ctx, `
+func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyncState, error) {
+	rows := p.pool.QueryRow(p.ctx, `
 		SELECT last_offset
-		FROM `+metadataSchema+`.`+lastSyncStateTableName+`
+		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
 		WHERE job_name = $1
 	`, jobName)
-
 	var offset int64
 	err := rows.Scan(&offset)
 	if err != nil {
@@ -138,12 +134,10 @@ func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	}, nil
 }
 
-func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	ms := c.pgMetadata
-
-	rows := ms.pool.QueryRow(c.ctx, `
+func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
+	rows := p.pool.QueryRow(p.ctx, `
 		SELECT sync_batch_id
-		FROM `+metadataSchema+`.`+lastSyncStateTableName+`
+		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
 		WHERE job_name = $1
 	`, jobName)
 
@@ -167,11 +161,10 @@ func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 }
 
 // update offset for a job
-func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error {
-	ms := c.pgMetadata
+func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) error {
 
 	// start a transaction
-	tx, err := ms.pool.Begin(c.ctx)
+	tx, err := p.pool.Begin(p.ctx)
 	if err != nil {
 		log.Errorf("failed to start transaction: %v", err)
 		return err
@@ -181,8 +174,8 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 	log.WithFields(log.Fields{
 		"flowName": jobName,
 	}).Infof("updating last offset for job `%s` to `%d`", jobName, offset)
-	_, err = tx.Exec(c.ctx, `
-		INSERT INTO `+metadataSchema+`.`+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
+	_, err = tx.Exec(p.ctx, `
+		INSERT INTO `+p.schemaName+`.`+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
 		DO UPDATE SET last_offset = $2, updated_at = NOW()
@@ -196,7 +189,7 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 	}
 
 	// commit the transaction
-	err = tx.Commit(c.ctx)
+	err = tx.Commit(p.ctx)
 	if err != nil {
 		log.Errorf("failed to commit transaction: %v", err)
 		return err
@@ -206,14 +199,13 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 }
 
 // update offset for a job
-func (c *EventHubConnector) incrementSyncBatchID(jobName string) error {
-	ms := c.pgMetadata
+func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 
 	log.WithFields(log.Fields{
 		"flowName": jobName,
 	}).Infof("incrementing sync batch id for job `%s`", jobName)
-	_, err := ms.pool.Exec(c.ctx, `
-		UPDATE `+metadataSchema+`.`+lastSyncStateTableName+`
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE `+p.schemaName+`.`+lastSyncStateTableName+`
 		 SET sync_batch_id=sync_batch_id+1 WHERE job_name=$1
 	`, jobName)
 
@@ -227,9 +219,9 @@ func (c *EventHubConnector) incrementSyncBatchID(jobName string) error {
 	return nil
 }
 
-func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
-	_, err := c.pgMetadata.pool.Exec(c.ctx, `
-		DELETE FROM `+metadataSchema+`.`+lastSyncStateTableName+`
+func (p *PostgresMetadataStore) DropMetadata(jobName string) error {
+	_, err := p.pool.Exec(p.ctx, `
+		DELETE FROM `+p.schemaName+`.`+lastSyncStateTableName+`
 		WHERE job_name = $1
 	`, jobName)
 	return err

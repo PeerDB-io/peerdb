@@ -645,183 +645,20 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 
 func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, rawTableIdentifier string,
 	syncBatchID int64) (*model.SyncResponse, error) {
-	recordStream := model.NewQRecordStream(len(req.Records.Records))
 
-	err := recordStream.SetSchema(&model.QRecordSchema{
-		Fields: []*model.QField{
-			{
-				Name:     "_peerdb_uid",
-				Type:     qvalue.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_timestamp",
-				Type:     qvalue.QValueKindInt64,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_destination_table_name",
-				Type:     qvalue.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_data",
-				Type:     qvalue.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_record_type",
-				Type:     qvalue.QValueKindInt64,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_match_data",
-				Type:     qvalue.QValueKindString,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_batch_id",
-				Type:     qvalue.QValueKindInt64,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_unchanged_toast_columns",
-				Type:     qvalue.QValueKindString,
-				Nullable: true,
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	first := true
-	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
 	tableNameRowsMapping := make(map[string]uint32)
-
-	for _, record := range req.Records.Records {
-		var entries [8]qvalue.QValue
-		switch typedRecord := record.(type) {
-		case *model.InsertRecord:
-			// json.Marshal converts bytes in Hex automatically to BASE64 string.
-			itemsJSON, err := typedRecord.Items.ToJSON()
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
-			}
-
-			// add insert record to the raw table
-			entries[2] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: typedRecord.DestinationTableName,
-			}
-			entries[3] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: itemsJSON,
-			}
-			entries[4] = qvalue.QValue{
-				Kind:  qvalue.QValueKindInt64,
-				Value: 0,
-			}
-			entries[5] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: "",
-			}
-			entries[7] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			}
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
-		case *model.UpdateRecord:
-			newItemsJSON, err := typedRecord.NewItems.ToJSON()
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
-			}
-			oldItemsJSON, err := typedRecord.OldItems.ToJSON()
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
-			}
-
-			// add update record to the raw table
-			entries[2] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: typedRecord.DestinationTableName,
-			}
-			entries[3] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: newItemsJSON,
-			}
-			entries[4] = qvalue.QValue{
-				Kind:  qvalue.QValueKindInt64,
-				Value: 1,
-			}
-			entries[5] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: oldItemsJSON,
-			}
-			entries[7] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			}
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
-		case *model.DeleteRecord:
-			itemsJSON, err := typedRecord.Items.ToJSON()
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
-			}
-
-			// append delete record to the raw table
-			entries[2] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: typedRecord.DestinationTableName,
-			}
-			entries[3] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: itemsJSON,
-			}
-			entries[4] = qvalue.QValue{
-				Kind:  qvalue.QValueKindInt64,
-				Value: 2,
-			}
-			entries[5] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: itemsJSON,
-			}
-			entries[7] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			}
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
-		default:
-			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
-		}
-
-		if first {
-			firstCP = record.GetCheckPointID()
-			first = false
-		}
-
-		entries[0] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: uuid.New().String(),
-		}
-		entries[1] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: time.Now().UnixNano(),
-		}
-		entries[6] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: syncBatchID,
-		}
-
-		recordStream.Records <- &model.QRecordOrError{
-			Record: &model.QRecord{
-				NumEntries: 8,
-				Entries:    entries[:],
-			},
-		}
+	streamRes, err := utils.RecordsToRawTableStream(model.RecordsToStreamRequest{
+		Records:      req.Records.Records,
+		TableMapping: tableNameRowsMapping,
+		CP:           0,
+		BatchID:      syncBatchID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
-
+	firstCP := streamRes.CP
+	recordStream := streamRes.Stream
 	qrepConfig := &protos.QRepConfig{
 		StagingPath: "",
 		FlowJobName: req.FlowJobName,
@@ -841,7 +678,6 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, r
 		return nil, err
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
-
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
 		LastSyncedCheckPointID:  lastCP,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -22,7 +23,7 @@ import (
 type EventHubConnector struct {
 	ctx          context.Context
 	config       *protos.EventHubGroupConfig
-	pgMetadata   *PostgresMetadataStore
+	pgMetadata   *metadataStore.PostgresMetadataStore
 	tableSchemas map[string]*protos.TableSchema
 	creds        *azidentity.DefaultAzureCredential
 	hubManager   *EventHubManager
@@ -40,7 +41,9 @@ func NewEventHubConnector(
 	}
 
 	hubManager := NewEventHubManager(ctx, defaultAzureCreds, config)
-	pgMetadata, err := NewPostgresMetadataStore(ctx, config.GetMetadataDb())
+	metadataSchemaName := "peerdb_eventhub_metadata"
+	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, config.GetMetadataDb(),
+		metadataSchemaName)
 	if err != nil {
 		log.Errorf("failed to create postgres metadata store: %v", err)
 		return nil, err
@@ -81,6 +84,48 @@ func (c *EventHubConnector) ConnectionActive() bool {
 
 func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
 	c.tableSchemas = req
+	return nil
+}
+
+func (c *EventHubConnector) NeedsSetupMetadataTables() bool {
+	return c.pgMetadata.NeedsSetupMetadata()
+}
+
+func (c *EventHubConnector) SetupMetadataTables() error {
+	err := c.pgMetadata.SetupMetadata()
+	if err != nil {
+		log.Errorf("failed to setup metadata tables: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
+	syncBatchID, err := c.pgMetadata.GetLastBatchID(jobName)
+	if err != nil {
+		return 0, err
+	}
+
+	return syncBatchID, nil
+}
+
+func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+	res, err := c.pgMetadata.FetchLastOffset(jobName)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error {
+	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
+	if err != nil {
+		log.Errorf("failed to update last offset: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -177,7 +222,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		log.Errorf("failed to update last offset: %v", err)
 		return nil, err
 	}
-	err = c.incrementSyncBatchID(req.FlowJobName)
+	err = c.pgMetadata.IncrementID(req.FlowJobName)
 	if err != nil {
 		log.Errorf("%v", err)
 		return nil, err
@@ -310,4 +355,12 @@ func (c *EventHubConnector) SetupNormalizedTables(
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: nil,
 	}, nil
+}
+
+func (c *EventHubConnector) SyncFlowCleanup(jobName string) error {
+	err := c.pgMetadata.DropMetadata(jobName)
+	if err != nil {
+		return err
+	}
+	return nil
 }
