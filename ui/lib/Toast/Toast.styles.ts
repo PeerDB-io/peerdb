@@ -1,5 +1,5 @@
 import * as RadixToast from '@radix-ui/react-toast';
-import { keyframes, styled } from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 
 export const ToastAction = styled(RadixToast.Action)`
   all: unset;

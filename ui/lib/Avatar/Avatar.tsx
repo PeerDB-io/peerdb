@@ -41,7 +41,7 @@ const isAvatarIcon = (
  */
 export function Avatar({ size, ...baseProps }: AvatarProps) {
   if (isAvatarImage(baseProps)) {
-    const { variant: _variant, ...imageProps } = baseProps;
+    const { variant: _variant, ref: _ref, ...imageProps } = baseProps;
     return <AvatarImageBase $size={size} {...imageProps} />;
   }
   if (isAvatarIcon(baseProps)) {

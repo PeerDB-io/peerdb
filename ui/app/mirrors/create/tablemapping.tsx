@@ -52,7 +52,7 @@ const TableMapping = ({ rows, setRows }: TableMappingProps) => {
                 <TextField
                   variant='simple'
                   value={row.source}
-                  onChange={(e) =>
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     handleTableChange(index, 'source', e.target.value)
                   }
                 />
@@ -61,7 +61,7 @@ const TableMapping = ({ rows, setRows }: TableMappingProps) => {
                 <TextField
                   variant='simple'
                   value={row.destination}
-                  onChange={(e) =>
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     handleTableChange(index, 'destination', e.target.value)
                   }
                 />
