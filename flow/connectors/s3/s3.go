@@ -55,7 +55,7 @@ func NewS3Connector(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	metadataSchemaName := "peerdb_s3_metadata"
+	metadataSchemaName := "peerdb_s3_metadata" // #nosec G101
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx,
 		config.GetMetadataDb(), metadataSchemaName)
 	if err != nil {

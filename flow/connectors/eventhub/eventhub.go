@@ -41,7 +41,7 @@ func NewEventHubConnector(
 	}
 
 	hubManager := NewEventHubManager(ctx, defaultAzureCreds, config)
-	metadataSchemaName := "peerdb_eventhub_metadata"
+	metadataSchemaName := "peerdb_eventhub_metadata" // #nosec G101
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, config.GetMetadataDb(),
 		metadataSchemaName)
 	if err != nil {
