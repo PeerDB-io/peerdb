@@ -28,6 +28,7 @@ git clone --recursive git@github.com:PeerDB-io/peerdb.git
 cd peerdb
 
 # Run docker containers: peerdb-server, postgres as catalog, temporal
+# Make sure to have at least 5GB of RAM for building PeerDB docker images
 export COMPOSE_PROJECT_NAME=peerdb-stack
 docker compose up
 
