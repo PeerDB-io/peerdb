@@ -64,7 +64,9 @@ export default function MirrorConfig(props: MirrorConfigProps) {
                   }}
                 >
                   <Switch
-                    onCheckedChange={(state) => handleChange(state, setting)}
+                    onCheckedChange={(state: boolean) =>
+                      handleChange(state, setting)
+                    }
                   />
                   {setting.tips && (
                     <InfoPopover
@@ -143,7 +145,9 @@ export default function MirrorConfig(props: MirrorConfigProps) {
                     variant='simple'
                     type={setting.type}
                     defaultValue={setting.default}
-                    onChange={(e) => handleChange(e.target.value, setting)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      handleChange(e.target.value, setting)
+                    }
                   />
                   {setting.tips && (
                     <InfoPopover

@@ -77,7 +77,9 @@ export default function ConfigForm(props: ConfigProps) {
                   }
                   type={setting.type}
                   defaultValue={setting.default}
-                  onChange={(e) => handleChange(e, setting)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    handleChange(e, setting)
+                  }
                 />
                 {setting.tips && (
                   <InfoPopover tips={setting.tips} link={setting.helpfulLink} />

@@ -70,7 +70,9 @@ export default function CreateConfig() {
             <TextField
               variant='simple'
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setName(e.target.value)
+              }
             />
           }
         />

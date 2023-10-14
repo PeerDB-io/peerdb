@@ -14,6 +14,7 @@ export function Action({
   icon,
   children,
   disabled,
+  ref: _ref,
   ...actionProps
 }: ActionProps) {
   const Icon = renderObjectWith(icon);

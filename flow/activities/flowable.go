@@ -426,9 +426,10 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	if len(partitions) > 0 {
 		err = a.CatalogMirrorMonitor.InitializeQRepRun(
 			ctx,
-			config.FlowJobName,
+			config,
 			runUUID,
 			startTime,
+			partitions,
 		)
 		if err != nil {
 			return nil, err
@@ -488,10 +489,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	var wg sync.WaitGroup
 	var numRecords int64
 
-	err = a.CatalogMirrorMonitor.AddPartitionToQRepRun(ctx, config.FlowJobName, runUUID, partition)
-	if err != nil {
-		return err
-	}
 	var goroutineErr error = nil
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
 		stream = model.NewQRecordStream(bufferSize)

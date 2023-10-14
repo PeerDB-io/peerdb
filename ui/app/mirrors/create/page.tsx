@@ -64,7 +64,9 @@ export default function CreateMirrors() {
             <TextField
               variant='simple'
               value={mirrorName}
-              onChange={(e) => setMirrorName(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setMirrorName(e.target.value)
+              }
             />
           }
         />
