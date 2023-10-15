@@ -71,23 +71,25 @@ model cdc_batch_table {
   num_rows               BigInt
   metadata               Json?
   id                     Int         @id @default(autoincrement())
-  cdc_batches            cdc_batches @relation(fields: [batch_id], references: [batch_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batch_table_flow_batch")
+  cdc_batches            cdc_batches @relation(fields: [flow_name, batch_id], references: [flow_name, batch_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batch_table_flow_batch")
 
   @@schema("peerdb_stats")
 }
 
 model cdc_batches {
   flow_name       String
-  batch_id        BigInt            @id(map: "pk_cdc_batches")
+  batch_id        BigInt
   rows_in_batch   Int
   batch_start_lsn Decimal           @db.Decimal
   batch_end_lsn   Decimal           @db.Decimal
   start_time      DateTime          @db.Timestamp(6)
   end_time        DateTime?         @db.Timestamp(6)
   metadata        Json?
+  id              Int               @id @default(autoincrement())
   cdc_batch_table cdc_batch_table[]
   cdc_flows       cdc_flows         @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batches_flow_name")
 
+  @@unique([flow_name, batch_id], map: "uq_cdc_batches_flow_batch")
   @@schema("peerdb_stats")
 }
 

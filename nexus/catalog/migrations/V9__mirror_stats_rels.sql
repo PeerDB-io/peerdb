@@ -1,6 +1,10 @@
 -- For the cdc_batches, set batch_id as the primary key
 ALTER TABLE peerdb_stats.cdc_batches
-ADD CONSTRAINT pk_cdc_batches PRIMARY KEY (batch_id);
+ADD COLUMN id SERIAL PRIMARY KEY;
+
+-- add unique constraint on flow_name and batch_id
+ALTER TABLE peerdb_stats.cdc_batches
+ADD CONSTRAINT uq_cdc_batches_flow_batch UNIQUE (flow_name, batch_id);
 
 -- add incrementing id column to cdc_batch_table, make this the primary key
 ALTER TABLE peerdb_stats.cdc_batch_table
@@ -23,7 +27,7 @@ FOREIGN KEY (flow_name) REFERENCES peerdb_stats.cdc_flows(flow_name) ON DELETE C
 -- Composite foreign key for flow_name and batch_id in cdc_batch_table
 ALTER TABLE peerdb_stats.cdc_batch_table
 ADD CONSTRAINT fk_cdc_batch_table_flow_batch
-FOREIGN KEY (batch_id) REFERENCES peerdb_stats.cdc_batches(batch_id) ON DELETE CASCADE;
+FOREIGN KEY (flow_name, batch_id) REFERENCES peerdb_stats.cdc_batches(flow_name, batch_id) ON DELETE CASCADE;
 
 -- Foreign key for run_uuid in qrep_partitions
 ALTER TABLE peerdb_stats.qrep_partitions
