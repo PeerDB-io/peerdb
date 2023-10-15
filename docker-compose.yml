@@ -233,6 +233,8 @@ services:
     environment:
       <<: *catalog-config
       PEERDB_FLOW_SERVER_ADDRESS: flow_api:8112
+      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
+      PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
 
 volumes:
   pgdata:
