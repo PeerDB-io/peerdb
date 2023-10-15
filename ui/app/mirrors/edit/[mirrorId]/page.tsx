@@ -1,6 +1,7 @@
 'use client';
 
 import { MirrorStatusResponse } from '@/grpc_generated/route';
+import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import useSWR from 'swr';
@@ -49,7 +50,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
-      <h1>{mirrorStatus.flowJobName}</h1>
+      <Header variant='title2'>{mirrorId}</Header>
       {mirrorStatus.cdcStatus && <CDCMirror cdc={mirrorStatus.cdcStatus} />}
     </LayoutMain>
   );
