@@ -40,7 +40,7 @@ func NewEventHubConnector(
 		return nil, err
 	}
 
-	hubManager := NewEventHubManager(ctx, defaultAzureCreds, config)
+	hubManager := NewEventHubManager(defaultAzureCreds, config)
 	metadataSchemaName := "peerdb_eventhub_metadata" // #nosec G101
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, config.GetMetadataDb(),
 		metadataSchemaName)
@@ -62,14 +62,14 @@ func (c *EventHubConnector) Close() error {
 	var allErrors error
 
 	// close all the eventhub connections.
-	err := c.hubManager.Close()
-	if err != nil {
-		log.Errorf("failed to close eventhub connections: %v", err)
-		allErrors = errors.Join(allErrors, err)
-	}
+	// err := c.hubManager.Close()
+	// if err != nil {
+	// 	log.Errorf("failed to close eventhub connections: %v", err)
+	// 	allErrors = errors.Join(allErrors, err)
+	// }
 
 	// close the postgres metadata store.
-	err = c.pgMetadata.Close()
+	err := c.pgMetadata.Close()
 	if err != nil {
 		log.Errorf("failed to close postgres metadata store: %v", err)
 		allErrors = errors.Join(allErrors, err)
@@ -175,7 +175,7 @@ func (c *EventHubConnector) syncRecordBatchAsync(req *model.SyncRecordsRequest) 
 			return err
 		}
 
-		err = batchPerTopic.AddEvent(topicName, json)
+		err = batchPerTopic.AddEvent(context.Background(), topicName, json)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"flowName": req.FlowJobName,

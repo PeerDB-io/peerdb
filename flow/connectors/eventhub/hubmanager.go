@@ -16,7 +16,6 @@ import (
 )
 
 type EventHubManager struct {
-	ctx   context.Context
 	creds *azidentity.DefaultAzureCredential
 	// eventhub peer name -> config
 	peerConfig cmap.ConcurrentMap[string, *protos.EventHubConfig]
@@ -25,7 +24,6 @@ type EventHubManager struct {
 }
 
 func NewEventHubManager(
-	ctx context.Context,
 	creds *azidentity.DefaultAzureCredential,
 	groupConfig *protos.EventHubGroupConfig,
 ) *EventHubManager {
@@ -36,7 +34,6 @@ func NewEventHubManager(
 	}
 
 	return &EventHubManager{
-		ctx:        ctx,
 		creds:      creds,
 		peerConfig: peerConfig,
 	}
@@ -69,30 +66,30 @@ func (m *EventHubManager) GetOrCreateHubClient(name ScopedEventhub) (*azeventhub
 	return hub.(*azeventhubs.ProducerClient), nil
 }
 
-func (m *EventHubManager) Close() error {
-	var globalErr error
-	m.hubs.Range(func(key, value interface{}) bool {
-		hub := value.(*azeventhubs.ProducerClient)
-		err := hub.Close(m.ctx)
-		if err != nil {
-			log.Errorf("failed to close eventhub client: %v", err)
-			globalErr = fmt.Errorf("failed to close eventhub client: %v", err)
-			return false
-		}
-		return true
-	})
+// func (m *EventHubManager) Close() error {
+// 	var globalErr error
+// 	m.hubs.Range(func(key, value interface{}) bool {
+// 		hub := value.(*azeventhubs.ProducerClient)
+// 		err := hub.Close(m.ctx)
+// 		if err != nil {
+// 			log.Errorf("failed to close eventhub client: %v", err)
+// 			globalErr = fmt.Errorf("failed to close eventhub client: %v", err)
+// 			return false
+// 		}
+// 		return true
+// 	})
 
-	return globalErr
-}
+// 	return globalErr
+// }
 
-func (m *EventHubManager) CreateEventDataBatch(name ScopedEventhub) (*azeventhubs.EventDataBatch, error) {
+func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (*azeventhubs.EventDataBatch, error) {
 	hub, err := m.GetOrCreateHubClient(name)
 	if err != nil {
 		return nil, err
 	}
 
 	opts := &azeventhubs.EventDataBatchOptions{}
-	batch, err := hub.NewEventDataBatch(m.ctx, opts)
+	batch, err := hub.NewEventDataBatch(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create event data batch: %v", err)
 	}
