@@ -228,6 +228,41 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
+	// get the latest timestamp from the records
+	var latestTimestamp time.Time
+	for _, record := range batch.Records {
+		tsColVal := record.GetItems().GetColumnValue("source_last_timestamp")
+		if tsColVal == nil {
+			continue
+		}
+
+		if tsColVal.Value != nil {
+			// see if its already a time.Time
+			if ts, ok := tsColVal.Value.(time.Time); ok {
+				if ts.After(latestTimestamp) {
+					latestTimestamp = ts
+				}
+			} else {
+				ts, err := time.Parse(time.RFC3339, tsColVal.Value.(string))
+				if err != nil {
+					log.Errorf("failed to parse timestamp: %v", err)
+					continue
+				}
+				if ts.After(latestTimestamp) {
+					latestTimestamp = ts
+				}
+			}
+		}
+	}
+
+	if !latestTimestamp.IsZero() {
+		err = c.pgMetadata.SetSourceLastTimestamp(req.FlowJobName, latestTimestamp)
+		if err != nil {
+			log.Errorf("failed to set source last timestamp: %v", err)
+			return nil, err
+		}
+	}
+
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(rowsSynced), time.Since(startTime))
 	metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, int64(rowsSynced),
 		time.Since(startTime), int64(rowsSynced))

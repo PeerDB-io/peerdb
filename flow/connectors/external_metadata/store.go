@@ -2,6 +2,7 @@ package connmetadata
 
 import (
 	"context"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -86,7 +87,8 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-			sync_batch_id BIGINT NOT NULL
+			sync_batch_id BIGINT NOT NULL,
+			source_last_timestamp TIMESTAMP
 		)
 	`)
 	if err != nil {
@@ -211,6 +213,26 @@ func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 		log.WithFields(log.Fields{
 			"flowName": jobName,
 		}).Errorf("failed to increment sync batch id: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// set source_last_timestamp for a job
+func (p *PostgresMetadataStore) SetSourceLastTimestamp(jobName string, timestamp time.Time) error {
+	log.WithFields(log.Fields{
+		"flowName": jobName,
+	}).Infof("setting source last timestamp for job `%s` to `%s`", jobName, timestamp)
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE `+p.schemaName+`.`+lastSyncStateTableName+`
+		 SET source_last_timestamp=$2 WHERE job_name=$1
+	`, jobName, timestamp)
+
+	if err != nil {
+		log.WithFields(log.Fields{
+			"flowName": jobName,
+		}).Errorf("failed to set source last timestamp: %v", err)
 		return err
 	}
 
