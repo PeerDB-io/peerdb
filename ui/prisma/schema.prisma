@@ -70,9 +70,10 @@ model cdc_batch_table {
   destination_table_name String
   num_rows               BigInt
   metadata               Json?
-  id                     Int         @id @default(autoincrement())
-  cdc_batches            cdc_batches @relation(fields: [flow_name, batch_id], references: [flow_name, batch_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batch_table_flow_batch")
+  id                     Int       @id @default(autoincrement())
+  cdc_flows              cdc_flows @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batch_table_flow_name")
 
+  @@index([flow_name, batch_id], map: "idx_cdc_batch_table_flow_name_batch_id")
   @@schema("peerdb_stats")
 }
 
@@ -80,24 +81,26 @@ model cdc_batches {
   flow_name       String
   batch_id        BigInt
   rows_in_batch   Int
-  batch_start_lsn Decimal           @db.Decimal
-  batch_end_lsn   Decimal           @db.Decimal
-  start_time      DateTime          @db.Timestamp(6)
-  end_time        DateTime?         @db.Timestamp(6)
+  batch_start_lsn Decimal   @db.Decimal
+  batch_end_lsn   Decimal   @db.Decimal
+  start_time      DateTime  @db.Timestamp(6)
+  end_time        DateTime? @db.Timestamp(6)
   metadata        Json?
-  id              Int               @id @default(autoincrement())
-  cdc_batch_table cdc_batch_table[]
-  cdc_flows       cdc_flows         @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batches_flow_name")
+  id              Int       @id @default(autoincrement())
+  cdc_flows       cdc_flows @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batches_flow_name")
 
-  @@unique([flow_name, batch_id], map: "uq_cdc_batches_flow_batch")
+  @@index([batch_id], map: "idx_cdc_batches_batch_id")
+  @@index([flow_name], map: "idx_cdc_batches_flow_name", type: Hash)
+  @@index([start_time], map: "idx_cdc_batches_start_time")
   @@schema("peerdb_stats")
 }
 
 model cdc_flows {
-  flow_name            String        @id
-  latest_lsn_at_source Decimal       @db.Decimal
-  latest_lsn_at_target Decimal       @db.Decimal
+  flow_name            String            @id
+  latest_lsn_at_source Decimal           @db.Decimal
+  latest_lsn_at_target Decimal           @db.Decimal
   metadata             Json?
+  cdc_batch_table      cdc_batch_table[]
   cdc_batches          cdc_batches[]
 
   @@schema("peerdb_stats")
@@ -106,7 +109,7 @@ model cdc_flows {
 model qrep_partitions {
   flow_name         String
   run_uuid          String
-  partition_uuid    String    @id(map: "pk_qrep_partitions")
+  partition_uuid    String
   partition_start   String
   partition_end     String
   rows_in_partition Int?
@@ -115,20 +118,28 @@ model qrep_partitions {
   end_time          DateTime? @db.Timestamp(6)
   restart_count     Int
   metadata          Json?
-  qrep_runs         qrep_runs @relation(fields: [run_uuid], references: [run_uuid], onDelete: Cascade, onUpdate: NoAction, map: "fk_qrep_partitions_run_uuid")
+  id                Int       @id @default(autoincrement())
+  qrep_runs         qrep_runs @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_qrep_partitions_run_uuid")
 
   @@unique([run_uuid, partition_uuid])
+  @@index([flow_name, run_uuid], map: "idx_qrep_partitions_flow_name_run_uuid")
+  @@index([partition_uuid], map: "idx_qrep_partitions_partition_uuid", type: Hash)
+  @@index([start_time], map: "idx_qrep_partitions_start_time")
   @@schema("peerdb_stats")
 }
 
 model qrep_runs {
-  flow_name       String
-  run_uuid        String            @id(map: "pk_qrep_runs")
+  flow_name       String            @unique(map: "uq_qrep_runs_flow_name")
+  run_uuid        String
   start_time      DateTime          @db.Timestamp(6)
   end_time        DateTime?         @db.Timestamp(6)
   metadata        Json?
   config_proto    Bytes?
+  id              Int               @id @default(autoincrement())
   qrep_partitions qrep_partitions[]
 
+  @@index([flow_name], map: "idx_qrep_runs_flow_name", type: Hash)
+  @@index([run_uuid], map: "idx_qrep_runs_run_uuid", type: Hash)
+  @@index([start_time], map: "idx_qrep_runs_start_time")
   @@schema("peerdb_stats")
 }
