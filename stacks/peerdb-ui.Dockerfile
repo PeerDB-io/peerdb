@@ -17,6 +17,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY ui/ ./
 
+# Prisma
+RUN yarn prisma generate
+
 ENV NEXT_TELEMETRY_DISABLED 1
 RUN yarn build
 
