@@ -30,7 +30,7 @@ type PostgresCDCSource struct {
 	typeMap                *pgtype.Map
 	startLSN               pglogrepl.LSN
 	commitLock             bool
-	ConnStr                string
+	customTypeMapping      map[uint32]string
 }
 
 type PostgresCDCConfig struct {
@@ -41,11 +41,10 @@ type PostgresCDCConfig struct {
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]string
 	RelationMessageMapping model.RelationMessageMapping
-	ConnStr                string
 }
 
 // Create a new PostgresCDCSource
-func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
+func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32]string) (*PostgresCDCSource, error) {
 	return &PostgresCDCSource{
 		ctx:                    cdcConfig.AppContext,
 		replPool:               cdcConfig.Connection,
@@ -56,7 +55,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, err
 		relationMessageMapping: cdcConfig.RelationMessageMapping,
 		typeMap:                pgtype.NewMap(),
 		commitLock:             false,
-		ConnStr:                cdcConfig.ConnStr,
+		customTypeMapping:      customTypeMap,
 	}, nil
 }
 
@@ -518,18 +517,24 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 		if err != nil {
 			return nil, err
 		}
-		retVal, err := parseFieldFromPostgresOID(dataType, parsedData, p.ConnStr)
+		retVal, err := parseFieldFromPostgresOID(dataType, parsedData)
 		if err != nil {
 			return nil, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		retVal, err := parseFieldFromPostgresOID(dataType, string(data), p.ConnStr)
+		retVal, err := parseFieldFromPostgresOID(dataType, string(data))
 		if err != nil {
 			return nil, err
 		}
 		return retVal, nil
 	}
+	typeName, ok := p.customTypeMapping[dataType]
+	if ok {
+		return &qvalue.QValue{Kind: customTypeToQKind(typeName),
+			Value: string(data)}, nil
+	}
+
 	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }
 
@@ -580,9 +585,16 @@ func (p *PostgresCDCSource) processRelationMessage(
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
 		if prevRelMap[column.Name] == nil {
+			qKind := postgresOIDToQValueKind(column.DataType)
+			if qKind == qvalue.QValueKindInvalid {
+				typeName, ok := p.customTypeMapping[column.DataType]
+				if ok {
+					qKind = customTypeToQKind(typeName)
+				}
+			}
 			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 				ColumnName: column.Name,
-				ColumnType: string(postgresOIDToQValueKind(column.DataType, p.ConnStr)),
+				ColumnType: string(qKind),
 			})
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.

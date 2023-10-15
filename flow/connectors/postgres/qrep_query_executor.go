@@ -18,13 +18,13 @@ import (
 )
 
 type QRepQueryExecutor struct {
-	pool        *pgxpool.Pool
-	ctx         context.Context
-	snapshot    string
-	testEnv     bool
-	flowJobName string
-	partitionID string
-	connStr     string
+	pool          *pgxpool.Pool
+	ctx           context.Context
+	snapshot      string
+	testEnv       bool
+	flowJobName   string
+	partitionID   string
+	customTypeMap map[uint32]string
 }
 
 func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
@@ -39,19 +39,23 @@ func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
 }
 
 func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string,
-	flowJobName string, partitionID string, connStr string) *QRepQueryExecutor {
+	flowJobName string, partitionID string) (*QRepQueryExecutor, error) {
 	log.WithFields(log.Fields{
 		"flowName":    flowJobName,
 		"partitionID": partitionID,
 	}).Info("Declared new qrep executor for snapshot")
-	return &QRepQueryExecutor{
-		pool:        pool,
-		ctx:         ctx,
-		snapshot:    snapshot,
-		flowJobName: flowJobName,
-		partitionID: partitionID,
-		connStr:     connStr,
+	CustomTypeMap, err := utils.GetCustomDataTypes(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get custom data types: %w", err)
 	}
+	return &QRepQueryExecutor{
+		pool:          pool,
+		ctx:           ctx,
+		snapshot:      snapshot,
+		flowJobName:   flowJobName,
+		partitionID:   partitionID,
+		customTypeMap: CustomTypeMap,
+	}, nil
 }
 
 func (qe *QRepQueryExecutor) SetTestEnv(testEnv bool) {
@@ -96,21 +100,15 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 	qfields := make([]*model.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
-		ctype := postgresOIDToQValueKind(fd.DataTypeOID, qe.connStr)
+		ctype := postgresOIDToQValueKind(fd.DataTypeOID)
 		if ctype == qvalue.QValueKindInvalid {
-			var typeName string
-			err := qe.pool.QueryRow(qe.ctx, "SELECT typname FROM pg_type WHERE oid = $1",
-				fd.DataTypeOID).Scan(&typeName)
+			var err error
+			ctype = qvalue.QValueKind(qe.customTypeMap[fd.DataTypeOID])
 			if err != nil {
 				ctype = qvalue.QValueKindInvalid
-			} else {
-				switch typeName {
-				case "geometry":
-					ctype = qvalue.QValueKindGeometry
-				case "geography":
-					ctype = qvalue.QValueKindGeography
-				default:
-					ctype = qvalue.QValueKindInvalid
+				typeName, ok := qe.customTypeMap[fd.DataTypeOID]
+				if ok {
+					ctype = customTypeToQKind(typeName)
 				}
 			}
 		}
@@ -138,7 +136,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	}).Info("Processing rows")
 	// Iterate over the rows
 	for rows.Next() {
-		record, err := mapRowToQRecord(rows, fieldDescriptions, qe.connStr)
+		record, err := mapRowToQRecord(rows, fieldDescriptions, qe.customTypeMap)
 		if err != nil {
 			return nil, fmt.Errorf("failed to map row to QRecord: %w", err)
 		}
@@ -175,7 +173,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 
 	// Iterate over the rows
 	for rows.Next() {
-		record, err := mapRowToQRecord(rows, fieldDescriptions, qe.connStr)
+		record, err := mapRowToQRecord(rows, fieldDescriptions, qe.customTypeMap)
 		if err != nil {
 			stream.Records <- &model.QRecordOrError{
 				Err: fmt.Errorf("failed to map row to QRecord: %w", err),
@@ -415,7 +413,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	return totalRecordsFetched, nil
 }
 
-func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription, connStr string) (*model.QRecord, error) {
+func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription, customTypeMap map[uint32]string) (*model.QRecord, error) {
 	// make vals an empty array of QValue of size len(fds)
 	record := model.NewQRecord(len(fds))
 
@@ -425,11 +423,21 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription, connStr string
 	}
 
 	for i, fd := range fds {
-		tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, values[i], connStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse field: %w", err)
+		// Check if it's a custom type first
+		typeName, ok := customTypeMap[fd.DataTypeOID]
+		if !ok {
+			tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse field: %w", err)
+			}
+			record.Set(i, *tmp)
+		} else {
+			customTypeVal := qvalue.QValue{
+				Kind:  customTypeToQKind(typeName),
+				Value: values[i],
+			}
+			record.Set(i, *&customTypeVal)
 		}
-		record.Set(i, *tmp)
 	}
 
 	return record, nil

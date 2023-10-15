@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,14 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 	log "github.com/sirupsen/logrus"
 )
 
-func postgresOIDToQValueKind(recvOID uint32, connStr string) qvalue.QValueKind {
+func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
 		return qvalue.QValueKindBoolean
@@ -84,15 +82,9 @@ func postgresOIDToQValueKind(recvOID uint32, connStr string) qvalue.QValueKind {
 			} else if recvOID == uint32(oid.T_point) {
 				return qvalue.QValueKindPoint
 			}
-			ctx := context.Background()
-			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
-			qKind, err := utils.GetCustomDataType(ctx, connStr, recvOID)
-			if err != nil {
-				log.Warnf("failed to get type name for oid: %v", recvOID)
-				return qvalue.QValueKindInvalid
-			}
-			return qKind
+
+			return qvalue.QValueKindInvalid
+
 		} else {
 			log.Warnf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name)
 			return qvalue.QValueKindString
@@ -371,8 +363,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	return val, nil
 }
 
-func parseFieldFromPostgresOID(oid uint32, value interface{}, connStr string) (*qvalue.QValue, error) {
-	return parseFieldFromQValueKind(postgresOIDToQValueKind(oid, connStr), value)
+func parseFieldFromPostgresOID(oid uint32, value interface{}) (*qvalue.QValue, error) {
+	return parseFieldFromQValueKind(postgresOIDToQValueKind(oid), value)
 }
 
 func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
@@ -397,4 +389,17 @@ func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
 
 	// handle invalid numeric
 	return nil, errors.New("invalid numeric")
+}
+
+func customTypeToQKind(typeName string) qvalue.QValueKind {
+	var qValueKind qvalue.QValueKind
+	switch typeName {
+	case "geometry":
+		qValueKind = qvalue.QValueKindGeometry
+	case "geography":
+		qValueKind = qvalue.QValueKindGeography
+	default:
+		qValueKind = qvalue.QValueKindString
+	}
+	return qValueKind
 }

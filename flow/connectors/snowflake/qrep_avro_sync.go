@@ -270,7 +270,9 @@ func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyI
 			continue
 		}
 		colName := strings.ToLower(col)
-		columnOrder = append(columnOrder, colName)
+		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
+		log.Infof("colName: %s has type: %s", colName, colType)
+
 		switch colType {
 		case "GEOGRAPHY":
 			transformations = append(transformations,
@@ -279,7 +281,7 @@ func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyI
 			transformations = append(transformations,
 				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string) AS \"%s\"", colName, colName))
 		default:
-			transformations = append(transformations, fmt.Sprintf("$1:%s AS %s", colName, colName))
+			transformations = append(transformations, fmt.Sprintf("($1:\"%s\")::%s AS \"%s\"", colName, colType, colName))
 		}
 	}
 	transformationSQL := strings.Join(transformations, ",")
@@ -488,6 +490,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
 		tempTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
+	log.Info("Copy command in handleupsert: ", copyCmd)
 	_, err = s.connector.database.Exec(copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)

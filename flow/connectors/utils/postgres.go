@@ -6,7 +6,6 @@ import (
 	"net/url"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,29 +23,27 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 	return connString
 }
 
-func GetCustomDataType(ctx context.Context, connStr string, dataType uint32) (qvalue.QValueKind, error) {
-	var typeName string
-	pool, err := pgxpool.New(ctx, connStr)
+func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]string, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT t.oid, t.typname as type
+		FROM pg_type t
+		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+		WHERE (t.typrelid = 0 OR (SELECT c.relkind = 'c' FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid))
+		AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type el WHERE el.oid = t.typelem AND el.typarray = t.oid)
+		AND n.nspname NOT IN ('pg_catalog', 'information_schema');
+	`)
 	if err != nil {
-		return qvalue.QValueKindString, fmt.Errorf("failed to create postgres connection pool"+
-			" for custom type handling: %w", err)
+		return nil, fmt.Errorf("failed to get custom types: %w", err)
 	}
 
-	defer pool.Close()
-
-	err = pool.QueryRow(ctx, "SELECT typname FROM pg_type WHERE oid = $1", dataType).Scan(&typeName)
-	if err != nil {
-		return qvalue.QValueKindString, fmt.Errorf("failed to query pg_type for custom type handling: %w", err)
+	customTypeMap := map[uint32]string{}
+	for rows.Next() {
+		var typeID uint32
+		var typeName string
+		if err := rows.Scan(&typeID, &typeName); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		customTypeMap[typeID] = typeName
 	}
-
-	var qValueKind qvalue.QValueKind
-	switch typeName {
-	case "geometry":
-		qValueKind = qvalue.QValueKindGeometry
-	case "geography":
-		qValueKind = qvalue.QValueKindGeography
-	default:
-		qValueKind = qvalue.QValueKindString
-	}
-	return qValueKind, nil
+	return customTypeMap, nil
 }

@@ -346,6 +346,9 @@ func (c *QValueAvroConverter) processGeospatial() (interface{}, error) {
 		return nil, fmt.Errorf("[conversion] invalid geospatial value %v", c.Value.Value)
 	}
 
+	if c.Nullable {
+		return goavro.Union("string", geoString), nil
+	}
 	return geoString, nil
 }
 

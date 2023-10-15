@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	log "github.com/sirupsen/logrus"
 )
 
 type QRecordAvroConverter struct {
@@ -76,7 +75,6 @@ func GetAvroSchemaDefinition(
 	nullableFields := map[string]bool{}
 
 	for _, qField := range qRecordSchema.Fields {
-		log.Infof("qField name: %s, qField type: %s", qField.Name, qField.Type)
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, qField.Nullable)
 		if err != nil {
 			return nil, err
