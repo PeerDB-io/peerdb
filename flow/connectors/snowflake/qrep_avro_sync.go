@@ -18,6 +18,11 @@ import (
 	"go.temporal.io/sdk/activity"
 )
 
+type CopyInfo struct {
+	transformationSQL string
+	columnsSQL        string
+}
+
 type SnowflakeAvroSyncMethod struct {
 	config    *protos.QRepConfig
 	connector *SnowflakeConnector
@@ -73,11 +78,12 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 		"flowName":         flowJobName,
 	}).Infof("Created stage %s", stage)
 
-	allCols, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
+	colInfo, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
 	if err != nil {
 		return 0, err
 	}
 
+	allCols := colInfo.Columns
 	err = s.putFileToStage(localFilePath, stage)
 	if err != nil {
 		return 0, err
@@ -251,6 +257,36 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage str
 	return nil
 }
 
+func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyInfo, error) {
+	colInfo, colsErr := sc.getColsFromTable(dstTableName)
+	if colsErr != nil {
+		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
+	}
+
+	var transformations []string
+	var columnOrder []string
+	for col, colType := range colInfo.ColumnMap {
+		if col == "_PEERDB_IS_DELETED" {
+			continue
+		}
+		colName := strings.ToLower(col)
+		columnOrder = append(columnOrder, colName)
+		switch colType {
+		case "GEOGRAPHY":
+			transformations = append(transformations,
+				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string) AS \"%s\"", colName, colName))
+		case "GEOMETRY":
+			transformations = append(transformations,
+				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string) AS \"%s\"", colName, colName))
+		default:
+			transformations = append(transformations, fmt.Sprintf("$1:%s AS %s", colName, colName))
+		}
+	}
+	transformationSQL := strings.Join(transformations, ",")
+	columnsSQL := strings.Join(columnOrder, ",")
+	return &CopyInfo{transformationSQL, columnsSQL}, nil
+}
+
 func CopyStageToDestination(
 	connector *SnowflakeConnector,
 	config *protos.QRepConfig,
@@ -263,7 +299,6 @@ func CopyStageToDestination(
 	}).Infof("Copying stage to destination %s", dstTableName)
 	copyOpts := []string{
 		"FILE_FORMAT = (TYPE = AVRO)",
-		"MATCH_BY_COLUMN_NAME='CASE_INSENSITIVE'",
 		"PURGE = TRUE",
 		"ON_ERROR = 'CONTINUE'",
 	}
@@ -278,9 +313,13 @@ func CopyStageToDestination(
 		}
 	}
 
+	copyTransformation, err := connector.GetCopyTransformation(dstTableName)
+	if err != nil {
+		return fmt.Errorf("failed to get copy transformation: %w", err)
+	}
 	switch appendMode {
 	case true:
-		err := writeHandler.HandleAppendMode(config.FlowJobName)
+		err := writeHandler.HandleAppendMode(config.FlowJobName, copyTransformation)
 		if err != nil {
 			return fmt.Errorf("failed to handle append mode: %w", err)
 		}
@@ -288,7 +327,7 @@ func CopyStageToDestination(
 	case false:
 		upsertKeyCols := config.WriteMode.UpsertKeyColumns
 		err := writeHandler.HandleUpsertMode(allCols, upsertKeyCols, config.WatermarkColumn,
-			config.FlowJobName)
+			config.FlowJobName, copyTransformation)
 		if err != nil {
 			return fmt.Errorf("failed to handle upsert mode: %w", err)
 		}
@@ -348,9 +387,12 @@ func NewSnowflakeAvroWriteHandler(
 	}
 }
 
-func (s *SnowflakeAvroWriteHandler) HandleAppendMode(flowJobName string) error {
+func (s *SnowflakeAvroWriteHandler) HandleAppendMode(
+	flowJobName string,
+	copyInfo *CopyInfo) error {
 	//nolint:gosec
-	copyCmd := fmt.Sprintf("COPY INTO %s FROM @%s %s", s.dstTableName, s.stage, strings.Join(s.copyOpts, ","))
+	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
+		s.dstTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
 	log.Infof("running copy command: %s", copyCmd)
 	_, err := s.connector.database.Exec(copyCmd)
 	if err != nil {
@@ -424,6 +466,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	upsertKeyCols []string,
 	watermarkCol string,
 	flowJobName string,
+	copyInfo *CopyInfo,
 ) error {
 	runID, err := util.RandomUInt64()
 	if err != nil {
@@ -443,8 +486,8 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	}).Infof("created temp table %s", tempTableName)
 
 	//nolint:gosec
-	copyCmd := fmt.Sprintf("COPY INTO %s FROM @%s %s",
-		tempTableName, s.stage, strings.Join(s.copyOpts, ","))
+	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
+		tempTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
 	_, err = s.connector.database.Exec(copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)

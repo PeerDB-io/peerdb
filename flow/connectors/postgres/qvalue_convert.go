@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,13 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 	log "github.com/sirupsen/logrus"
 )
 
-func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
+func postgresOIDToQValueKind(recvOID uint32, connStr string) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
 		return qvalue.QValueKindBoolean
@@ -55,6 +57,8 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 		return qvalue.QValueKindArrayInt32
 	case pgtype.Int8ArrayOID:
 		return qvalue.QValueKindArrayInt64
+	case pgtype.PointOID:
+		return qvalue.QValueKindPoint
 	case pgtype.Float4ArrayOID:
 		return qvalue.QValueKindArrayFloat32
 	case pgtype.Float8ArrayOID:
@@ -77,9 +81,18 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 				return qvalue.QValueKindString
 			} else if recvOID == uint32(oid.T_tsquery) { // TSQUERY
 				return qvalue.QValueKindString
+			} else if recvOID == uint32(oid.T_point) {
+				return qvalue.QValueKindPoint
 			}
-			// log.Warnf("failed to get type name for oid: %v", recvOID)
-			return qvalue.QValueKindInvalid
+			ctx := context.Background()
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			qKind, err := utils.GetCustomDataType(ctx, connStr, recvOID)
+			if err != nil {
+				log.Warnf("failed to get type name for oid: %v", recvOID)
+				return qvalue.QValueKindInvalid
+			}
+			return qKind
 		} else {
 			log.Warnf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name)
 			return qvalue.QValueKindString
@@ -337,6 +350,10 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			return nil, fmt.Errorf("failed to parse hstore: %w", err)
 		}
 		val = &qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: hstoreVal}
+	case qvalue.QValueKindPoint:
+		x_coord := value.(pgtype.Point).P.X
+		y_coord := value.(pgtype.Point).P.Y
+		val = &qvalue.QValue{Kind: qvalue.QValueKindPoint, Value: fmt.Sprintf("POINT(%f %f)", x_coord, y_coord)}
 	default:
 		// log.Warnf("unhandled QValueKind => %v, parsing as string", qvalueKind)
 		textVal, ok := value.(string)
@@ -353,8 +370,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	return val, nil
 }
 
-func parseFieldFromPostgresOID(oid uint32, value interface{}) (*qvalue.QValue, error) {
-	return parseFieldFromQValueKind(postgresOIDToQValueKind(oid), value)
+func parseFieldFromPostgresOID(oid uint32, value interface{}, connStr string) (*qvalue.QValue, error) {
+	return parseFieldFromQValueKind(postgresOIDToQValueKind(oid, connStr), value)
 }
 
 func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {

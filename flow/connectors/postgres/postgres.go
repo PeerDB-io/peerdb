@@ -217,6 +217,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		RelationMessageMapping: req.RelationMessageMapping,
+		ConnStr:                c.connStr,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
@@ -588,7 +589,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	defer rows.Close()
 
 	for _, fieldDescription := range rows.FieldDescriptions() {
-		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
+		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID, c.connStr)
 		if genericColType == qvalue.QValueKindInvalid {
 			// we use string for invalid types
 			genericColType = qvalue.QValueKindString

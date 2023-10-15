@@ -30,6 +30,7 @@ type PostgresCDCSource struct {
 	typeMap                *pgtype.Map
 	startLSN               pglogrepl.LSN
 	commitLock             bool
+	ConnStr                string
 }
 
 type PostgresCDCConfig struct {
@@ -40,6 +41,7 @@ type PostgresCDCConfig struct {
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]string
 	RelationMessageMapping model.RelationMessageMapping
+	ConnStr                string
 }
 
 // Create a new PostgresCDCSource
@@ -54,6 +56,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, err
 		relationMessageMapping: cdcConfig.RelationMessageMapping,
 		typeMap:                pgtype.NewMap(),
 		commitLock:             false,
+		ConnStr:                cdcConfig.ConnStr,
 	}, nil
 }
 
@@ -515,37 +518,17 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 		if err != nil {
 			return nil, err
 		}
-		retVal, err := parseFieldFromPostgresOID(dataType, parsedData)
+		retVal, err := parseFieldFromPostgresOID(dataType, parsedData, p.ConnStr)
 		if err != nil {
 			return nil, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		retVal, err := parseFieldFromPostgresOID(dataType, string(data))
+		retVal, err := parseFieldFromPostgresOID(dataType, string(data), p.ConnStr)
 		if err != nil {
 			return nil, err
 		}
 		return retVal, nil
-	} else { // For custom types, let's identify with schema information
-		var typeName string
-		res, err := p.replPool.Query(p.ctx, "SELECT typname FROM pg_type WHERE oid = $1", dataType)
-		if err != nil {
-			return nil, fmt.Errorf("error querying type name for column: %w", err)
-		}
-		scanErr := res.Scan(&typeName)
-		if err != nil {
-			return nil, fmt.Errorf("error scanning type name: %w", scanErr)
-		}
-		fmt.Println("datatype: ", dataType)
-		fmt.Println("typeName: ", typeName)
-		// POSTGIS and HSTORE support
-		switch typeName {
-		case "geometry":
-
-		case "geography":
-		case "hstore":
-		case "point":
-		}
 	}
 	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }
@@ -599,7 +582,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 		if prevRelMap[column.Name] == nil {
 			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 				ColumnName: column.Name,
-				ColumnType: string(postgresOIDToQValueKind(column.DataType)),
+				ColumnType: string(postgresOIDToQValueKind(column.DataType, p.ConnStr)),
 			})
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.

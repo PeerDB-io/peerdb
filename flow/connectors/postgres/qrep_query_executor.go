@@ -7,6 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,7 @@ type QRepQueryExecutor struct {
 	testEnv     bool
 	flowJobName string
 	partitionID string
+	connStr     string
 }
 
 func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
@@ -37,7 +39,7 @@ func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
 }
 
 func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string,
-	flowJobName string, partitionID string) *QRepQueryExecutor {
+	flowJobName string, partitionID string, connStr string) *QRepQueryExecutor {
 	log.WithFields(log.Fields{
 		"flowName":    flowJobName,
 		"partitionID": partitionID,
@@ -48,6 +50,7 @@ func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snaps
 		snapshot:    snapshot,
 		flowJobName: flowJobName,
 		partitionID: partitionID,
+		connStr:     connStr,
 	}
 }
 
@@ -89,11 +92,27 @@ func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetc
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
 	qfields := make([]*model.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
-		ctype := postgresOIDToQValueKind(fd.DataTypeOID)
+		ctype := postgresOIDToQValueKind(fd.DataTypeOID, qe.connStr)
+		if ctype == qvalue.QValueKindInvalid {
+			var typeName string
+			err := qe.pool.QueryRow(qe.ctx, "SELECT typname FROM pg_type WHERE oid = $1", fd.DataTypeOID).Scan(&typeName)
+			if err != nil {
+				ctype = qvalue.QValueKindInvalid
+			} else {
+				switch typeName {
+				case "geometry":
+					ctype = qvalue.QValueKindGeometry
+				case "geography":
+					ctype = qvalue.QValueKindGeography
+				default:
+					ctype = qvalue.QValueKindInvalid
+				}
+			}
+		}
 		// there isn't a way to know if a column is nullable or not
 		// TODO fix this.
 		cnullable := true
@@ -118,7 +137,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	}).Info("Processing rows")
 	// Iterate over the rows
 	for rows.Next() {
-		record, err := mapRowToQRecord(rows, fieldDescriptions)
+		record, err := mapRowToQRecord(rows, fieldDescriptions, qe.connStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to map row to QRecord: %w", err)
 		}
@@ -133,7 +152,7 @@ func (qe *QRepQueryExecutor) ProcessRows(
 	batch := &model.QRecordBatch{
 		NumRecords: uint32(len(records)),
 		Records:    records,
-		Schema:     fieldDescriptionsToSchema(fieldDescriptions),
+		Schema:     qe.fieldDescriptionsToSchema(fieldDescriptions),
 	}
 
 	log.WithFields(log.Fields{
@@ -155,7 +174,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 
 	// Iterate over the rows
 	for rows.Next() {
-		record, err := mapRowToQRecord(rows, fieldDescriptions)
+		record, err := mapRowToQRecord(rows, fieldDescriptions, qe.connStr)
 		if err != nil {
 			stream.Records <- &model.QRecordOrError{
 				Err: fmt.Errorf("failed to map row to QRecord: %w", err),
@@ -214,7 +233,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 
 	fieldDescriptions := rows.FieldDescriptions()
 	if !stream.IsSchemaSet() {
-		schema := fieldDescriptionsToSchema(fieldDescriptions)
+		schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
 		_ = stream.SetSchema(schema)
 	}
 
@@ -395,7 +414,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	return totalRecordsFetched, nil
 }
 
-func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription) (*model.QRecord, error) {
+func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription, connStr string) (*model.QRecord, error) {
 	// make vals an empty array of QValue of size len(fds)
 	record := model.NewQRecord(len(fds))
 
@@ -405,7 +424,7 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription) (*model.QRecor
 	}
 
 	for i, fd := range fds {
-		tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
+		tmp, err := parseFieldFromPostgresOID(fd.DataTypeOID, values[i], connStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse field: %w", err)
 		}

@@ -291,7 +291,7 @@ func (c *PostgresConnector) PullQRepRecords(
 			"partitionId": partition.PartitionId,
 		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
 		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
-			config.FlowJobName, partition.PartitionId)
+			config.FlowJobName, partition.PartitionId, c.connStr)
 		query := config.Query
 		return executor.ExecuteAndProcessQuery(query)
 	}
@@ -337,7 +337,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	}
 
 	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
-		config.FlowJobName, partition.PartitionId)
+		config.FlowJobName, partition.PartitionId, c.connStr)
 	records, err := executor.ExecuteAndProcessQuery(query,
 		rangeStart, rangeEnd)
 	if err != nil {
@@ -363,7 +363,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 			"partitionId": partition.PartitionId,
 		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
 		executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
-			config.FlowJobName, partition.PartitionId)
+			config.FlowJobName, partition.PartitionId, c.connStr)
 		query := config.Query
 		_, err := executor.ExecuteAndProcessQueryStream(stream, query)
 		return 0, err
@@ -410,7 +410,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	}
 
 	executor := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
-		config.FlowJobName, partition.PartitionId)
+		config.FlowJobName, partition.PartitionId, c.connStr)
 	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query, rangeStart, rangeEnd)
 	if err != nil {
 		return 0, err

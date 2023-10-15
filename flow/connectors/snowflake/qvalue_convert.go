@@ -27,8 +27,11 @@ var qValueKindToSnowflakeTypeMap = map[qvalue.QValueKind]string{
 	qvalue.QValueKindTimeTZ:      "STRING",
 	qvalue.QValueKindInvalid:     "STRING",
 	qvalue.QValueKindHStore:      "STRING",
+	qvalue.QValueKindGeography:   "GEOGRAPHY",
+	qvalue.QValueKindGeometry:    "GEOMETRY",
+	qvalue.QValueKindPoint:       "GEOMETRY",
 
-	// array types will be mapped to STRING
+	// array types will be mapped to VARIANT
 	qvalue.QValueKindArrayFloat32: "VARIANT",
 	qvalue.QValueKindArrayFloat64: "VARIANT",
 	qvalue.QValueKindArrayInt32:   "VARIANT",
@@ -60,6 +63,8 @@ var snowflakeTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"DECIMAL":       qvalue.QValueKindNumeric,
 	"NUMERIC":       qvalue.QValueKindNumeric,
 	"VARIANT":       qvalue.QValueKindJSON,
+	"GEOMETRY":      qvalue.QValueKindGeometry,
+	"GEOGRAPHY":     qvalue.QValueKindGeography,
 }
 
 func qValueKindToSnowflakeType(colType qvalue.QValueKind) string {
