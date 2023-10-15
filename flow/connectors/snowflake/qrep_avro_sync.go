@@ -280,6 +280,8 @@ func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyI
 		case "GEOMETRY":
 			transformations = append(transformations,
 				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string) AS \"%s\"", colName, colName))
+		case "NUMBER":
+			transformations = append(transformations, fmt.Sprintf("$1:\"%s\" AS \"%s\"", colName, colName))
 		default:
 			transformations = append(transformations, fmt.Sprintf("($1:\"%s\")::%s AS \"%s\"", colName, colType, colName))
 		}
