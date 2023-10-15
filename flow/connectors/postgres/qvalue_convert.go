@@ -351,9 +351,10 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		}
 		val = &qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: hstoreVal}
 	case qvalue.QValueKindPoint:
-		x_coord := value.(pgtype.Point).P.X
-		y_coord := value.(pgtype.Point).P.Y
-		val = &qvalue.QValue{Kind: qvalue.QValueKindPoint, Value: fmt.Sprintf("POINT(%f %f)", x_coord, y_coord)}
+		xCoord := value.(pgtype.Point).P.X
+		yCoord := value.(pgtype.Point).P.Y
+		val = &qvalue.QValue{Kind: qvalue.QValueKindPoint,
+			Value: fmt.Sprintf("POINT(%f %f)", xCoord, yCoord)}
 	default:
 		// log.Warnf("unhandled QValueKind => %v, parsing as string", qvalueKind)
 		textVal, ok := value.(string)

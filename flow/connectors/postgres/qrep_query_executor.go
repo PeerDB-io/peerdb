@@ -99,7 +99,8 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		ctype := postgresOIDToQValueKind(fd.DataTypeOID, qe.connStr)
 		if ctype == qvalue.QValueKindInvalid {
 			var typeName string
-			err := qe.pool.QueryRow(qe.ctx, "SELECT typname FROM pg_type WHERE oid = $1", fd.DataTypeOID).Scan(&typeName)
+			err := qe.pool.QueryRow(qe.ctx, "SELECT typname FROM pg_type WHERE oid = $1",
+				fd.DataTypeOID).Scan(&typeName)
 			if err != nil {
 				ctype = qvalue.QValueKindInvalid
 			} else {
