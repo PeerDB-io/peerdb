@@ -129,15 +129,7 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 	return nil
 }
 
-func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf("syncing records to eventhub with"+
-			" push parallelism %d and push batch size %d",
-			req.PushParallelism, req.PushBatchSize)
-	})
-	defer func() {
-		shutdown <- true
-	}()
+func (c *EventHubConnector) syncRecordBatchAsync(req *model.SyncRecordsRequest) error {
 	tableNameRowsMapping := cmap.New[uint32]()
 	batch := req.Records
 	eventsPerHeartBeat := 1000
@@ -153,14 +145,13 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
-	startTime := time.Now()
 	for i, record := range batch.Records {
 		json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"flowName": req.FlowJobName,
 			}).Infof("failed to convert record to json: %v", err)
-			return nil, err
+			return err
 		}
 
 		flushBatch := func() error {
@@ -181,7 +172,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			log.WithFields(log.Fields{
 				"flowName": req.FlowJobName,
 			}).Infof("failed to get topic name: %v", err)
-			return nil, err
+			return err
 		}
 
 		err = batchPerTopic.AddEvent(topicName, json)
@@ -189,7 +180,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			log.WithFields(log.Fields{
 				"flowName": req.FlowJobName,
 			}).Infof("failed to add event to batch: %v", err)
-			return nil, err
+			return err
 		}
 
 		if i%eventsPerHeartBeat == 0 {
@@ -199,7 +190,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		if (i+1)%eventsPerBatch == 0 {
 			err := flushBatch()
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
@@ -209,7 +200,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		err := c.sendEventBatch(batchPerTopic, maxParallelism,
 			req.FlowJobName, tableNameRowsMapping)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 	rowsSynced := len(batch.Records)
@@ -217,6 +208,30 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		"flowName": req.FlowJobName,
 	}).Infof("[total] successfully sent %d records to event hub", rowsSynced)
 
+	return nil
+}
+
+func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
+		return fmt.Sprintf("syncing records to eventhub with"+
+			" push parallelism %d and push batch size %d",
+			req.PushParallelism, req.PushBatchSize)
+	})
+	defer func() {
+		shutdown <- true
+	}()
+
+	startTime := time.Now()
+
+	// fire and forget the sync.
+	go func() {
+		err := c.syncRecordBatchAsync(req)
+		if err != nil {
+			log.Errorf("failed to sync record batch: %v", err)
+		}
+	}()
+
+	batch := req.Records
 	err := c.updateLastOffset(req.FlowJobName, batch.LastCheckPointID)
 	if err != nil {
 		log.Errorf("failed to update last offset: %v", err)
@@ -263,6 +278,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 	}
 
+	rowsSynced := len(batch.Records)
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(rowsSynced), time.Since(startTime))
 	metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, int64(rowsSynced),
 		time.Since(startTime), int64(rowsSynced))
@@ -270,7 +286,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		FirstSyncedCheckPointID: batch.FirstCheckPointID,
 		LastSyncedCheckPointID:  batch.LastCheckPointID,
 		NumRecordsSynced:        int64(len(batch.Records)),
-		TableNameRowsMapping:    tableNameRowsMapping.Items(),
+		TableNameRowsMapping:    make(map[string]uint32),
 	}, nil
 }
 
