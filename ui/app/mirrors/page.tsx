@@ -12,6 +12,8 @@ import { PrismaClient } from '@prisma/client';
 import moment from 'moment';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 const Badges = [
   <Badge variant='positive' key={1}>
     <Icon name='play_circle' />
