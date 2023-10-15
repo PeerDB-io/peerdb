@@ -270,7 +270,11 @@ func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyI
 			continue
 		}
 		colName := strings.ToLower(col)
-		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
+		// No need to quote raw table columns
+		if !strings.Contains(dstTableName, "_PEERDB_RAW") {
+			colName = fmt.Sprintf("\"%s\"", colName)
+		}
+		columnOrder = append(columnOrder, colName)
 		log.Infof("colName: %s has type: %s", colName, colType)
 
 		switch colType {
