@@ -565,7 +565,7 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 				recordType:            0,
 				matchData:             "",
 				batchID:               syncBatchID,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
@@ -605,7 +605,7 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 				recordType:            2,
 				matchData:             itemsJSON,
 				batchID:               syncBatchID,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		default:
@@ -995,7 +995,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 			pkeyColName, pkeyColName))
 	}
 	// TARGET.<pkey1> = SOURCE.<pkey1> AND TARGET.<pkey2> = SOURCE.<pkey2> ...
-	pkeyColStr := strings.Join(pkeySelectSQLArray, " AND ")
+	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	deletePart := "DELETE"
 	if softDelete {
@@ -1005,7 +1005,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
 		fmt.Sprintf("(%s)", strings.Join(normalizedTableSchema.PrimaryKeyColumns, ",")),
-		pkeyColStr, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
+		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
 	result, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {

@@ -208,8 +208,6 @@ type InsertRecord struct {
 	CommitID int64
 	// Items is a map of column name to value.
 	Items *RecordItems
-	// unchanged toast columns
-	UnchangedToastColumns map[string]bool
 }
 
 // Implement Record interface for InsertRecord.
@@ -237,7 +235,7 @@ type UpdateRecord struct {
 	// NewItems is a map of column name to value.
 	NewItems *RecordItems
 	// unchanged toast columns
-	UnchangedToastColumns map[string]bool
+	UnchangedToastColumns map[string]struct{}
 }
 
 // Implement Record interface for UpdateRecord.
@@ -263,8 +261,6 @@ type DeleteRecord struct {
 	CheckPointID int64
 	// Items is a map of column name to value.
 	Items *RecordItems
-	// unchanged toast columns
-	UnchangedToastColumns map[string]bool
 }
 
 // Implement Record interface for DeleteRecord.

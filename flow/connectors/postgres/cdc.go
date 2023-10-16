@@ -239,17 +239,14 @@ func (p *PostgresCDCSource) consumeStream(
 					// tableName here is destination tableName.
 					// should be ideally sourceTableName as we are in PullRecords.
 					// will change in future
-					pkeyColsMerged := make([]string, 0)
-					for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
-						pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
-						if err != nil {
-							return nil, fmt.Errorf("error getting pkey column value: %w", err)
-						}
-						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal.Value))
+					compositePKeyString, err := p.compositePKeyToString(req, rec)
+					if err != nil {
+						return nil, err
 					}
+
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
-						PkeyColVal: strings.Join(pkeyColsMerged, " "),
+						PkeyColVal: compositePKeyString,
 					}
 					_, ok := records.TablePKeyLastSeen[tablePkeyVal]
 					if !ok {
@@ -266,18 +263,14 @@ func (p *PostgresCDCSource) consumeStream(
 						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					}
 				case *model.InsertRecord:
-					pkeyColsMerged := make([]string, 0)
-					for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
-						pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
-						if err != nil {
-							return nil, fmt.Errorf("error getting pkey column value: %w", err)
-						}
-						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal))
+					compositePKeyString, err := p.compositePKeyToString(req, rec)
+					if err != nil {
+						return nil, err
 					}
 
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
-						PkeyColVal: strings.Join(pkeyColsMerged, " "),
+						PkeyColVal: compositePKeyString,
 					}
 					records.Records = append(records.Records, rec)
 					// all columns will be set in insert record, so add it to the map
@@ -365,17 +358,16 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// create empty map of string to interface{}
-	items, unchangedToastColumns, err := p.convertTupleToMap(msg.Tuple, rel)
+	items, _, err := p.convertTupleToMap(msg.Tuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.InsertRecord{
-		CheckPointID:          int64(lsn),
-		Items:                 items,
-		DestinationTableName:  p.TableNameMapping[tableName],
-		SourceTableName:       tableName,
-		UnchangedToastColumns: unchangedToastColumns,
+		CheckPointID:         int64(lsn),
+		Items:                items,
+		DestinationTableName: p.TableNameMapping[tableName],
+		SourceTableName:      tableName,
 	}, nil
 }
 
@@ -437,17 +429,16 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	}
 
 	// create empty map of string to interface{}
-	items, unchangedToastColumns, err := p.convertTupleToMap(msg.OldTuple, rel)
+	items, _, err := p.convertTupleToMap(msg.OldTuple, rel)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.DeleteRecord{
-		CheckPointID:          int64(lsn),
-		Items:                 items,
-		DestinationTableName:  p.TableNameMapping[tableName],
-		SourceTableName:       tableName,
-		UnchangedToastColumns: unchangedToastColumns,
+		CheckPointID:         int64(lsn),
+		Items:                items,
+		DestinationTableName: p.TableNameMapping[tableName],
+		SourceTableName:      tableName,
 	}, nil
 }
 
@@ -461,15 +452,15 @@ It takes a tuple and a relation message as input and returns
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *protos.RelationMessage,
-) (*model.RecordItems, map[string]bool, error) {
+) (*model.RecordItems, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return model.NewRecordItems(), make(map[string]bool), nil
+		return model.NewRecordItems(), make(map[string]struct{}), nil
 	}
 
 	// create empty map of string to interface{}
 	items := model.NewRecordItems()
-	unchangedToastColumns := make(map[string]bool)
+	unchangedToastColumns := make(map[string]struct{})
 
 	for idx, col := range tuple.Columns {
 		colName := rel.Columns[idx].Name
@@ -491,7 +482,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 			}
 			items.AddColumn(colName, data)
 		case 'u': // unchanged toast
-			unchangedToastColumns[colName] = true
+			unchangedToastColumns[colName] = struct{}{}
 		default:
 			return nil, nil, fmt.Errorf("unknown column data type: %s", string(col.DataType))
 		}
@@ -598,4 +589,19 @@ func (p *PostgresCDCSource) processRelationMessage(
 		TableSchemaDelta: schemaDelta,
 		CheckPointID:     int64(lsn),
 	}, nil
+}
+
+func (p *PostgresCDCSource) compositePKeyToString(req *model.PullRecordsRequest, rec model.Record) (string, error) {
+	tableName := rec.GetTableName()
+	pkeyColsMerged := make([]string, 0)
+
+	for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
+		pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
+		if err != nil {
+			return "", fmt.Errorf("error getting pkey column value: %w", err)
+		}
+		pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal.Value))
+	}
+
+	return strings.Join(pkeyColsMerged, " "), nil
 }

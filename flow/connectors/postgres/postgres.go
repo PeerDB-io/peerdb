@@ -286,7 +286,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				0,
 				"{}",
 				syncBatchID,
-				utils.KeysToString(typedRecord.UnchangedToastColumns),
+				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
@@ -324,7 +324,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				2,
 				itemsJSON,
 				syncBatchID,
-				utils.KeysToString(typedRecord.UnchangedToastColumns),
+				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		default:
