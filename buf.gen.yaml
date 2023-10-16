@@ -3,6 +3,8 @@ managed:
   enabled: true
   go_package_prefix:
     default: generated/protos
+    except:
+      - buf.build/googleapis/googleapis
 plugins:
   - plugin: buf.build/protocolbuffers/go:v1.31.0
     out: flow/generated/protos
@@ -22,3 +24,12 @@ plugins:
     out: nexus/pt/src
     opt:
       - ignore_unknown_fields=true
+  - plugin: buf.build/community/stephenh-ts-proto:v1.156.8
+    out: ui/grpc_generated
+    opt:
+      - esModuleInterop=true
+      - outputServices=grpc-js
+  - plugin: buf.build/grpc-ecosystem/gateway:v2.18.0
+    out: flow/generated/protos
+    opt:
+      - paths=source_relative

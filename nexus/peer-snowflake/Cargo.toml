@@ -15,14 +15,14 @@ pgerror = { path = "../pgerror" }
 secrecy = { version = "0.8.0" }
 async-trait = "0.1.57"
 jsonwebtoken = { version = "8.0", features = ["use_pem"] }
-base64 = "0.13"
+base64 = "0.21"
 dashmap = "5.0"
 pgwire = "0.15"
 sha2 = "0.10"
 pt = { path = "../pt" }
-pkcs8 = { version = "0.8", features = ["std", "pem"] }
-pkcs1 = "0.3"
-rsa = "0.6"
+pkcs8 = { version = "0.10.2", features = ["std", "pem", "encryption"] }
+pkcs1 = "0.7.5"
+rsa = "0.9.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.3"

@@ -114,6 +114,9 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	if config.WatermarkColumn == "xmin" {
+		quotedWatermarkColumn = fmt.Sprintf("%s::text::bigint", quotedWatermarkColumn)
+	}
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -130,7 +133,10 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			minVal = lastRange.IntRange.End
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
+		case *protos.PartitionRange_XminRange:
+			minVal = lastRange.XminRange.End
 		}
+
 		row = tx.QueryRow(c.ctx, countQuery, minVal)
 	} else {
 		row = tx.QueryRow(c.ctx, countQuery)
@@ -224,6 +230,9 @@ func (c *PostgresConnector) getMinMaxValues(
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	if config.WatermarkColumn == "xmin" {
+		quotedWatermarkColumn = fmt.Sprintf("%s::text::bigint", quotedWatermarkColumn)
+	}
 	// Get the maximum value from the database
 	maxQuery := fmt.Sprintf("SELECT MAX(%[1]s) FROM %[2]s", quotedWatermarkColumn, config.WatermarkTable)
 	row := tx.QueryRow(c.ctx, maxQuery)
@@ -309,6 +318,9 @@ func (c *PostgresConnector) PullQRepRecords(
 			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
 			Valid:        true,
 		}
+	case *protos.PartitionRange_XminRange:
+		rangeStart = x.XminRange.Start
+		rangeEnd = x.XminRange.End
 	default:
 		return nil, fmt.Errorf("unknown range type: %v", x)
 	}
@@ -383,6 +395,9 @@ func (c *PostgresConnector) PullQRepRecordStream(
 			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
 			Valid:        true,
 		}
+	case *protos.PartitionRange_XminRange:
+		rangeStart = x.XminRange.Start
+		rangeEnd = x.XminRange.End
 	default:
 		return 0, fmt.Errorf("unknown range type: %v", x)
 	}
@@ -481,6 +496,14 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 		"flowName": config.FlowJobName,
 	}).Infof("Setup metadata table.")
 
+	if config.WriteMode != nil &&
+		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		_, err = c.pool.Exec(c.ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		if err != nil {
+			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -507,19 +530,6 @@ func BuildQuery(query string, flowJobName string) (string, error) {
 		"flowName": flowJobName,
 	}).Infof("templated query: %s", res)
 	return res, nil
-}
-
-func (c *PostgresConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	log.Infof("Consolidating partitions for flow job %s", config.FlowJobName)
-	log.Infof("This is a no-op for Postgres")
-	return nil
-}
-
-// CleanupQRepFlow function for postgres connector
-func (c *PostgresConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	log.Infof("Cleaning up QRep flow for flow job %s", config.FlowJobName)
-	log.Infof("This is a no-op for Postgres")
-	return nil
 }
 
 // isPartitionSynced checks whether a specific partition is synced

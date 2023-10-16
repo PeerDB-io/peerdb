@@ -11,6 +11,7 @@ message SnowflakeConfig {
   string role = 7;
   uint64 query_timeout = 8;
   string s3_integration = 9;
+  optional string password = 10;
 }
 
 message BigqueryConfig {
@@ -51,10 +52,29 @@ message EventHubConfig {
   string resource_group = 2;
   string location = 3;
   PostgresConfig metadata_db = 4;
+  // if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable.
+  string subscription_id = 5;
+  // defaults to 3
+  uint32 partition_count = 6;
+  // defaults to 7
+  uint32 message_retention_in_days = 7;
+}
+
+message EventHubGroupConfig {
+  // event hub peer name to event hub config
+  map<string, EventHubConfig> eventhubs = 1;
+  PostgresConfig metadata_db = 2;
+  repeated string unnest_columns = 3;
 }
 
 message S3Config {
   string url = 1;
+  optional string access_key_id = 2;
+  optional string secret_access_key = 3;
+  optional string role_arn = 4;
+  optional string region = 5;
+  optional string endpoint = 6;
+  PostgresConfig metadata_db = 7;
 }
 
 message SqlServerConfig {
@@ -73,6 +93,7 @@ enum DBType {
   EVENTHUB = 4;
   S3 = 5;
   SQLSERVER = 6;
+  EVENTHUB_GROUP = 7;
 }
 
 message Peer {
@@ -86,5 +107,6 @@ message Peer {
     EventHubConfig eventhub_config = 7;
     S3Config s3_config = 8;
     SqlServerConfig sqlserver_config = 9;
+    EventHubGroupConfig eventhub_group_config = 10;
   }
 }

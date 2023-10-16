@@ -18,7 +18,7 @@ pub fn create(nexus: &mut Client) {
 
     let create_stmt = format!(
         "
-    CREATE PEER sf_test FROM SNOWFLAKE WITH
+    CREATE PEER IF NOT EXISTS sf_test FROM SNOWFLAKE WITH
         (
         account_id = '{}',
         username = '{}',
@@ -39,18 +39,5 @@ pub fn create(nexus: &mut Client) {
         &sf_config.s3_integration
     );
 
-    let creation_status = nexus.simple_query(&create_stmt);
-    match creation_status {
-        Ok(_) => (),
-        Err(err) => {
-            let create_err = err
-                .as_db_error()
-                .expect("failed to unwrap create peer error");
-            let already_exists_case = create_err.message().contains("(sf_test) already exists");
-            if already_exists_case {
-                return ();
-            }
-            panic!("failed to create snowflake peer:{}", err)
-        }
-    }
+    let _ = nexus.simple_query(&create_stmt);
 }

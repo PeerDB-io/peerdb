@@ -28,13 +28,13 @@ mod stream;
 
 const DEFAULT_REFRESH_THRESHOLD: u64 = 3000;
 const DEFAULT_EXPIRY_THRESHOLD: u64 = 3600;
-const SNOWFLAKE_URL_PREFIX: &'static str = "https://";
-const SNOWFLAKE_URL_SUFFIX: &'static str = ".snowflakecomputing.com/api/v2/statements";
+const SNOWFLAKE_URL_PREFIX: &str = "https://";
+const SNOWFLAKE_URL_SUFFIX: &str = ".snowflakecomputing.com/api/v2/statements";
 
-const DATE_OUTPUT_FORMAT: &'static str = "YYYY/MM/DD";
-const TIME_OUTPUT_FORMAT: &'static str = "HH:MI:SS.FF";
-const TIMESTAMP_OUTPUT_FORMAT: &'static str = "YYYY-MM-DDTHH24:MI:SS.FF";
-const TIMESTAMP_TZ_OUTPUT_FORMAT: &'static str = "YYYY-MM-DDTHH24:MI:SS.FFTZHTZM";
+const DATE_OUTPUT_FORMAT: &str = "YYYY/MM/DD";
+const TIME_OUTPUT_FORMAT: &str = "HH:MI:SS.FF";
+const TIMESTAMP_OUTPUT_FORMAT: &str = "YYYY-MM-DDTHH24:MI:SS.FF";
+const TIMESTAMP_TZ_OUTPUT_FORMAT: &str = "YYYY-MM-DDTHH24:MI:SS.FFTZHTZM";
 
 #[derive(Debug, Serialize)]
 struct SQLStatement<'a> {
@@ -59,7 +59,7 @@ pub(crate) struct ResultSetRowType {
     r#type: SnowflakeDataType,
 }
 
-#[allow(non_snake_case)]
+#[allow(non_snake_case, dead_code)]
 #[derive(Deserialize, Debug)]
 struct ResultSetPartitionInfo {
     rowCount: u64,
@@ -134,6 +134,7 @@ impl SnowflakeQueryExecutor {
                 config.clone().account_id,
                 config.clone().username,
                 config.clone().private_key,
+                config.clone().password,
                 DEFAULT_REFRESH_THRESHOLD,
                 DEFAULT_EXPIRY_THRESHOLD,
             )?,
@@ -206,7 +207,7 @@ impl SnowflakeQueryExecutor {
         })
     }
 
-    pub async fn query(&self, query: &Box<Query>) -> PgWireResult<ResultSet> {
+    pub async fn query(&self, query: &Query) -> PgWireResult<ResultSet> {
         let mut query = query.clone();
 
         let ast = ast::SnowflakeAst::default();

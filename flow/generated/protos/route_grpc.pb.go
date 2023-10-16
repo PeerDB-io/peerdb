@@ -19,18 +19,26 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	FlowService_CreatePeerFlow_FullMethodName = "/peerdb_route.FlowService/CreatePeerFlow"
+	FlowService_ListPeers_FullMethodName      = "/peerdb_route.FlowService/ListPeers"
+	FlowService_ValidatePeer_FullMethodName   = "/peerdb_route.FlowService/ValidatePeer"
+	FlowService_CreatePeer_FullMethodName     = "/peerdb_route.FlowService/CreatePeer"
+	FlowService_CreateCDCFlow_FullMethodName  = "/peerdb_route.FlowService/CreateCDCFlow"
 	FlowService_CreateQRepFlow_FullMethodName = "/peerdb_route.FlowService/CreateQRepFlow"
 	FlowService_ShutdownFlow_FullMethodName   = "/peerdb_route.FlowService/ShutdownFlow"
+	FlowService_MirrorStatus_FullMethodName   = "/peerdb_route.FlowService/MirrorStatus"
 )
 
 // FlowServiceClient is the client API for FlowService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FlowServiceClient interface {
-	CreatePeerFlow(ctx context.Context, in *CreatePeerFlowRequest, opts ...grpc.CallOption) (*CreatePeerFlowResponse, error)
+	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
+	ValidatePeer(ctx context.Context, in *ValidatePeerRequest, opts ...grpc.CallOption) (*ValidatePeerResponse, error)
+	CreatePeer(ctx context.Context, in *CreatePeerRequest, opts ...grpc.CallOption) (*CreatePeerResponse, error)
+	CreateCDCFlow(ctx context.Context, in *CreateCDCFlowRequest, opts ...grpc.CallOption) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error)
 	ShutdownFlow(ctx context.Context, in *ShutdownRequest, opts ...grpc.CallOption) (*ShutdownResponse, error)
+	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
 }
 
 type flowServiceClient struct {
@@ -41,9 +49,36 @@ func NewFlowServiceClient(cc grpc.ClientConnInterface) FlowServiceClient {
 	return &flowServiceClient{cc}
 }
 
-func (c *flowServiceClient) CreatePeerFlow(ctx context.Context, in *CreatePeerFlowRequest, opts ...grpc.CallOption) (*CreatePeerFlowResponse, error) {
-	out := new(CreatePeerFlowResponse)
-	err := c.cc.Invoke(ctx, FlowService_CreatePeerFlow_FullMethodName, in, out, opts...)
+func (c *flowServiceClient) ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error) {
+	out := new(ListPeersResponse)
+	err := c.cc.Invoke(ctx, FlowService_ListPeers_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) ValidatePeer(ctx context.Context, in *ValidatePeerRequest, opts ...grpc.CallOption) (*ValidatePeerResponse, error) {
+	out := new(ValidatePeerResponse)
+	err := c.cc.Invoke(ctx, FlowService_ValidatePeer_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) CreatePeer(ctx context.Context, in *CreatePeerRequest, opts ...grpc.CallOption) (*CreatePeerResponse, error) {
+	out := new(CreatePeerResponse)
+	err := c.cc.Invoke(ctx, FlowService_CreatePeer_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) CreateCDCFlow(ctx context.Context, in *CreateCDCFlowRequest, opts ...grpc.CallOption) (*CreateCDCFlowResponse, error) {
+	out := new(CreateCDCFlowResponse)
+	err := c.cc.Invoke(ctx, FlowService_CreateCDCFlow_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -68,13 +103,26 @@ func (c *flowServiceClient) ShutdownFlow(ctx context.Context, in *ShutdownReques
 	return out, nil
 }
 
+func (c *flowServiceClient) MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error) {
+	out := new(MirrorStatusResponse)
+	err := c.cc.Invoke(ctx, FlowService_MirrorStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServiceServer is the server API for FlowService service.
 // All implementations must embed UnimplementedFlowServiceServer
 // for forward compatibility
 type FlowServiceServer interface {
-	CreatePeerFlow(context.Context, *CreatePeerFlowRequest) (*CreatePeerFlowResponse, error)
+	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
+	ValidatePeer(context.Context, *ValidatePeerRequest) (*ValidatePeerResponse, error)
+	CreatePeer(context.Context, *CreatePeerRequest) (*CreatePeerResponse, error)
+	CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error)
 	ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
+	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -82,14 +130,26 @@ type FlowServiceServer interface {
 type UnimplementedFlowServiceServer struct {
 }
 
-func (UnimplementedFlowServiceServer) CreatePeerFlow(context.Context, *CreatePeerFlowRequest) (*CreatePeerFlowResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreatePeerFlow not implemented")
+func (UnimplementedFlowServiceServer) ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPeers not implemented")
+}
+func (UnimplementedFlowServiceServer) ValidatePeer(context.Context, *ValidatePeerRequest) (*ValidatePeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidatePeer not implemented")
+}
+func (UnimplementedFlowServiceServer) CreatePeer(context.Context, *CreatePeerRequest) (*CreatePeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreatePeer not implemented")
+}
+func (UnimplementedFlowServiceServer) CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateCDCFlow not implemented")
 }
 func (UnimplementedFlowServiceServer) CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateQRepFlow not implemented")
 }
 func (UnimplementedFlowServiceServer) ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ShutdownFlow not implemented")
+}
+func (UnimplementedFlowServiceServer) MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MirrorStatus not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 
@@ -104,20 +164,74 @@ func RegisterFlowServiceServer(s grpc.ServiceRegistrar, srv FlowServiceServer) {
 	s.RegisterService(&FlowService_ServiceDesc, srv)
 }
 
-func _FlowService_CreatePeerFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreatePeerFlowRequest)
+func _FlowService_ListPeers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPeersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FlowServiceServer).CreatePeerFlow(ctx, in)
+		return srv.(FlowServiceServer).ListPeers(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FlowService_CreatePeerFlow_FullMethodName,
+		FullMethod: FlowService_ListPeers_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FlowServiceServer).CreatePeerFlow(ctx, req.(*CreatePeerFlowRequest))
+		return srv.(FlowServiceServer).ListPeers(ctx, req.(*ListPeersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_ValidatePeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidatePeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).ValidatePeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_ValidatePeer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).ValidatePeer(ctx, req.(*ValidatePeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_CreatePeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CreatePeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CreatePeer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CreatePeer(ctx, req.(*CreatePeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_CreateCDCFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateCDCFlowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).CreateCDCFlow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_CreateCDCFlow_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).CreateCDCFlow(ctx, req.(*CreateCDCFlowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -158,6 +272,24 @@ func _FlowService_ShutdownFlow_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_MirrorStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MirrorStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).MirrorStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_MirrorStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).MirrorStatus(ctx, req.(*MirrorStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FlowService_ServiceDesc is the grpc.ServiceDesc for FlowService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -166,8 +298,20 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*FlowServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "CreatePeerFlow",
-			Handler:    _FlowService_CreatePeerFlow_Handler,
+			MethodName: "ListPeers",
+			Handler:    _FlowService_ListPeers_Handler,
+		},
+		{
+			MethodName: "ValidatePeer",
+			Handler:    _FlowService_ValidatePeer_Handler,
+		},
+		{
+			MethodName: "CreatePeer",
+			Handler:    _FlowService_CreatePeer_Handler,
+		},
+		{
+			MethodName: "CreateCDCFlow",
+			Handler:    _FlowService_CreateCDCFlow_Handler,
 		},
 		{
 			MethodName: "CreateQRepFlow",
@@ -176,6 +320,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ShutdownFlow",
 			Handler:    _FlowService_ShutdownFlow_Handler,
+		},
+		{
+			MethodName: "MirrorStatus",
+			Handler:    _FlowService_MirrorStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

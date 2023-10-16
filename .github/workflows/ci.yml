@@ -4,11 +4,16 @@ on:
   push:
     branches: [main, release/*]
   pull_request:
-    branches: [main]
+    branches:
+      - "main"
+      - "release/*"
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubicloud-standard-8]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       catalog_peer:
@@ -28,7 +33,6 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -36,14 +40,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler libssl-dev pkg-config build-essential
-      
+
       - name: setup gcp service account
         id: gcp-service-account
         uses: jsdaniell/create-json@v1.2.2
         with:
           name: "bq_service_account.json"
           json: ${{ secrets.GCP_GH_CI_PKEY }}
-          dir: 'nexus/server/tests/assets/'
+          dir: "nexus/server/tests/assets/"
 
       - name: setup snowflake credentials
         id: sf-credentials
@@ -51,7 +55,7 @@ jobs:
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
-          dir: 'nexus/server/tests/assets/'
+          dir: "nexus/server/tests/assets/"
 
       - name: cargo check
         run: cargo check

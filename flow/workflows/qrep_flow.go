@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
@@ -231,14 +232,17 @@ func QRepFlowWorkflow(
 
 	// register a signal handler to terminate the workflow
 	terminateWorkflow := false
-	signalChan := workflow.GetSignalChannel(ctx, "terminate")
+	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
 
 	s := workflow.NewSelector(ctx)
 	s.AddReceive(signalChan, func(c workflow.ReceiveChannel, _ bool) {
-		var signal string
-		c.Receive(ctx, &signal)
-		logger.Info("Received signal to terminate workflow", "Signal", signal)
-		terminateWorkflow = true
+		var signalVal shared.CDCFlowSignal
+		c.Receive(ctx, &signalVal)
+		logger.Info("received signal", "signal", signalVal)
+		if signalVal == shared.ShutdownSignal {
+			logger.Info("received shutdown signal")
+			terminateWorkflow = true
+		}
 	})
 
 	// register a query to get the number of partitions processed

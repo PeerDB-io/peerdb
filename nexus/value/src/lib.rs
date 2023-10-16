@@ -1,4 +1,5 @@
 use array::ArrayValue;
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use rust_decimal::Decimal;
@@ -236,8 +237,8 @@ impl Value {
             Value::Char(c) => serde_json::Value::String(c.to_string()),
             Value::VarChar(s) => serde_json::Value::String(s.clone()),
             Value::Text(s) => serde_json::Value::String(s.clone()),
-            Value::Binary(b) => serde_json::Value::String(base64::encode(b)),
-            Value::VarBinary(b) => serde_json::Value::String(base64::encode(b)),
+            Value::Binary(b) => serde_json::Value::String(BASE64_STANDARD.encode(b)),
+            Value::VarBinary(b) => serde_json::Value::String(BASE64_STANDARD.encode(b)),
             Value::Date(d) => serde_json::Value::String(d.to_string()),
             Value::Time(t) => serde_json::Value::String(t.to_string()),
             Value::TimeWithTimeZone(t) => serde_json::Value::String(t.to_string()),

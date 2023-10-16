@@ -51,11 +51,11 @@ func main() {
 		EnvVars: []string{"ENABLE_STATS"},
 	}
 
-	profilingServerFlag := &cli.StringFlag{
-		Name:    "profiling-server",
-		Value:   "localhost:6060", // Default is localhost:6060
-		Usage:   "HTTP server address for profiling",
-		EnvVars: []string{"PROFILING_SERVER"},
+	pyroscopeServerFlag := &cli.StringFlag{
+		Name:    "pyroscope-server-address",
+		Value:   "http://pyroscope:4040",
+		Usage:   "HTTP server address for pyroscope",
+		EnvVars: []string{"PYROSCOPE_SERVER_ADDRESS"},
 	}
 
 	metricsServerFlag := &cli.StringFlag{
@@ -77,7 +77,7 @@ func main() {
 						EnableProfiling:  ctx.Bool("enable-profiling"),
 						EnableMetrics:    ctx.Bool("enable-metrics"),
 						EnableMonitoring: ctx.Bool("enable-monitoring"),
-						ProfilingServer:  ctx.String("profiling-server"),
+						PyroscopeServer:  ctx.String("pyroscope-server-address"),
 						MetricsServer:    ctx.String("metrics-server"),
 					})
 				},
@@ -86,7 +86,7 @@ func main() {
 					profilingFlag,
 					metricsFlag,
 					monitoringFlag,
-					profilingServerFlag,
+					pyroscopeServerFlag,
 					metricsServerFlag,
 				},
 			},
@@ -110,6 +110,11 @@ func main() {
 						Aliases: []string{"p"},
 						Value:   8110,
 					},
+					// gateway port is the port that the grpc-gateway listens on
+					&cli.UintFlag{
+						Name:  "gateway-port",
+						Value: 8111,
+					},
 					temporalHostPortFlag,
 				},
 				Action: func(ctx *cli.Context) error {
@@ -119,6 +124,7 @@ func main() {
 						ctx:              appCtx,
 						Port:             ctx.Uint("port"),
 						TemporalHostPort: temporalHostPort,
+						GatewayPort:      ctx.Uint("gateway-port"),
 					})
 				},
 			},

@@ -72,7 +72,7 @@ func (suite *PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 
 	// Fetch all the publications
 	rows, err := teardownTx.Query(context.Background(),
-		"SELECT pubname FROM pg_publication WHERE pubname LIKE 'peerflow_pub%'")
+		"SELECT pubname FROM pg_publication WHERE pubname LIKE $1", fmt.Sprintf("%%%s", "test_simple_slot_creation"))
 	require.NoError(suite.T(), err)
 
 	// Iterate over the publications and drop them
@@ -87,7 +87,8 @@ func (suite *PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 	}
 
 	_, err = teardownTx.Exec(context.Background(),
-		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots")
+		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
+		fmt.Sprintf("%%%s", "test_simple_slot_creation"))
 	require.NoError(suite.T(), err)
 
 	err = teardownTx.Commit(context.Background())

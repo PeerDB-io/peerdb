@@ -5,16 +5,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"go.temporal.io/sdk/activity"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
+	uber_atomic "go.uber.org/atomic"
 )
 
 type PeerDBOCFWriter struct {
@@ -54,8 +55,21 @@ func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 	}
 
 	colNames := schema.GetColumnNames()
-	numRows := 0
-	const heartBeatNumRows = 10000
+
+	var numRows uber_atomic.Uint32
+	numRows.Store(0)
+
+	if p.ctx != nil {
+		shutdown := utils.HeartbeatRoutine(p.ctx, 30*time.Second, func() string {
+			written := numRows.Load()
+			return fmt.Sprintf("[avro] written %d rows to OCF", written)
+		})
+
+		defer func() {
+			shutdown <- true
+		}()
+	}
+
 	for qRecordOrErr := range p.stream.Records {
 		if qRecordOrErr.Err != nil {
 			log.Errorf("[avro] failed to get record from stream: %v", qRecordOrErr.Err)
@@ -82,23 +96,10 @@ func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
 		}
 
-		if numRows%heartBeatNumRows == 0 {
-			log.Infof("written %d rows to OCF", numRows)
-			msg := fmt.Sprintf("written %d rows to OCF", numRows)
-			if p.ctx != nil {
-				activity.RecordHeartbeat(p.ctx, msg)
-			}
-		}
-
-		numRows++
+		numRows.Inc()
 	}
 
-	if p.ctx != nil {
-		msg := fmt.Sprintf("written all: %d rows to OCF", numRows)
-		activity.RecordHeartbeat(p.ctx, msg)
-	}
-
-	return numRows, nil
+	return int(numRows.Load()), nil
 }
 
 func (p *PeerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
@@ -113,7 +114,7 @@ func (p *PeerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
 	return numRows, nil
 }
 
-func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string) (int, error) {
+func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils.S3PeerCredentials) (int, error) {
 	r, w := io.Pipe()
 	numRowsWritten := make(chan int, 1)
 	go func() {
@@ -125,7 +126,7 @@ func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string) (int, error) 
 		numRowsWritten <- numRows
 	}()
 
-	s3svc, err := utils.CreateS3Client()
+	s3svc, err := utils.CreateS3Client(s3Creds)
 	if err != nil {
 		log.Errorf("failed to create S3 client: %v", err)
 		return 0, fmt.Errorf("failed to create S3 client: %w", err)

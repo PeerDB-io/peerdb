@@ -9,6 +9,36 @@ pub struct TableNameMapping {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RelationMessageColumn {
+    #[prost(uint32, tag="1")]
+    pub flags: u32,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(uint32, tag="3")]
+    pub data_type: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RelationMessage {
+    #[prost(uint32, tag="1")]
+    pub relation_id: u32,
+    #[prost(string, tag="2")]
+    pub relation_name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="3")]
+    pub columns: ::prost::alloc::vec::Vec<RelationMessageColumn>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TableMapping {
+    #[prost(string, tag="1")]
+    pub source_table_identifier: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub destination_table_identifier: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub partition_key: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlowConnectionConfigs {
     #[prost(message, optional, tag="1")]
     pub source: ::core::option::Option<super::peerdb_peers::Peer>,
@@ -18,8 +48,8 @@ pub struct FlowConnectionConfigs {
     pub flow_job_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="4")]
     pub table_schema: ::core::option::Option<TableSchema>,
-    #[prost(map="string, string", tag="5")]
-    pub table_name_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(message, repeated, tag="5")]
+    pub table_mappings: ::prost::alloc::vec::Vec<TableMapping>,
     #[prost(map="uint32, string", tag="6")]
     pub src_table_id_name_mapping: ::std::collections::HashMap<u32, ::prost::alloc::string::String>,
     #[prost(map="string, message", tag="7")]
@@ -54,12 +84,19 @@ pub struct FlowConnectionConfigs {
     pub soft_delete: bool,
     #[prost(string, tag="20")]
     pub replication_slot_name: ::prost::alloc::string::String,
+    /// the below two are for eventhub only
+    #[prost(int64, tag="21")]
+    pub push_batch_size: i64,
+    #[prost(int64, tag="22")]
+    pub push_parallelism: i64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SyncFlowOptions {
     #[prost(int32, tag="1")]
     pub batch_size: i32,
+    #[prost(map="uint32, message", tag="2")]
+    pub relation_message_mapping: ::std::collections::HashMap<u32, RelationMessage>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -84,6 +121,8 @@ pub struct StartFlowInput {
     pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
     #[prost(message, optional, tag="3")]
     pub sync_flow_options: ::core::option::Option<SyncFlowOptions>,
+    #[prost(map="uint32, message", tag="4")]
+    pub relation_message_mapping: ::std::collections::HashMap<u32, RelationMessage>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -208,6 +247,8 @@ pub struct TableSchema {
     pub columns: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(string, tag="3")]
     pub primary_key_column: ::prost::alloc::string::String,
+    #[prost(bool, tag="4")]
+    pub is_replica_identity_full: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -290,9 +331,17 @@ pub struct TidPartitionRange {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XminPartitionRange {
+    #[prost(uint32, tag="1")]
+    pub start: u32,
+    #[prost(uint32, tag="2")]
+    pub end: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PartitionRange {
     /// can be a timestamp range or an integer range
-    #[prost(oneof="partition_range::Range", tags="1, 2, 3")]
+    #[prost(oneof="partition_range::Range", tags="1, 2, 3, 4")]
     pub range: ::core::option::Option<partition_range::Range>,
 }
 /// Nested message and enum types in `PartitionRange`.
@@ -307,6 +356,8 @@ pub mod partition_range {
         TimestampRange(super::TimestampPartitionRange),
         #[prost(message, tag="3")]
         TidRange(super::TidPartitionRange),
+        #[prost(message, tag="4")]
+        XminRange(super::XminPartitionRange),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -393,6 +444,32 @@ pub struct DropFlowInput {
     #[prost(string, tag="1")]
     pub flow_name: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeltaAddedColumn {
+    #[prost(string, tag="1")]
+    pub column_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub column_type: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TableSchemaDelta {
+    #[prost(string, tag="1")]
+    pub src_table_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub dst_table_name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="3")]
+    pub added_columns: ::prost::alloc::vec::Vec<DeltaAddedColumn>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReplayTableSchemaDeltaInput {
+    #[prost(message, optional, tag="1")]
+    pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
+    #[prost(message, repeated, tag="2")]
+    pub table_schema_deltas: ::prost::alloc::vec::Vec<TableSchemaDelta>,
+}
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -425,6 +502,8 @@ impl QRepSyncMode {
 pub enum QRepWriteType {
     QrepWriteModeAppend = 0,
     QrepWriteModeUpsert = 1,
+    /// only valid when initial_copy_true is set to true. TRUNCATES tables before reverting to APPEND.
+    QrepWriteModeOverwrite = 2,
 }
 impl QRepWriteType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -435,6 +514,7 @@ impl QRepWriteType {
         match self {
             QRepWriteType::QrepWriteModeAppend => "QREP_WRITE_MODE_APPEND",
             QRepWriteType::QrepWriteModeUpsert => "QREP_WRITE_MODE_UPSERT",
+            QRepWriteType::QrepWriteModeOverwrite => "QREP_WRITE_MODE_OVERWRITE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -442,6 +522,7 @@ impl QRepWriteType {
         match value {
             "QREP_WRITE_MODE_APPEND" => Some(Self::QrepWriteModeAppend),
             "QREP_WRITE_MODE_UPSERT" => Some(Self::QrepWriteModeUpsert),
+            "QREP_WRITE_MODE_OVERWRITE" => Some(Self::QrepWriteModeOverwrite),
             _ => None,
         }
     }

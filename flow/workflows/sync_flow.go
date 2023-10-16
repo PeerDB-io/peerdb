@@ -11,8 +11,8 @@ import (
 )
 
 type SyncFlowState struct {
-	PeerFlowName string
-	Progress     []string
+	CDCFlowName string
+	Progress    []string
 }
 
 type SyncFlowExecution struct {
@@ -22,8 +22,8 @@ type SyncFlowExecution struct {
 }
 
 type NormalizeFlowState struct {
-	PeerFlowName string
-	Progress     []string
+	CDCFlowName string
+	Progress    []string
 }
 
 type NormalizeFlowExecution struct {
@@ -54,8 +54,9 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 	opts *protos.SyncFlowOptions,
+	relationMessageMapping model.RelationMessageMapping,
 ) (*model.SyncResponse, error) {
-	s.logger.Info("executing sync flow - ", s.PeerFlowName)
+	s.logger.Info("executing sync flow - ", s.CDCFlowName)
 
 	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
@@ -64,7 +65,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	// execute GetLastSyncedID on destination peer
 	lastSyncInput := &protos.GetLastSyncedIDInput{
 		PeerConnectionConfig: config.Destination,
-		FlowJobName:          s.PeerFlowName,
+		FlowJobName:          s.CDCFlowName,
 	}
 
 	lastSyncFuture := workflow.ExecuteActivity(syncMetaCtx, flowable.GetLastSyncedID, lastSyncInput)
@@ -84,20 +85,35 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		StartToCloseTimeout: 24 * time.Hour,
 		// TODO: activity needs to call heartbeat.
 		// see https://github.com/PeerDB-io/nexus/issues/216
-		HeartbeatTimeout: 5 * time.Minute,
+		HeartbeatTimeout: 30 * time.Second,
 	})
 
 	// execute StartFlow on the peers to start the flow
 	startFlowInput := &protos.StartFlowInput{
-		FlowConnectionConfigs: config,
-		LastSyncState:         dstSyncState,
-		SyncFlowOptions:       opts,
+		FlowConnectionConfigs:  config,
+		LastSyncState:          dstSyncState,
+		SyncFlowOptions:        opts,
+		RelationMessageMapping: relationMessageMapping,
 	}
 	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 
 	var syncRes *model.SyncResponse
 	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
+	}
+
+	replayTableSchemaDeltaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Minute,
+	})
+	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
+		FlowConnectionConfigs: config,
+		TableSchemaDeltas:     syncRes.TableSchemaDeltas,
+	}
+
+	fReplayTableSchemaDelta := workflow.ExecuteActivity(replayTableSchemaDeltaCtx,
+		flowable.ReplayTableSchemaDeltas, replayTableSchemaInput)
+	if err := fReplayTableSchemaDelta.Get(replayTableSchemaDeltaCtx, nil); err != nil {
+		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
 	}
 
 	return syncRes, nil
@@ -111,19 +127,19 @@ func SyncFlowWorkflow(ctx workflow.Context,
 	options *protos.SyncFlowOptions,
 ) (*model.SyncResponse, error) {
 	s := NewSyncFlowExecution(ctx, &SyncFlowState{
-		PeerFlowName: config.FlowJobName,
-		Progress:     []string{},
+		CDCFlowName: config.FlowJobName,
+		Progress:    []string{},
 	})
 
-	return s.executeSyncFlow(ctx, config, options)
+	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
 }
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) (*model.NormalizeResponse, error) {
 	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
-		PeerFlowName: config.FlowJobName,
-		Progress:     []string{},
+		CDCFlowName: config.FlowJobName,
+		Progress:    []string{},
 	})
 
 	return s.executeNormalizeFlow(ctx, config)
@@ -133,7 +149,7 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) (*model.NormalizeResponse, error) {
-	s.logger.Info("executing normalize flow - ", s.PeerFlowName)
+	s.logger.Info("executing normalize flow - ", s.CDCFlowName)
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,

@@ -10,12 +10,30 @@ message TableNameMapping {
   string destination_table_name = 2;
 }
 
+message RelationMessageColumn {
+  uint32 flags = 1;
+  string name = 2;
+  uint32 data_type = 3;
+}
+
+message RelationMessage {
+  uint32 relation_id = 1;
+  string relation_name = 2;
+  repeated RelationMessageColumn columns = 3;
+}
+
+message TableMapping {
+  string source_table_identifier = 1;
+  string destination_table_identifier = 2;
+  string partition_key = 3;
+}
+
 message FlowConnectionConfigs {
   peerdb_peers.Peer source = 1;
   peerdb_peers.Peer destination = 2;
   string flow_job_name = 3;
   TableSchema table_schema = 4;
-  map<string, string> table_name_mapping = 5;
+  repeated TableMapping table_mappings = 5;
   map<uint32, string> src_table_id_name_mapping = 6;
   map<string, TableSchema> table_name_schema_mapping = 7;
 
@@ -40,9 +58,16 @@ message FlowConnectionConfigs {
   bool soft_delete = 19;
 
   string replication_slot_name = 20;
+
+  // the below two are for eventhub only
+  int64 push_batch_size = 21;
+  int64 push_parallelism = 22;
 }
 
-message SyncFlowOptions { int32 batch_size = 1; }
+message SyncFlowOptions {
+  int32 batch_size = 1;
+  map<uint32, RelationMessage> relation_message_mapping = 2;
+}
 
 message NormalizeFlowOptions {
   int32 batch_size = 1;
@@ -57,6 +82,7 @@ message StartFlowInput {
   LastSyncState last_sync_state = 1;
   FlowConnectionConfigs flow_connection_configs = 2;
   SyncFlowOptions sync_flow_options = 3;
+  map<uint32, RelationMessage> relation_message_mapping = 4;
 }
 
 message StartNormalizeInput {
@@ -129,6 +155,7 @@ message TableSchema {
   // "string", "int", "float", "bool", "timestamp".
   map<string, string> columns = 2;
   string primary_key_column = 3;
+  bool is_replica_identity_full = 4;
 }
 
 message GetTableSchemaBatchInput {
@@ -181,12 +208,18 @@ message TIDPartitionRange {
   TID end = 2;
 }
 
+message XMINPartitionRange {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
     IntPartitionRange int_range = 1;
     TimestampPartitionRange timestamp_range = 2;
     TIDPartitionRange tid_range = 3;
+    XMINPartitionRange xmin_range = 4;
   }
 }
 
@@ -199,6 +232,8 @@ enum QRepSyncMode {
 enum QRepWriteType {
   QREP_WRITE_MODE_APPEND = 0;
   QREP_WRITE_MODE_UPSERT = 1;
+  // only valid when initial_copy_true is set to true. TRUNCATES tables before reverting to APPEND.
+  QREP_WRITE_MODE_OVERWRITE = 2;
 }
 
 message QRepWriteMode {
@@ -263,4 +298,20 @@ message QRepParitionResult {
 
 message DropFlowInput {
   string flow_name = 1;
+}
+
+message DeltaAddedColumn {
+  string column_name = 1;
+  string column_type = 2;
+}
+
+message TableSchemaDelta {
+  string src_table_name = 1;
+  string dst_table_name = 2;
+  repeated DeltaAddedColumn added_columns = 3;
+}
+
+message ReplayTableSchemaDeltaInput {
+  FlowConnectionConfigs flow_connection_configs = 1;
+  repeated TableSchemaDelta table_schema_deltas = 2;
 }

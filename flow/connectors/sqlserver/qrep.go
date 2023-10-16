@@ -13,11 +13,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func (c *SQLServerConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	log.Infof("Setting up metadata tables for query replication on sql server is a no-op")
-	return nil
-}
-
 func (c *SQLServerConnector) GetQRepPartitions(
 	config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
@@ -213,20 +208,4 @@ func BuildQuery(query string) (string, error) {
 
 	log.Infof("templated query: %s", res)
 	return res, nil
-}
-
-func (c *SQLServerConnector) SyncQRepRecords(
-	config *protos.QRepConfig,
-	partition *protos.QRepPartition,
-	stream *model.QRecordStream,
-) (int, error) {
-	panic("not implemented")
-}
-
-func (c *SQLServerConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	panic("not implemented")
-}
-
-func (c *SQLServerConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	panic("not implemented")
 }

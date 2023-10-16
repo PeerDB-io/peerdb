@@ -22,7 +22,7 @@ type SnowflakeClient struct {
 }
 
 func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*SnowflakeClient, error) {
-	privateKey, err := util.DecodePKCS8PrivateKey([]byte(config.PrivateKey))
+	privateKey, err := util.DecodePKCS8PrivateKey([]byte(config.PrivateKey), config.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %w", err)
 	}

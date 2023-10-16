@@ -1,16 +1,19 @@
 syntax = "proto3";
 
+import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+
 import "peers.proto";
 import "flow.proto";
 
 package peerdb_route;
 
-message CreatePeerFlowRequest {
+message CreateCDCFlowRequest {
   peerdb_flow.FlowConnectionConfigs connection_configs = 1;
+  bool create_catalog_entry = 2;
 }
 
-message CreatePeerFlowResponse {
+message CreateCDCFlowResponse {
   string worflow_id = 1;
 }
 
@@ -34,8 +37,96 @@ message ShutdownResponse {
   string error_message = 2;
 }
 
+message ListPeersRequest {
+}
+
+message ListPeersResponse {
+  repeated peerdb_peers.Peer peers = 1;
+}
+
+message ValidatePeerRequest {
+ peerdb_peers.Peer peer = 1;
+}
+
+message CreatePeerRequest {
+  peerdb_peers.Peer peer = 1;
+}
+
+enum ValidatePeerStatus {
+  CREATION_UNKNOWN = 0;
+  VALID = 1;
+  INVALID = 2;
+}
+
+enum CreatePeerStatus {
+  VALIDATION_UNKNOWN = 0;
+  CREATED = 1;
+  FAILED = 2;
+}
+
+message ValidatePeerResponse {
+  ValidatePeerStatus status = 1;
+  string message = 2;
+}
+
+message CreatePeerResponse {
+  CreatePeerStatus status = 1;
+  string message = 2;
+}
+
+message MirrorStatusRequest {
+  string flow_job_name = 1;
+}
+
+message PartitionStatus {
+  string partition_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  int32 num_rows = 4;
+}
+
+message QRepMirrorStatus {
+  peerdb_flow.QRepConfig config = 1;
+  repeated PartitionStatus partitions = 2;
+  // TODO make note to see if we are still in initial copy
+  // or if we are in the continuous streaming mode.
+}
+
+message CDCSyncStatus {
+  int64 start_lsn = 1;
+  int64 end_lsn = 2;
+  int32 num_rows = 3;
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+}
+
+message SnapshotStatus {
+  repeated QRepMirrorStatus clones = 1;
+}
+
+message CDCMirrorStatus {
+  peerdb_flow.FlowConnectionConfigs config = 1;
+  SnapshotStatus snapshot_status = 2;
+  repeated CDCSyncStatus cdc_syncs = 3;
+}
+
+message MirrorStatusResponse {
+  string flow_job_name = 1;
+  oneof status {
+    QRepMirrorStatus qrep_status = 2;
+    CDCMirrorStatus cdc_status = 3;
+  }
+  string error_message = 4;
+}
+
 service FlowService {
-  rpc CreatePeerFlow(CreatePeerFlowRequest) returns (CreatePeerFlowResponse) {}
+  rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {}
+  rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {}
+  rpc CreatePeer(CreatePeerRequest) returns (CreatePeerResponse) {}
+  rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {}
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
+  rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
+    option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+  }
 }

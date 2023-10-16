@@ -78,17 +78,19 @@ impl BigqueryAst {
 
         visit_function_arg_mut(query, |node| {
             if let FunctionArgExpr::Expr(arg_expr) = node {
-                if let Expr::Cast { expr: _, data_type } = arg_expr {
-                    if let DataType::Array(_) = data_type {
-                        let list = self
-                            .flatten_expr_to_in_list(&arg_expr)
-                            .expect("failed to flatten in function");
-                        let rewritten_array = Array {
-                            elem: list,
-                            named: true,
-                        };
-                        *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
-                    }
+                if let Expr::Cast {
+                    expr: _,
+                    data_type: DataType::Array(_),
+                } = arg_expr
+                {
+                    let list = self
+                        .flatten_expr_to_in_list(arg_expr)
+                        .expect("failed to flatten in function");
+                    let rewritten_array = Array {
+                        elem: list,
+                        named: true,
+                    };
+                    *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
                 }
             }
 

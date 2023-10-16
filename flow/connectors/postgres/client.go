@@ -86,6 +86,23 @@ func (c *PostgresConnector) getRelIDForTable(schemaTable *SchemaTable) (uint32, 
 	return relID, nil
 }
 
+// getReplicaIdentity returns the replica identity for a table.
+func (c *PostgresConnector) isTableFullReplica(schemaTable *SchemaTable) (bool, error) {
+	relID, relIDErr := c.getRelIDForTable(schemaTable)
+	if relIDErr != nil {
+		return false, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, relIDErr)
+	}
+
+	var replicaIdentity rune
+	err := c.pool.QueryRow(c.ctx,
+		`SELECT relreplident FROM pg_class WHERE oid = $1;`,
+		relID).Scan(&replicaIdentity)
+	if err != nil {
+		return false, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
+	}
+	return string(replicaIdentity) == "f", nil
+}
+
 // getPrimaryKeyColumn for table returns the primary key column for a given table
 // errors if there is no primary key column or if there is more than one primary key column.
 func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) (string, error) {
@@ -499,10 +516,10 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if strings.Contains(genericColumnType, "array") {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS %s",
+				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS \"%s\"",
 					strings.Trim(columnName, "\""), pgType, columnName))
 		} else {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS %s",
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
 				strings.Trim(columnName, "\""), pgType, columnName))
 		}
 		if normalizedTableSchema.PrimaryKeyColumn == columnName {

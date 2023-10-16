@@ -20,7 +20,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
-	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
 )
 
@@ -173,7 +172,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 // PullRecords pulls records from the source.
-func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
+func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
@@ -211,27 +210,31 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	}).Infof("PullRecords: performed checks for slot and publication")
 
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
-		AppContext:            c.ctx,
-		Connection:            c.replPool,
-		SrcTableIDNameMapping: req.SrcTableIDNameMapping,
-		Slot:                  slotName,
-		Publication:           publicationName,
-		TableNameMapping:      req.TableNameMapping,
+		AppContext:             c.ctx,
+		Connection:             c.replPool,
+		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
+		Slot:                   slotName,
+		Publication:            publicationName,
+		TableNameMapping:       req.TableNameMapping,
+		RelationMessageMapping: req.RelationMessageMapping,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
 
-	recordBatch, err := cdc.PullRecords(req)
+	startTime := time.Now()
+	recordsWithSchemaDelta, err := cdc.PullRecords(req)
 	if err != nil {
 		return nil, err
 	}
-	if len(recordBatch.Records) > 0 {
-		totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
-		if err != nil {
-			return nil, err
-		}
-		metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordBatch, totalRecordsAtSource)
+
+	totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
+	if err != nil {
+		return nil, err
+	}
+	metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.RecordBatch,
+		totalRecordsAtSource, time.Since(startTime))
+	if len(recordsWithSchemaDelta.RecordBatch.Records) > 0 {
 		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
 		if ok {
 			latestLSN, err := c.getCurrentLSN()
@@ -245,7 +248,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		}
 	}
 
-	return recordBatch, nil
+	return recordsWithSchemaDelta, nil
 }
 
 // SyncRecords pushes records to the destination.
@@ -541,7 +544,7 @@ func (c *PostgresConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		c.recordHeartbeatWithRecover(fmt.Sprintf("fetched schema for table %s", tableName))
+		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
@@ -557,24 +560,32 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
+	isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+	if replErr != nil {
+		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
+	}
+
+	pkey, err := c.getPrimaryKeyColumn(schemaTable)
+	if err != nil {
+		if !isFullReplica {
+			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		}
+	}
+
+	res := &protos.TableSchema{
+		TableIdentifier:       tableName,
+		Columns:               make(map[string]string),
+		PrimaryKeyColumn:      pkey,
+		IsReplicaIdentityFull: isFullReplica,
+	}
+
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
-		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName))
+		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName), pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
 	defer rows.Close()
-
-	pkey, err := c.getPrimaryKeyColumn(schemaTable)
-	if err != nil {
-		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
-	}
-
-	res := &protos.TableSchema{
-		TableIdentifier:  tableName,
-		Columns:          make(map[string]string),
-		PrimaryKeyColumn: pkey,
-	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {
 		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
@@ -635,7 +646,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 		tableExistsMapping[tableIdentifier] = false
 		log.Printf("created table %s", tableIdentifier)
-		c.recordHeartbeatWithRecover(fmt.Sprintf("created table %s", tableIdentifier))
+		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	err = createNormalizedTablesTx.Commit(c.ctx)
@@ -651,6 +662,56 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 // InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
 func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
 	c.tableSchemaMapping = req
+	return nil
+}
+
+// ReplayTableSchemaDelta changes a destination table to match the schema at source
+// This could involve adding or dropping multiple columns.
+func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
+	schemaDeltas []*protos.TableSchemaDelta) error {
+	// Postgres is cool and supports transactional DDL. So we use a transaction.
+	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for schema modification: %w",
+			err)
+	}
+	defer func() {
+		deferErr := tableSchemaModifyTx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": flowJobName,
+			}).Errorf("unexpected error rolling back transaction for table schema modification: %v", err)
+		}
+	}()
+
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+			return nil
+		}
+
+		for _, addedColumn := range schemaDelta.AddedColumns {
+			_, err = tableSchemaModifyTx.Exec(c.ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
+				schemaDelta.DstTableName, addedColumn.ColumnName,
+				qValueKindToPostgresType(addedColumn.ColumnType)))
+			if err != nil {
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+					schemaDelta.DstTableName, err)
+			}
+			log.WithFields(log.Fields{
+				"flowName":     flowJobName,
+				"srcTableName": schemaDelta.SrcTableName,
+				"dstTableName": schemaDelta.DstTableName,
+			}).Infof("[schema delta replay] added column %s with data type %s",
+				addedColumn.ColumnName, addedColumn.ColumnType)
+		}
+	}
+
+	err = tableSchemaModifyTx.Commit(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
+			err)
+	}
+
 	return nil
 }
 
@@ -677,7 +738,7 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 					RelId: relID},
 			},
 		}
-		c.recordHeartbeatWithRecover(fmt.Sprintf("ensured pullability table %s", tableName))
+		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
@@ -744,7 +805,8 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 		return fmt.Errorf("error dropping publication: %w", err)
 	}
 
-	_, err = pullFlowCleanupTx.Exec(c.ctx, fmt.Sprintf("SELECT pg_drop_replication_slot('%s')", slotName))
+	_, err = pullFlowCleanupTx.Exec(c.ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
+	 WHERE slot_name=$1`, slotName)
 	if err != nil {
 		return fmt.Errorf("error dropping replication slot: %w", err)
 	}
@@ -788,6 +850,22 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	return nil
 }
 
+func (c *PostgresConnector) SendWALHeartbeat() error {
+	command := `
+	BEGIN;
+	DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
+	CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
+	DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
+	END;
+	`
+	_, err := c.pool.Exec(c.ctx, command)
+	if err != nil {
+		return fmt.Errorf("error bumping wal position: %w", err)
+	}
+
+	return nil
+}
+
 // parseSchemaTable parses a table name into schema and table name.
 func parseSchemaTable(tableName string) (*SchemaTable, error) {
 	parts := strings.Split(tableName, ".")
@@ -799,16 +877,4 @@ func parseSchemaTable(tableName string) (*SchemaTable, error) {
 		Schema: parts[0],
 		Table:  parts[1],
 	}, nil
-}
-
-// if the functions are being called outside the context of a Temporal workflow,
-// activity.RecordHeartbeat panics, this is a bandaid for that.
-func (c *PostgresConnector) recordHeartbeatWithRecover(details ...interface{}) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Warnln("ignoring panic from activity.RecordHeartbeat")
-			log.Warnln("this can happen when function is invoked outside of a Temporal workflow")
-		}
-	}()
-	activity.RecordHeartbeat(c.ctx, details...)
 }

@@ -59,6 +59,8 @@ const (
 	getTableNametoUnchangedColsSQL = `SELECT _PEERDB_DESTINATION_TABLE_NAME,
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
+	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+	 WHERE TABLE_SCHEMA=? AND TABLE_NAME=?`
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
@@ -74,6 +76,7 @@ const (
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	isDeletedColumnName         = "_PEERDB_IS_DELETED"
+	checkSchemaExistsSQL        = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 
 	syncRecordsChunkSize = 1024
 )
@@ -121,7 +124,8 @@ type UnchangedToastColumnResult struct {
 
 func NewSnowflakeConnector(ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig) (*SnowflakeConnector, error) {
-	PrivateKeyRSA, err := util.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey))
+	PrivateKeyRSA, err := util.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
+		snowflakeProtoConfig.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -210,12 +214,78 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 	return nil
 }
 
+// only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
+func (c *SnowflakeConnector) GetTableSchema(
+	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
+	res := make(map[string]*protos.TableSchema)
+	for _, tableName := range req.TableIdentifiers {
+		tableSchema, err := c.getTableSchemaForTable(strings.ToUpper(tableName))
+		if err != nil {
+			return nil, err
+		}
+		res[tableName] = tableSchema
+		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+	}
+
+	return &protos.GetTableSchemaBatchOutput{
+		TableNameSchemaMapping: res,
+	}, nil
+}
+
+func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
+	tableNameComponents, err := parseTableName(tableName)
+	if err != nil {
+		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+	}
+	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, tableNameComponents.schemaIdentifier,
+		tableNameComponents.tableIdentifier)
+	if err != nil {
+		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
+	}
+	defer func() {
+		// not sure if the errors these two return are same or different?
+		err = errors.Join(rows.Close(), rows.Err())
+		if err != nil {
+			log.Errorf("error while closing rows for reading schema of table %s: %v", tableName, err)
+		}
+	}()
+
+	res := &protos.TableSchema{
+		TableIdentifier: tableName,
+		Columns:         make(map[string]string),
+	}
+
+	var columnName, columnType string
+	for rows.Next() {
+		err = rows.Scan(&columnName, &columnType)
+		if err != nil {
+			return nil, fmt.Errorf("error reading row for schema of table %s: %w", tableName, err)
+		}
+		genericColType, err := snowflakeTypeToQValueKind(columnType)
+		if err != nil {
+			// we use string for invalid types
+			genericColType = qvalue.QValueKindString
+		}
+
+		res.Columns[columnName] = string(genericColType)
+	}
+
+	return res, nil
+}
+
 func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
 		peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return nil, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
 	}
+	defer func() {
+		// not sure if the errors these two return are same or different?
+		err = errors.Join(rows.Close(), rows.Err())
+		if err != nil {
+			log.Errorf("error while closing rows for reading last offset of job %s: %v", jobName, err)
+		}
+	}()
 
 	if !rows.Next() {
 		log.Warnf("No row found for job %s, returning nil", jobName)
@@ -230,7 +300,6 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
 		return nil, nil
 	}
-
 	return &protos.LastSyncState{
 		Checkpoint: result,
 	}, nil
@@ -322,12 +391,6 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
-	log.Errorf("panicking at call to GetTableSchema for Snowflake flow connector")
-	panic("GetTableSchema is not implemented for the Snowflake flow connector")
-}
-
 func (c *SnowflakeConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
@@ -364,9 +427,53 @@ func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableS
 	return nil
 }
 
-func (c *SnowflakeConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
-	log.Errorf("panicking at call to PullRecords for Snowflake flow connector")
-	panic("PullRecords is not implemented for the Snowflake flow connector")
+// ReplayTableSchemaDeltas changes a destination table to match the schema at source
+// This could involve adding or dropping multiple columns.
+func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
+	schemaDeltas []*protos.TableSchemaDelta) error {
+	tableSchemaModifyTx, err := c.database.Begin()
+	if err != nil {
+		return fmt.Errorf("error starting transaction for schema modification: %w",
+			err)
+	}
+	defer func() {
+		deferErr := tableSchemaModifyTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": flowJobName,
+			}).Errorf("unexpected error rolling back transaction for table schema modification: %v", err)
+		}
+	}()
+
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+			return nil
+		}
+
+		for _, addedColumn := range schemaDelta.AddedColumns {
+			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
+				schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName),
+				qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
+			if err != nil {
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+					schemaDelta.DstTableName, err)
+			}
+			log.WithFields(log.Fields{
+				"flowName":     flowJobName,
+				"srcTableName": schemaDelta.SrcTableName,
+				"dstTableName": schemaDelta.DstTableName,
+			}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+				addedColumn.ColumnType)
+		}
+	}
+
+	err = tableSchemaModifyTx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
+			err)
+	}
+
+	return nil
 }
 
 func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
@@ -538,183 +645,20 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 
 func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, rawTableIdentifier string,
 	syncBatchID int64) (*model.SyncResponse, error) {
-	recordStream := model.NewQRecordStream(len(req.Records.Records))
 
-	err := recordStream.SetSchema(&model.QRecordSchema{
-		Fields: []*model.QField{
-			{
-				Name:     "_peerdb_uid",
-				Type:     qvalue.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_timestamp",
-				Type:     qvalue.QValueKindInt64,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_destination_table_name",
-				Type:     qvalue.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_data",
-				Type:     qvalue.QValueKindString,
-				Nullable: false,
-			},
-			{
-				Name:     "_peerdb_record_type",
-				Type:     qvalue.QValueKindInt64,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_match_data",
-				Type:     qvalue.QValueKindString,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_batch_id",
-				Type:     qvalue.QValueKindInt64,
-				Nullable: true,
-			},
-			{
-				Name:     "_peerdb_unchanged_toast_columns",
-				Type:     qvalue.QValueKindString,
-				Nullable: true,
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	first := true
-	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
 	tableNameRowsMapping := make(map[string]uint32)
-
-	for _, record := range req.Records.Records {
-		var entries [8]qvalue.QValue
-		switch typedRecord := record.(type) {
-		case *model.InsertRecord:
-			// json.Marshal converts bytes in Hex automatically to BASE64 string.
-			itemsJSON, err := typedRecord.Items.ToJSON()
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
-			}
-
-			// add insert record to the raw table
-			entries[2] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: typedRecord.DestinationTableName,
-			}
-			entries[3] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: itemsJSON,
-			}
-			entries[4] = qvalue.QValue{
-				Kind:  qvalue.QValueKindInt64,
-				Value: 0,
-			}
-			entries[5] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: "",
-			}
-			entries[7] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			}
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
-		case *model.UpdateRecord:
-			newItemsJSON, err := typedRecord.NewItems.ToJSON()
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
-			}
-			oldItemsJSON, err := typedRecord.OldItems.ToJSON()
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
-			}
-
-			// add update record to the raw table
-			entries[2] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: typedRecord.DestinationTableName,
-			}
-			entries[3] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: newItemsJSON,
-			}
-			entries[4] = qvalue.QValue{
-				Kind:  qvalue.QValueKindInt64,
-				Value: 1,
-			}
-			entries[5] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: oldItemsJSON,
-			}
-			entries[7] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			}
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
-		case *model.DeleteRecord:
-			itemsJSON, err := typedRecord.Items.ToJSON()
-			if err != nil {
-				return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
-			}
-
-			// append delete record to the raw table
-			entries[2] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: typedRecord.DestinationTableName,
-			}
-			entries[3] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: itemsJSON,
-			}
-			entries[4] = qvalue.QValue{
-				Kind:  qvalue.QValueKindInt64,
-				Value: 2,
-			}
-			entries[5] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: itemsJSON,
-			}
-			entries[7] = qvalue.QValue{
-				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(typedRecord.UnchangedToastColumns),
-			}
-			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
-		default:
-			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
-		}
-
-		if first {
-			firstCP = record.GetCheckPointID()
-			first = false
-		}
-
-		entries[0] = qvalue.QValue{
-			Kind:  qvalue.QValueKindString,
-			Value: uuid.New().String(),
-		}
-		entries[1] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: time.Now().UnixNano(),
-		}
-		entries[6] = qvalue.QValue{
-			Kind:  qvalue.QValueKindInt64,
-			Value: syncBatchID,
-		}
-
-		recordStream.Records <- &model.QRecordOrError{
-			Record: &model.QRecord{
-				NumEntries: 8,
-				Entries:    entries[:],
-			},
-		}
+	streamRes, err := utils.RecordsToRawTableStream(model.RecordsToStreamRequest{
+		Records:      req.Records.Records,
+		TableMapping: tableNameRowsMapping,
+		CP:           0,
+		BatchID:      syncBatchID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
-
+	firstCP := streamRes.CP
+	recordStream := streamRes.Stream
 	qrepConfig := &protos.QRepConfig{
 		StagingPath: "",
 		FlowJobName: req.FlowJobName,
@@ -734,7 +678,6 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, r
 		return nil, err
 	}
 	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
-
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
 		LastSyncedCheckPointID:  lastCP,
@@ -851,7 +794,8 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	if err != nil {
 		return nil, err
 	}
-	// there is no easy way to check if a table has the same schema in Snowflake, so just executing the CREATE TABLE IF NOT EXISTS blindly.
+	// there is no easy way to check if a table has the same schema in Snowflake,
+	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
 	_, err = createRawTableTx.ExecContext(c.ctx,
 		fmt.Sprintf(createRawTableSQL, peerDBInternalSchema, rawTableIdentifier))
 	if err != nil {
@@ -875,18 +819,6 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	}, nil
 }
 
-// EnsurePullability ensures that the table is pullable, implementing the Connector interface.
-func (c *SnowflakeConnector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
-) (*protos.EnsurePullabilityBatchOutput, error) {
-	log.Errorf("panicking at call to EnsurePullability for Snowflake flow connector")
-	panic("EnsurePullability is not implemented for the Snowflake flow connector")
-}
-
-func (c *SnowflakeConnector) PullFlowCleanup(jobName string) error {
-	log.Errorf("panicking at call to PullFlowCleanup for Snowflake flow connector")
-	panic("PullFlowCleanup is not implemented for the Snowflake flow connector")
-}
-
 func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	syncFlowCleanupTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
@@ -901,16 +833,26 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 		}
 	}()
 
-	_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
-		getRawTableIdentifier(jobName)))
+	row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, peerDBInternalSchema)
+	var schemaExists bool
+	err = row.Scan(&schemaExists)
 	if err != nil {
-		return fmt.Errorf("unable to drop raw table: %w", err)
+		return fmt.Errorf("unable to check if internal schema exists: %w", err)
 	}
-	_, err = syncFlowCleanupTx.ExecContext(c.ctx,
-		fmt.Sprintf(deleteJobMetadataSQL, peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return fmt.Errorf("unable to delete job metadata: %w", err)
+
+	if schemaExists {
+		_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
+			getRawTableIdentifier(jobName)))
+		if err != nil {
+			return fmt.Errorf("unable to drop raw table: %w", err)
+		}
+		_, err = syncFlowCleanupTx.ExecContext(c.ctx,
+			fmt.Sprintf(deleteJobMetadataSQL, peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
+		if err != nil {
+			return fmt.Errorf("unable to delete job metadata: %w", err)
+		}
 	}
+
 	err = syncFlowCleanupTx.Commit()
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
@@ -1014,7 +956,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		targetColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:%s) "+
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
 				"AS %s,", toVariantColumnName, columnName, targetColumnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
@@ -1022,7 +964,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		// 		"Microseconds*1000) "+
 		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:%s AS %s) AS %s,",
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
 				toVariantColumnName, columnName, sfType, targetColumnName))
 		}
 	}
@@ -1122,7 +1064,8 @@ func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64
 	return nil
 }
 
-func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64, normalizeRecordsTx *sql.Tx) error {
+func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string,
+	normalizeBatchID int64, normalizeRecordsTx *sql.Tx) error {
 	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)

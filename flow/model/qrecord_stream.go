@@ -19,6 +19,18 @@ type QRecordStream struct {
 	schemaCache *QRecordSchema
 }
 
+type RecordsToStreamRequest struct {
+	Records      []Record
+	TableMapping map[string]uint32
+	CP           int64
+	BatchID      int64
+}
+
+type RecordsToStreamResponse struct {
+	Stream *QRecordStream
+	CP     int64
+}
+
 func NewQRecordStream(buffer int) *QRecordStream {
 	return &QRecordStream{
 		schema:      make(chan *QRecordSchemaOrError, 1),

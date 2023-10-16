@@ -88,8 +88,15 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
 /// PeerDDLAnalyzer is a statement analyzer that checks if the given
 /// statement is a PeerDB DDL statement. If it is, it returns the type of
 /// DDL statement.
-#[derive(Default)]
-pub struct PeerDDLAnalyzer;
+pub struct PeerDDLAnalyzer<'a> {
+    peers: &'a HashMap<String, Peer>,
+}
+
+impl<'a> PeerDDLAnalyzer<'a> {
+    pub fn new(peers: &'a HashMap<String, Peer>) -> Self {
+        Self { peers }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum PeerDDL {
@@ -98,9 +105,11 @@ pub enum PeerDDL {
         if_not_exists: bool,
     },
     CreateMirrorForCDC {
+        if_not_exists: bool,
         flow_job: FlowJob,
     },
     CreateMirrorForSelect {
+        if_not_exists: bool,
         qrep_flow_job: QRepFlowJob,
     },
     ExecuteMirrorForSelect {
@@ -112,7 +121,7 @@ pub enum PeerDDL {
     },
 }
 
-impl StatementAnalyzer for PeerDDLAnalyzer {
+impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
     type Output = Option<PeerDDL>;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
@@ -124,7 +133,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                 with_options,
             } => {
                 let db_type = DbType::from(peer_type.clone());
-                let config = parse_db_options(db_type, with_options.clone())?;
+                let config = parse_db_options(self.peers, db_type, with_options.clone())?;
                 let peer = Peer {
                     name: peer_name.to_string().to_lowercase(),
                     r#type: db_type as i32,
@@ -136,20 +145,27 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                     if_not_exists: *if_not_exists,
                 }))
             }
-            Statement::CreateMirror { create_mirror } => {
+            Statement::CreateMirror {
+                if_not_exists,
+                create_mirror,
+            } => {
                 match create_mirror {
                     CDC(cdc) => {
                         let mut flow_job_table_mappings = vec![];
-                        for table_mapping in &cdc.table_mappings {
+                        for table_mapping in &cdc.mapping_options {
                             flow_job_table_mappings.push(FlowJobTableMapping {
                                 source_table_identifier: table_mapping
-                                    .source_table_identifier
+                                    .source
                                     .to_string()
                                     .to_lowercase(),
-                                target_table_identifier: table_mapping
-                                    .target_table_identifier
+                                destination_table_identifier: table_mapping
+                                    .destination
                                     .to_string()
                                     .to_lowercase(),
+                                partition_key: table_mapping
+                                    .partition_key
+                                    .clone()
+                                    .map(|s| s.to_string()),
                             });
                         }
 
@@ -160,7 +176,19 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                         }
                         let do_initial_copy = match raw_options.remove("do_initial_copy") {
                             Some(sqlparser::ast::Value::Boolean(b)) => *b,
-                            _ => false,
+                            // also support "true" and "false" as strings
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                match s.as_ref() {
+                                    "true" => true,
+                                    "false" => false,
+                                    _ => {
+                                        return Err(anyhow::anyhow!(
+                                            "do_initial_copy must be a boolean"
+                                        ))
+                                    }
+                                }
+                            }
+                            _ => return Err(anyhow::anyhow!("do_initial_copy must be a boolean")),
                         };
 
                         let publication_name: Option<String> = match raw_options
@@ -230,6 +258,26 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => false,
                         };
 
+                        let push_parallelism: Option<i64> = match raw_options
+                            .remove("push_parallelism")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            _ => None,
+                        };
+
+                        let push_batch_size: Option<i64> = match raw_options
+                            .remove("push_batch_size")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<i64>()?),
+                            _ => None,
+                        };
+
+                        let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
+                        {
+                            Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -246,7 +294,10 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             cdc_sync_mode,
                             cdc_staging_path,
                             soft_delete,
-                            replication_slot_name
+                            replication_slot_name,
+                            push_batch_size,
+                            push_parallelism,
+                            max_batch_size,
                         };
 
                         // Error reporting
@@ -258,7 +309,10 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             ));
                         }
 
-                        Ok(Some(PeerDDL::CreateMirrorForCDC { flow_job }))
+                        Ok(Some(PeerDDL::CreateMirrorForCDC {
+                            if_not_exists: *if_not_exists,
+                            flow_job,
+                        }))
                     }
                     Select(select) => {
                         let mut raw_options = HashMap::new();
@@ -287,7 +341,10 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             disabled,
                         };
 
-                        Ok(Some(PeerDDL::CreateMirrorForSelect { qrep_flow_job }))
+                        Ok(Some(PeerDDL::CreateMirrorForSelect {
+                            if_not_exists: *if_not_exists,
+                            qrep_flow_job,
+                        }))
                     }
                 }
             }
@@ -361,6 +418,7 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
 }
 
 fn parse_db_options(
+    peers: &HashMap<String, Peer>,
     db_type: DbType,
     with_options: Vec<SqlOption>,
 ) -> anyhow::Result<Option<Config>> {
@@ -369,6 +427,8 @@ fn parse_db_options(
         let key = opt.name.value;
         let val = match opt.value {
             sqlparser::ast::Value::SingleQuotedString(str) => str,
+            sqlparser::ast::Value::Number(v, _) => v,
+            sqlparser::ast::Value::Boolean(v) => v.to_string(),
             _ => panic!("invalid option type for peer"),
         };
         opts.insert(key, val);
@@ -452,6 +512,7 @@ fn parse_db_options(
                     .context("no query_timeout specified")?
                     .parse::<u64>()
                     .context("unable to parse query_timeout")?,
+                password: opts.get("password").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
             let config = Config::SnowflakeConfig(snowflake_config);
@@ -510,33 +571,32 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Eventhub => {
-            let mut metadata_db = PostgresConfig::default();
-            let conn_str = opts
+            let conn_str: String = opts
                 .get("metadata_db")
-                .context("no metadata db specified")?;
-            let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
-            match param_pairs.len() {
-                5 => Ok(true),
-                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
-            }?;
-            for pair in param_pairs {
-                let key_value: Vec<&str> = pair.trim().split('=').collect();
-                match key_value.len() {
-                    2 => Ok(true),
-                    _ => Err(anyhow::Error::msg(
-                        "Invalid config setting for PG. Check the formatting",
-                    )),
-                }?;
-                let value = key_value[1].to_string();
-                match key_value[0] {
-                    "host" => metadata_db.host = value,
-                    "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
-                    "database" => metadata_db.database = value,
-                    "user" => metadata_db.user = value,
-                    "password" => metadata_db.password = value,
-                    _ => (),
-                };
-            }
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let metadata_db = parse_metadata_db_info(&conn_str)?;
+            let subscription_id = opts
+                .get("subscription_id")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+
+            // partition_count default to 3 if not set, parse as int
+            let partition_count = opts
+                .get("partition_count")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "3".to_string())
+                .parse::<u32>()
+                .context("unable to parse partition_count as valid int")?;
+
+            // message_retention_in_days default to 7 if not set, parse as int
+            let message_retention_in_days = opts
+                .get("message_retention_in_days")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "7".to_string())
+                .parse::<u32>()
+                .context("unable to parse message_retention_in_days as valid int")?;
+
             let eventhub_config = EventHubConfig {
                 namespace: opts
                     .get("namespace")
@@ -550,17 +610,31 @@ fn parse_db_options(
                     .get("location")
                     .context("location not specified")?
                     .to_string(),
-                metadata_db: Some(metadata_db),
+                metadata_db,
+                subscription_id,
+                partition_count,
+                message_retention_in_days,
             };
             let config = Config::EventhubConfig(eventhub_config);
             Some(config)
         }
         DbType::S3 => {
+            let s3_conn_str: String = opts
+                    .get("metadata_db")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+            let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
                     .context("S3 bucket url not specified")?
                     .to_string(),
+                access_key_id: opts.get("access_key_id").map(|s| s.to_string()),
+                secret_access_key: opts.get("secret_access_key").map(|s| s.to_string()),
+                region: opts.get("region").map(|s| s.to_string()),
+                role_arn: opts.get("role_arn").map(|s| s.to_string()),
+                endpoint: opts.get("endpoint").map(|s| s.to_string()),
+                metadata_db,
             };
             let config = Config::S3Config(s3_config);
             Some(config)
@@ -587,7 +661,96 @@ fn parse_db_options(
             let config = Config::SqlserverConfig(sqlserver_config);
             Some(config)
         }
+        DbType::EventhubGroup => {
+            let conn_str = opts
+                .get("metadata_db")
+                .context("no metadata db specified")?;
+            let metadata_db = parse_metadata_db_info(conn_str)?;
+
+            // metadata_db is required for eventhub group
+            if metadata_db.is_none() {
+                anyhow::bail!("metadata_db is required for eventhub group");
+            }
+
+            // split comma separated list of columns and trim
+            let unnest_columns = opts
+                .get("unnest_columns")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let keys_to_ignore: HashSet<String> = vec!["metadata_db", "unnest_columns"]
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect();
+
+            let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
+            for (key, _) in opts {
+                if keys_to_ignore.contains(&key) {
+                    continue;
+                }
+
+                // check if peers contains key and if it does
+                // then add it to the eventhubs hashmap, if not error
+                if let Some(peer) = peers.get(&key) {
+                    let eventhub_config = peer.config.clone().unwrap();
+                    if let Config::EventhubConfig(eventhub_config) = eventhub_config {
+                        eventhubs.insert(key.to_string(), eventhub_config);
+                    } else {
+                        anyhow::bail!("Peer '{}' is not an eventhub", key);
+                    }
+                } else {
+                    anyhow::bail!("Peer '{}' does not exist", key);
+                }
+            }
+
+            let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
+                eventhubs,
+                metadata_db,
+                unnest_columns,
+            };
+            let config = Config::EventhubGroupConfig(eventhub_group_config);
+            Some(config)
+        }
     };
 
     Ok(config)
+}
+
+fn parse_metadata_db_info(conn_str: &str) -> anyhow::Result<Option<PostgresConfig>> {
+    if conn_str.is_empty() {
+        return Ok(None);
+    }
+
+    let mut metadata_db = PostgresConfig::default();
+    let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
+    match param_pairs.len() {
+                5 => Ok(true),
+                _ => Err(anyhow::Error::msg("Invalid connection string. Check formatting and if the required parameters have been specified.")),
+            }?;
+
+    for pair in param_pairs {
+        let key_value: Vec<&str> = pair.trim().split('=').collect();
+        match key_value.len() {
+            2 => Ok(true),
+            _ => Err(anyhow::Error::msg(
+                "Invalid config setting for PG. Check the formatting",
+            )),
+        }?;
+        let value = key_value[1].to_string();
+        match key_value[0] {
+            "host" => metadata_db.host = value,
+            "port" => metadata_db.port = value.parse().context("Invalid PG Port")?,
+            "database" => metadata_db.database = value,
+            "user" => metadata_db.user = value,
+            "password" => metadata_db.password = value,
+            _ => (),
+        };
+    }
+
+    Ok(Some(metadata_db))
 }

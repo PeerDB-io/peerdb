@@ -9,20 +9,27 @@ x-catalog-config: &catalog-config
 
 x-flow-worker-env: &flow-worker-env
   TEMPORAL_HOST_PORT: temporal:7233
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-""}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-""}
-  AWS_REGION: ${AWS_REGION:-""}
-# enables worker profiling using Go's pprof
+  # For GCS, these will be your HMAC keys instead
+  # For more information:
+  # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  # For GCS, set this to "auto" without the quotes
+  AWS_REGION: ${AWS_REGION:-}
+  # For GCS, set this as: https://storage.googleapis.com
+  AWS_ENDPOINT: ${AWS_ENDPOINT:-}
+  # enables worker profiling using Go's pprof
   ENABLE_PROFILING: "true"
-# enables exporting of mirror metrics to Prometheus for visualization using Grafana
+  # enables exporting of mirror metrics to Prometheus for visualization using Grafana
   ENABLE_METRICS: "true"
-# enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
+  # enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
   ENABLE_STATS: "true"
+  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
 
 services:
   catalog:
     container_name: catalog
-    image: debezium/postgres:15-alpine
+    image: debezium/postgres:16-alpine
     ports:
       - 9901:5432
     environment:
@@ -52,13 +59,19 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.21.3
+    image: temporalio/auto-setup:1.22.2
     ports:
       - 7233:7233
     volumes:
       - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
+
+  pyroscope:
+    container_name: pyroscope
+    image: grafana/pyroscope:latest
+    ports:
+      - 4040:4040
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
@@ -67,7 +80,7 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
-    image: temporalio/admin-tools:1.21.3
+    image: temporalio/admin-tools:1.22.2
     stdin_open: true
     tty: true
     healthcheck:
@@ -88,21 +101,23 @@ services:
     ports:
       - 8085:8080
 
-  flow_api:
+  flow-api:
     container_name: flow_api
     build:
       context: .
       dockerfile: stacks/flow-api.Dockerfile
     ports:
       - 8112:8112
+      - 8113:8113
     environment:
+      <<: [*catalog-config]
       TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_snapshot_worker:
-    container_name: flow_snapshot_worker
+  flow-snapshot-worker:
+    container_name: flow-snapshot-worker
     build:
       context: .
       dockerfile: stacks/flow-snapshot-worker.Dockerfile
@@ -112,14 +127,13 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_worker1:
-    container_name: flow_worker1
+  flow-worker1:
+    container_name: flow-worker1
     build:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6060
       METRICS_SERVER: 0.0.0.0:6061
     ports:
       - 6060:6060
@@ -128,14 +142,13 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_worker2:
-    container_name: flow_worker2
+  flow-worker2:
+    container_name: flow-worker2
     build:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6062
       METRICS_SERVER: 0.0.0.0:6063
     ports:
       - 6062:6062
@@ -147,14 +160,13 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow_worker3:
-    container_name: flow_worker3
+  flow-worker3:
+    container_name: flow-worker3
     build:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      PROFILING_SERVER: 0.0.0.0:6064
       METRICS_SERVER: 0.0.0.0:6065
     ports:
       - 6064:6064
@@ -167,10 +179,10 @@ services:
         condition: service_healthy
 
   peerdb:
-    container_name: peerdb_server
+    container_name: peerdb-server
     build:
       context: .
-      dockerfile: stacks/nexus.Dockerfile
+      dockerfile: stacks/peerdb-server.Dockerfile
     environment:
       <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
@@ -184,8 +196,8 @@ services:
       catalog:
         condition: service_healthy
 
-  peerdb_prometheus:
-    container_name: peerdb_prometheus
+  peerdb-prometheus:
+    container_name: peerdb-prometheus
     build:
       context: .
       dockerfile: stacks/prometheus.Dockerfile
@@ -197,8 +209,8 @@ services:
       - multi-metrics
       - metrics
 
-  peerdb_grafana:
-    container_name: peerdb_grafana
+  peerdb-grafana:
+    container_name: peerdb-grafana
     build:
       context: .
       dockerfile: stacks/grafana.Dockerfile
@@ -210,6 +222,19 @@ services:
     profiles:
       - multi-metrics
       - metrics
+
+  peerdb-ui:
+    container_name: peerdb-ui
+    build:
+      context: .
+      dockerfile: stacks/peerdb-ui.Dockerfile
+    ports:
+      - 3001:3000
+    environment:
+      <<: *catalog-config
+      PEERDB_FLOW_SERVER_ADDRESS: flow_api:8112
+      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
+      PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
 
 volumes:
   pgdata:

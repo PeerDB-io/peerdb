@@ -205,6 +205,34 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
+// ReplayTableSchemaDeltas changes a destination table to match the schema at source
+// This could involve adding or dropping multiple columns.
+func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
+	schemaDeltas []*protos.TableSchemaDelta) error {
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+			return nil
+		}
+
+		for _, addedColumn := range schemaDelta.AddedColumns {
+			_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN `%s` %s", c.datasetID,
+				schemaDelta.DstTableName, addedColumn.ColumnName,
+				qValueKindToBigQueryType(addedColumn.ColumnType))).Read(c.ctx)
+			if err != nil {
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+					schemaDelta.SrcTableName, err)
+			}
+			log.WithFields(log.Fields{
+				"flowName":  flowJobName,
+				"tableName": schemaDelta.SrcTableName,
+			}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+				addedColumn.ColumnType)
+		}
+	}
+
+	return nil
+}
+
 // SetupMetadataTables sets up the metadata tables.
 func (c *BigQueryConnector) SetupMetadataTables() error {
 	// check if the dataset exists
@@ -261,7 +289,8 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
+	query := fmt.Sprintf("SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
+		c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
 	if err != nil {
@@ -285,7 +314,8 @@ func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 }
 
 func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
+	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
+		c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
 	if err != nil {
@@ -382,11 +412,6 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	return resultMap, nil
 }
 
-// PullRecords pulls records from the source.
-func (c *BigQueryConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordBatch, error) {
-	panic("not implemented")
-}
-
 // ValueSaver interface for bqRecord
 func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 	return map[string]bigquery.Value{
@@ -430,13 +455,13 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	var res *model.SyncResponse
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
-		res, err = c.SyncRecordsViaAvro(req, rawTableName, syncBatchID)
+		res, err = c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
-		res, err = c.SyncRecordsViaSQL(req, rawTableName, syncBatchID)
+		res, err = c.syncRecordsViaSQL(req, rawTableName, syncBatchID)
 		if err != nil {
 			return nil, err
 		}
@@ -445,7 +470,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	return res, nil
 }
 
-func (c *BigQueryConnector) SyncRecordsViaSQL(req *model.SyncRecordsRequest,
+func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
 	stagingTableName := c.getStagingTableName(req.FlowJobName)
 	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
@@ -622,7 +647,7 @@ func (c *BigQueryConnector) SyncRecordsViaSQL(req *model.SyncRecordsRequest,
 	}, nil
 }
 
-func (c *BigQueryConnector) SyncRecordsViaAvro(req *model.SyncRecordsRequest,
+func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
@@ -948,7 +973,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		{Name: "_peerdb_unchanged_toast_columns", Type: bigquery.StringFieldType},
 	}
 
-	staging_schema := bigquery.Schema{
+	stagingSchema := bigquery.Schema{
 		{Name: "_peerdb_uid", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_timestamp", Type: bigquery.TimestampFieldType},
 		{Name: "_peerdb_timestamp_nanos", Type: bigquery.IntegerFieldType},
@@ -989,7 +1014,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	stagingTableName := c.getStagingTableName(req.FlowJobName)
 	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
 	err = stagingTable.Create(c.ctx, &bigquery.TableMetadata{
-		Schema: staging_schema,
+		Schema: stagingSchema,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, stagingTableName, err)
@@ -1001,7 +1026,8 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 }
 
 // getUpdateMetadataStmt updates the metadata tables for a given job.
-func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedCheckpointID int64, batchID int64) (string, error) {
+func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedCheckpointID int64,
+	batchID int64) (string, error) {
 	hasJob, err := c.metadataHasJob(jobName)
 	if err != nil {
 		return "", fmt.Errorf("failed to check if job exists: %w", err)
@@ -1057,12 +1083,6 @@ func (c *BigQueryConnector) metadataHasJob(jobName string) (bool, error) {
 	return count > 0, nil
 }
 
-// GetTableSchema returns the schema for a table, implementing the Connector interface.
-func (c *BigQueryConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
-	panic("not implemented")
-}
-
 // SetupNormalizedTables sets up normalized tables, implementing the Connector interface.
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
 func (c *BigQueryConnector) SetupNormalizedTables(
@@ -1107,16 +1127,6 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
 	}, nil
-}
-
-// EnsurePullability ensures that the given table is pullable, implementing the Connector interface.
-func (c *BigQueryConnector) EnsurePullability(*protos.EnsurePullabilityBatchInput) (
-	*protos.EnsurePullabilityBatchOutput, error) {
-	panic("not implemented")
-}
-
-func (c *BigQueryConnector) PullFlowCleanup(jobName string) error {
-	panic("not implemented")
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(jobName string) error {

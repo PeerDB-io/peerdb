@@ -51,7 +51,7 @@ lazy_static::lazy_static! {
             name: "mode",
             default_val: Some("append"),
             required: false,
-            accepted_values: Some(vec!["upsert", "append"]),
+            accepted_values: Some(vec!["upsert", "append", "overwrite"]),
         },
         QRepOptionType::StringArray {
             name: "unique_key_columns",

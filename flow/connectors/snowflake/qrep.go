@@ -18,18 +18,6 @@ import (
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
-func (c *SnowflakeConnector) GetQRepPartitions(config *protos.QRepConfig,
-	last *protos.QRepPartition,
-) ([]*protos.QRepPartition, error) {
-	panic("not implemented")
-}
-
-func (c *SnowflakeConnector) PullQRepRecords(config *protos.QRepConfig,
-	partition *protos.QRepPartition,
-) (*model.QRecordBatch, error) {
-	panic("not implemented")
-}
-
 func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
@@ -150,6 +138,13 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 		return err
 	}
 
+	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		_, err = c.database.Exec(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		if err != nil {
+			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -208,7 +203,7 @@ func (c *SnowflakeConnector) createStage(stageName string, config *protos.QRepCo
 }
 
 func (c *SnowflakeConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
-	awsCreds, err := utils.GetAWSSecrets()
+	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
 	if err != nil {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
@@ -347,7 +342,7 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		log.Infof("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job)
 
 		// deleting the contents of the bucket with prefix
-		s3svc, err := utils.CreateS3Client()
+		s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
 		if err != nil {
 			log.WithFields(log.Fields{
 				"flowName": job,
