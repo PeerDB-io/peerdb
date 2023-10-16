@@ -129,7 +129,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 				"id": string(qvalue.QValueKindInt64),
 				"c1": string(qvalue.QValueKindInt64),
 			},
-			PrimaryKeyColumn: "id",
+			PrimaryKeyColumns: []string{"id"},
 		}
 		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
@@ -158,7 +158,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 				"c1": string(qvalue.QValueKindInt64),
 				"c2": string(qvalue.QValueKindInt64),
 			},
-			PrimaryKeyColumn: "id",
+			PrimaryKeyColumns: []string{"id"},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
@@ -188,7 +188,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 				"c2": string(qvalue.QValueKindInt64),
 				"c3": string(qvalue.QValueKindInt64),
 			},
-			PrimaryKeyColumn: "id",
+			PrimaryKeyColumns: []string{"id"},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
@@ -218,7 +218,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 				"c2": string(qvalue.QValueKindInt64),
 				"c3": string(qvalue.QValueKindInt64),
 			},
-			PrimaryKeyColumn: "id",
+			PrimaryKeyColumns: []string{"id"},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},

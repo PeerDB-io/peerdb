@@ -566,7 +566,10 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastColsLists {
-		unchangedColsArray := strings.Split(cols, ",")
+		unchangedColsArray := make([]string, 0)
+		for _, unchangedToastCol := range strings.Split(cols, ",") {
+			unchangedColsArray = append(unchangedColsArray, fmt.Sprintf(`"%s"`, unchangedToastCol))
+		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {

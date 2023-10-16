@@ -245,7 +245,7 @@ func (p *PostgresCDCSource) consumeStream(
 						if err != nil {
 							return nil, fmt.Errorf("error getting pkey column value: %w", err)
 						}
-						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal))
+						pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal.Value))
 					}
 					tablePkeyVal := model.TableWithPkey{
 						TableName:  tableName,
