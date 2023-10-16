@@ -17,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	log "github.com/sirupsen/logrus"
-	"go.temporal.io/sdk/activity"
 )
 
 type EventHubConnector struct {
@@ -131,8 +130,6 @@ func (c *EventHubConnector) processBatch(
 	ctx := context.Background()
 
 	tableNameRowsMapping := cmap.New[uint32]()
-	eventsPerHeartBeat := 1000
-
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
@@ -171,10 +168,6 @@ func (c *EventHubConnector) processBatch(
 				"flowName": flowJobName,
 			}).Infof("failed to add event to batch: %v", err)
 			return err
-		}
-
-		if i%eventsPerHeartBeat == 0 {
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("sent %d records to hub: %s", i, topicName.ToString()))
 		}
 
 		if (i+1)%eventsPerBatch == 0 {
