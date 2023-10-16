@@ -23,6 +23,9 @@ const (
 	QValueKindJSON        QValueKind = "json"
 	QValueKindBit         QValueKind = "bit"
 	QValueKindHStore      QValueKind = "hstore"
+	QValueKindGeography   QValueKind = "geography"
+	QValueKindGeometry    QValueKind = "geometry"
+	QValueKindPoint       QValueKind = "point"
 
 	// array types
 	QValueKindArrayFloat32 QValueKind = "array_float32"
