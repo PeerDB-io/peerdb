@@ -79,12 +79,11 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 				return qvalue.QValueKindString
 			} else if recvOID == uint32(oid.T_tsquery) { // TSQUERY
 				return qvalue.QValueKindString
-			} else if recvOID == uint32(oid.T_point) {
+			} else if recvOID == uint32(oid.T_point) { // POINT
 				return qvalue.QValueKindPoint
 			}
 
 			return qvalue.QValueKindInvalid
-
 		} else {
 			log.Warnf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name)
 			return qvalue.QValueKindString

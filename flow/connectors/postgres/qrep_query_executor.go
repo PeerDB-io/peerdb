@@ -413,7 +413,8 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	return totalRecordsFetched, nil
 }
 
-func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription, customTypeMap map[uint32]string) (*model.QRecord, error) {
+func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
+	customTypeMap map[uint32]string) (*model.QRecord, error) {
 	// make vals an empty array of QValue of size len(fds)
 	record := model.NewQRecord(len(fds))
 
@@ -436,7 +437,7 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription, customTypeMap 
 				Kind:  customTypeToQKind(typeName),
 				Value: values[i],
 			}
-			record.Set(i, *&customTypeVal)
+			record.Set(i, customTypeVal)
 		}
 	}
 
