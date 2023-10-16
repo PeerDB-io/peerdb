@@ -44,13 +44,6 @@ func main() {
 		EnvVars: []string{"ENABLE_METRICS"},
 	}
 
-	monitoringFlag := &cli.BoolFlag{
-		Name:    "enable-monitoring",
-		Value:   false, // Default is off
-		Usage:   "Enable mirror monitoring for the application",
-		EnvVars: []string{"ENABLE_STATS"},
-	}
-
 	pyroscopeServerFlag := &cli.StringFlag{
 		Name:    "pyroscope-server-address",
 		Value:   "http://pyroscope:4040",
@@ -76,7 +69,6 @@ func main() {
 						TemporalHostPort: temporalHostPort,
 						EnableProfiling:  ctx.Bool("enable-profiling"),
 						EnableMetrics:    ctx.Bool("enable-metrics"),
-						EnableMonitoring: ctx.Bool("enable-monitoring"),
 						PyroscopeServer:  ctx.String("pyroscope-server-address"),
 						MetricsServer:    ctx.String("metrics-server"),
 					})
@@ -85,7 +77,6 @@ func main() {
 					temporalHostPortFlag,
 					profilingFlag,
 					metricsFlag,
-					monitoringFlag,
 					pyroscopeServerFlag,
 					metricsServerFlag,
 				},

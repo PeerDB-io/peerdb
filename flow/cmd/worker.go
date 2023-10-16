@@ -8,9 +8,6 @@ import (
 	"syscall"
 	"time"
 
-	//nolint:gosec
-	_ "net/http/pprof"
-
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
@@ -31,7 +28,6 @@ type WorkerOptions struct {
 	TemporalHostPort string
 	EnableProfiling  bool
 	EnableMetrics    bool
-	EnableMonitoring bool
 	PyroscopeServer  string
 	MetricsServer    string
 }
@@ -111,14 +107,11 @@ func WorkerMain(opts *WorkerOptions) error {
 		}
 	}
 
-	catalogMirrorMonitor := monitoring.NewCatalogMirrorMonitor(nil)
-	if opts.EnableMonitoring {
-		conn, err := utils.GetCatalogConnectionPoolFromEnv()
-		if err != nil {
-			return fmt.Errorf("unable to create catalog connection pool: %w", err)
-		}
-		catalogMirrorMonitor = monitoring.NewCatalogMirrorMonitor(conn)
+	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	if err != nil {
+		return fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
+	catalogMirrorMonitor := monitoring.NewCatalogMirrorMonitor(conn)
 	defer catalogMirrorMonitor.Close()
 
 	c, err := client.Dial(clientOptions)
