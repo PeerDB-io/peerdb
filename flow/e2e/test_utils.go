@@ -151,14 +151,15 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"f6 jsonb",
 		"f7 jsonb",
 		"f8 smallint",
-		"geometry_point geometry(point)",
-		"geography_point geography(point)",
-		"geometry_linestring geometry(linestring)",
-		"geography_linestring geography(linestring)",
-		"geometry_polygon geometry(polygon)",
-		"geography_polygon geography(polygon)",
 	}
-
+	if strings.Contains(tableName, "sf") {
+		tblFields = append(tblFields, "geometry_point geometry(point)",
+			"geography_point geography(point)",
+			"geometry_linestring geometry(linestring)",
+			"geography_linestring geography(linestring)",
+			"geometry_polygon geometry(polygon)",
+			"geography_polygon geography(polygon)")
+	}
 	tblFieldStr := strings.Join(tblFields, ",")
 
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
