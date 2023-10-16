@@ -418,7 +418,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		shutdown <- true
 	}()
 
-	startTime := time.Now()
 	partitions, err := srcConn.GetQRepPartitions(config, last)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
@@ -428,7 +427,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 			ctx,
 			config,
 			runUUID,
-			startTime,
 			partitions,
 		)
 		if err != nil {
@@ -447,6 +445,11 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
+	err := a.CatalogMirrorMonitor.UpdateStartTimeForQRepRun(ctx, runUUID)
+	if err != nil {
+		return fmt.Errorf("failed to update start time for qrep run: %w", err)
+	}
+
 	numPartitions := len(partitions.Partitions)
 	log.Infof("replicating partitions for job - %s - batch %d - size: %d\n",
 		config.FlowJobName, partitions.BatchId, numPartitions)
@@ -469,6 +472,11 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
+	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition)
+	if err != nil {
+		return fmt.Errorf("failed to update start time for partition: %w", err)
+	}
+
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
