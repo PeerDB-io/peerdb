@@ -3,6 +3,8 @@ name: Dev Docker Images
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   docker-build:

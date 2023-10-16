@@ -19,6 +19,8 @@ import { cdcSettings } from './helpers/cdc';
 import { blankCDCSetting } from './helpers/common';
 import TableMapping from './tablemapping';
 
+export const dynamic = 'force-dynamic';
+
 export default function CreateMirrors() {
   const router = useRouter();
   const [mirrorName, setMirrorName] = useState<string>('');
