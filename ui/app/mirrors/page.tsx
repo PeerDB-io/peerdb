@@ -7,9 +7,12 @@ import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { SearchField } from '@/lib/SearchField';
-import { Select } from '@/lib/Select';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { PrismaClient } from '@prisma/client';
+import moment from 'moment';
 import Link from 'next/link';
+
+export const dynamic = 'force-dynamic';
 
 const Badges = [
   <Badge variant='positive' key={1}>
@@ -30,98 +33,170 @@ const Badges = [
   </Badge>,
 ];
 
-const ExampleTable = ({ title }: { title: string }) => (
-  <Table
-    title={<Label variant='headline'>{title}</Label>}
-    toolbar={{
-      left: (
-        <>
-          <Button variant='normalBorderless'>
-            <Icon name='chevron_left' />
-          </Button>
-          <Button variant='normalBorderless'>
-            <Icon name='chevron_right' />
-          </Button>
-          <Button variant='normalBorderless'>
-            <Icon name='refresh' />
-          </Button>
-          <Button variant='normalBorderless'>
-            <Icon name='help' />
-          </Button>
-          <Button variant='normalBorderless' disabled>
-            <Icon name='download' />
-          </Button>
-        </>
-      ),
-      right: <SearchField placeholder='Search' />,
-    }}
-    header={
-      <TableRow>
-        <TableCell as='th' variant='button'>
-          <Checkbox variant='mixed' defaultChecked />
-        </TableCell>
-        <TableCell as='th'>
-          <Select placeholder='Select' />
-        </TableCell>
-        <TableCell as='th'>
-          <Select placeholder='Select' />
-        </TableCell>
-        <TableCell as='th'>
-          <Select placeholder='Select' />
-        </TableCell>
-        <TableCell as='th'>
-          <Select placeholder='Select' />
-        </TableCell>
-        <TableCell as='th'>
-          <Select placeholder='Select' />
-        </TableCell>
-        <TableCell as='th'>
-          <Select placeholder='Select' />
-        </TableCell>
-        <TableCell as='th' variant='button'>
-          <Button>
-            <Icon name='more_horiz' />
-          </Button>
-        </TableCell>
-      </TableRow>
-    }
-  >
-    {Array(8)
-      .fill(null)
-      .map((_, index) => (
-        <TableRow key={index}>
+async function CDCFlows() {
+  const prisma = new PrismaClient();
+  const flows = await prisma.flows.findMany({
+    include: {
+      sourcePeer: true,
+      destinationPeer: true,
+    },
+  });
+
+  let cdcFlows = flows.filter((flow) => {
+    return !flow.query_string;
+  });
+
+  return (
+    <Table
+      title={<Label variant='headline'>Change-data capture</Label>}
+      toolbar={{
+        left: (
+          <>
+            <Button variant='normalBorderless'>
+              <Icon name='chevron_left' />
+            </Button>
+            <Button variant='normalBorderless'>
+              <Icon name='chevron_right' />
+            </Button>
+            <Button variant='normalBorderless'>
+              <Icon name='refresh' />
+            </Button>
+            <Button variant='normalBorderless'>
+              <Icon name='help' />
+            </Button>
+            <Button variant='normalBorderless' disabled>
+              <Icon name='download' />
+            </Button>
+          </>
+        ),
+        right: <SearchField placeholder='Search' />,
+      }}
+      header={
+        <TableRow>
+          <TableCell as='th' variant='button'>
+            <Checkbox variant='mixed' defaultChecked />
+          </TableCell>
+          <TableCell as='th'>Name</TableCell>
+          <TableCell as='th'>Source</TableCell>
+          <TableCell as='th'>Destination</TableCell>
+          <TableCell as='th'>Start Time</TableCell>
+          <TableCell as='th'>Status</TableCell>
+        </TableRow>
+      }
+    >
+      {cdcFlows.map((flow) => (
+        <TableRow key={flow.id}>
           <TableCell variant='button'>
             <Checkbox />
           </TableCell>
-          <TableCell variant='extended'>
-            <Label as={Link} href={'/mirrors/edit/TestMirror'}>
-              Test mirror
+          <TableCell>
+            <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
+              <div className='cursor-pointer underline'>{flow.name}</div>
             </Label>
           </TableCell>
           <TableCell>
-            <Label>Label</Label>
+            <Label>{flow.sourcePeer.name}</Label>
           </TableCell>
           <TableCell>
-            <Label>Label</Label>
+            <Label>{flow.destinationPeer.name}</Label>
           </TableCell>
           <TableCell>
-            <Label>Label</Label>
+            <Label>
+              {moment(flow.created_at).format('YYYY-MM-DD HH:mm:ss')}
+            </Label>
           </TableCell>
           <TableCell>
-            <Label>Label</Label>
-          </TableCell>
-          <TableCell>{Badges[index % Badges.length]}</TableCell>
-          <TableCell variant='button'>
-            <Button>
-              <Icon name='more_horiz' />
-            </Button>
+            <Label>Status TBD</Label>
           </TableCell>
         </TableRow>
       ))}
-  </Table>
-);
+    </Table>
+  );
+}
 
-export default function Mirrors() {
+// query replication flows table like CDC flows table
+async function QRepFlows() {
+  const prisma = new PrismaClient();
+  const flows = await prisma.flows.findMany({
+    include: {
+      sourcePeer: true,
+      destinationPeer: true,
+    },
+  });
+
+  let qrepFlows = flows.filter((flow) => {
+    return flow.query_string;
+  });
+
+  return (
+    <Table
+      title={<Label variant='headline'>Query replication</Label>}
+      toolbar={{
+        left: (
+          <>
+            <Button variant='normalBorderless'>
+              <Icon name='chevron_left' />
+            </Button>
+            <Button variant='normalBorderless'>
+              <Icon name='chevron_right' />
+            </Button>
+            <Button variant='normalBorderless'>
+              <Icon name='refresh' />
+            </Button>
+            <Button variant='normalBorderless'>
+              <Icon name='help' />
+            </Button>
+            <Button variant='normalBorderless' disabled>
+              <Icon name='download' />
+            </Button>
+          </>
+        ),
+        right: <SearchField placeholder='Search' />,
+      }}
+      header={
+        <TableRow>
+          <TableCell as='th' variant='button'>
+            <Checkbox variant='mixed' defaultChecked />
+          </TableCell>
+          <TableCell as='th'>Name</TableCell>
+          <TableCell as='th'>Source</TableCell>
+          <TableCell as='th'>Destination</TableCell>
+          <TableCell as='th'>Start Time</TableCell>
+          <TableCell as='th'>Status</TableCell>
+        </TableRow>
+      }
+    >
+      {qrepFlows.map((flow) => (
+        <TableRow key={flow.id}>
+          <TableCell variant='button'>
+            <Checkbox />
+          </TableCell>
+          <TableCell>
+            <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
+              <div className='cursor-pointer underline'>{flow.name}</div>
+            </Label>
+          </TableCell>
+          <TableCell>
+            <Label>{flow.sourcePeer.name}</Label>
+          </TableCell>
+          <TableCell>
+            <Label>{flow.destinationPeer.name}</Label>
+          </TableCell>
+          <TableCell>
+            <Label>
+              {moment(flow.created_at).format('YYYY-MM-DD HH:mm:ss')}
+            </Label>
+          </TableCell>
+          <TableCell>
+            <Label>Status TBD</Label>
+          </TableCell>
+        </TableRow>
+      ))}
+    </Table>
+  );
+}
+
+export default async function Mirrors() {
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
       <Panel>
@@ -137,13 +212,10 @@ export default function Mirrors() {
         </Header>
       </Panel>
       <Panel>
-        <ExampleTable title='Change-data capture' />
+        <CDCFlows />
       </Panel>
-      <Panel>
-        <ExampleTable title='Streaming Query replication' />
-      </Panel>
-      <Panel>
-        <ExampleTable title='Past Mirrors' />
+      <Panel className='mt-10'>
+        <QRepFlows />
       </Panel>
     </LayoutMain>
   );

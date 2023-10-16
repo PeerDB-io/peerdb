@@ -12,7 +12,9 @@ export default function SidebarComponent() {
     <Sidebar
       topTitle={
         <Label as={Link} href='/'>
-          <BrandLogo />
+          <div className='cursor-pointer'>
+            <BrandLogo />
+          </div>
         </Label>
       }
       bottomRow={
@@ -22,13 +24,6 @@ export default function SidebarComponent() {
       }
       bottomLabel={<Label variant='footnote'>App. v0.7.0</Label>}
     >
-      <SidebarItem
-        leadingIcon={<Icon name='widgets' />}
-        as={Link}
-        href={'/dashboard'}
-      >
-        Dashboard
-      </SidebarItem>
       <SidebarItem
         as={Link}
         href={'/peers'}
