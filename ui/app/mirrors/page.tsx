@@ -8,9 +8,9 @@ import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { PrismaClient } from '@prisma/client';
 import moment from 'moment';
 import Link from 'next/link';
+import prisma from '../utils/prisma';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +34,6 @@ const Badges = [
 ];
 
 async function CDCFlows() {
-  const prisma = new PrismaClient();
   const flows = await prisma.flows.findMany({
     include: {
       sourcePeer: true,
@@ -116,7 +115,6 @@ async function CDCFlows() {
 
 // query replication flows table like CDC flows table
 async function QRepFlows() {
-  const prisma = new PrismaClient();
   const flows = await prisma.flows.findMany({
     include: {
       sourcePeer: true,

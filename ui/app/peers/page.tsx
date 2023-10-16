@@ -1,4 +1,4 @@
-import { Peer } from '@/grpc_generated/peers';
+import { DBType, Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
@@ -8,14 +8,14 @@ import { Panel } from '@/lib/Panel';
 import { SearchField } from '@/lib/SearchField';
 import { Select } from '@/lib/Select';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { fetchPeers } from './handler';
-
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { Header } from '../../lib/Header';
+import prisma from '../utils/prisma';
 export const dynamic = 'force-dynamic';
 
 function PeerRow({ peer }: { peer: Peer }) {
+  const peerType = DBType[peer.type];
   return (
     <TableRow key={peer.name}>
       <TableCell variant='button'>
@@ -27,10 +27,15 @@ function PeerRow({ peer }: { peer: Peer }) {
         </Label>
       </TableCell>
       <TableCell>
-        <Label>{peer.type}</Label>
+        <Label>{peerType}</Label>
       </TableCell>
     </TableRow>
   );
+}
+
+async function fetchPeers() {
+  const peers = await prisma.peers.findMany({});
+  return peers;
 }
 
 async function PeersTable({ title }: { title: string }) {
