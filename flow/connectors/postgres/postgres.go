@@ -31,6 +31,7 @@ type PostgresConnector struct {
 	pool               *pgxpool.Pool
 	replPool           *pgxpool.Pool
 	tableSchemaMapping map[string]*protos.TableSchema
+	customTypesMapping map[uint32]string
 }
 
 // SchemaTable is a table in a schema.
@@ -56,6 +57,11 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
+	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get custom type map: %w", err)
+	}
+
 	// ensure that replication is set to database
 	connConfig, err := pgxpool.ParseConfig(connectionString)
 	if err != nil {
@@ -72,11 +78,12 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}
 
 	return &PostgresConnector{
-		connStr:  connectionString,
-		ctx:      ctx,
-		config:   pgConfig,
-		pool:     pool,
-		replPool: replPool,
+		connStr:            connectionString,
+		ctx:                ctx,
+		config:             pgConfig,
+		pool:               pool,
+		replPool:           replPool,
+		customTypesMapping: customTypeMap,
 	}, nil
 }
 
@@ -217,7 +224,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		RelationMessageMapping: req.RelationMessageMapping,
-	})
+	}, c.customTypesMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cdc source: %w", err)
 	}
@@ -590,8 +597,12 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	for _, fieldDescription := range rows.FieldDescriptions() {
 		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
 		if genericColType == qvalue.QValueKindInvalid {
-			// we use string for invalid types
-			genericColType = qvalue.QValueKindString
+			typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
+			if ok {
+				genericColType = customTypeToQKind(typeName)
+			} else {
+				genericColType = qvalue.QValueKindString
+			}
 		}
 
 		res.Columns[fieldDescription.Name] = string(genericColType)

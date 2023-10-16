@@ -152,7 +152,14 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"f7 jsonb",
 		"f8 smallint",
 	}
-
+	if strings.Contains(tableName, "sf") {
+		tblFields = append(tblFields, "geometry_point geometry(point)",
+			"geography_point geography(point)",
+			"geometry_linestring geometry(linestring)",
+			"geography_linestring geography(linestring)",
+			"geometry_polygon geometry(polygon)",
+			"geography_polygon geography(polygon)")
+	}
 	tblFieldStr := strings.Join(tblFields, ",")
 
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
@@ -187,6 +194,15 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	for i := 0; i < rowCount-1; i++ {
 		id := uuid.New().String()
 		ids = append(ids, id)
+		geoValues := ""
+		if strings.Contains(tableName, "sf") {
+			// geo types
+			geoValues = `,'POINT(1 2)','POINT(40.7128 -74.0060)',
+			'LINESTRING(0 0, 1 1, 2 2)',
+			'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
+			'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
+			'POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))'`
+		}
 		row := fmt.Sprintf(`
 					(
 							'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
@@ -198,13 +214,19 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
 							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}',
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15
+							'{"key": "value"}', 15 %s
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
-			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
+			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)
 		rows = append(rows, row)
 	}
 
+	geoColumns := ""
+	if strings.Contains(tableName, "sf") {
+		geoColumns = ",geometry_point, geography_point," +
+			"geometry_linestring, geography_linestring," +
+			"geometry_polygon, geography_polygon"
+	}
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test_%s.%s (
 					id, card_id, "from", price, created_at,
@@ -213,9 +235,10 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8 
+					%s
 			) VALUES %s;
-	`, suffix, tableName, strings.Join(rows, ",")))
+	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
 	if err != nil {
 		return err
 	}
