@@ -271,11 +271,11 @@ func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyI
 		}
 		colName := strings.ToLower(col)
 		// No need to quote raw table columns
-		if !strings.Contains(dstTableName, "_PEERDB_RAW") {
-			colName = fmt.Sprintf("\"%s\"", colName)
+		if strings.Contains(dstTableName, "_PEERDB_RAW") {
+			columnOrder = append(columnOrder, colName)
+		} else {
+			columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
 		}
-		columnOrder = append(columnOrder, colName)
-		log.Infof("colName: %s has type: %s", colName, colType)
 
 		switch colType {
 		case "GEOGRAPHY":
@@ -496,7 +496,6 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
 		tempTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
-	log.Info("Copy command in handleupsert: ", copyCmd)
 	_, err = s.connector.database.Exec(copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
