@@ -2,6 +2,7 @@
 
 # Base stage
 FROM node:18-bookworm-slim AS base
+RUN apt-get update && apt-get install -y openssl
 WORKDIR /app
 
 # Dependencies stage
