@@ -37,13 +37,6 @@ message ShutdownResponse {
   string error_message = 2;
 }
 
-message ListPeersRequest {
-}
-
-message ListPeersResponse {
-  repeated peerdb_peers.Peer peers = 1;
-}
-
 message ValidatePeerRequest {
  peerdb_peers.Peer peer = 1;
 }
@@ -120,10 +113,24 @@ message MirrorStatusResponse {
 }
 
 service FlowService {
-  rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {}
-  rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {}
-  rpc CreatePeer(CreatePeerRequest) returns (CreatePeerResponse) {}
-  rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {}
+  rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
+    option (google.api.http) = {
+      post: "/v1/peers/validate",
+      body: "*"
+     };
+  }
+  rpc CreatePeer(CreatePeerRequest) returns (CreatePeerResponse) {
+    option (google.api.http) = {
+      post: "/v1/peers/create",
+      body: "*"
+     };
+  }
+  rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {
+    option (google.api.http) = {
+      post: "/v1/flows/cdc/create",
+      body: "*"
+     };
+  }
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {

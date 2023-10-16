@@ -14,10 +14,13 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { TableMapRow } from '../types';
 import MirrorConfig from './config';
-import { handleCreate, listAllPeers } from './handlers';
+import { handleCreate } from './handlers';
 import { cdcSettings } from './helpers/cdc';
 import { blankCDCSetting } from './helpers/common';
 import TableMapping from './tablemapping';
+
+export const dynamic = 'force-dynamic';
+
 export default function CreateMirrors() {
   const router = useRouter();
   const [mirrorName, setMirrorName] = useState<string>('');
@@ -33,7 +36,11 @@ export default function CreateMirrors() {
     { source: '', destination: '' },
   ]);
   useEffect(() => {
-    listAllPeers().then((peers) => setPeers(peers.peers));
+    fetch('/api/peers')
+      .then((res) => res.json())
+      .then((res) => {
+        setPeers(res.peers);
+      });
   }, []);
   return (
     <LayoutMain width='xxLarge' alignSelf='center' justifySelf='center'>

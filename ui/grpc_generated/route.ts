@@ -126,13 +126,6 @@ export interface ShutdownResponse {
   errorMessage: string;
 }
 
-export interface ListPeersRequest {
-}
-
-export interface ListPeersResponse {
-  peers: Peer[];
-}
-
 export interface ValidatePeerRequest {
   peer: Peer | undefined;
 }
@@ -627,106 +620,6 @@ export const ShutdownResponse = {
     const message = createBaseShutdownResponse();
     message.ok = object.ok ?? false;
     message.errorMessage = object.errorMessage ?? "";
-    return message;
-  },
-};
-
-function createBaseListPeersRequest(): ListPeersRequest {
-  return {};
-}
-
-export const ListPeersRequest = {
-  encode(_: ListPeersRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): ListPeersRequest {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseListPeersRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(_: any): ListPeersRequest {
-    return {};
-  },
-
-  toJSON(_: ListPeersRequest): unknown {
-    const obj: any = {};
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<ListPeersRequest>, I>>(base?: I): ListPeersRequest {
-    return ListPeersRequest.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<ListPeersRequest>, I>>(_: I): ListPeersRequest {
-    const message = createBaseListPeersRequest();
-    return message;
-  },
-};
-
-function createBaseListPeersResponse(): ListPeersResponse {
-  return { peers: [] };
-}
-
-export const ListPeersResponse = {
-  encode(message: ListPeersResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    for (const v of message.peers) {
-      Peer.encode(v!, writer.uint32(10).fork()).ldelim();
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): ListPeersResponse {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseListPeersResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 10) {
-            break;
-          }
-
-          message.peers.push(Peer.decode(reader, reader.uint32()));
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): ListPeersResponse {
-    return { peers: Array.isArray(object?.peers) ? object.peers.map((e: any) => Peer.fromJSON(e)) : [] };
-  },
-
-  toJSON(message: ListPeersResponse): unknown {
-    const obj: any = {};
-    if (message.peers?.length) {
-      obj.peers = message.peers.map((e) => Peer.toJSON(e));
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<ListPeersResponse>, I>>(base?: I): ListPeersResponse {
-    return ListPeersResponse.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<ListPeersResponse>, I>>(object: I): ListPeersResponse {
-    const message = createBaseListPeersResponse();
-    message.peers = object.peers?.map((e) => Peer.fromPartial(e)) || [];
     return message;
   },
 };
@@ -1611,15 +1504,6 @@ export const MirrorStatusResponse = {
 
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
-  listPeers: {
-    path: "/peerdb_route.FlowService/ListPeers",
-    requestStream: false,
-    responseStream: false,
-    requestSerialize: (value: ListPeersRequest) => Buffer.from(ListPeersRequest.encode(value).finish()),
-    requestDeserialize: (value: Buffer) => ListPeersRequest.decode(value),
-    responseSerialize: (value: ListPeersResponse) => Buffer.from(ListPeersResponse.encode(value).finish()),
-    responseDeserialize: (value: Buffer) => ListPeersResponse.decode(value),
-  },
   validatePeer: {
     path: "/peerdb_route.FlowService/ValidatePeer",
     requestStream: false,
@@ -1677,7 +1561,6 @@ export const FlowServiceService = {
 } as const;
 
 export interface FlowServiceServer extends UntypedServiceImplementation {
-  listPeers: handleUnaryCall<ListPeersRequest, ListPeersResponse>;
   validatePeer: handleUnaryCall<ValidatePeerRequest, ValidatePeerResponse>;
   createPeer: handleUnaryCall<CreatePeerRequest, CreatePeerResponse>;
   createCdcFlow: handleUnaryCall<CreateCDCFlowRequest, CreateCDCFlowResponse>;
@@ -1687,21 +1570,6 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
 }
 
 export interface FlowServiceClient extends Client {
-  listPeers(
-    request: ListPeersRequest,
-    callback: (error: ServiceError | null, response: ListPeersResponse) => void,
-  ): ClientUnaryCall;
-  listPeers(
-    request: ListPeersRequest,
-    metadata: Metadata,
-    callback: (error: ServiceError | null, response: ListPeersResponse) => void,
-  ): ClientUnaryCall;
-  listPeers(
-    request: ListPeersRequest,
-    metadata: Metadata,
-    options: Partial<CallOptions>,
-    callback: (error: ServiceError | null, response: ListPeersResponse) => void,
-  ): ClientUnaryCall;
   validatePeer(
     request: ValidatePeerRequest,
     callback: (error: ServiceError | null, response: ValidatePeerResponse) => void,

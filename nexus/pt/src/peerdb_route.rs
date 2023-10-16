@@ -47,16 +47,6 @@ pub struct ShutdownResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListPeersRequest {
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListPeersResponse {
-    #[prost(message, repeated, tag="1")]
-    pub peers: ::prost::alloc::vec::Vec<super::peerdb_peers::Peer>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ValidatePeerRequest {
     #[prost(message, optional, tag="1")]
     pub peer: ::core::option::Option<super::peerdb_peers::Peer>,

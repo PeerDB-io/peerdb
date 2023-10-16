@@ -1,13 +1,8 @@
-import { ListPeersResponse } from '@/grpc_generated/route';
+import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context';
 import { Dispatch, SetStateAction } from 'react';
 import { MirrorConfig, TableMapRow } from '../types';
 import { cdcSchema, tableMappingSchema } from './schema';
-
-export const listAllPeers = async () => {
-  const peers = await fetch('../api/peers').then((res) => res.json());
-  return peers as ListPeersResponse;
-};
 
 const validateFlowFields = (
   tableMapping: TableMapRow[],
@@ -64,14 +59,14 @@ export const handleCreate = async (
   config['tableMappings'] = tableNameMapping;
   config['flowJobName'] = flowJobName;
   setLoading(true);
-  const statusMessage = await fetch('/api/mirrors/cdc', {
+  const statusMessage: UCreateMirrorResponse = await fetch('/api/mirrors/cdc', {
     method: 'POST',
     body: JSON.stringify({
       config,
     }),
-  }).then((res) => res.text());
-  if (statusMessage !== 'created') {
-    setMsg({ ok: false, msg: statusMessage });
+  }).then((res) => res.json());
+  if (!statusMessage.created) {
+    setMsg({ ok: false, msg: 'unable to create mirror.' });
     setLoading(false);
     return;
   }

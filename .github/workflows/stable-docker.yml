@@ -35,7 +35,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           token: ${{ secrets.DEPOT_TOKEN }}
           context: .
-          file: stacks/nexus.Dockerfile
+          file: stacks/peerdb-server.Dockerfile
           push: true
           tags: |
             ghcr.io/peerdb-io/peerdb-server:${{ github.ref_name }}

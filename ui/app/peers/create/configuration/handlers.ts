@@ -1,3 +1,4 @@
+import { UCreatePeerResponse, UValidatePeerResponse } from '@/app/dto/PeersDTO';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context';
 import { Dispatch, SetStateAction } from 'react';
 import { pgSchema, sfSchema } from './schema';
@@ -45,7 +46,7 @@ export const handleValidate = async (
   const isValid = validateFields(type, config, setMessage, name);
   if (!isValid) return;
   setLoading(true);
-  const statusMessage = await fetch('/api/peers/', {
+  const valid: UValidatePeerResponse = await fetch('/api/peers/', {
     method: 'POST',
     body: JSON.stringify({
       name,
@@ -53,9 +54,9 @@ export const handleValidate = async (
       config,
       mode: 'validate',
     }),
-  }).then((res) => res.text());
-  if (statusMessage !== 'valid') {
-    setMessage({ ok: false, msg: statusMessage });
+  }).then((res) => res.json());
+  if (!valid.valid) {
+    setMessage({ ok: false, msg: valid.message });
     setLoading(false);
     return;
   } else {
@@ -76,7 +77,7 @@ export const handleCreate = async (
   let isValid = validateFields(type, config, setMessage, name);
   if (!isValid) return;
   setLoading(true);
-  const statusMessage = await fetch('/api/peers/', {
+  const createdPeer: UCreatePeerResponse = await fetch('/api/peers/', {
     method: 'POST',
     body: JSON.stringify({
       name,
@@ -84,14 +85,13 @@ export const handleCreate = async (
       config,
       mode: 'create',
     }),
-  }).then((res) => res.text());
-  if (statusMessage !== 'created') {
-    setMessage({ ok: false, msg: statusMessage });
+  }).then((res) => res.json());
+  if (!createdPeer.created) {
+    setMessage({ ok: false, msg: createdPeer.message });
     setLoading(false);
     return;
-  } else {
-    setMessage({ ok: true, msg: 'Peer created successfully' });
-    router.push('/peers');
   }
+  setMessage({ ok: true, msg: 'Peer created successfully' });
+  router.push('/peers');
   setLoading(false);
 };

@@ -22,8 +22,6 @@ x-flow-worker-env: &flow-worker-env
   ENABLE_PROFILING: "true"
   # enables exporting of mirror metrics to Prometheus for visualization using Grafana
   ENABLE_METRICS: "true"
-  # enables exporting of mirror metrics to Catalog in the PEERDB_STATS schema.
-  ENABLE_STATS: "true"
   PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
 
 services:
@@ -232,7 +230,6 @@ services:
       - 3001:3000
     environment:
       <<: *catalog-config
-      PEERDB_FLOW_SERVER_ADDRESS: flow_api:8112
       DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
       PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
 

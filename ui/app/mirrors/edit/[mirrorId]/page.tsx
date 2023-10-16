@@ -36,7 +36,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   } = useSWR(() => [`/api/mirrors/status`, mirrorId], fetcher);
 
   if (isValidating) {
-    return <ProgressCircle variant='intermediate_progress_circle' />;
+    return <ProgressCircle variant='determinate_progress_circle' />;
   }
 
   if (error) {
