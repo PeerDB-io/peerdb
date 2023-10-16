@@ -157,7 +157,6 @@ func (c *CatalogMirrorMonitor) InitializeQRepRun(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	runUUID string,
-	startTime time.Time,
 	partitions []*protos.QRepPartition,
 ) error {
 	if c == nil || c.catalogConn == nil {
@@ -166,8 +165,8 @@ func (c *CatalogMirrorMonitor) InitializeQRepRun(
 
 	flowJobName := config.GetFlowJobName()
 	_, err := c.catalogConn.Exec(ctx,
-		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid,start_time) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
-		flowJobName, runUUID, startTime)
+		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid) VALUES($1,$2) ON CONFLICT DO NOTHING",
+		flowJobName, runUUID)
 	if err != nil {
 		return fmt.Errorf("error while inserting qrep run in qrep_runs: %w", err)
 	}
@@ -188,6 +187,21 @@ func (c *CatalogMirrorMonitor) InitializeQRepRun(
 		if err := c.addPartitionToQRepRun(ctx, flowJobName, runUUID, partition); err != nil {
 			return fmt.Errorf("unable to add partition to qrep run: %w", err)
 		}
+	}
+
+	return nil
+}
+
+func (c *CatalogMirrorMonitor) UpdateStartTimeForQRepRun(ctx context.Context, runUUID string) error {
+	if c == nil || c.catalogConn == nil {
+		return nil
+	}
+
+	_, err := c.catalogConn.Exec(ctx,
+		"UPDATE peerdb_stats.qrep_runs SET start_time=$1 WHERE run_uuid=$2",
+		time.Now(), runUUID)
+	if err != nil {
+		return fmt.Errorf("error while updating num_rows_to_sync for run_uuid %s in qrep_runs: %w", runUUID, err)
 	}
 
 	return nil
@@ -253,14 +267,31 @@ func (c *CatalogMirrorMonitor) addPartitionToQRepRun(ctx context.Context, flowJo
 
 	_, err := c.catalogConn.Exec(ctx,
 		`INSERT INTO peerdb_stats.qrep_partitions
-		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,start_time,restart_count)
-		 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
+		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count)
+		 VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
 		 restart_count=qrep_partitions.restart_count+1`,
-		flowJobName, runUUID, partition.PartitionId, rangeStart, rangeEnd, time.Now(), 0)
+		flowJobName, runUUID, partition.PartitionId, rangeStart, rangeEnd, 0)
 	if err != nil {
 		return fmt.Errorf("error while inserting qrep partition in qrep_partitions: %w", err)
 	}
 
+	return nil
+}
+
+func (c *CatalogMirrorMonitor) UpdateStartTimeForPartition(
+	ctx context.Context,
+	runUUID string,
+	partition *protos.QRepPartition,
+) error {
+	if c == nil || c.catalogConn == nil {
+		return nil
+	}
+
+	_, err := c.catalogConn.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET start_time=$1
+	 WHERE run_uuid=$2 AND partition_uuid=$3`, time.Now(), runUUID, partition.PartitionId)
+	if err != nil {
+		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)
+	}
 	return nil
 }
 
