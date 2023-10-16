@@ -206,8 +206,10 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
 							'{"key": "value"}', 15,
 							'POINT(1 2)','POINT(40.7128 -74.0060)',
-							'LINESTRING(0 0, 1 1, 2 2)','LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
-							'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))'
+							'LINESTRING(0 0, 1 1, 2 2)',
+							'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
+							'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
+							'POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))'
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
