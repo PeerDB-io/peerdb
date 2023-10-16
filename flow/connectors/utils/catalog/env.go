@@ -22,6 +22,11 @@ func GetCatalogConnectionPoolFromEnv() (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("unable to establish connection with catalog: %w", err)
 	}
 
+	err = catalogConn.Ping(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("unable to establish connection with catalog: %w", err)
+	}
+
 	return catalogConn, nil
 }
 
