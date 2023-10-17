@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -15,14 +16,14 @@ import (
 )
 
 const (
-	peerName   string = "test_s3_peer"
-	prefixName string = "test-s3"
+	peerName string = "test_s3_peer"
 )
 
 type S3TestHelper struct {
 	client     *s3.S3
 	s3Config   *protos.S3Config
 	bucketName string
+	prefix     string
 }
 
 func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
@@ -51,10 +52,11 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 	if err != nil {
 		return nil, err
 	}
+	prefix := fmt.Sprintf("peerdb_test/%d", time.Now().UnixNano())
 	return &S3TestHelper{
 		client,
 		&protos.S3Config{
-			Url:             fmt.Sprintf("s3://%s/%s", bucketName, prefixName),
+			Url:             fmt.Sprintf("s3://%s/%s", bucketName, prefix),
 			AccessKeyId:     &config.AccessKeyID,
 			SecretAccessKey: &config.SecretAccessKey,
 			Region:          &config.Region,
@@ -68,6 +70,7 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 			},
 		},
 		bucketName,
+		prefix,
 	}, nil
 }
 
@@ -89,7 +92,7 @@ func (h *S3TestHelper) ListAllFiles(
 ) ([]*s3.Object, error) {
 
 	Bucket := h.bucketName
-	Prefix := fmt.Sprintf("%s/%s/", prefixName, jobName)
+	Prefix := fmt.Sprintf("%s/%s/", h.prefix, jobName)
 	files, err := h.client.ListObjects(&s3.ListObjectsInput{
 		Bucket: &Bucket,
 		Prefix: &Prefix,
@@ -105,7 +108,7 @@ func (h *S3TestHelper) ListAllFiles(
 // Delete all generated objects during the test
 func (h *S3TestHelper) CleanUp() error {
 	Bucket := h.bucketName
-	Prefix := prefixName
+	Prefix := h.prefix
 	files, err := h.client.ListObjects(&s3.ListObjectsInput{
 		Bucket: &Bucket,
 		Prefix: &Prefix,

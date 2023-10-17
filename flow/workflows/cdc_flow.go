@@ -336,7 +336,6 @@ func CDCFlowWorkflowWithConfig(
 					cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
 						getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
 				}
-
 			}
 		}
 

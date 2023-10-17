@@ -31,6 +31,7 @@ type PostgresCDCSource struct {
 	typeMap                *pgtype.Map
 	startLSN               pglogrepl.LSN
 	commitLock             bool
+	customTypeMapping      map[uint32]string
 }
 
 type PostgresCDCConfig struct {
@@ -44,7 +45,7 @@ type PostgresCDCConfig struct {
 }
 
 // Create a new PostgresCDCSource
-func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
+func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32]string) (*PostgresCDCSource, error) {
 	return &PostgresCDCSource{
 		ctx:                    cdcConfig.AppContext,
 		replPool:               cdcConfig.Connection,
@@ -55,6 +56,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, err
 		relationMessageMapping: cdcConfig.RelationMessageMapping,
 		typeMap:                pgtype.NewMap(),
 		commitLock:             false,
+		customTypeMapping:      customTypeMap,
 	}, nil
 }
 
@@ -515,6 +517,12 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 		}
 		return retVal, nil
 	}
+	typeName, ok := p.customTypeMapping[dataType]
+	if ok {
+		return &qvalue.QValue{Kind: customTypeToQKind(typeName),
+			Value: string(data)}, nil
+	}
+
 	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }
 
@@ -565,9 +573,16 @@ func (p *PostgresCDCSource) processRelationMessage(
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
 		if prevRelMap[column.Name] == nil {
+			qKind := postgresOIDToQValueKind(column.DataType)
+			if qKind == qvalue.QValueKindInvalid {
+				typeName, ok := p.customTypeMapping[column.DataType]
+				if ok {
+					qKind = customTypeToQKind(typeName)
+				}
+			}
 			schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 				ColumnName: column.Name,
-				ColumnType: string(postgresOIDToQValueKind(column.DataType)),
+				ColumnType: string(qKind),
 			})
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.

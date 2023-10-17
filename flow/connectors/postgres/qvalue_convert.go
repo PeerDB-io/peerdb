@@ -55,6 +55,8 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 		return qvalue.QValueKindArrayInt32
 	case pgtype.Int8ArrayOID:
 		return qvalue.QValueKindArrayInt64
+	case pgtype.PointOID:
+		return qvalue.QValueKindPoint
 	case pgtype.Float4ArrayOID:
 		return qvalue.QValueKindArrayFloat32
 	case pgtype.Float8ArrayOID:
@@ -77,8 +79,10 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 				return qvalue.QValueKindString
 			} else if recvOID == uint32(oid.T_tsquery) { // TSQUERY
 				return qvalue.QValueKindString
+			} else if recvOID == uint32(oid.T_point) { // POINT
+				return qvalue.QValueKindPoint
 			}
-			// log.Warnf("failed to get type name for oid: %v", recvOID)
+
 			return qvalue.QValueKindInvalid
 		} else {
 			log.Warnf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name)
@@ -337,6 +341,11 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			return nil, fmt.Errorf("failed to parse hstore: %w", err)
 		}
 		val = &qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: hstoreVal}
+	case qvalue.QValueKindPoint:
+		xCoord := value.(pgtype.Point).P.X
+		yCoord := value.(pgtype.Point).P.Y
+		val = &qvalue.QValue{Kind: qvalue.QValueKindPoint,
+			Value: fmt.Sprintf("POINT(%f %f)", xCoord, yCoord)}
 	default:
 		// log.Warnf("unhandled QValueKind => %v, parsing as string", qvalueKind)
 		textVal, ok := value.(string)
@@ -379,4 +388,17 @@ func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
 
 	// handle invalid numeric
 	return nil, errors.New("invalid numeric")
+}
+
+func customTypeToQKind(typeName string) qvalue.QValueKind {
+	var qValueKind qvalue.QValueKind
+	switch typeName {
+	case "geometry":
+		qValueKind = qvalue.QValueKindGeometry
+	case "geography":
+		qValueKind = qvalue.QValueKindGeography
+	default:
+		qValueKind = qvalue.QValueKindString
+	}
+	return qValueKind
 }

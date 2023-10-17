@@ -113,13 +113,13 @@ model qrep_partitions {
   partition_start   String
   partition_end     String
   rows_in_partition Int?
-  start_time        DateTime  @db.Timestamp(6)
+  start_time        DateTime? @db.Timestamp(6)
   pull_end_time     DateTime? @db.Timestamp(6)
   end_time          DateTime? @db.Timestamp(6)
   restart_count     Int
   metadata          Json?
   id                Int       @id @default(autoincrement())
-  qrep_runs         qrep_runs @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_qrep_partitions_run_uuid")
+  qrep_runs         qrep_runs @relation(fields: [flow_name, run_uuid], references: [flow_name, run_uuid], onDelete: Cascade, onUpdate: NoAction, map: "fk_qrep_partitions_run")
 
   @@unique([run_uuid, partition_uuid])
   @@index([flow_name, run_uuid], map: "idx_qrep_partitions_flow_name_run_uuid")
@@ -129,15 +129,16 @@ model qrep_partitions {
 }
 
 model qrep_runs {
-  flow_name       String            @unique(map: "uq_qrep_runs_flow_name")
+  flow_name       String
   run_uuid        String
-  start_time      DateTime          @db.Timestamp(6)
+  start_time      DateTime?         @db.Timestamp(6)
   end_time        DateTime?         @db.Timestamp(6)
   metadata        Json?
   config_proto    Bytes?
   id              Int               @id @default(autoincrement())
   qrep_partitions qrep_partitions[]
 
+  @@unique([flow_name, run_uuid], map: "uq_qrep_runs_flow_run")
   @@index([flow_name], map: "idx_qrep_runs_flow_name", type: Hash)
   @@index([run_uuid], map: "idx_qrep_runs_run_uuid", type: Hash)
   @@index([start_time], map: "idx_qrep_runs_start_time")

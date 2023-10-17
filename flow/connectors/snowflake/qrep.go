@@ -253,7 +253,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
 		return fmt.Errorf("multi-insert sync mode not supported for snowflake")
 	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
-		allCols, err := c.getColsFromTable(destTable)
+		colInfo, err := c.getColsFromTable(destTable)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"flowName": config.FlowJobName,
@@ -261,6 +261,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 			return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
 		}
 
+		allCols := colInfo.Columns
 		err = CopyStageToDestination(c, config, destTable, stageName, allCols)
 		if err != nil {
 			log.WithFields(log.Fields{
@@ -283,7 +284,7 @@ func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
-func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, error) {
+func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnInformation, error) {
 	// parse the table name to get the schema and table name
 	components, err := parseTableName(tableName)
 	if err != nil {
@@ -296,7 +297,7 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, error
 
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
-	SELECT column_name
+	SELECT column_name, data_type
 	FROM information_schema.columns
 	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
 	`, components.tableIdentifier, components.schemaIdentifier)
@@ -307,16 +308,24 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, error
 	}
 	defer rows.Close()
 
-	var cols []string
+	columnMap := map[string]string{}
 	for rows.Next() {
-		var col string
-		if err := rows.Scan(&col); err != nil {
+		var colName string
+		var colType string
+		if err := rows.Scan(&colName, &colType); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		cols = append(cols, col)
+		columnMap[colName] = colType
+	}
+	var cols []string
+	for k := range columnMap {
+		cols = append(cols, k)
 	}
 
-	return cols, nil
+	return &model.ColumnInformation{
+		ColumnMap: columnMap,
+		Columns:   cols,
+	}, nil
 }
 
 // dropStage drops the stage for the given job.

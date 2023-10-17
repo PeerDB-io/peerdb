@@ -14,6 +14,7 @@ import { ProgressBar } from '@/lib/ProgressBar';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment, { Duration, Moment } from 'moment';
+import Link from 'next/link';
 
 const Badges = [
   <Badge variant='positive' key={1}>
@@ -35,6 +36,7 @@ const Badges = [
 ];
 
 class TableCloneSummary {
+  flowJobName: string;
   tableName: string;
   totalNumPartitions: number;
   totalNumRows: number;
@@ -44,6 +46,7 @@ class TableCloneSummary {
   cloneStartTime: Moment | null;
 
   constructor(clone: QRepMirrorStatus) {
+    this.flowJobName = clone.config?.flowJobName || '';
     this.tableName = clone.config?.watermarkTable || '';
     this.totalNumPartitions = 0;
     this.totalNumRows = 0;
@@ -151,7 +154,14 @@ const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
           <Checkbox />
         </TableCell>
         <TableCell>
-          <Label>{clone.tableName}</Label>
+          <Label>
+            <Link
+              href={`/mirrors/status/qrep/${clone.flowJobName}`}
+              className='underline cursor-pointer'
+            >
+              {clone.tableName}
+            </Link>
+          </Label>
         </TableCell>
         <TableCell>
           <Label>{clone.cloneStartTime?.format('YYYY-MM-DD HH:mm:ss')}</Label>
