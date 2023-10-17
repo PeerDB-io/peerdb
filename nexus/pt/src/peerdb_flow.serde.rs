@@ -5409,7 +5409,7 @@ impl serde::Serialize for TableSchema {
         if !self.columns.is_empty() {
             len += 1;
         }
-        if !self.primary_key_column.is_empty() {
+        if !self.primary_key_columns.is_empty() {
             len += 1;
         }
         if self.is_replica_identity_full {
@@ -5422,8 +5422,8 @@ impl serde::Serialize for TableSchema {
         if !self.columns.is_empty() {
             struct_ser.serialize_field("columns", &self.columns)?;
         }
-        if !self.primary_key_column.is_empty() {
-            struct_ser.serialize_field("primaryKeyColumn", &self.primary_key_column)?;
+        if !self.primary_key_columns.is_empty() {
+            struct_ser.serialize_field("primaryKeyColumns", &self.primary_key_columns)?;
         }
         if self.is_replica_identity_full {
             struct_ser.serialize_field("isReplicaIdentityFull", &self.is_replica_identity_full)?;
@@ -5441,8 +5441,8 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             "table_identifier",
             "tableIdentifier",
             "columns",
-            "primary_key_column",
-            "primaryKeyColumn",
+            "primary_key_columns",
+            "primaryKeyColumns",
             "is_replica_identity_full",
             "isReplicaIdentityFull",
         ];
@@ -5451,7 +5451,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
         enum GeneratedField {
             TableIdentifier,
             Columns,
-            PrimaryKeyColumn,
+            PrimaryKeyColumns,
             IsReplicaIdentityFull,
             __SkipField__,
         }
@@ -5477,7 +5477,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                         match value {
                             "tableIdentifier" | "table_identifier" => Ok(GeneratedField::TableIdentifier),
                             "columns" => Ok(GeneratedField::Columns),
-                            "primaryKeyColumn" | "primary_key_column" => Ok(GeneratedField::PrimaryKeyColumn),
+                            "primaryKeyColumns" | "primary_key_columns" => Ok(GeneratedField::PrimaryKeyColumns),
                             "isReplicaIdentityFull" | "is_replica_identity_full" => Ok(GeneratedField::IsReplicaIdentityFull),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -5500,7 +5500,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             {
                 let mut table_identifier__ = None;
                 let mut columns__ = None;
-                let mut primary_key_column__ = None;
+                let mut primary_key_columns__ = None;
                 let mut is_replica_identity_full__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -5518,11 +5518,11 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                                 map.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
-                        GeneratedField::PrimaryKeyColumn => {
-                            if primary_key_column__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("primaryKeyColumn"));
+                        GeneratedField::PrimaryKeyColumns => {
+                            if primary_key_columns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("primaryKeyColumns"));
                             }
-                            primary_key_column__ = Some(map.next_value()?);
+                            primary_key_columns__ = Some(map.next_value()?);
                         }
                         GeneratedField::IsReplicaIdentityFull => {
                             if is_replica_identity_full__.is_some() {
@@ -5538,7 +5538,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                 Ok(TableSchema {
                     table_identifier: table_identifier__.unwrap_or_default(),
                     columns: columns__.unwrap_or_default(),
-                    primary_key_column: primary_key_column__.unwrap_or_default(),
+                    primary_key_columns: primary_key_columns__.unwrap_or_default(),
                     is_replica_identity_full: is_replica_identity_full__.unwrap_or_default(),
                 })
             }

@@ -293,7 +293,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				0,
 				"{}",
 				syncBatchID,
-				utils.KeysToString(typedRecord.UnchangedToastColumns),
+				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
@@ -331,7 +331,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 				2,
 				itemsJSON,
 				syncBatchID,
-				utils.KeysToString(typedRecord.UnchangedToastColumns),
+				"",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		default:
@@ -423,7 +423,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			"flowName": req.FlowJobName,
 		}).Printf("no records to normalize: syncBatchID %d, normalizeBatchID %d", syncBatchID, normalizeBatchID)
 		return &model.NormalizeResponse{
-			Done:         true,
+			Done:         false,
 			StartBatchID: normalizeBatchID,
 			EndBatchID:   syncBatchID,
 		}, nil
@@ -532,6 +532,16 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	if err != nil {
 		return nil, fmt.Errorf("error creating raw table: %w", err)
 	}
+	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableBatchIDIndexSQL, rawTableIdentifier,
+		internalSchema, rawTableIdentifier))
+	if err != nil {
+		return nil, fmt.Errorf("error creating batch ID index on raw table: %w", err)
+	}
+	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier,
+		internalSchema, rawTableIdentifier))
+	if err != nil {
+		return nil, fmt.Errorf("error creating destion table index on raw table: %w", err)
+	}
 
 	err = createRawTableTx.Commit(c.ctx)
 	if err != nil {
@@ -572,20 +582,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 	}
 
-	pkey, err := c.getPrimaryKeyColumn(schemaTable)
-	if err != nil {
-		if !isFullReplica {
-			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
-		}
-	}
-
-	res := &protos.TableSchema{
-		TableIdentifier:       tableName,
-		Columns:               make(map[string]string),
-		PrimaryKeyColumn:      pkey,
-		IsReplicaIdentityFull: isFullReplica,
-	}
-
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
 		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName), pgx.QueryExecModeSimpleProtocol)
@@ -593,6 +589,18 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
 	defer rows.Close()
+
+	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+	}
+
+	res := &protos.TableSchema{
+		TableIdentifier:       tableName,
+		Columns:               make(map[string]string),
+		PrimaryKeyColumns:     pKeyCols,
+		IsReplicaIdentityFull: isFullReplica,
+	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {
 		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)

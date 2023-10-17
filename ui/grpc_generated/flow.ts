@@ -262,7 +262,7 @@ export interface TableSchema {
    * "string", "int", "float", "bool", "timestamp".
    */
   columns: { [key: string]: string };
-  primaryKeyColumn: string;
+  primaryKeyColumns: string[];
   isReplicaIdentityFull: boolean;
 }
 
@@ -3185,7 +3185,7 @@ export const CreateRawTableOutput = {
 };
 
 function createBaseTableSchema(): TableSchema {
-  return { tableIdentifier: "", columns: {}, primaryKeyColumn: "", isReplicaIdentityFull: false };
+  return { tableIdentifier: "", columns: {}, primaryKeyColumns: [], isReplicaIdentityFull: false };
 }
 
 export const TableSchema = {
@@ -3196,8 +3196,8 @@ export const TableSchema = {
     Object.entries(message.columns).forEach(([key, value]) => {
       TableSchema_ColumnsEntry.encode({ key: key as any, value }, writer.uint32(18).fork()).ldelim();
     });
-    if (message.primaryKeyColumn !== "") {
-      writer.uint32(26).string(message.primaryKeyColumn);
+    for (const v of message.primaryKeyColumns) {
+      writer.uint32(26).string(v!);
     }
     if (message.isReplicaIdentityFull === true) {
       writer.uint32(32).bool(message.isReplicaIdentityFull);
@@ -3234,7 +3234,7 @@ export const TableSchema = {
             break;
           }
 
-          message.primaryKeyColumn = reader.string();
+          message.primaryKeyColumns.push(reader.string());
           continue;
         case 4:
           if (tag !== 32) {
@@ -3261,7 +3261,9 @@ export const TableSchema = {
           return acc;
         }, {})
         : {},
-      primaryKeyColumn: isSet(object.primaryKeyColumn) ? String(object.primaryKeyColumn) : "",
+      primaryKeyColumns: Array.isArray(object?.primaryKeyColumns)
+        ? object.primaryKeyColumns.map((e: any) => String(e))
+        : [],
       isReplicaIdentityFull: isSet(object.isReplicaIdentityFull) ? Boolean(object.isReplicaIdentityFull) : false,
     };
   },
@@ -3280,8 +3282,8 @@ export const TableSchema = {
         });
       }
     }
-    if (message.primaryKeyColumn !== "") {
-      obj.primaryKeyColumn = message.primaryKeyColumn;
+    if (message.primaryKeyColumns?.length) {
+      obj.primaryKeyColumns = message.primaryKeyColumns;
     }
     if (message.isReplicaIdentityFull === true) {
       obj.isReplicaIdentityFull = message.isReplicaIdentityFull;
@@ -3301,7 +3303,7 @@ export const TableSchema = {
       }
       return acc;
     }, {});
-    message.primaryKeyColumn = object.primaryKeyColumn ?? "";
+    message.primaryKeyColumns = object.primaryKeyColumns?.map((e) => e) || [];
     message.isReplicaIdentityFull = object.isReplicaIdentityFull ?? false;
     return message;
   },

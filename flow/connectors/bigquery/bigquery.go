@@ -512,7 +512,7 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 				matchData:             "",
 				batchID:               syncBatchID,
 				stagingBatchID:        stagingBatchID,
-				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 			tableNameRowsMapping[r.DestinationTableName] += 1
 		case *model.UpdateRecord:
@@ -571,7 +571,7 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 				matchData:             itemsJSON,
 				batchID:               syncBatchID,
 				stagingBatchID:        stagingBatchID,
-				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 
 			tableNameRowsMapping[r.DestinationTableName] += 1
@@ -741,7 +741,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 			}
 			entries[9] = qvalue.QValue{
 				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(r.UnchangedToastColumns),
+				Value: "",
 			}
 
 			tableNameRowsMapping[r.DestinationTableName] += 1
@@ -802,7 +802,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 			}
 			entries[9] = qvalue.QValue{
 				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(r.UnchangedToastColumns),
+				Value: "",
 			}
 
 			tableNameRowsMapping[r.DestinationTableName] += 1
@@ -893,7 +893,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if !hasJob || normalizeBatchID == syncBatchID {
 		log.Printf("waiting for sync to catch up for job %s, so finishing", req.FlowJobName)
 		return &model.NormalizeResponse{
-			Done:         true,
+			Done:         false,
 			StartBatchID: normalizeBatchID,
 			EndBatchID:   syncBatchID,
 		}, nil
@@ -1035,7 +1035,7 @@ func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedChec
 
 	// create the job in the metadata table
 	jobStatement := fmt.Sprintf(
-		"INSERT INTO %s.%s (mirror_job_name, offset,sync_batch_id) VALUES ('%s',%d,%d);",
+		"INSERT INTO %s.%s (mirror_job_name,offset,sync_batch_id) VALUES ('%s',%d,%d);",
 		c.datasetID, MirrorJobsTable, jobName, lastSyncedCheckpointID, batchID)
 	if hasJob {
 		jobStatement = fmt.Sprintf(
@@ -1288,14 +1288,13 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 			) _peerdb_ranked
 			WHERE _peerdb_rank = 1
 	) SELECT * FROM _peerdb_de_duplicated_data_res`
-	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
-	return fmt.Sprintf(cte, pkey)
+	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(m.NormalizedTableSchema.PrimaryKeyColumns,
+		", '_peerdb_concat_', "))
+	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
 // generateMergeStmt generates a merge statement.
 func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
-	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
-
 	// comma separated list of column names
 	backtickColNames := make([]string, 0)
 	pureColNames := make([]string, 0)
@@ -1305,18 +1304,26 @@ func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	}
 	csep := strings.Join(backtickColNames, ", ")
 
-	udateStatementsforToastCols := m.generateUpdateStatement(pureColNames, m.UnchangedToastColumns)
-	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
+	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames, m.UnchangedToastColumns)
+	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
+
+	pkeySelectSQLArray := make([]string, 0, len(m.NormalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyColName := range m.NormalizedTableSchema.PrimaryKeyColumns {
+		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("_peerdb_target.%s = _peerdb_deduped.%s",
+			pkeyColName, pkeyColName))
+	}
+	// _peerdb_target.<pkey1> = _peerdb_deduped.<pkey1> AND _peerdb_target.<pkey2> = _peerdb_deduped.<pkey2> ...
+	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	return fmt.Sprintf(`
 	MERGE %s.%s _peerdb_target USING %s _peerdb_deduped
-	ON _peerdb_target.%s = _peerdb_deduped.%s
+	ON %s
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	DELETE;
-	`, m.Dataset, m.NormalizedTable, tempTable, pkey, pkey, csep, csep, updateStringToastCols)
+	`, m.Dataset, m.NormalizedTable, tempTable, pkeySelectSQL, csep, csep, updateStringToastCols)
 }
 
 /*
@@ -1334,7 +1341,7 @@ and updating the other columns (not the unchanged toast columns)
 6. Repeat steps 1-5 for each unique unchanged toast column group.
 7. Return the list of generated update statements.
 */
-func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
+func (m *MergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastCols []string) []string {
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {

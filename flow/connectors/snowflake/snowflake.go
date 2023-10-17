@@ -565,7 +565,7 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 				recordType:            0,
 				matchData:             "",
 				batchID:               syncBatchID,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
@@ -605,7 +605,7 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 				recordType:            2,
 				matchData:             itemsJSON,
 				batchID:               syncBatchID,
-				unchangedToastColumns: utils.KeysToString(typedRecord.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		default:
@@ -700,7 +700,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	// normalize has caught up with sync, chill until more records are loaded.
 	if syncBatchID == normalizeBatchID {
 		return &model.NormalizeResponse{
-			Done:         true,
+			Done:         false,
 			StartBatchID: normalizeBatchID,
 			EndBatchID:   syncBatchID,
 		}, nil
@@ -713,7 +713,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	// sync hasn't created job metadata yet, chill.
 	if !jobMetadataExists {
 		return &model.NormalizeResponse{
-			Done: true,
+			Done: false,
 		}, nil
 	}
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(req.FlowJobName, syncBatchID, normalizeBatchID)
@@ -887,22 +887,25 @@ func generateCreateTableSQLForNormalizedTable(
 	sourceTableSchema *protos.TableSchema,
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
-	primaryColUpper := strings.ToUpper(sourceTableSchema.PrimaryKeyColumn)
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		columnNameUpper := strings.ToUpper(columnName)
-		if primaryColUpper == columnNameUpper {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s PRIMARY KEY,`,
-				columnNameUpper, qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
-		} else {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper,
-				qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
-		}
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper,
+			qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
 	}
 
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
 	createTableSQLArray = append(createTableSQLArray,
 		fmt.Sprintf(`"%s" BOOLEAN DEFAULT FALSE,`, isDeletedColumnName))
+
+	// add composite primary key to the table
+	primaryKeyColsUpperQuoted := make([]string, 0)
+	for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
+		primaryKeyColsUpperQuoted = append(primaryKeyColsUpperQuoted,
+			fmt.Sprintf(`"%s"`, strings.ToUpper(primaryKeyCol)))
+	}
+	createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
+		strings.TrimSuffix(strings.Join(primaryKeyColsUpperQuoted, ","), ",")))
 
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
@@ -989,9 +992,13 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	updateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
-	// TARGET.<pkey> = SOURCE.<pkey>
-	pkeyColStr := fmt.Sprintf("TARGET.%s = SOURCE.%s",
-		normalizedTableSchema.PrimaryKeyColumn, normalizedTableSchema.PrimaryKeyColumn)
+	pkeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyColName := range normalizedTableSchema.PrimaryKeyColumns {
+		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("TARGET.%s = SOURCE.%s",
+			pkeyColName, pkeyColName))
+	}
+	// TARGET.<pkey1> = SOURCE.<pkey1> AND TARGET.<pkey2> = SOURCE.<pkey2> ...
+	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	deletePart := "DELETE"
 	if softDelete {
@@ -1000,8 +1007,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
 		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
-		normalizedTableSchema.PrimaryKeyColumn, pkeyColStr, insertColumnsSQL, insertValuesSQL,
-		updateStringToastCols, deletePart)
+		fmt.Sprintf("(%s)", strings.Join(normalizedTableSchema.PrimaryKeyColumns, ",")),
+		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
 	result, err := normalizeRecordsTx.ExecContext(c.ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {

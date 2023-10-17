@@ -90,7 +90,7 @@ func RecordsToRawTableStream(req model.RecordsToStreamRequest) (*model.RecordsTo
 			}
 			entries[7] = qvalue.QValue{
 				Kind:  qvalue.QValueKindString,
-				Value: KeysToString(typedRecord.UnchangedToastColumns),
+				Value: "",
 			}
 			req.TableMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
@@ -149,11 +149,11 @@ func RecordsToRawTableStream(req model.RecordsToStreamRequest) (*model.RecordsTo
 			}
 			entries[7] = qvalue.QValue{
 				Kind:  qvalue.QValueKindString,
-				Value: KeysToString(typedRecord.UnchangedToastColumns),
+				Value: "",
 			}
 			req.TableMapping[typedRecord.DestinationTableName] += 1
 		default:
-			return nil, fmt.Errorf("record type %T not supported in Snowflake flow connector", typedRecord)
+			return nil, fmt.Errorf("record type %T not supported", typedRecord)
 		}
 
 		if first {

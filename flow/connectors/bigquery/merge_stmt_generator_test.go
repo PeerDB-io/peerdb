@@ -30,7 +30,7 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 			" `col2` = _peerdb_deduped.col2",
 	}
 
-	result := m.generateUpdateStatement(allCols, unchangedToastCols)
+	result := m.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = removeSpacesTabsNewlines(expected[i])
@@ -56,7 +56,7 @@ func TestGenerateUpdateStatement_NoUnchangedToastCols(t *testing.T) {
 			" `col3` = _peerdb_deduped.col3",
 	}
 
-	result := m.generateUpdateStatement(allCols, unchangedToastCols)
+	result := m.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = removeSpacesTabsNewlines(expected[i])

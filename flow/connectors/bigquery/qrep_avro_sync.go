@@ -387,7 +387,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			return 0, fmt.Errorf("failed to write record to OCF file: %w", err)
 		}
 		numRecords++
-
 	}
 	activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
 		"Writing OCF contents to BigQuery for partition/batch ID %s",

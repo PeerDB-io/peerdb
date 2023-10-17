@@ -245,8 +245,8 @@ pub struct TableSchema {
     /// "string", "int", "float", "bool", "timestamp".
     #[prost(map="string, string", tag="2")]
     pub columns: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-    #[prost(string, tag="3")]
-    pub primary_key_column: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="3")]
+    pub primary_key_columns: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(bool, tag="4")]
     pub is_replica_identity_full: bool,
 }

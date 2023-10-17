@@ -235,9 +235,9 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(qvalue.QValueKindString, v.Kind)
 	suite.Equal(65536, len(v.Value.(string)))
 	suite.Equal(3, len(updateRecord.UnchangedToastColumns))
-	suite.True(updateRecord.UnchangedToastColumns["lz4_t"])
-	suite.True(updateRecord.UnchangedToastColumns["n_b"])
-	suite.True(updateRecord.UnchangedToastColumns["lz4_b"])
+	suite.Contains(updateRecord.UnchangedToastColumns, "lz4_t")
+	suite.Contains(updateRecord.UnchangedToastColumns, "n_b")
+	suite.Contains(updateRecord.UnchangedToastColumns, "lz4_b")
 	suite.IsType(&model.UpdateRecord{}, records[1])
 	updateRecord = records[1].(*model.UpdateRecord)
 	suite.Equal(srcTableName, updateRecord.SourceTableName)
@@ -258,7 +258,7 @@ func (suite *PostgresCDCTestSuite) validateMutatedToastRecords(records []model.R
 	suite.Equal(qvalue.QValueKindBytes, v.Kind)
 	suite.Equal(65536, len(v.Value.([]byte)))
 	suite.Equal(1, len(updateRecord.UnchangedToastColumns))
-	suite.True(updateRecord.UnchangedToastColumns["n_t"])
+	suite.Contains(updateRecord.UnchangedToastColumns, "n_t")
 	// Test case for records[2]
 	suite.IsType(&model.UpdateRecord{}, records[2])
 	updateRecord = records[2].(*model.UpdateRecord)
@@ -408,7 +408,7 @@ func (suite *PostgresCDCTestSuite) TestErrorForTableNotExist() {
 			"id":   string(qvalue.QValueKindInt32),
 			"name": string(qvalue.QValueKindString),
 		},
-		PrimaryKeyColumn: "id",
+		PrimaryKeyColumns: []string{"id"},
 	}
 
 	err = suite.connector.PullFlowCleanup(nonExistentFlowName)
@@ -505,7 +505,7 @@ func (suite *PostgresCDCTestSuite) TestSimpleHappyFlow() {
 					"id":   string(qvalue.QValueKindInt32),
 					"name": string(qvalue.QValueKindString),
 				},
-				PrimaryKeyColumn: "id",
+				PrimaryKeyColumns: []string{"id"},
 			},
 		}}, tableNameSchema)
 	tableNameSchemaMapping[simpleHappyFlowDstTableName] =
@@ -666,7 +666,7 @@ func (suite *PostgresCDCTestSuite) TestAllTypesHappyFlow() {
 					"c40": string(qvalue.QValueKindUUID),
 					"c41": string(qvalue.QValueKindString),
 				},
-				PrimaryKeyColumn: "id",
+				PrimaryKeyColumns: []string{"id"},
 			},
 		},
 	}, tableNameSchema)
@@ -765,14 +765,14 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 					"n_b":   string(qvalue.QValueKindBytes),
 					"lz4_b": string(qvalue.QValueKindBytes),
 				},
-				PrimaryKeyColumn: "id",
+				PrimaryKeyColumns: []string{"id"},
 			},
 		}}, tableNameSchema)
 	tableNameSchemaMapping[toastHappyFlowDstTableName] =
 		tableNameSchema.TableNameSchemaMapping[toastHappyFlowSrcTableName]
 
 	suite.insertToastRecords(toastHappyFlowSrcTableName)
-	recordsWithSchemaDelta, err := suite.connector.PullRecords(&model.PullRecordsRequest{
+	_, err = suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            toastHappyFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            10 * time.Second,
@@ -783,7 +783,7 @@ func (suite *PostgresCDCTestSuite) TestToastHappyFlow() {
 		RelationMessageMapping: relationMessageMapping,
 	})
 	suite.failTestError(err)
-	recordsWithSchemaDelta, err = suite.connector.PullRecords(&model.PullRecordsRequest{
+	recordsWithSchemaDelta, err := suite.connector.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:            toastHappyFlowName,
 		LastSyncState:          nil,
 		IdleTimeout:            10 * time.Second,

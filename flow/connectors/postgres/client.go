@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 )
 
 //nolint:stylecheck
@@ -26,6 +27,8 @@ const (
 		_peerdb_timestamp BIGINT NOT NULL,_peerdb_destination_table_name TEXT NOT NULL,_peerdb_data JSONB NOT NULL,
 		_peerdb_record_type INTEGER NOT NULL, _peerdb_match_data JSONB,_peerdb_batch_id INTEGER,
 		_peerdb_unchanged_toast_columns TEXT)`
+	createRawTableBatchIDIndexSQL  = "CREATE INDEX IF NOT EXISTS %s_batchid_idx ON %s.%s(_peerdb_batch_id)"
+	createRawTableDstTableIndexSQL = "CREATE INDEX IF NOT EXISTS %s_dst_table_idx ON %s.%s(_peerdb_destination_table_name)"
 
 	getLastOffsetSQL            = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
 	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
@@ -48,7 +51,7 @@ const (
 	)
 	MERGE INTO %s dst
 	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1) src
-	ON dst.%s=src.%s
+	ON %s
 	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
 	INSERT (%s) VALUES (%s)
 	%s
@@ -66,7 +69,7 @@ const (
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
 		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
 	)
-	DELETE FROM %s USING src_rank WHERE %s.%s=%s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
+	DELETE FROM %s USING src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
 
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
@@ -103,39 +106,42 @@ func (c *PostgresConnector) isTableFullReplica(schemaTable *SchemaTable) (bool, 
 	return string(replicaIdentity) == "f", nil
 }
 
-// getPrimaryKeyColumn for table returns the primary key column for a given table
+// getPrimaryKeyColumns for table returns the primary key column for a given table
 // errors if there is no primary key column or if there is more than one primary key column.
-func (c *PostgresConnector) getPrimaryKeyColumn(schemaTable *SchemaTable) (string, error) {
+func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *SchemaTable) ([]string, error) {
 	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
-		return "", fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
+		return nil, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
 	}
 
 	// Get the primary key column name
 	var pkCol string
+	pkCols := make([]string, 0)
 	rows, err := c.pool.Query(c.ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-		 WHERE i.indrelid = $1 AND i.indisprimary`,
+		 WHERE i.indrelid = $1 AND i.indisprimary ORDER BY a.attname ASC`,
 		relID)
 	if err != nil {
-		return "", fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 	}
 	defer rows.Close()
 	// 0 rows returned, table has no primary keys
 	if !rows.Next() {
-		return "", fmt.Errorf("table %s has no primary keys", schemaTable)
+		return nil, fmt.Errorf("table %s has no primary keys", schemaTable)
 	}
-	err = rows.Scan(&pkCol)
-	if err != nil {
-		return "", fmt.Errorf("error scanning primary key column for table %s: %w", schemaTable, err)
-	}
-	// more than 1 row returned, table has more than 1 primary key
-	if rows.Next() {
-		return "", fmt.Errorf("table %s has more than one primary key", schemaTable)
+	for {
+		err = rows.Scan(&pkCol)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning primary key column for table %s: %w", schemaTable, err)
+		}
+		pkCols = append(pkCols, pkCol)
+		if !rows.Next() {
+			break
+		}
 	}
 
-	return pkCol, nil
+	return pkCols, nil
 }
 
 func (c *PostgresConnector) tableExists(schemaTable *SchemaTable) (bool, error) {
@@ -301,14 +307,19 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 	sourceTableSchema *protos.TableSchema) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
-		if sourceTableSchema.PrimaryKeyColumn == strings.ToLower(columnName) {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s PRIMARY KEY,",
-				columnName, qValueKindToPostgresType(genericColumnType)))
-		} else {
-			createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
-				qValueKindToPostgresType(genericColumnType)))
-		}
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
+			qValueKindToPostgresType(genericColumnType)))
 	}
+
+	// add composite primary key to the table
+	primaryKeyColsQuoted := make([]string, 0)
+	for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
+		primaryKeyColsQuoted = append(primaryKeyColsQuoted,
+			fmt.Sprintf(`"%s"`, primaryKeyCol))
+	}
+	createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
+		strings.TrimSuffix(strings.Join(primaryKeyColsQuoted, ","), ",")))
+
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
 }
@@ -462,11 +473,10 @@ func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifi
 	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool) []string {
 	if supportsMerge {
 		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns, rawTableIdentifier)}
-	} else {
-		log.Warnf("Postgres version is not high enough to support MERGE, falling back to UPSERT + DELETE")
-		log.Warnf("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
-		return c.generateFallbackStatements(destinationTableIdentifier, rawTableIdentifier)
 	}
+	log.Warnf("Postgres version is not high enough to support MERGE, falling back to UPSERT + DELETE")
+	log.Warnf("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
+	return c.generateFallbackStatements(destinationTableIdentifier, rawTableIdentifier)
 }
 
 func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string,
@@ -474,14 +484,14 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
-	var primaryKeyColumnCast string
+	primaryKeyColumnCasts := make(map[string]string)
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		columnNames = append(columnNames, fmt.Sprintf("\"%s\"", columnName))
 		pgType := qValueKindToPostgresType(genericColumnType)
 		flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
 			columnName, pgType, columnName))
-		if normalizedTableSchema.PrimaryKeyColumn == columnName {
-			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, columnName) {
+			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
@@ -492,12 +502,20 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf("%s=EXCLUDED.%s", columnName, columnName))
 	}
 	updateColumnsSQL := strings.TrimSuffix(strings.Join(updateColumnsSQLArray, ","), ",")
-	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL, primaryKeyColumnCast, internalSchema,
+	deleteWhereClauseArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
+	for columnName, columnCast := range primaryKeyColumnCasts {
+		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf("%s.%s=%s AND ",
+			destinationTableIdentifier, columnName, columnCast))
+	}
+	deleteWhereClauseSQL := strings.TrimSuffix(strings.Join(deleteWhereClauseArray, ""), "AND ")
+
+	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
+		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), internalSchema,
 		rawTableIdentifier, destinationTableIdentifier, insertColumnsSQL, flattenedCastsSQL,
-		normalizedTableSchema.PrimaryKeyColumn, updateColumnsSQL)
-	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL, primaryKeyColumnCast, internalSchema,
-		rawTableIdentifier, destinationTableIdentifier, destinationTableIdentifier,
-		normalizedTableSchema.PrimaryKeyColumn, primaryKeyColumnCast)
+		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
+	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
+		strings.Join(maps.Values(primaryKeyColumnCasts), ","), internalSchema,
+		rawTableIdentifier, destinationTableIdentifier, deleteWhereClauseSQL)
 
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
@@ -511,7 +529,8 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	}
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
-	var primaryKeyColumnCast string
+	primaryKeyColumnCasts := make(map[string]string)
+	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if strings.Contains(genericColumnType, "array") {
@@ -522,8 +541,10 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
 				strings.Trim(columnName, "\""), pgType, columnName))
 		}
-		if normalizedTableSchema.PrimaryKeyColumn == columnName {
-			primaryKeyColumnCast = fmt.Sprintf("(_peerdb_data->>'%s')::%s", strings.Trim(columnName, "\""), pgType)
+		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, columnName) {
+			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
+				columnName, columnName))
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
@@ -536,18 +557,18 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ","), ",")
 	updateStatements := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 
-	return fmt.Sprintf(mergeStatementSQL, primaryKeyColumnCast, internalSchema, rawTableIdentifier,
-		destinationTableIdentifier, flattenedCastsSQL, normalizedTableSchema.PrimaryKeyColumn,
-		normalizedTableSchema.PrimaryKeyColumn, insertColumnsSQL, insertValuesSQL, updateStatements)
+	return fmt.Sprintf(mergeStatementSQL, strings.Join(maps.Values(primaryKeyColumnCasts), ","),
+		internalSchema, rawTableIdentifier, destinationTableIdentifier, flattenedCastsSQL,
+		strings.Join(primaryKeySelectSQLArray, " AND "), insertColumnsSQL, insertValuesSQL, updateStatements)
 }
 
 func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedToastColsLists []string) string {
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastColsLists {
-		unchangedColsArray := strings.Split(cols, ",")
-		for i, col := range unchangedColsArray {
-			unchangedColsArray[i] = fmt.Sprintf("\"%s\"", col)
+		unchangedColsArray := make([]string, 0)
+		for _, unchangedToastCol := range strings.Split(cols, ",") {
+			unchangedColsArray = append(unchangedColsArray, fmt.Sprintf(`"%s"`, unchangedToastCol))
 		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
@@ -555,10 +576,9 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
 		ssep := strings.Join(tmpArray, ",")
-		quotedCols := strings.Join(unchangedColsArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
-		src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
-		THEN UPDATE SET %s `, quotedCols, ssep)
+			src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
+			THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return strings.Join(updateStmts, "\n")
