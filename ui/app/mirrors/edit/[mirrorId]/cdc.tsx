@@ -109,12 +109,6 @@ const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
           <Button variant='normalBorderless'>
             <Icon name='refresh' />
           </Button>
-          <Button variant='normalBorderless'>
-            <Icon name='help' />
-          </Button>
-          <Button variant='normalBorderless' disabled>
-            <Icon name='download' />
-          </Button>
         </>
       ),
       right: <SearchField placeholder='Search' />,
@@ -163,7 +157,9 @@ const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
   </Table>
 );
 
-const Trigger = styled(Tabs.Trigger)<{ isActive?: boolean }>`
+const Trigger = styled(({ isActive, ...props }) => (
+  <Tabs.Trigger {...props} />
+))<{ isActive?: boolean }>`
   background-color: ${({ theme, isActive }) =>
     isActive ? theme.colors.accent.surface.selected : 'white'};
 
@@ -176,8 +172,9 @@ const Trigger = styled(Tabs.Trigger)<{ isActive?: boolean }>`
 
 type CDCMirrorStatusProps = {
   cdc: CDCMirrorStatus;
+  syncStatusChild?: React.ReactNode;
 };
-export function CDCMirror({ cdc }: CDCMirrorStatusProps) {
+export function CDCMirror({ cdc, syncStatusChild }: CDCMirrorStatusProps) {
   const [selectedTab, setSelectedTab] = useState<string>('tab1');
 
   let snapshot = <></>;
@@ -204,13 +201,23 @@ export function CDCMirror({ cdc }: CDCMirrorStatusProps) {
           className='flex-1 px-5 h-[45px] flex items-center justify-center text-sm focus:shadow-outline focus:outline-none'
           value='tab2'
         >
+          Sync Status
+        </Trigger>
+        <Trigger
+          isActive={selectedTab === 'tab3'}
+          className='flex-1 px-5 h-[45px] flex items-center justify-center text-sm focus:shadow-outline focus:outline-none'
+          value='tab3'
+        >
           Initial Copy
         </Trigger>
       </Tabs.List>
-      <Tabs.Content className='p-5 bg-white rounded-b-md' value='tab1'>
+      <Tabs.Content className='p-5 rounded-b-md' value='tab1'>
         <CDCDetails config={cdc.config} />
       </Tabs.Content>
-      <Tabs.Content className='p-5 bg-white rounded-b-md' value='tab2'>
+      <Tabs.Content className='p-5 rounded-b-md' value='tab2'>
+        {syncStatusChild}
+      </Tabs.Content>
+      <Tabs.Content className='p-5 rounded-b-md' value='tab3'>
         {snapshot}
       </Tabs.Content>
     </Tabs.Root>
