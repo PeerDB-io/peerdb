@@ -1,6 +1,7 @@
 package conneventhub
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -20,14 +21,14 @@ func NewHubBatches(manager *EventHubManager) *HubBatches {
 	}
 }
 
-func (h *HubBatches) AddEvent(name ScopedEventhub, event string) error {
+func (h *HubBatches) AddEvent(ctx context.Context, name ScopedEventhub, event string) error {
 	batches, ok := h.batches[name]
 	if !ok {
 		batches = []*azeventhubs.EventDataBatch{}
 	}
 
 	if len(batches) == 0 {
-		newBatch, err := h.manager.CreateEventDataBatch(name)
+		newBatch, err := h.manager.CreateEventDataBatch(ctx, name)
 		if err != nil {
 			return err
 		}
@@ -36,7 +37,7 @@ func (h *HubBatches) AddEvent(name ScopedEventhub, event string) error {
 
 	if err := tryAddEventToBatch(event, batches[len(batches)-1]); err != nil {
 		if strings.Contains(err.Error(), "too large for the batch") {
-			overflowBatch, err := h.handleBatchOverflow(name, event)
+			overflowBatch, err := h.handleBatchOverflow(ctx, name, event)
 			if err != nil {
 				return fmt.Errorf("failed to handle batch overflow: %v", err)
 			}
@@ -51,10 +52,11 @@ func (h *HubBatches) AddEvent(name ScopedEventhub, event string) error {
 }
 
 func (h *HubBatches) handleBatchOverflow(
+	ctx context.Context,
 	name ScopedEventhub,
 	event string,
 ) (*azeventhubs.EventDataBatch, error) {
-	newBatch, err := h.manager.CreateEventDataBatch(name)
+	newBatch, err := h.manager.CreateEventDataBatch(ctx, name)
 	if err != nil {
 		return nil, err
 	}
