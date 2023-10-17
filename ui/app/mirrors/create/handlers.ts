@@ -1,5 +1,4 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
-import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context';
 import { Dispatch, SetStateAction } from 'react';
 import { MirrorConfig, TableMapRow } from '../types';
 import { cdcSchema, tableMappingSchema } from './schema';
@@ -47,7 +46,7 @@ export const handleCreate = async (
     }>
   >,
   setLoading: Dispatch<SetStateAction<boolean>>,
-  router: AppRouterInstance
+  route: RouteCallback
 ) => {
   if (!flowJobName) {
     setMsg({ ok: false, msg: 'Mirror name is required' });
@@ -71,6 +70,6 @@ export const handleCreate = async (
     return;
   }
   setMsg({ ok: true, msg: 'CDC Mirror created successfully' });
-  router.push('/mirrors');
+  route();
   setLoading(false);
 };

@@ -1,5 +1,8 @@
-import { UCreatePeerResponse, UValidatePeerResponse } from '@/app/dto/PeersDTO';
-import { PeerConfig } from '@/app/peers/create/configuration/types';
+import {
+  PeerConfig,
+  UCreatePeerResponse,
+  UValidatePeerResponse,
+} from '@/app/dto/PeersDTO';
 import prisma from '@/app/utils/prisma';
 import {
   DBType,

@@ -5,6 +5,7 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Select } from '@/lib/Select';
 import { Table, TableCell, TableRow } from '@/lib/Table';
@@ -90,7 +91,11 @@ async function PeersTable({ title }: { title: string }) {
 }
 
 function Loading() {
-  return <h2>🌀 Loading...</h2>;
+  return (
+    <h2>
+      <ProgressCircle variant='determinate_progress_circle' /> Loading...
+    </h2>
+  );
 }
 
 export default async function Peers() {
