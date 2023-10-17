@@ -195,15 +195,11 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		id := uuid.New().String()
 		ids = append(ids, id)
 		geoValues := ""
-		invalidPoly := "'0103000020e6100000010000000c0000001a8361d35dc64140afdb8d2b1bc3c9bf1b8ed4685fc641405ba64c" +
-			"579dc2c9bf6a6ad95a5fc64140cd82767449c2c9bf9570fbf85ec641408a07944db9c2c9bf729a18a55ec6414021b8b748c7c2c9bfb" +
-			"a46de4c5fc64140f2567052abc2c9bf2df9c5925fc641409394e16573c2c9bf2df9c5925fc6414049eceda9afc1c9bfdd1cc1a05fc6414" +
-			"0fe43faedebc0c9bf4694f6065fc64140fe43faedebc0c9bfffe7305f5ec641406693d6f2ddc0c9bf108361d35dc64140afdb8d2b1bc3c9bf'"
 		if strings.Contains(tableName, "sf") {
 			geoValues = `,'POINT(1 2)','POINT(40.7128 -74.0060)',
 			'LINESTRING(0 0, 1 1, 2 2)',
 			'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
-			'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',` + invalidPoly
+			'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'`
 		}
 		row := fmt.Sprintf(`
 					(

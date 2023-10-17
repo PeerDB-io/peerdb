@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
+	"github.com/peterstace/simplefeatures/geom"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -401,4 +403,20 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 		qValueKind = qvalue.QValueKindString
 	}
 	return qValueKind
+}
+
+func GeoValidate(hexWkb string) error {
+	// Decode the WKB hex string into binary
+	wkb, hexErr := hex.DecodeString(hexWkb)
+	if hexErr != nil {
+		log.Warnf("Ignoring invalid WKB: %s", hexWkb)
+		return hexErr
+	}
+	// UnmarshalWKB performs geometry validation along with WKB parsing
+	_, geoErr := geom.UnmarshalWKB(wkb)
+	if geoErr != nil {
+		log.Warnf("Ignoring invalid geometry %s: %v", hexWkb, geoErr)
+		return geoErr
+	}
+	return nil
 }

@@ -433,8 +433,17 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 			}
 			record.Set(i, *tmp)
 		} else {
+			customQKind := customTypeToQKind(typeName)
+			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
+				log.Infof("value: %v", values[i])
+				wkbString, ok := values[i].(string)
+				err := GeoValidate(wkbString)
+				if err != nil || !ok {
+					values[i] = nil
+				}
+			}
 			customTypeVal := qvalue.QValue{
-				Kind:  customTypeToQKind(typeName),
+				Kind:  customQKind,
 				Value: values[i],
 			}
 			record.Set(i, customTypeVal)
