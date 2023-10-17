@@ -15,7 +15,7 @@ function getMirrorStatusUrl(mirrorId: string) {
   return `${base}/v1/mirrors/${mirrorId}`;
 }
 
-export async function getMirrorStatus(mirrorId: string) {
+async function getMirrorStatus(mirrorId: string) {
   const url = getMirrorStatusUrl(mirrorId);
   const resp = await fetch(url);
   const json = await resp.json();
