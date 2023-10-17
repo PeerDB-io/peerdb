@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { AppThemeProvider, StyledComponentsRegistry } from '../lib/AppTheme';
 
 export const metadata: Metadata = {
-  title: 'Peerdb Cloud Template',
+  title: 'Peerdb UI',
 };
 
 export default function RootLayout({

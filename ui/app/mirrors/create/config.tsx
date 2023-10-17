@@ -96,7 +96,7 @@ export default function MirrorConfig(props: MirrorConfigProps) {
                     onValueChange={(val) => handleChange(val, setting)}
                   >
                     {(setting.label.includes('Peer')
-                      ? props.peers?.map((peer) => peer.name)
+                      ? (props.peers ?? []).map((peer) => peer.name)
                       : ['avro', 'sql']
                     ).map((item, id) => {
                       return (

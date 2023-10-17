@@ -265,31 +265,24 @@ func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyI
 
 	var transformations []string
 	var columnOrder []string
-	for col, colType := range colInfo.ColumnMap {
-		if col == "_PEERDB_IS_DELETED" {
+	for colName, colType := range colInfo.ColumnMap {
+		if colName == "_PEERDB_IS_DELETED" {
 			continue
 		}
-		colName := strings.ToLower(col)
-		// No need to quote raw table columns
-		if strings.Contains(dstTableName, "_PEERDB_RAW") {
-			columnOrder = append(columnOrder, colName)
-		} else {
-			columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
-		}
-
+		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
 		switch colType {
 		case "GEOGRAPHY":
 			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string) AS \"%s\"", colName, colName))
+				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
 		case "GEOMETRY":
 			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string) AS \"%s\"", colName, colName))
+				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
 		case "NUMBER":
 			transformations = append(transformations,
-				fmt.Sprintf("$1:\"%s\" AS \"%s\"", colName, colName))
+				fmt.Sprintf("$1:\"%s\" AS \"%s\"", strings.ToLower(colName), colName))
 		default:
 			transformations = append(transformations,
-				fmt.Sprintf("($1:\"%s\")::%s AS \"%s\"", colName, colType, colName))
+				fmt.Sprintf("($1:\"%s\")::%s AS \"%s\"", strings.ToLower(colName), colType, colName))
 		}
 	}
 	transformationSQL := strings.Join(transformations, ",")

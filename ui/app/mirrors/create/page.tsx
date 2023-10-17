@@ -35,13 +35,19 @@ export default function CreateMirrors() {
   const [rows, setRows] = useState<TableMapRow[]>([
     { source: '', destination: '' },
   ]);
+
   useEffect(() => {
     fetch('/api/peers')
       .then((res) => res.json())
       .then((res) => {
-        setPeers(res.peers);
+        setPeers(res);
       });
   }, []);
+
+  let listPeersPage = () => {
+    router.push('/peers');
+  };
+
   return (
     <LayoutMain width='xxLarge' alignSelf='center' justifySelf='center'>
       <Panel>
@@ -112,7 +118,7 @@ export default function CreateMirrors() {
                 config,
                 setFormMessage,
                 setLoading,
-                router
+                listPeersPage
               )
             }
           >

@@ -14,25 +14,6 @@ import prisma from '../utils/prisma';
 
 export const dynamic = 'force-dynamic';
 
-const Badges = [
-  <Badge variant='positive' key={1}>
-    <Icon name='play_circle' />
-    Active
-  </Badge>,
-  <Badge variant='warning' key={1}>
-    <Icon name='pause_circle' />
-    Paused
-  </Badge>,
-  <Badge variant='destructive' key={1}>
-    <Icon name='dangerous' />
-    Broken
-  </Badge>,
-  <Badge variant='normal' key={1}>
-    <Icon name='pending' />
-    Incomplete
-  </Badge>,
-];
-
 async function CDCFlows() {
   const flows = await prisma.flows.findMany({
     include: {
@@ -105,7 +86,10 @@ async function CDCFlows() {
             </Label>
           </TableCell>
           <TableCell>
-            <Label>Status TBD</Label>
+            <Badge variant='positive' key={1}>
+              <Icon name='play_circle' />
+              Active
+            </Badge>
           </TableCell>
         </TableRow>
       ))}

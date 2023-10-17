@@ -1,12 +1,13 @@
 'use client';
-import { PeerSetting } from '@/app/peers/create/configuration/helpers/common';
-import { PeerSetter } from '@/app/peers/create/configuration/types';
+import { PeerConfig } from '@/app/dto/PeersDTO';
+import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { InfoPopover } from './InfoPopover';
 
+export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
