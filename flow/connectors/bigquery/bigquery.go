@@ -1288,7 +1288,8 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 			) _peerdb_ranked
 			WHERE _peerdb_rank = 1
 	) SELECT * FROM _peerdb_de_duplicated_data_res`
-	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(m.NormalizedTableSchema.PrimaryKeyColumns, ", ' ', "))
+	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(m.NormalizedTableSchema.PrimaryKeyColumns,
+		", '_peerdb_concat_', "))
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
 

@@ -713,7 +713,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	// sync hasn't created job metadata yet, chill.
 	if !jobMetadataExists {
 		return &model.NormalizeResponse{
-			Done: true,
+			Done: false,
 		}, nil
 	}
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(req.FlowJobName, syncBatchID, normalizeBatchID)

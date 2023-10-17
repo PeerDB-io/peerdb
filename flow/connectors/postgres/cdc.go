@@ -2,9 +2,9 @@ package connpostgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -241,42 +241,52 @@ func (p *PostgresCDCSource) consumeStream(
 					// tableName here is destination tableName.
 					// should be ideally sourceTableName as we are in PullRecords.
 					// will change in future
-					compositePKeyString, err := p.compositePKeyToString(req, rec)
-					if err != nil {
-						return nil, err
-					}
-
-					tablePkeyVal := model.TableWithPkey{
-						TableName:  tableName,
-						PkeyColVal: compositePKeyString,
-					}
-					_, ok := records.TablePKeyLastSeen[tablePkeyVal]
-					if !ok {
+					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+					if isFullReplica {
 						records.Records = append(records.Records, rec)
-						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					} else {
-						oldRec := records.Records[records.TablePKeyLastSeen[tablePkeyVal]]
-						// iterate through unchanged toast cols and set them in new record
-						updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
-						for _, col := range updatedCols {
-							delete(r.UnchangedToastColumns, col)
+						compositePKeyString, err := p.compositePKeyToString(req, rec)
+						if err != nil {
+							return nil, err
 						}
-						records.Records = append(records.Records, rec)
-						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+
+						tablePkeyVal := model.TableWithPkey{
+							TableName:  tableName,
+							PkeyColVal: compositePKeyString,
+						}
+						_, ok := records.TablePKeyLastSeen[tablePkeyVal]
+						if !ok {
+							records.Records = append(records.Records, rec)
+							records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+						} else {
+							oldRec := records.Records[records.TablePKeyLastSeen[tablePkeyVal]]
+							// iterate through unchanged toast cols and set them in new record
+							updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
+							for _, col := range updatedCols {
+								delete(r.UnchangedToastColumns, col)
+							}
+							records.Records = append(records.Records, rec)
+							records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+						}
 					}
 				case *model.InsertRecord:
-					compositePKeyString, err := p.compositePKeyToString(req, rec)
-					if err != nil {
-						return nil, err
-					}
+					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+					if isFullReplica {
+						records.Records = append(records.Records, rec)
+					} else {
+						compositePKeyString, err := p.compositePKeyToString(req, rec)
+						if err != nil {
+							return nil, err
+						}
 
-					tablePkeyVal := model.TableWithPkey{
-						TableName:  tableName,
-						PkeyColVal: compositePKeyString,
+						tablePkeyVal := model.TableWithPkey{
+							TableName:  tableName,
+							PkeyColVal: compositePKeyString,
+						}
+						records.Records = append(records.Records, rec)
+						// all columns will be set in insert record, so add it to the map
+						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 					}
-					records.Records = append(records.Records, rec)
-					// all columns will be set in insert record, so add it to the map
-					records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
 				case *model.DeleteRecord:
 					records.Records = append(records.Records, rec)
 				case *model.RelationRecord:
@@ -608,15 +618,17 @@ func (p *PostgresCDCSource) processRelationMessage(
 
 func (p *PostgresCDCSource) compositePKeyToString(req *model.PullRecordsRequest, rec model.Record) (string, error) {
 	tableName := rec.GetTableName()
-	pkeyColsMerged := make([]string, 0)
+	pkeyColsMerged := make([]byte, 0)
 
 	for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
 		if err != nil {
 			return "", fmt.Errorf("error getting pkey column value: %w", err)
 		}
-		pkeyColsMerged = append(pkeyColsMerged, fmt.Sprintf("%v", pkeyColVal.Value))
+		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprintf("%v", pkeyColVal.Value))...)
 	}
 
-	return strings.Join(pkeyColsMerged, " "), nil
+	hasher := sha256.New()
+	hasher.Write(pkeyColsMerged)
+	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }

@@ -358,6 +358,7 @@ func (a *FlowableActivity) StartNormalize(
 		return nil, fmt.Errorf("failed to normalized records: %w", err)
 	}
 
+	// normalize flow did not run due to no records, no need to update end time.
 	if res.Done {
 		err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
 			res.EndBatchID)
