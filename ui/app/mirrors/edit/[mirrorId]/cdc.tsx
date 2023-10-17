@@ -5,7 +5,6 @@ import {
   QRepMirrorStatus,
   SnapshotStatus,
 } from '@/grpc_generated/route';
-import { Badge } from '@/lib/Badge';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
@@ -13,27 +12,12 @@ import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import * as Tabs from '@radix-ui/react-tabs';
 import moment, { Duration, Moment } from 'moment';
 import Link from 'next/link';
-
-const Badges = [
-  <Badge variant='positive' key={1}>
-    <Icon name='play_circle' />
-    Active
-  </Badge>,
-  <Badge variant='warning' key={1}>
-    <Icon name='pause_circle' />
-    Paused
-  </Badge>,
-  <Badge variant='destructive' key={1}>
-    <Icon name='dangerous' />
-    Broken
-  </Badge>,
-  <Badge variant='normal' key={1}>
-    <Icon name='pending' />
-    Incomplete
-  </Badge>,
-];
+import { useState } from 'react';
+import styled from 'styled-components';
+import CDCDetails from './cdcDetails';
 
 class TableCloneSummary {
   flowJobName: string;
@@ -179,13 +163,56 @@ const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
   </Table>
 );
 
+const Trigger = styled(Tabs.Trigger)<{ isActive?: boolean }>`
+  background-color: ${({ theme, isActive }) =>
+    isActive ? theme.colors.accent.surface.selected : 'white'};
+
+  font-weight: ${({ isActive }) => (isActive ? 'bold' : 'normal')};
+
+  &:hover {
+    color: ${({ theme }) => theme.colors.accent.text.highContrast};
+  }
+`;
+
 type CDCMirrorStatusProps = {
   cdc: CDCMirrorStatus;
 };
 export function CDCMirror({ cdc }: CDCMirrorStatusProps) {
+  const [selectedTab, setSelectedTab] = useState<string>('tab1');
+
   let snapshot = <></>;
   if (cdc.snapshotStatus) {
     snapshot = <SnapshotStatusTable status={cdc.snapshotStatus} />;
   }
-  return <>{snapshot}</>;
+
+  return (
+    <Tabs.Root
+      className='flex flex-col w-full'
+      defaultValue={selectedTab}
+      onValueChange={setSelectedTab}
+    >
+      <Tabs.List className='flex border-b' aria-label='Details'>
+        <Trigger
+          isActive={selectedTab === 'tab1'}
+          className='flex-1 px-5 h-[45px] flex items-center justify-center text-sm focus:shadow-outline focus:outline-none'
+          value='tab1'
+        >
+          Details
+        </Trigger>
+        <Trigger
+          isActive={selectedTab === 'tab2'}
+          className='flex-1 px-5 h-[45px] flex items-center justify-center text-sm focus:shadow-outline focus:outline-none'
+          value='tab2'
+        >
+          Initial Copy
+        </Trigger>
+      </Tabs.List>
+      <Tabs.Content className='p-5 bg-white rounded-b-md' value='tab1'>
+        <CDCDetails config={cdc.config} />
+      </Tabs.Content>
+      <Tabs.Content className='p-5 bg-white rounded-b-md' value='tab2'>
+        {snapshot}
+      </Tabs.Content>
+    </Tabs.Root>
+  );
 }
