@@ -1,4 +1,5 @@
-import { PeerConfig, PeerSetter } from '../types';
+import { PeerConfig } from '@/app/dto/PeersDTO';
+import { PeerSetter } from '@/components/ConfigForm';
 import { blankPostgresSetting } from './pg';
 import { blankSnowflakeSetting } from './sf';
 

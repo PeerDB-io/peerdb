@@ -1,4 +1,5 @@
 'use client';
+import { PeerConfig } from '@/app/dto/PeersDTO';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -7,18 +8,23 @@ import { Panel } from '@/lib/Panel';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import ConfigForm from '../../../../components/ConfigForm';
 import { handleCreate, handleValidate } from './handlers';
 import { PeerSetting, getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
-import { PeerConfig } from './types';
-export default function CreateConfig() {
-  const searchParams = useSearchParams();
+
+type CreateConfigProps = {
+  params: { peerType: string };
+};
+
+export default function CreateConfig({
+  params: { peerType },
+}: CreateConfigProps) {
   const router = useRouter();
-  const dbType = searchParams.get('dbtype') || '';
+  const dbType = peerType;
   const blankSetting = getBlankSetting(dbType);
   const [name, setName] = useState<string>('');
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
@@ -39,6 +45,10 @@ export default function CreateConfig() {
       default:
         return <></>;
     }
+  };
+
+  let listPeersRoute = () => {
+    router.push('/peers');
   };
 
   return (
@@ -102,7 +112,7 @@ export default function CreateConfig() {
                 config,
                 setFormMessage,
                 setLoading,
-                router,
+                listPeersRoute,
                 name
               )
             }

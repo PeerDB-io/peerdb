@@ -112,7 +112,7 @@ type SnapshotStatusProps = {
 };
 const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
   <Table
-    title={<Label variant='headline'>Initial Snapshot</Label>}
+    title={<Label variant='headline'>Initial Copy</Label>}
     toolbar={{
       left: (
         <>
