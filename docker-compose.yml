@@ -24,6 +24,9 @@ x-flow-worker-env: &flow-worker-env
   ENABLE_METRICS: "true"
   PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
 
+x-peerdb-temporal-namespace: &peerdb-temporal-namespace
+  PEERDB_TEMPORAL_NAMESPACE: default
+
 services:
   catalog:
     container_name: catalog
@@ -108,7 +111,7 @@ services:
       - 8112:8112
       - 8113:8113
     environment:
-      <<: [*catalog-config]
+      <<: [*catalog-config, *peerdb-temporal-namespace]
       TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:
@@ -120,6 +123,7 @@ services:
       context: .
       dockerfile: stacks/flow-snapshot-worker.Dockerfile
     environment:
+      <<: [*peerdb-temporal-namespace]
       TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:
@@ -131,7 +135,7 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
-      <<: [*catalog-config, *flow-worker-env]
+      <<: [*catalog-config, *flow-worker-env, *peerdb-temporal-namespace]
       METRICS_SERVER: 0.0.0.0:6061
     ports:
       - 6060:6060
@@ -146,7 +150,7 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
-      <<: [*catalog-config, *flow-worker-env]
+      <<: [*catalog-config, *flow-worker-env, *peerdb-temporal-namespace]
       METRICS_SERVER: 0.0.0.0:6063
     ports:
       - 6062:6062
@@ -164,7 +168,7 @@ services:
       context: .
       dockerfile: stacks/flow-worker.Dockerfile
     environment:
-      <<: [*catalog-config, *flow-worker-env]
+      <<: [*catalog-config, *flow-worker-env, *peerdb-temporal-namespace]
       METRICS_SERVER: 0.0.0.0:6065
     ports:
       - 6064:6064

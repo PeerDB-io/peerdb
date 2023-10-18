@@ -25,11 +25,12 @@ import (
 )
 
 type WorkerOptions struct {
-	TemporalHostPort string
-	EnableProfiling  bool
-	EnableMetrics    bool
-	PyroscopeServer  string
-	MetricsServer    string
+	TemporalHostPort  string
+	EnableProfiling   bool
+	EnableMetrics     bool
+	PyroscopeServer   string
+	MetricsServer     string
+	TemporalNamespace string
 }
 
 func setupPyroscope(opts *WorkerOptions) {
@@ -90,21 +91,17 @@ func WorkerMain(opts *WorkerOptions) error {
 		}
 	}()
 
-	var clientOptions client.Options
+	clientOptions := client.Options{
+		HostPort:  opts.TemporalHostPort,
+		Namespace: opts.TemporalNamespace,
+	}
 	if opts.EnableMetrics {
-		clientOptions = client.Options{
-			HostPort: opts.TemporalHostPort,
-			MetricsHandler: sdktally.NewMetricsHandler(newPrometheusScope(
-				prometheus.Configuration{
-					ListenAddress: opts.MetricsServer,
-					TimerType:     "histogram",
-				},
-			)),
-		}
-	} else {
-		clientOptions = client.Options{
-			HostPort: opts.TemporalHostPort,
-		}
+		clientOptions.MetricsHandler = sdktally.NewMetricsHandler(newPrometheusScope(
+			prometheus.Configuration{
+				ListenAddress: opts.MetricsServer,
+				TimerType:     "histogram",
+			},
+		))
 	}
 
 	conn, err := utils.GetCatalogConnectionPoolFromEnv()
