@@ -18,7 +18,7 @@ x-flow-worker-env: &flow-worker-env
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
-  # enables worker profiling using Go's pprof
+  # enables worker profiling using Grafana Pyroscope
   ENABLE_PROFILING: "true"
   # enables exporting of mirror metrics to Prometheus for visualization using Grafana
   ENABLE_METRICS: "true"

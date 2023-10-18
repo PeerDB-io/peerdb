@@ -18,11 +18,8 @@ x-flow-worker-env: &flow-worker-env
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
-  # enables worker profiling using Go's pprof
-  ENABLE_PROFILING: "true"
   # enables exporting of mirror metrics to Prometheus for visualization using Grafana
   ENABLE_METRICS: "true"
-  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
 
 x-peerdb-temporal-namespace: &peerdb-temporal-namespace
   PEERDB_TEMPORAL_NAMESPACE: default
@@ -67,12 +64,6 @@ services:
       - ./temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
-
-  pyroscope:
-    container_name: pyroscope
-    image: grafana/pyroscope:latest
-    ports:
-      - 4040:4040
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
