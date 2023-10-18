@@ -35,6 +35,13 @@ function RowPerPartition({
   endTime,
   numRows,
 }: QRepPartitionStatus) {
+  let duration = 'N/A';
+  if (startTime && endTime) {
+    duration = moment
+      .duration(moment(endTime).diff(moment(startTime)))
+      .humanize({ ss: 1 });
+  }
+
   return (
     <TableRow key={partitionId}>
       <TableCell variant='button'>
@@ -45,6 +52,9 @@ function RowPerPartition({
       </TableCell>
       <TableCell>
         <Label>{runUuid}</Label>
+      </TableCell>
+      <TableCell>
+        <Label>{duration}</Label>
       </TableCell>
       <TableCell>
         <Label>{moment(startTime)?.format('YYYY-MM-DD HH:mm:ss')}</Label>
@@ -132,6 +142,7 @@ export default function QRepStatusTable({
           </TableCell>
           <TableCell as='th'>Partition UUID</TableCell>
           <TableCell as='th'>Run UUID</TableCell>
+          <TableCell as='th'>Duration</TableCell>
           <TableCell as='th'>Start Time</TableCell>
           <TableCell as='th'>End Time</TableCell>
           <TableCell as='th'>Num Rows Synced</TableCell>
