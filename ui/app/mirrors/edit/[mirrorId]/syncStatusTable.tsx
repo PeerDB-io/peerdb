@@ -32,7 +32,7 @@ function TimeWithDurationOrRunning({
     return (
       <Label>
         {moment(endTime).format('YYYY-MM-DD HH:mm:ss')} (
-        {moment.duration(moment(endTime).diff(startTime)).humanize()})
+        {moment.duration(moment(endTime).diff(startTime)).humanize({ ss: 1 })})
       </Label>
     );
   } else {

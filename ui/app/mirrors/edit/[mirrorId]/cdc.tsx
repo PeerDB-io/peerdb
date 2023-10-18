@@ -14,8 +14,8 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import * as Tabs from '@radix-ui/react-tabs';
 import moment, { Duration, Moment } from 'moment';
+import { useQueryState } from 'next-usequerystate';
 import Link from 'next/link';
-import { useState } from 'react';
 import styled from 'styled-components';
 import CDCDetails from './cdcDetails';
 
@@ -150,7 +150,9 @@ const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
         </TableCell>
         <TableCell>{clone.completedNumRows}</TableCell>
         <TableCell>
-          <Label>{clone.avgTimePerPartition?.humanize() || 'N/A'}</Label>
+          <Label>
+            {clone.avgTimePerPartition?.humanize({ ss: 1 }) || 'N/A'}
+          </Label>
         </TableCell>
       </TableRow>
     ))}
@@ -175,7 +177,10 @@ type CDCMirrorStatusProps = {
   syncStatusChild?: React.ReactNode;
 };
 export function CDCMirror({ cdc, syncStatusChild }: CDCMirrorStatusProps) {
-  const [selectedTab, setSelectedTab] = useState<string>('tab1');
+  const [selectedTab, setSelectedTab] = useQueryState('tab', {
+    history: 'push',
+    defaultValue: 'tab1',
+  });
 
   let snapshot = <></>;
   if (cdc.snapshotStatus) {
