@@ -6,6 +6,8 @@ import { Suspense } from 'react';
 import { CDCMirror } from './cdc';
 import SyncStatus from './syncStatus';
 
+export const dynamic = 'force-dynamic';
+
 type EditMirrorProps = {
   params: { mirrorId: string };
 };
