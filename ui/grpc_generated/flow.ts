@@ -386,6 +386,8 @@ export interface QRepConfig {
    * how many rows to process per batch.
    */
   numRowsPerPartition: number;
+  /** Creates the watermark table on the destination as-is, can be used for some queries. */
+  setupWatermarkTableOnDestination: boolean;
 }
 
 export interface QRepPartition {
@@ -4713,6 +4715,7 @@ function createBaseQRepConfig(): QRepConfig {
     writeMode: undefined,
     stagingPath: "",
     numRowsPerPartition: 0,
+    setupWatermarkTableOnDestination: false,
   };
 }
 
@@ -4765,6 +4768,9 @@ export const QRepConfig = {
     }
     if (message.numRowsPerPartition !== 0) {
       writer.uint32(128).uint32(message.numRowsPerPartition);
+    }
+    if (message.setupWatermarkTableOnDestination === true) {
+      writer.uint32(136).bool(message.setupWatermarkTableOnDestination);
     }
     return writer;
   },
@@ -4888,6 +4894,13 @@ export const QRepConfig = {
 
           message.numRowsPerPartition = reader.uint32();
           continue;
+        case 17:
+          if (tag !== 136) {
+            break;
+          }
+
+          message.setupWatermarkTableOnDestination = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4917,6 +4930,9 @@ export const QRepConfig = {
       writeMode: isSet(object.writeMode) ? QRepWriteMode.fromJSON(object.writeMode) : undefined,
       stagingPath: isSet(object.stagingPath) ? String(object.stagingPath) : "",
       numRowsPerPartition: isSet(object.numRowsPerPartition) ? Number(object.numRowsPerPartition) : 0,
+      setupWatermarkTableOnDestination: isSet(object.setupWatermarkTableOnDestination)
+        ? Boolean(object.setupWatermarkTableOnDestination)
+        : false,
     };
   },
 
@@ -4970,6 +4986,9 @@ export const QRepConfig = {
     if (message.numRowsPerPartition !== 0) {
       obj.numRowsPerPartition = Math.round(message.numRowsPerPartition);
     }
+    if (message.setupWatermarkTableOnDestination === true) {
+      obj.setupWatermarkTableOnDestination = message.setupWatermarkTableOnDestination;
+    }
     return obj;
   },
 
@@ -5000,6 +5019,7 @@ export const QRepConfig = {
       : undefined;
     message.stagingPath = object.stagingPath ?? "";
     message.numRowsPerPartition = object.numRowsPerPartition ?? 0;
+    message.setupWatermarkTableOnDestination = object.setupWatermarkTableOnDestination ?? false;
     return message;
   },
 };

@@ -283,6 +283,8 @@ impl FlowGrpcClient {
                 Value::Bool(v) => {
                     if key == "initial_copy_only" {
                         cfg.initial_copy_only = *v;
+                    } else if key == "setup_watermark_table_on_destination" {
+                        cfg.setup_watermark_table_on_destination = *v;
                     } else {
                         return anyhow::Result::Err(anyhow::anyhow!("invalid bool option {}", key));
                     }

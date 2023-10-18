@@ -620,9 +620,9 @@ fn parse_db_options(
         }
         DbType::S3 => {
             let s3_conn_str: String = opts
-                    .get("metadata_db")
-                    .map(|s| s.to_string())
-                    .unwrap_or_default();
+                .get("metadata_db")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
             let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
             let s3_config = S3Config {
                 url: opts

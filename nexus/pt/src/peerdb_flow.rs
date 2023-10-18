@@ -413,6 +413,9 @@ pub struct QRepConfig {
     /// how many rows to process per batch.
     #[prost(uint32, tag="16")]
     pub num_rows_per_partition: u32,
+    /// Creates the watermark table on the destination as-is, can be used for some queries.
+    #[prost(bool, tag="17")]
+    pub setup_watermark_table_on_destination: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
