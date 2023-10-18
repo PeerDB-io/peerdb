@@ -47,6 +47,46 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 	return nil
 }
 
+func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Context) error {
+	if q.config.SetupWatermarkTableOnDestination {
+		q.logger.Info("setting up watermark table on destination for qrep flow: ", q.config.FlowJobName)
+
+		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+
+		tableSchemaInput := &protos.GetTableSchemaBatchInput{
+			PeerConnectionConfig: q.config.SourcePeer,
+			TableIdentifiers:     []string{q.config.WatermarkTable},
+		}
+
+		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
+
+		var tblSchemaOutput *protos.GetTableSchemaBatchOutput
+		if err := future.Get(ctx, &tblSchemaOutput); err != nil {
+			q.logger.Error("failed to fetch schema for watermark table: ", err)
+			return fmt.Errorf("failed to fetch schema for watermark table %s: %w", q.config.WatermarkTable, err)
+		}
+
+		// now setup the normalized tables on the destination peer
+		setupConfig := &protos.SetupNormalizedTableBatchInput{
+			PeerConnectionConfig: q.config.DestinationPeer,
+			TableNameSchemaMapping: map[string]*protos.TableSchema{
+				q.config.DestinationTableIdentifier: tblSchemaOutput.TableNameSchemaMapping[q.config.WatermarkTable],
+			},
+		}
+
+		future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
+		var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
+		if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
+			q.logger.Error("failed to create watermark table: ", err)
+			return fmt.Errorf("failed to create watermark table: %w", err)
+		}
+		q.logger.Info("finished setting up watermark table for qrep flow: ", q.config.FlowJobName)
+	}
+	return nil
+}
+
 // GetPartitions returns the partitions to replicate.
 func (q *QRepFlowExecution) GetPartitions(
 	ctx workflow.Context,
@@ -270,6 +310,11 @@ func QRepFlowWorkflow(
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 	q.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+
+	err = q.SetupWatermarkTableOnDestination(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup watermark table: %w", err)
+	}
 
 	logger.Info("fetching partitions to replicate for peer flow - ", config.FlowJobName)
 	partitions, err := q.GetPartitions(ctx, lastPartition)

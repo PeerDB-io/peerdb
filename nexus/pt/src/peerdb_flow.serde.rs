@@ -2362,6 +2362,9 @@ impl serde::Serialize for QRepConfig {
         if self.num_rows_per_partition != 0 {
             len += 1;
         }
+        if self.setup_watermark_table_on_destination {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.QRepConfig", len)?;
         if !self.flow_job_name.is_empty() {
             struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
@@ -2413,6 +2416,9 @@ impl serde::Serialize for QRepConfig {
         if self.num_rows_per_partition != 0 {
             struct_ser.serialize_field("numRowsPerPartition", &self.num_rows_per_partition)?;
         }
+        if self.setup_watermark_table_on_destination {
+            struct_ser.serialize_field("setupWatermarkTableOnDestination", &self.setup_watermark_table_on_destination)?;
+        }
         struct_ser.end()
     }
 }
@@ -2454,6 +2460,8 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
             "stagingPath",
             "num_rows_per_partition",
             "numRowsPerPartition",
+            "setup_watermark_table_on_destination",
+            "setupWatermarkTableOnDestination",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2474,6 +2482,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
             WriteMode,
             StagingPath,
             NumRowsPerPartition,
+            SetupWatermarkTableOnDestination,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2512,6 +2521,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                             "writeMode" | "write_mode" => Ok(GeneratedField::WriteMode),
                             "stagingPath" | "staging_path" => Ok(GeneratedField::StagingPath),
                             "numRowsPerPartition" | "num_rows_per_partition" => Ok(GeneratedField::NumRowsPerPartition),
+                            "setupWatermarkTableOnDestination" | "setup_watermark_table_on_destination" => Ok(GeneratedField::SetupWatermarkTableOnDestination),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2547,6 +2557,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                 let mut write_mode__ = None;
                 let mut staging_path__ = None;
                 let mut num_rows_per_partition__ = None;
+                let mut setup_watermark_table_on_destination__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::FlowJobName => {
@@ -2655,6 +2666,12 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::SetupWatermarkTableOnDestination => {
+                            if setup_watermark_table_on_destination__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("setupWatermarkTableOnDestination"));
+                            }
+                            setup_watermark_table_on_destination__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2677,6 +2694,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                     write_mode: write_mode__,
                     staging_path: staging_path__.unwrap_or_default(),
                     num_rows_per_partition: num_rows_per_partition__.unwrap_or_default(),
+                    setup_watermark_table_on_destination: setup_watermark_table_on_destination__.unwrap_or_default(),
                 })
             }
         }

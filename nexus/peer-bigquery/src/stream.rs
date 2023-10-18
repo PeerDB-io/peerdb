@@ -149,9 +149,7 @@ impl BqRecordStream {
                         if let Some(ts) = timestamp {
                             let naive_datetime = NaiveDateTime::from_timestamp_opt(ts, 0)
                                 .ok_or(anyhow::Error::msg("Invalid naive datetime"))?;
-                            Some(Value::Timestamp(Utc.from_utc_datetime(
-                                &naive_datetime,
-                            )))
+                            Some(Value::Timestamp(Utc.from_utc_datetime(&naive_datetime)))
                         } else {
                             None
                         }

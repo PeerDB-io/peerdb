@@ -279,6 +279,9 @@ message QRepConfig {
   // and instead uses the number of rows per partition to determine
   // how many rows to process per batch.
   uint32 num_rows_per_partition = 16;
+
+  // Creates the watermark table on the destination as-is, can be used for some queries.
+  bool setup_watermark_table_on_destination = 17;
 }
 
 message QRepPartition {

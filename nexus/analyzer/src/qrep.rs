@@ -103,7 +103,11 @@ lazy_static::lazy_static! {
             default_value: false,
             required: false,
         },
-        ]
+        QRepOptionType::Boolean {
+            name: "setup_watermark_table_on_destination",
+            default_value: false,
+            required: false
+        }]
     };
 }
 
