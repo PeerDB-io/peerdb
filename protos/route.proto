@@ -19,6 +19,7 @@ message CreateCDCFlowResponse {
 
 message CreateQRepFlowRequest {
   peerdb_flow.QRepConfig qrep_config = 1;
+  bool create_catalog_entry = 2;
 }
 
 message CreateQRepFlowResponse {
@@ -131,7 +132,12 @@ service FlowService {
       body: "*"
      };
   }
-  rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {}
+  rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
+    option (google.api.http) = {
+      post: "/v1/flows/qrep/create",
+      body: "*"
+     };
+  }
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };

@@ -28,7 +28,6 @@ export const cdcSettings: MirrorSetting[] = [
         doInitialCopy: (value as boolean) || false,
       })),
     tips: 'Specify if you want initial load to happen for your tables.',
-    helpfulLink: 'https://www.postgresql.org/docs/8.0/user-manag.html',
     type: 'switch',
   },
   {

@@ -51,7 +51,7 @@ func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
 	return strings.Join(tableIdentifierParts, ".")
 }
 
-func (h *FlowRequestHandler) createFlowJobEntry(ctx context.Context,
+func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	req *protos.CreateCDCFlowRequest, workflowID string) error {
 	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.Source.Name)
 	if srcErr != nil {
@@ -77,6 +77,37 @@ func (h *FlowRequestHandler) createFlowJobEntry(ctx context.Context,
 			return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
 				req.ConnectionConfigs.FlowJobName, v.SourceTableIdentifier, err)
 		}
+	}
+
+	return nil
+}
+
+func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
+	req *protos.CreateQRepFlowRequest, workflowID string) error {
+	sourcePeerName := req.QrepConfig.SourcePeer.Name
+	sourcePeerID, _, srcErr := h.getPeerID(ctx, sourcePeerName)
+	if srcErr != nil {
+		return fmt.Errorf("unable to get peer id for source peer %s: %w",
+			sourcePeerName, srcErr)
+	}
+
+	destinationPeerName := req.QrepConfig.DestinationPeer.Name
+	destinationPeerID, _, dstErr := h.getPeerID(ctx, destinationPeerName)
+	if dstErr != nil {
+		return fmt.Errorf("unable to get peer id for target peer %s: %w",
+			destinationPeerName, srcErr)
+	}
+	flowName := req.QrepConfig.FlowJobName
+	_, err := h.pool.Exec(ctx, `INSERT INTO flows (workflow_id,name, source_peer, destination_peer, description,
+		destination_table_identifier, query_string) VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, workflowID, flowName, sourcePeerID, destinationPeerID,
+		"Mirror created via GRPC",
+		req.QrepConfig.DestinationTableIdentifier,
+		req.QrepConfig.Query,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
+			flowName, req.QrepConfig.WatermarkTable, err)
 	}
 
 	return nil
@@ -111,7 +142,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	if req.CreateCatalogEntry {
-		err := h.createFlowJobEntry(ctx, req, workflowID)
+		err := h.createCdcJobEntry(ctx, req, workflowID)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
@@ -170,12 +201,18 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 
 	cfg := req.QrepConfig
+	log.Infof("Config for QRepFlow: %+v", cfg)
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: shared.PeerFlowTaskQueue,
 	}
-
+	if req.CreateCatalogEntry {
+		err := h.createQrepJobEntry(ctx, req, workflowID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
+		}
+	}
 	numPartitionsProcessed := 0
 	_, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context

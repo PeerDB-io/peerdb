@@ -1,4 +1,5 @@
 'use client';
+import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepSyncMode } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
@@ -6,19 +7,17 @@ import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
-import { Tooltip } from '@/lib/Tooltip';
 import { InfoPopover } from '../../../components/InfoPopover';
-import { MirrorConfig, MirrorSetter } from '../types';
+import { CDCConfig, MirrorSetter } from '../types';
 import { MirrorSetting } from './helpers/common';
-
 interface MirrorConfigProps {
   settings: MirrorSetting[];
-  mirrorConfig: MirrorConfig;
+  mirrorConfig: CDCConfig;
   peers: Peer[];
   setter: MirrorSetter;
 }
 
-export default function MirrorConfig(props: MirrorConfigProps) {
+export default function CDCConfigForm(props: MirrorConfigProps) {
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean | Peer | QRepSyncMode = val;
     if (setting.label.includes('Peer')) {
@@ -80,7 +79,12 @@ export default function MirrorConfig(props: MirrorConfigProps) {
           ) : setting.type === 'select' ? (
             <RowWithSelect
               key={id}
-              label={<Label>{setting.label}</Label>}
+              label={
+                <Label>
+                  {setting.label}
+                  {RequiredIndicator(setting.required)}
+                </Label>
+              }
               action={
                 <div
                   style={{
@@ -121,16 +125,7 @@ export default function MirrorConfig(props: MirrorConfigProps) {
               label={
                 <Label>
                   {setting.label}
-                  {setting.required && (
-                    <Tooltip
-                      style={{ width: '100%' }}
-                      content={'This is a required field.'}
-                    >
-                      <Label colorName='lowContrast' colorSet='destructive'>
-                        *
-                      </Label>
-                    </Tooltip>
-                  )}
+                  {RequiredIndicator(setting.required)}
                 </Label>
               }
               action={

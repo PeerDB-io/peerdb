@@ -72,3 +72,80 @@ export const cdcSchema = z.object({
     .optional(),
   softDelete: z.boolean().optional(),
 });
+
+export const qrepSchema = z.object({
+  sourcePeer: z.object({
+    name: z.string().nonempty(),
+    type: z.any(),
+    config: z.any(),
+  }),
+  destinationPeer: z.object({
+    name: z.string().nonempty(),
+    type: z.any(),
+    config: z.any(),
+  }),
+  initialCopyOnly: z.boolean().optional(),
+  setupWatermarkTableOnDestination: z.boolean().optional(),
+  destinationTableIdentifier: z
+    .string({
+      invalid_type_error: 'Destination table name must be a string',
+      required_error: 'Destination table name is required',
+    })
+    .min(1, 'Destination table name must be non-empty')
+    .max(255, 'Destination table name must be less than 255 characters'),
+  watermarkTable: z
+    .string({
+      invalid_type_error: 'Watermark table must be a string',
+      required_error: 'Watermark table is required',
+    })
+    .min(1, 'Watermark table must be non-empty')
+    .max(255, 'Watermark table must be less than 255 characters'),
+  watermarkColumn: z
+    .string({
+      invalid_type_error: 'Watermark column must be a string',
+      required_error: 'Watermark column is required',
+    })
+    .min(1, 'Watermark column must be non-empty')
+    .max(255, 'Watermark column must be less than 255 characters'),
+  numRowsPerPartition: z
+    .number({
+      invalid_type_error: 'Rows per partition must be a number',
+    })
+    .int()
+    .min(1, 'Rows per partition must be a positive integer')
+    .optional(),
+  maxParallelWorkers: z
+    .number({
+      invalid_type_error: 'max workers must be a number',
+    })
+    .int()
+    .min(1, 'max workers must be a positive integer')
+    .optional(),
+  batchSizeInt: z
+    .number({
+      invalid_type_error: 'Batch size must be a number',
+    })
+    .int()
+    .min(1, 'Batch size must be a positive integer')
+    .optional(),
+  batchDurationSeconds: z
+    .number({
+      invalid_type_error: 'Batch duration must be a number',
+    })
+    .int()
+    .min(1, 'Batch duration must be a positive integer')
+    .optional(),
+  stagingPath: z
+    .string({
+      invalid_type_error: 'Staging path must be a string',
+    })
+    .max(255, 'Staging path must be less than 255 characters')
+    .optional(),
+  waitBetweenBatchesSeconds: z
+    .number({
+      invalid_type_error: 'Batch wait must be a number',
+    })
+    .int()
+    .min(0, 'Batch wait must be a non-negative integer')
+    .optional(),
+});

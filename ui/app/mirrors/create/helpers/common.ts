@@ -1,11 +1,16 @@
-import { FlowConnectionConfigs, QRepSyncMode } from '@/grpc_generated/flow';
+import {
+  FlowConnectionConfigs,
+  QRepConfig,
+  QRepSyncMode,
+  QRepWriteMode,
+} from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
 import { MirrorSetter } from '../../types';
 
 export interface MirrorSetting {
   label: string;
   stateHandler: (
-    value: string | Peer | boolean | QRepSyncMode,
+    value: string | Peer | boolean | QRepSyncMode | QRepWriteMode,
     setter: MirrorSetter
   ) => void;
   type?: string;
@@ -38,4 +43,24 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   replicationSlotName: '',
   pushBatchSize: 0,
   pushParallelism: 0,
+};
+
+export const blankQRepSetting: QRepConfig = {
+  flowJobName: '',
+  sourcePeer: undefined,
+  destinationPeer: undefined,
+  destinationTableIdentifier: '',
+  query: '',
+  watermarkTable: '',
+  watermarkColumn: '',
+  initialCopyOnly: false,
+  syncMode: 0,
+  batchSizeInt: 1,
+  batchDurationSeconds: 3600,
+  maxParallelWorkers: 8,
+  waitBetweenBatchesSeconds: 0,
+  writeMode: undefined,
+  stagingPath: '',
+  numRowsPerPartition: 500000,
+  setupWatermarkTableOnDestination: false,
 };

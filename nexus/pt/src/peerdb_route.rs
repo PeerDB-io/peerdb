@@ -18,6 +18,8 @@ pub struct CreateCdcFlowResponse {
 pub struct CreateQRepFlowRequest {
     #[prost(message, optional, tag="1")]
     pub qrep_config: ::core::option::Option<super::peerdb_flow::QRepConfig>,
+    #[prost(bool, tag="2")]
+    pub create_catalog_entry: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
