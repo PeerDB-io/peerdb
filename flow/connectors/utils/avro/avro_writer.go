@@ -13,6 +13,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/klauspost/compress/zstd"
 	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
 	uber_atomic "go.uber.org/atomic"
@@ -22,6 +23,7 @@ type PeerDBOCFWriter struct {
 	ctx        context.Context
 	stream     *model.QRecordStream
 	avroSchema *model.QRecordAvroSchemaDefinition
+	compress   bool
 }
 
 func NewPeerDBOCFWriter(
@@ -33,12 +35,39 @@ func NewPeerDBOCFWriter(
 		ctx:        ctx,
 		stream:     stream,
 		avroSchema: avroSchema,
+		compress:   false,
 	}
 }
 
+func NewPeerDBOCFWriterWithCompression(
+	ctx context.Context,
+	stream *model.QRecordStream,
+	avroSchema *model.QRecordAvroSchemaDefinition,
+) *PeerDBOCFWriter {
+	return &PeerDBOCFWriter{
+		ctx:        ctx,
+		stream:     stream,
+		avroSchema: avroSchema,
+		compress:   true,
+	}
+}
+
+func (p *PeerDBOCFWriter) getCompressedWriter(w io.Writer) (io.WriteCloser, error) {
+	if p.compress {
+		return zstd.NewWriter(w)
+	}
+	return &nopWriteCloser{w}, nil
+}
+
 func (p *PeerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error) {
+	compressedWriter, err := p.getCompressedWriter(w)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create compressed writer: %w", err)
+	}
+	defer compressedWriter.Close()
+
 	ocfWriter, err := goavro.NewOCFWriter(goavro.OCFConfig{
-		W:      w,
+		W:      compressedWriter,
 		Schema: p.avroSchema.Schema,
 	})
 	if err != nil {
@@ -159,4 +188,15 @@ func (p *PeerDBOCFWriter) WriteRecordsToAvroFile(filePath string) (int, error) {
 	}
 	defer file.Close()
 	return p.WriteOCF(file)
+}
+
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (n *nopWriteCloser) Close() error {
+	if closer, ok := n.Writer.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }
