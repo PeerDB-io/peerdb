@@ -108,6 +108,7 @@ export interface CreateCDCFlowResponse {
 
 export interface CreateQRepFlowRequest {
   qrepConfig: QRepConfig | undefined;
+  createCatalogEntry: boolean;
 }
 
 export interface CreateQRepFlowResponse {
@@ -327,13 +328,16 @@ export const CreateCDCFlowResponse = {
 };
 
 function createBaseCreateQRepFlowRequest(): CreateQRepFlowRequest {
-  return { qrepConfig: undefined };
+  return { qrepConfig: undefined, createCatalogEntry: false };
 }
 
 export const CreateQRepFlowRequest = {
   encode(message: CreateQRepFlowRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.qrepConfig !== undefined) {
       QRepConfig.encode(message.qrepConfig, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.createCatalogEntry === true) {
+      writer.uint32(16).bool(message.createCatalogEntry);
     }
     return writer;
   },
@@ -352,6 +356,13 @@ export const CreateQRepFlowRequest = {
 
           message.qrepConfig = QRepConfig.decode(reader, reader.uint32());
           continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.createCatalogEntry = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -362,13 +373,19 @@ export const CreateQRepFlowRequest = {
   },
 
   fromJSON(object: any): CreateQRepFlowRequest {
-    return { qrepConfig: isSet(object.qrepConfig) ? QRepConfig.fromJSON(object.qrepConfig) : undefined };
+    return {
+      qrepConfig: isSet(object.qrepConfig) ? QRepConfig.fromJSON(object.qrepConfig) : undefined,
+      createCatalogEntry: isSet(object.createCatalogEntry) ? Boolean(object.createCatalogEntry) : false,
+    };
   },
 
   toJSON(message: CreateQRepFlowRequest): unknown {
     const obj: any = {};
     if (message.qrepConfig !== undefined) {
       obj.qrepConfig = QRepConfig.toJSON(message.qrepConfig);
+    }
+    if (message.createCatalogEntry === true) {
+      obj.createCatalogEntry = message.createCatalogEntry;
     }
     return obj;
   },
@@ -381,6 +398,7 @@ export const CreateQRepFlowRequest = {
     message.qrepConfig = (object.qrepConfig !== undefined && object.qrepConfig !== null)
       ? QRepConfig.fromPartial(object.qrepConfig)
       : undefined;
+    message.createCatalogEntry = object.createCatalogEntry ?? false;
     return message;
   },
 };

@@ -1,5 +1,5 @@
 'use client';
-import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import { QRepWriteMode, QRepWriteType } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -12,11 +12,14 @@ import { Divider } from '@tremor/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { TableMapRow } from '../types';
-import MirrorConfig from './config';
-import { handleCreate } from './handlers';
+import { CDCConfig, QREPConfig, TableMapRow } from '../types';
+import CDCConfigForm from './cdc';
+import { handleCreateCDC, handleCreateQRep } from './handlers';
 import { cdcSettings } from './helpers/cdc';
-import { blankCDCSetting } from './helpers/common';
+import { blankCDCSetting, blankQRepSetting } from './helpers/common';
+import { qrepSettings } from './helpers/qrep';
+import QRepConfigForm from './qrep';
+import QRepQuery from './query';
 import TableMapping from './tablemapping';
 
 export const dynamic = 'force-dynamic';
@@ -24,17 +27,24 @@ export const dynamic = 'force-dynamic';
 export default function CreateMirrors() {
   const router = useRouter();
   const [mirrorName, setMirrorName] = useState<string>('');
-  const [mirrorType, setMirrorType] = useState<'CDC' | 'QREP'>('CDC');
+  const [mirrorType, setMirrorType] = useState<
+    'CDC' | 'Query Replication' | 'XMIN'
+  >('CDC');
   const [formMessage, setFormMessage] = useState<{ ok: boolean; msg: string }>({
     ok: true,
     msg: '',
   });
   const [loading, setLoading] = useState<boolean>(false);
-  const [config, setConfig] = useState<FlowConnectionConfigs>(blankCDCSetting);
+  const [config, setConfig] = useState<CDCConfig | QREPConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([
     { source: '', destination: '' },
   ]);
+  const [qrepQuery, setQrepQuery] = useState<string>('');
+  const [writeMode, setWriteMode] = useState<QRepWriteMode>({
+    writeType: QRepWriteType.QREP_WRITE_MODE_APPEND,
+    upsertKeyColumns: [],
+  });
 
   useEffect(() => {
     fetch('/api/peers')
@@ -42,7 +52,19 @@ export default function CreateMirrors() {
       .then((res) => {
         setPeers(res);
       });
-  }, []);
+
+    if (mirrorType === 'Query Replication' || mirrorType === 'XMIN') {
+      setConfig(blankQRepSetting);
+      if (mirrorType === 'XMIN') {
+        setConfig((curr) => {
+          return { ...curr, setupWatermarkTableOnDestination: true };
+        });
+      } else
+        setConfig((curr) => {
+          return { ...curr, setupWatermarkTableOnDestination: false };
+        });
+    } else setConfig(blankCDCSetting);
+  }, [mirrorType]);
 
   let listPeersPage = () => {
     router.push('/peers');
@@ -66,8 +88,18 @@ export default function CreateMirrors() {
             </Label>
           }
           action={
-            <Select placeholder='Select mirror type' defaultValue={mirrorType}>
+            <Select
+              placeholder='Select mirror type'
+              onValueChange={(value) =>
+                setMirrorType(value as 'CDC' | 'Query Replication')
+              }
+              defaultValue={mirrorType}
+            >
               <SelectItem value='CDC'>CDC</SelectItem>
+              <SelectItem value='Query Replication'>
+                Query Replication
+              </SelectItem>
+              <SelectItem value='XMIN'>XMIN</SelectItem>
             </Select>
           }
         />
@@ -84,9 +116,15 @@ export default function CreateMirrors() {
           }
         />
         <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
-        <Label colorName='lowContrast'>Table Mapping</Label>
-        <TableMapping rows={rows} setRows={setRows} />
-        <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
+
+        {mirrorType === 'CDC' ? (
+          <TableMapping rows={rows} setRows={setRows} />
+        ) : (
+          mirrorType != 'XMIN' && (
+            <QRepQuery query={qrepQuery} setter={setQrepQuery} />
+          )
+        )}
+
         <Label colorName='lowContrast'>Configuration</Label>
         {!loading && formMessage.msg.length > 0 && (
           <Label
@@ -97,12 +135,24 @@ export default function CreateMirrors() {
             {formMessage.msg}
           </Label>
         )}
-        <MirrorConfig
-          settings={cdcSettings}
-          mirrorConfig={config}
-          peers={peers}
-          setter={setConfig}
-        />
+        {mirrorType === 'CDC' ? (
+          <CDCConfigForm
+            settings={cdcSettings}
+            mirrorConfig={config as CDCConfig}
+            peers={peers}
+            setter={setConfig}
+          />
+        ) : (
+          <QRepConfigForm
+            settings={qrepSettings}
+            mirrorConfig={config as QREPConfig}
+            peers={peers}
+            setter={setConfig}
+            WriteModeSetter={setWriteMode}
+            writeMode={writeMode}
+            xmin={mirrorType === 'XMIN'}
+          />
+        )}
       </Panel>
       <Panel>
         <ButtonGroup className='justify-end'>
@@ -112,14 +162,25 @@ export default function CreateMirrors() {
           <Button
             variant='normalSolid'
             onClick={() =>
-              handleCreate(
-                mirrorName,
-                rows,
-                config,
-                setFormMessage,
-                setLoading,
-                listPeersPage
-              )
+              mirrorType === 'CDC'
+                ? handleCreateCDC(
+                    mirrorName,
+                    rows,
+                    config as CDCConfig,
+                    setFormMessage,
+                    setLoading,
+                    listPeersPage
+                  )
+                : handleCreateQRep(
+                    mirrorName,
+                    writeMode,
+                    qrepQuery,
+                    config as QREPConfig,
+                    setFormMessage,
+                    setLoading,
+                    listPeersPage,
+                    mirrorType === 'XMIN' // for handling xmin specific
+                  )
             }
           >
             Create Mirror

@@ -409,7 +409,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 ) (*protos.QRepParitionResult, error) {
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
 	}
 	defer connectors.CloseConnector(srcConn)
 
@@ -483,13 +483,13 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
-		return fmt.Errorf("failed to get source connector: %w", err)
+		return fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(srcConn)
 
 	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
 	if err != nil {
-		return fmt.Errorf("failed to get destination connector: %w", err)
+		return fmt.Errorf("failed to get qrep destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
 

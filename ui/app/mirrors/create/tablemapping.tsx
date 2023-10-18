@@ -1,6 +1,7 @@
 'use client';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
+import { Label } from '@/lib/Label';
 import { TextField } from '@/lib/TextField';
 import { Dispatch, SetStateAction } from 'react';
 import { TableMapRow } from '../types';
@@ -35,6 +36,7 @@ const TableMapping = ({ rows, setRows }: TableMappingProps) => {
 
   return (
     <div style={{ marginTop: '1rem' }}>
+      <Label colorName='lowContrast'>Table Mapping</Label>
       <table>
         <thead>
           <tr>
@@ -84,7 +86,7 @@ const TableMapping = ({ rows, setRows }: TableMappingProps) => {
         style={{ fontSize: 13, marginTop: '0.5rem' }}
         onClick={handleAddRow}
       >
-        Add Row
+        <Icon name='add' />
       </Button>
     </div>
   );

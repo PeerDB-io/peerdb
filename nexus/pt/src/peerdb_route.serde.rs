@@ -810,9 +810,15 @@ impl serde::Serialize for CreateQRepFlowRequest {
         if self.qrep_config.is_some() {
             len += 1;
         }
+        if self.create_catalog_entry {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_route.CreateQRepFlowRequest", len)?;
         if let Some(v) = self.qrep_config.as_ref() {
             struct_ser.serialize_field("qrepConfig", v)?;
+        }
+        if self.create_catalog_entry {
+            struct_ser.serialize_field("createCatalogEntry", &self.create_catalog_entry)?;
         }
         struct_ser.end()
     }
@@ -826,11 +832,14 @@ impl<'de> serde::Deserialize<'de> for CreateQRepFlowRequest {
         const FIELDS: &[&str] = &[
             "qrep_config",
             "qrepConfig",
+            "create_catalog_entry",
+            "createCatalogEntry",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             QrepConfig,
+            CreateCatalogEntry,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -854,6 +863,7 @@ impl<'de> serde::Deserialize<'de> for CreateQRepFlowRequest {
                     {
                         match value {
                             "qrepConfig" | "qrep_config" => Ok(GeneratedField::QrepConfig),
+                            "createCatalogEntry" | "create_catalog_entry" => Ok(GeneratedField::CreateCatalogEntry),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -874,6 +884,7 @@ impl<'de> serde::Deserialize<'de> for CreateQRepFlowRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut qrep_config__ = None;
+                let mut create_catalog_entry__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::QrepConfig => {
@@ -882,6 +893,12 @@ impl<'de> serde::Deserialize<'de> for CreateQRepFlowRequest {
                             }
                             qrep_config__ = map.next_value()?;
                         }
+                        GeneratedField::CreateCatalogEntry => {
+                            if create_catalog_entry__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createCatalogEntry"));
+                            }
+                            create_catalog_entry__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -889,6 +906,7 @@ impl<'de> serde::Deserialize<'de> for CreateQRepFlowRequest {
                 }
                 Ok(CreateQRepFlowRequest {
                     qrep_config: qrep_config__,
+                    create_catalog_entry: create_catalog_entry__.unwrap_or_default(),
                 })
             }
         }

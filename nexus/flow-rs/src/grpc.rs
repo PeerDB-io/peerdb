@@ -81,6 +81,7 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_qrep_flow_req = pt::peerdb_route::CreateQRepFlowRequest {
             qrep_config: Some(qrep_config.clone()),
+            create_catalog_entry:false
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
         let workflow_id = response.into_inner().worflow_id;
