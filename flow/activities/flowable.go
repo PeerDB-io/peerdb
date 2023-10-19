@@ -562,16 +562,16 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
 		}).Infof("no records to push for partition %s\n", partition.PartitionId)
-		return nil
+	} else {
+		wg.Wait()
+		if goroutineErr != nil {
+			return goroutineErr
+		}
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Infof("pushed %d records\n", res)
 	}
 
-	wg.Wait()
-	if goroutineErr != nil {
-		return goroutineErr
-	}
-	log.WithFields(log.Fields{
-		"flowName": config.FlowJobName,
-	}).Infof("pushed %d records\n", res)
 	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
 	if err != nil {
 		return err
@@ -585,7 +585,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
-		return nil
+		return a.CatalogMirrorMonitor.UpdateEndTimeForQRepRun(ctx, runUUID)
 	} else if err != nil {
 		return err
 	}
@@ -599,13 +599,11 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	}()
 
 	err = dstConn.ConsolidateQRepPartitions(config)
-	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
-		return nil
-	} else if err != nil {
+	if err != nil {
 		return err
 	}
-	err = a.CatalogMirrorMonitor.UpdateEndTimeForQRepRun(ctx, runUUID)
-	return err
+
+	return a.CatalogMirrorMonitor.UpdateEndTimeForQRepRun(ctx, runUUID)
 }
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
