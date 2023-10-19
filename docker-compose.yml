@@ -106,7 +106,8 @@ services:
     container_name: flow_api
     build:
       context: .
-      dockerfile: stacks/flow-api.Dockerfile
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-api
     ports:
       - 8112:8112
       - 8113:8113
@@ -121,7 +122,8 @@ services:
     container_name: flow-snapshot-worker
     build:
       context: .
-      dockerfile: stacks/flow-snapshot-worker.Dockerfile
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-snapshot-worker
     environment:
       <<: [*peerdb-temporal-namespace]
       TEMPORAL_HOST_PORT: temporal:7233
@@ -133,7 +135,8 @@ services:
     container_name: flow-worker1
     build:
       context: .
-      dockerfile: stacks/flow-worker.Dockerfile
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env, *peerdb-temporal-namespace]
       METRICS_SERVER: 0.0.0.0:6061

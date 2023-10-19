@@ -29,62 +29,12 @@ jobs:
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
 
-      - name: Publish PeerDB Stable Image
-        uses: depot/build-push-action@v1
-        with:
-          platforms: linux/amd64,linux/arm64
-          token: ${{ secrets.DEPOT_TOKEN }}
-          context: .
-          file: stacks/peerdb-server.Dockerfile
-          push: true
-          tags: |
-            ghcr.io/peerdb-io/peerdb-server:${{ github.ref_name }}
-            ghcr.io/peerdb-io/peerdb-server:latest-stable
-
-      - name: Publish Flow API Image
-        uses: depot/build-push-action@v1
-        with:
-          platforms: linux/amd64,linux/arm64
-          token: ${{ secrets.DEPOT_TOKEN }}
-          context: .
-          file: stacks/flow-api.Dockerfile
-          push: true
-          tags: |
-            ghcr.io/peerdb-io/flow-api:${{ github.ref_name }}
-            ghcr.io/peerdb-io/flow-api:latest-stable
-
-      - name: Publish Flow Worker Stable Image
-        uses: depot/build-push-action@v1
-        with:
-          platforms: linux/amd64,linux/arm64
-          token: ${{ secrets.DEPOT_TOKEN }}
-          context: .
-          file: stacks/flow-worker.Dockerfile
-          push: true
-          tags: |
-            ghcr.io/peerdb-io/flow-worker:${{ github.ref_name }}
-            ghcr.io/peerdb-io/flow-worker:latest-stable
-
-      - name: Publish Flow Snapshot Worker Stable Image
-        uses: depot/build-push-action@v1
-        with:
-          platforms: linux/amd64,linux/arm64
-          token: ${{ secrets.DEPOT_TOKEN }}
-          context: .
-          file: stacks/flow-snapshot-worker.Dockerfile
-          push: true
-          tags: |
-            ghcr.io/peerdb-io/flow-snapshot-worker:${{ github.ref_name }}
-            ghcr.io/peerdb-io/flow-snapshot-worker:latest-stable
-
-      - name: Build (optionally publish) PeerDB UI Stable Image
-        uses: depot/build-push-action@v1
+      - name: Build (optionally publish) PeerDB Images
+        uses: depot/bake-action@v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
-          platforms: linux/amd64,linux/arm64
-          context: .
-          file: stacks/peerdb-ui.Dockerfile
+          files: ./docker-bake.hcl
           push: ${{ github.ref == 'refs/heads/main' }}
-          tags: |
-            ghcr.io/peerdb-io/peerdb-ui:${{ github.ref_name }}
-            ghcr.io/peerdb-io/peerdb-ui:latest-stable
+        env:
+          SHA_SHORT: ${{ github.ref_name }}
+          TAG: latest-stable
