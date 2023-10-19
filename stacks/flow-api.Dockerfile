@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1.2
 
 # Start from the latest Golang base image
-FROM golang:1.21-alpine AS builder
+FROM golang:1.21.3-bookworm AS builder
+
+RUN apt-get update && apt-get install -y gcc
+
+RUN apt-get update && apt-get install -y libgeos-dev
 WORKDIR /root/flow
 
 # first copy only go.mod and go.sum to cache dependencies
@@ -18,10 +22,15 @@ COPY flow .
 # build the binary from cmd folder
 WORKDIR /root/flow/cmd
 RUN --mount=type=cache,target=/root/.cache/go-build \
-  CGO_ENABLED=0 go build -ldflags="-s -w" -o /root/peer-flow .
+    CGO_ENABLED=1 go build -ldflags="-s -w" -o /root/peer-flow .
 
-FROM ubuntu:20.04
-RUN apt-get update && apt-get install -y ca-certificates curl
+FROM golang:1.21.3-bookworm
+RUN apt-get update && apt-get install -y ca-certificates
+
+RUN apt-get update && apt-get install -y gcc
+
+# install lib geos dev
+RUN apt-get update && apt-get install -y libgeos-dev
 WORKDIR /root
 COPY --from=builder /root/peer-flow .
 EXPOSE 8112

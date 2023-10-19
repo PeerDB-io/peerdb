@@ -124,6 +124,16 @@ func (g *GenericSQLQueryExecutor) CountRows(schemaName string, tableName string)
 	return count, err
 }
 
+func (g *GenericSQLQueryExecutor) CountNonNullRows(
+	schemaName string,
+	tableName string,
+	columnName string) (int64, error) {
+	var count int64
+	err := g.db.QueryRowx("SELECT COUNT(CASE WHEN " + columnName +
+		" IS NOT NULL THEN 1 END) AS non_null_count FROM " + schemaName + "." + tableName).Scan(&count)
+	return count, err
+}
+
 func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (*model.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {

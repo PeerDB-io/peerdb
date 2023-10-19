@@ -196,12 +196,10 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		ids = append(ids, id)
 		geoValues := ""
 		if strings.Contains(tableName, "sf") {
-			// geo types
 			geoValues = `,'POINT(1 2)','POINT(40.7128 -74.0060)',
 			'LINESTRING(0 0, 1 1, 2 2)',
 			'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
-			'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
-			'POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))'`
+			'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'`
 		}
 		row := fmt.Sprintf(`
 					(
