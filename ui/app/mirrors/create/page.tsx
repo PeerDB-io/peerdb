@@ -1,5 +1,5 @@
 'use client';
-import { QRepWriteMode, QRepWriteType } from '@/grpc_generated/flow';
+import { QRepConfig } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -12,7 +12,7 @@ import { Divider } from '@tremor/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { CDCConfig, QREPConfig, TableMapRow } from '../types';
+import { CDCConfig, TableMapRow } from '../types';
 import CDCConfigForm from './cdc';
 import { handleCreateCDC, handleCreateQRep } from './handlers';
 import { cdcSettings } from './helpers/cdc';
@@ -35,16 +35,12 @@ export default function CreateMirrors() {
     msg: '',
   });
   const [loading, setLoading] = useState<boolean>(false);
-  const [config, setConfig] = useState<CDCConfig | QREPConfig>(blankCDCSetting);
+  const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([
     { source: '', destination: '' },
   ]);
   const [qrepQuery, setQrepQuery] = useState<string>('');
-  const [writeMode, setWriteMode] = useState<QRepWriteMode>({
-    writeType: QRepWriteType.QREP_WRITE_MODE_APPEND,
-    upsertKeyColumns: [],
-  });
 
   useEffect(() => {
     fetch('/api/peers')
@@ -145,11 +141,9 @@ export default function CreateMirrors() {
         ) : (
           <QRepConfigForm
             settings={qrepSettings}
-            mirrorConfig={config as QREPConfig}
+            mirrorConfig={config as QRepConfig}
             peers={peers}
             setter={setConfig}
-            WriteModeSetter={setWriteMode}
-            writeMode={writeMode}
             xmin={mirrorType === 'XMIN'}
           />
         )}
@@ -173,9 +167,8 @@ export default function CreateMirrors() {
                   )
                 : handleCreateQRep(
                     mirrorName,
-                    writeMode,
                     qrepQuery,
-                    config as QREPConfig,
+                    config as QRepConfig,
                     setFormMessage,
                     setLoading,
                     listPeersPage,

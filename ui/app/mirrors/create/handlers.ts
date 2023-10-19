@@ -1,7 +1,7 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
-import { QRepWriteMode } from '@/grpc_generated/flow';
+import { QRepConfig } from '@/grpc_generated/flow';
 import { Dispatch, SetStateAction } from 'react';
-import { CDCConfig, QREPConfig, TableMapRow } from '../types';
+import { CDCConfig, TableMapRow } from '../types';
 import { cdcSchema, qrepSchema, tableMappingSchema } from './schema';
 
 const validateCDCFields = (
@@ -28,23 +28,15 @@ const validateCDCFields = (
 
 const validateQRepFields = (
   query: string,
-  writeMode: QRepWriteMode,
   setMsg: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
-  config: QREPConfig
+  config: QRepConfig
 ): boolean => {
   if (query.length < 5) {
     setMsg({ ok: false, msg: 'Query is invalid' });
     return false;
   }
-  if (writeMode.writeType == 1 && writeMode.upsertKeyColumns.length == 0) {
-    setMsg({
-      ok: false,
-      msg: 'You must specify upsert key column when write mode is set to upsert',
-    });
-    return false;
-  }
-  let validationErr: string | undefined;
 
+  let validationErr: string | undefined;
   const configValidity = qrepSchema.safeParse(config);
   if (!configValidity.success) {
     validationErr = configValidity.error.issues[0].message;
@@ -107,9 +99,8 @@ export const handleCreateCDC = async (
 
 export const handleCreateQRep = async (
   flowJobName: string,
-  writeMode: QRepWriteMode,
   query: string,
-  config: QREPConfig,
+  config: QRepConfig,
   setMsg: Dispatch<
     SetStateAction<{
       ok: boolean;
@@ -131,11 +122,10 @@ export const handleCreateQRep = async (
     config.initialCopyOnly = false;
   }
 
-  const isValid = validateQRepFields(query, writeMode, setMsg, config);
+  const isValid = validateQRepFields(query, setMsg, config);
   if (!isValid) return;
   config.flowJobName = flowJobName;
   config.query = query;
-  config.writeMode = writeMode;
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(
     '/api/mirrors/qrep',

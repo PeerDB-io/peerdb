@@ -14,16 +14,22 @@ export const tableMappingSchema = z
   .nonempty('At least one table mapping is required');
 
 export const cdcSchema = z.object({
-  source: z.object({
-    name: z.string().nonempty(),
-    type: z.any(),
-    config: z.any(),
-  }),
-  destination: z.object({
-    name: z.string().nonempty(),
-    type: z.any(),
-    config: z.any(),
-  }),
+  source: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Source peer is required' }
+  ),
+  destination: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Destination peer is required' }
+  ),
   doInitialCopy: z.boolean().optional(),
   publicationName: z
     .string({
@@ -74,16 +80,22 @@ export const cdcSchema = z.object({
 });
 
 export const qrepSchema = z.object({
-  sourcePeer: z.object({
-    name: z.string().nonempty(),
-    type: z.any(),
-    config: z.any(),
-  }),
-  destinationPeer: z.object({
-    name: z.string().nonempty(),
-    type: z.any(),
-    config: z.any(),
-  }),
+  sourcePeer: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Source peer is required' }
+  ),
+  destinationPeer: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Destination peer is required' }
+  ),
   initialCopyOnly: z.boolean().optional(),
   setupWatermarkTableOnDestination: z.boolean().optional(),
   destinationTableIdentifier: z
@@ -110,10 +122,10 @@ export const qrepSchema = z.object({
   numRowsPerPartition: z
     .number({
       invalid_type_error: 'Rows per partition must be a number',
+      required_error: 'Rows per partition is required',
     })
     .int()
-    .min(1, 'Rows per partition must be a positive integer')
-    .optional(),
+    .min(1, 'Rows per partition must be a positive integer'),
   maxParallelWorkers: z
     .number({
       invalid_type_error: 'max workers must be a number',
@@ -121,26 +133,20 @@ export const qrepSchema = z.object({
     .int()
     .min(1, 'max workers must be a positive integer')
     .optional(),
-  batchSizeInt: z
-    .number({
-      invalid_type_error: 'Batch size must be a number',
-    })
-    .int()
-    .min(1, 'Batch size must be a positive integer')
-    .optional(),
-  batchDurationSeconds: z
-    .number({
-      invalid_type_error: 'Batch duration must be a number',
-    })
-    .int()
-    .min(1, 'Batch duration must be a positive integer')
-    .optional(),
   stagingPath: z
     .string({
       invalid_type_error: 'Staging path must be a string',
     })
     .max(255, 'Staging path must be less than 255 characters')
     .optional(),
+  writeMode: z.object({
+    writeType: z
+      .number({ required_error: 'Write type is required' })
+      .int()
+      .min(0)
+      .max(2),
+    upsert_key_columns: z.array(z.string()).optional(),
+  }),
   waitBetweenBatchesSeconds: z
     .number({
       invalid_type_error: 'Batch wait must be a number',

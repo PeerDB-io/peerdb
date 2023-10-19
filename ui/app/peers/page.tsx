@@ -72,13 +72,13 @@ async function PeersTable({ title }: { title: string }) {
             <Checkbox variant='mixed' defaultChecked />
           </TableCell>
           <TableCell as='th'>
-            <Select placeholder='Select' />
+            <Select placeholder='Peer Name' />
           </TableCell>
           <TableCell as='th'>
-            <Select placeholder='Select' />
+            <Select placeholder='Peer Type' />
           </TableCell>
           <TableCell as='th'>
-            <Select placeholder='Select' />
+            <Select placeholder='Status' />
           </TableCell>
         </TableRow>
       }
