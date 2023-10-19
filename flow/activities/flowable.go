@@ -655,3 +655,39 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, config *protos.
 
 	return nil
 }
+
+func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
+	config *protos.QRepConfig, last *protos.QRepPartition) error {
+	if config.SourcePeer.Type != protos.DBType_POSTGRES {
+		return nil
+	}
+	waitBetweenBatches := 5 * time.Second
+	if config.WaitBetweenBatchesSeconds > 0 {
+		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
+	}
+
+	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
+	if err != nil {
+		return fmt.Errorf("failed to get qrep source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
+
+	attemptCount := 1
+	for {
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
+		time.Sleep(waitBetweenBatches)
+
+		result, err := pgSrcConn.CheckForUpdatedMaxValue(config, last)
+		if err != nil {
+			return fmt.Errorf("failed to check for new rows: %w", err)
+		}
+		if result {
+			break
+		}
+
+		attemptCount += 1
+	}
+
+	return nil
+}

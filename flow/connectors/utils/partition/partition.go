@@ -133,20 +133,6 @@ func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition 
 	}
 }
 
-func createXMINPartition(start uint32, end uint32) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_XminRange{
-				XminRange: &protos.XMINPartitionRange{
-					Start: start,
-					End:   end,
-				},
-			},
-		},
-	}
-}
-
 type PartitionHelper struct {
 	prevStart  interface{}
 	prevEnd    interface{}
@@ -194,10 +180,6 @@ func (p *PartitionHelper) AddPartition(start interface{}, end interface{}) error
 		p.prevEnd = end
 	case pgtype.TID:
 		p.partitions = append(p.partitions, createTIDPartition(v, end.(pgtype.TID)))
-		p.prevStart = v
-		p.prevEnd = end
-	case pgtype.Uint32:
-		p.partitions = append(p.partitions, createXMINPartition(v.Uint32, end.(uint32)))
 		p.prevStart = v
 		p.prevEnd = end
 	default:

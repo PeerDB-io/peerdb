@@ -336,16 +336,10 @@ export interface TIDPartitionRange {
   end: TID | undefined;
 }
 
-export interface XMINPartitionRange {
-  start: number;
-  end: number;
-}
-
 export interface PartitionRange {
   intRange?: IntPartitionRange | undefined;
   timestampRange?: TimestampPartitionRange | undefined;
   tidRange?: TIDPartitionRange | undefined;
-  xminRange?: XMINPartitionRange | undefined;
 }
 
 export interface QRepWriteMode {
@@ -4436,79 +4430,8 @@ export const TIDPartitionRange = {
   },
 };
 
-function createBaseXMINPartitionRange(): XMINPartitionRange {
-  return { start: 0, end: 0 };
-}
-
-export const XMINPartitionRange = {
-  encode(message: XMINPartitionRange, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.start !== 0) {
-      writer.uint32(8).uint32(message.start);
-    }
-    if (message.end !== 0) {
-      writer.uint32(16).uint32(message.end);
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): XMINPartitionRange {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseXMINPartitionRange();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 8) {
-            break;
-          }
-
-          message.start = reader.uint32();
-          continue;
-        case 2:
-          if (tag !== 16) {
-            break;
-          }
-
-          message.end = reader.uint32();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): XMINPartitionRange {
-    return { start: isSet(object.start) ? Number(object.start) : 0, end: isSet(object.end) ? Number(object.end) : 0 };
-  },
-
-  toJSON(message: XMINPartitionRange): unknown {
-    const obj: any = {};
-    if (message.start !== 0) {
-      obj.start = Math.round(message.start);
-    }
-    if (message.end !== 0) {
-      obj.end = Math.round(message.end);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<XMINPartitionRange>, I>>(base?: I): XMINPartitionRange {
-    return XMINPartitionRange.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<XMINPartitionRange>, I>>(object: I): XMINPartitionRange {
-    const message = createBaseXMINPartitionRange();
-    message.start = object.start ?? 0;
-    message.end = object.end ?? 0;
-    return message;
-  },
-};
-
 function createBasePartitionRange(): PartitionRange {
-  return { intRange: undefined, timestampRange: undefined, tidRange: undefined, xminRange: undefined };
+  return { intRange: undefined, timestampRange: undefined, tidRange: undefined };
 }
 
 export const PartitionRange = {
@@ -4521,9 +4444,6 @@ export const PartitionRange = {
     }
     if (message.tidRange !== undefined) {
       TIDPartitionRange.encode(message.tidRange, writer.uint32(26).fork()).ldelim();
-    }
-    if (message.xminRange !== undefined) {
-      XMINPartitionRange.encode(message.xminRange, writer.uint32(34).fork()).ldelim();
     }
     return writer;
   },
@@ -4556,13 +4476,6 @@ export const PartitionRange = {
 
           message.tidRange = TIDPartitionRange.decode(reader, reader.uint32());
           continue;
-        case 4:
-          if (tag !== 34) {
-            break;
-          }
-
-          message.xminRange = XMINPartitionRange.decode(reader, reader.uint32());
-          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4579,7 +4492,6 @@ export const PartitionRange = {
         ? TimestampPartitionRange.fromJSON(object.timestampRange)
         : undefined,
       tidRange: isSet(object.tidRange) ? TIDPartitionRange.fromJSON(object.tidRange) : undefined,
-      xminRange: isSet(object.xminRange) ? XMINPartitionRange.fromJSON(object.xminRange) : undefined,
     };
   },
 
@@ -4593,9 +4505,6 @@ export const PartitionRange = {
     }
     if (message.tidRange !== undefined) {
       obj.tidRange = TIDPartitionRange.toJSON(message.tidRange);
-    }
-    if (message.xminRange !== undefined) {
-      obj.xminRange = XMINPartitionRange.toJSON(message.xminRange);
     }
     return obj;
   },
@@ -4613,9 +4522,6 @@ export const PartitionRange = {
       : undefined;
     message.tidRange = (object.tidRange !== undefined && object.tidRange !== null)
       ? TIDPartitionRange.fromPartial(object.tidRange)
-      : undefined;
-    message.xminRange = (object.xminRange !== undefined && object.xminRange !== null)
-      ? XMINPartitionRange.fromPartial(object.xminRange)
       : undefined;
     return message;
   },

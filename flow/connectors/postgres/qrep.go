@@ -133,8 +133,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			minVal = lastRange.IntRange.End
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
-		case *protos.PartitionRange_XminRange:
-			minVal = lastRange.XminRange.End
 		}
 
 		row = tx.QueryRow(c.ctx, countQuery, minVal)
@@ -253,6 +251,12 @@ func (c *PostgresConnector) getMinMaxValues(
 			}
 		case *protos.PartitionRange_TimestampRange:
 			minValue = lastRange.TimestampRange.End.AsTime()
+		case *protos.PartitionRange_TidRange:
+			minValue = lastRange.TidRange.End
+			maxValue = &protos.TID{
+				BlockNumber:  maxValue.(pgtype.TID).BlockNumber,
+				OffsetNumber: uint32(maxValue.(pgtype.TID).OffsetNumber),
+			}
 		}
 	} else {
 		// Otherwise get the minimum value from the database
@@ -272,6 +276,15 @@ func (c *PostgresConnector) getMinMaxValues(
 		case int32:
 			minValue = int64(v)
 			maxValue = int64(maxValue.(int32))
+		case pgtype.TID:
+			minValue = &protos.TID{
+				BlockNumber:  v.BlockNumber,
+				OffsetNumber: uint32(v.OffsetNumber),
+			}
+			maxValue = &protos.TID{
+				BlockNumber:  maxValue.(pgtype.TID).BlockNumber,
+				OffsetNumber: uint32(maxValue.(pgtype.TID).OffsetNumber),
+			}
 		}
 	}
 
@@ -281,6 +294,42 @@ func (c *PostgresConnector) getMinMaxValues(
 	}
 
 	return minValue, maxValue, nil
+}
+
+func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
+	last *protos.QRepPartition) (bool, error) {
+	tx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
+	}
+	defer func() {
+		deferErr := tx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for getting max value: %v", err)
+		}
+	}()
+
+	_, maxValue, err := c.getMinMaxValues(tx, config, last)
+	if err != nil {
+		return false, fmt.Errorf("error while getting min and max values: %w", err)
+	}
+
+	switch x := last.Range.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		if maxValue.(int64) > x.IntRange.End {
+			return true, nil
+		}
+	case *protos.PartitionRange_TimestampRange:
+		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
+			return true, nil
+		}
+	default:
+		return false, fmt.Errorf("unknown range type: %v", x)
+	}
+
+	return false, nil
 }
 
 func (c *PostgresConnector) PullQRepRecords(
@@ -321,9 +370,6 @@ func (c *PostgresConnector) PullQRepRecords(
 			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
 			Valid:        true,
 		}
-	case *protos.PartitionRange_XminRange:
-		rangeStart = x.XminRange.Start
-		rangeEnd = x.XminRange.End
 	default:
 		return nil, fmt.Errorf("unknown range type: %v", x)
 	}
@@ -406,9 +452,6 @@ func (c *PostgresConnector) PullQRepRecordStream(
 			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
 			Valid:        true,
 		}
-	case *protos.PartitionRange_XminRange:
-		rangeStart = x.XminRange.Start
-		rangeEnd = x.XminRange.End
 	default:
 		return 0, fmt.Errorf("unknown range type: %v", x)
 	}
