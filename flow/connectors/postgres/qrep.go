@@ -55,7 +55,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
 
-	// TODO re-enable locing of the watermark table.
+	// TODO re-enable locking of the watermark table.
 	// // lock the table while we get the partitions.
 	// lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)
 	// if _, err = tx.Exec(c.ctx, lockQuery); err != nil {
@@ -612,7 +612,7 @@ func (c *PostgresConnector) getIntPartitions(
 		return nil, fmt.Errorf("batch size cannot be 0")
 	}
 
-	for start <= end {
+	for start < end {
 		partitionEnd := start + batchSize
 		// safeguard against integer overflow
 		if partitionEnd > end || partitionEnd < start {
