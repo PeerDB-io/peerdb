@@ -962,11 +962,13 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
 				"AS %s,", toVariantColumnName, columnName, targetColumnName))
 		case qvalue.QValueKindGeography:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
-				toVariantColumnName, columnName, targetColumnName))
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+				fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
+					toVariantColumnName, columnName, targetColumnName))
 		case qvalue.QValueKindGeometry:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
-				toVariantColumnName, columnName, targetColumnName))
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
+					toVariantColumnName, columnName, targetColumnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
 		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
