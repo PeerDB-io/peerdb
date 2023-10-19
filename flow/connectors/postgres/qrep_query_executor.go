@@ -435,7 +435,6 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 		} else {
 			customQKind := customTypeToQKind(typeName)
 			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
-				log.Infof("value: %v", values[i])
 				wkbString, ok := values[i].(string)
 				err := GeoValidate(wkbString)
 				if err != nil || !ok {

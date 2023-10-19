@@ -13,8 +13,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
-	"github.com/peterstace/simplefeatures/geom"
 	log "github.com/sirupsen/logrus"
+	geom "github.com/twpayne/go-geos"
 )
 
 func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
@@ -406,6 +406,7 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 }
 
 func GeoValidate(hexWkb string) error {
+	log.Infof("Validating geometry shape %s", hexWkb)
 	// Decode the WKB hex string into binary
 	wkb, hexErr := hex.DecodeString(hexWkb)
 	if hexErr != nil {
@@ -413,10 +414,15 @@ func GeoValidate(hexWkb string) error {
 		return hexErr
 	}
 	// UnmarshalWKB performs geometry validation along with WKB parsing
-	_, geoErr := geom.UnmarshalWKB(wkb)
+	geometryObject, geoErr := geom.NewGeomFromWKB(wkb)
 	if geoErr != nil {
-		log.Warnf("Ignoring invalid geometry %s: %v", hexWkb, geoErr)
+		log.Warnf("Ignoring invalid geometry WKB %s: %v", hexWkb, geoErr)
 		return geoErr
+	}
+	invalidReason := geometryObject.IsValidReason()
+	if invalidReason != "Valid Geometry" {
+		log.Warnf("Ignoring invalid geometry shape %s: %s", hexWkb, invalidReason)
+		return errors.New(invalidReason)
 	}
 	return nil
 }
