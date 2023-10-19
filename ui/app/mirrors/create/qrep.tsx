@@ -1,10 +1,6 @@
 'use client';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
-import {
-  QRepSyncMode,
-  QRepWriteMode,
-  QRepWriteType,
-} from '@/grpc_generated/flow';
+import { QRepConfig, QRepSyncMode, QRepWriteType } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
@@ -12,23 +8,26 @@ import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { Dispatch, SetStateAction } from 'react';
 import { InfoPopover } from '../../../components/InfoPopover';
-import { MirrorSetter, QREPConfig } from '../types';
+import { MirrorSetter } from '../types';
 import { MirrorSetting } from './helpers/common';
 interface QRepConfigProps {
   settings: MirrorSetting[];
-  mirrorConfig: QREPConfig;
+  mirrorConfig: QRepConfig;
   peers: Peer[];
   setter: MirrorSetter;
-  writeMode: QRepWriteMode;
-  WriteModeSetter: Dispatch<SetStateAction<QRepWriteMode>>;
   xmin?: boolean;
 }
 
 export default function QRepConfigForm(props: QRepConfigProps) {
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | Peer | QRepSyncMode | QRepWriteType = val;
+    let stateVal:
+      | string
+      | boolean
+      | Peer
+      | QRepSyncMode
+      | QRepWriteType
+      | string[] = val;
     if (setting.label.includes('Peer')) {
       stateVal = props.peers.find((peer) => peer.name === val)!;
     } else if (setting.label.includes('Sync Mode')) {
@@ -36,14 +35,22 @@ export default function QRepConfigForm(props: QRepConfigProps) {
         val === 'avro'
           ? QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO
           : QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
-    } else if (setting.label.includes('Write Mode')) {
-      if (val === 'Upsert') {
-        props.WriteModeSetter({
-          writeType: QRepWriteType.QREP_WRITE_MODE_UPSERT,
-          upsertKeyColumns: [],
-        });
+    } else if (setting.label.includes('Write Type')) {
+      console.log('Handling write type: ' + val);
+      switch (val) {
+        case 'Upsert':
+          stateVal = QRepWriteType.QREP_WRITE_MODE_UPSERT;
+          break;
+        case 'Overwrite':
+          stateVal = QRepWriteType.QREP_WRITE_MODE_OVERWRITE;
+          break;
+        default:
+          stateVal = QRepWriteType.QREP_WRITE_MODE_APPEND;
+          break;
       }
-      return;
+    } else if (setting.label === 'Upsert Key Columns') {
+      const columns = val as string;
+      stateVal = columns.split(',').map((item) => item.trim());
     }
     setting.stateHandler(stateVal, props.setter);
   };
@@ -51,7 +58,8 @@ export default function QRepConfigForm(props: QRepConfigProps) {
     const label = setting.label.toLowerCase();
     if (
       (label.includes('upsert') &&
-        props.writeMode.writeType != QRepWriteType.QREP_WRITE_MODE_UPSERT) ||
+        props.mirrorConfig.writeMode?.writeType !=
+          QRepWriteType.QREP_WRITE_MODE_UPSERT) ||
       (label.includes('staging') &&
         props.mirrorConfig.syncMode?.toString() !== '1') ||
       (label.includes('watermark column') && props.xmin) ||

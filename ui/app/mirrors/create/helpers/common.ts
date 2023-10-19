@@ -2,16 +2,15 @@ import {
   FlowConnectionConfigs,
   QRepConfig,
   QRepSyncMode,
-  QRepWriteMode,
+  QRepWriteType,
 } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
-import { MirrorSetter } from '../../types';
 
 export interface MirrorSetting {
   label: string;
   stateHandler: (
-    value: string | Peer | boolean | QRepSyncMode | QRepWriteMode,
-    setter: MirrorSetter
+    value: string | string[] | Peer | boolean | QRepSyncMode | QRepWriteType,
+    setter: any
   ) => void;
   type?: string;
   required?: boolean;
@@ -55,12 +54,12 @@ export const blankQRepSetting: QRepConfig = {
   watermarkColumn: '',
   initialCopyOnly: false,
   syncMode: 0,
-  batchSizeInt: 1,
-  batchDurationSeconds: 3600,
+  batchSizeInt: 0,
+  batchDurationSeconds: 0,
   maxParallelWorkers: 8,
   waitBetweenBatchesSeconds: 0,
   writeMode: undefined,
   stagingPath: '',
-  numRowsPerPartition: 500000,
+  numRowsPerPartition: 0,
   setupWatermarkTableOnDestination: false,
 };
