@@ -76,7 +76,10 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
               <Icon name='chevron_right' />
             </Button>
             <Label>{`${currentPage} of ${totalPages}`}</Label>
-            <Button variant='normalBorderless'>
+            <Button
+              variant='normalBorderless'
+              onClick={() => window.location.reload()}
+            >
               <Icon name='refresh' />
             </Button>
           </>

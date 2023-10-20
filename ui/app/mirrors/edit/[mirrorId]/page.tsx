@@ -2,6 +2,7 @@ import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import { CDCMirror } from './cdc';
 import SyncStatus from './syncStatus';
@@ -39,6 +40,8 @@ export default async function EditMirror({
   let syncStatusChild = <></>;
   if (mirrorStatus.cdcStatus) {
     syncStatusChild = <SyncStatus flowJobName={mirrorId} />;
+  } else {
+    redirect(`/mirrors/status/qrep/${mirrorId}`);
   }
 
   return (
