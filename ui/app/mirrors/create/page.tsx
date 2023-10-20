@@ -62,8 +62,8 @@ export default function CreateMirrors() {
     } else setConfig(blankCDCSetting);
   }, [mirrorType]);
 
-  let listPeersPage = () => {
-    router.push('/peers');
+  let listMirrorsPage = () => {
+    router.push('/mirrors');
   };
 
   return (
@@ -163,7 +163,7 @@ export default function CreateMirrors() {
                     config as CDCConfig,
                     setFormMessage,
                     setLoading,
-                    listPeersPage
+                    listMirrorsPage
                   )
                 : handleCreateQRep(
                     mirrorName,
@@ -171,7 +171,7 @@ export default function CreateMirrors() {
                     config as QRepConfig,
                     setFormMessage,
                     setLoading,
-                    listPeersPage,
+                    listMirrorsPage,
                     mirrorType === 'XMIN' // for handling xmin specific
                   )
             }

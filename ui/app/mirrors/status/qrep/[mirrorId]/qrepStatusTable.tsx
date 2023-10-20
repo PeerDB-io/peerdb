@@ -117,7 +117,10 @@ export default function QRepStatusTable({
             >
               <Icon name='chevron_right' />
             </Button>
-            <Button variant='normalBorderless'>
+            <Button
+              variant='normalBorderless'
+              onClick={() => window.location.reload()}
+            >
               <Icon name='refresh' />
             </Button>
             <Button variant='normalBorderless'>

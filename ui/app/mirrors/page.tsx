@@ -170,7 +170,10 @@ async function QRepFlows() {
             </Label>
           </TableCell>
           <TableCell>
-            <Label>Status TBD</Label>
+            <Badge variant='positive' key={1}>
+              <Icon name='play_circle' />
+              Active
+            </Badge>
           </TableCell>
         </TableRow>
       ))}

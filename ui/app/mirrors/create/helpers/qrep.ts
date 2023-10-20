@@ -126,8 +126,8 @@ export const qrepSettings: MirrorSetting[] = [
           writeMode: currWriteMode,
         };
       }),
-    tips: `Specify whether you want the write mode to be via APPEND, UPSERT or OVERWRITE. 
-    Append mode is for insert-only workloads. Upsert mode is append mode but also supports updates. 
+    tips: `Specify whether you want the write mode to be via APPEND, UPSERT or OVERWRITE.
+    Append mode is for insert-only workloads. Upsert mode is append mode but also supports updates.
     Overwrite mode overwrites the destination table data every sync.`,
     type: 'select',
   },
@@ -163,7 +163,7 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        waitBetweenBatchesSeconds: parseInt(value as string, 10) || 0,
+        waitBetweenBatchesSeconds: parseInt(value as string, 10) || 30,
       })),
     tips: 'Time to wait (in seconds) between getting partitions to process.',
     default: '0',
