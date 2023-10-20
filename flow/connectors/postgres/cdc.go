@@ -156,7 +156,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) ||
-			(len(records.Records) == int(req.MaxBatchSize)) {
+			(len(records.Records) >= int(req.MaxBatchSize)) {
 			// Update XLogPos to the last processed position, we can only confirm
 			// that this is the last row committed on the destination.
 			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
@@ -170,7 +170,7 @@ func (p *PostgresCDCSource) consumeStream(
 			log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 
-			if !p.commitLock && (len(records.Records) == int(req.MaxBatchSize)) {
+			if !p.commitLock && (len(records.Records) >= int(req.MaxBatchSize)) {
 				return result, nil
 			}
 		}
