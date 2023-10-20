@@ -36,5 +36,5 @@ jobs:
           files: ./docker-bake.hcl
           push: ${{ github.ref == 'refs/heads/main' }}
         env:
-          SHA_SHORT: ${{ github.ref_name }}
+          SHA_SHORT: stable-${{ github.ref_name }}
           TAG: latest-stable

@@ -41,5 +41,5 @@ jobs:
           files: ./docker-bake.hcl
           push: ${{ github.ref == 'refs/heads/main' }}
         env:
-          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+          SHA_SHORT: dev-${{ steps.vars.outputs.sha_short }}
           TAG: latest-dev
