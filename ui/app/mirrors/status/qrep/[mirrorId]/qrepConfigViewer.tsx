@@ -2,6 +2,7 @@ import prisma from '@/app/utils/prisma';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { Badge } from '@/lib/Badge';
 import { Icon } from '@/lib/Icon';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,12 @@ export default async function QRepConfigViewer({
   });
 
   if (!configBuffer?.config_proto) {
-    return <div>Config Unavailable</div>;
+    return (
+      <div>
+        <ProgressCircle variant='determinate_progress_circle' />
+        Waiting for mirror to start...
+      </div>
+    );
   }
 
   let qrepConfig = QRepConfig.decode(configBuffer.config_proto);

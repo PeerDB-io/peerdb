@@ -57,7 +57,7 @@ export const blankQRepSetting: QRepConfig = {
   batchSizeInt: 0,
   batchDurationSeconds: 0,
   maxParallelWorkers: 8,
-  waitBetweenBatchesSeconds: 0,
+  waitBetweenBatchesSeconds: 30,
   writeMode: undefined,
   stagingPath: '',
   numRowsPerPartition: 0,

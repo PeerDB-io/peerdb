@@ -152,6 +152,6 @@ export const qrepSchema = z.object({
       invalid_type_error: 'Batch wait must be a number',
     })
     .int()
-    .min(0, 'Batch wait must be a non-negative integer')
+    .min(1, 'Batch wait must be a non-negative integer')
     .optional(),
 });
