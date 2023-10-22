@@ -102,6 +102,16 @@ func (s *CDCFlowState) TruncateProgress() {
 	if len(s.NormalizeFlowStatuses) > 10 {
 		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:]
 	}
+
+	if s.SyncFlowErrors != nil {
+		fmt.Println("SyncFlowErrors: ", s.SyncFlowErrors)
+		s.SyncFlowErrors = nil
+	}
+
+	if s.NormalizeFlowErrors != nil {
+		fmt.Println("NormalizeFlowErrors: ", s.NormalizeFlowErrors)
+		s.NormalizeFlowErrors = nil
+	}
 }
 
 func (s *CDCFlowState) SendWALHeartbeat(ctx workflow.Context, cfg *protos.FlowConnectionConfigs) error {
