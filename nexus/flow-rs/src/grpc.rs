@@ -264,16 +264,6 @@ impl FlowGrpcClient {
                             cfg.wait_between_batches_seconds = n as u32;
                         }
                     }
-                    "batch_size_int" => {
-                        if let Some(n) = n.as_i64() {
-                            cfg.batch_size_int = n as u32;
-                        }
-                    }
-                    "batch_duration_timestamp" => {
-                        if let Some(n) = n.as_i64() {
-                            cfg.batch_duration_seconds = n as u32;
-                        }
-                    }
                     "num_rows_per_partition" => {
                         if let Some(n) = n.as_i64() {
                             cfg.num_rows_per_partition = n as u32;

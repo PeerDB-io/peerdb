@@ -22,25 +22,6 @@ type testCase struct {
 	wantErr               bool
 }
 
-func newTestCase(schema string, name string, duration uint32, wantErr bool) *testCase {
-	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
-	query := fmt.Sprintf(
-		`SELECT * FROM %s WHERE "from" >= {{.start}} AND "from" < {{.end}}`,
-		schemaQualifiedTable)
-	return &testCase{
-		name: name,
-		config: &protos.QRepConfig{
-			FlowJobName:          "test_flow_job",
-			BatchDurationSeconds: duration,
-			Query:                query,
-			WatermarkTable:       schemaQualifiedTable,
-			WatermarkColumn:      "from",
-		},
-		want:    []*protos.QRepPartition{},
-		wantErr: wantErr,
-	}
-}
-
 func newTestCaseForNumRows(schema string, name string, rows uint32, expectedNum int) *testCase {
 	schemaQualifiedTable := fmt.Sprintf("%s.test", schema)
 	query := fmt.Sprintf(
@@ -155,47 +136,6 @@ func TestGetQRepPartitions(t *testing.T) {
 
 	// Define the test cases
 	testCases := []*testCase{
-		newTestCase(
-			schemaName,
-			"ensure all days are in 1 partition",
-			secondsInADay*100,
-			false,
-		).appendPartition(
-			time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC),
-			time.Date(2010, time.January, 30, 10, 0, 0, 1000, time.UTC),
-		),
-		newTestCase(
-			schemaName,
-			"ensure all days are in 30 partitions",
-			secondsInADay,
-			false,
-		).appendPartitions(
-			time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC),
-			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
-			29,
-		).appendPartition(
-			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
-			time.Date(2010, time.January, 30, 10, 0, 0, 1000, time.UTC),
-		),
-		newTestCase(
-			schemaName,
-			"ensure all days are in 60 partitions",
-			secondsInADay/2,
-			false,
-		).appendPartitions(
-			time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC),
-			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
-			58,
-		).appendPartition(
-			time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC),
-			time.Date(2010, time.January, 30, 10, 0, 0, 1000, time.UTC),
-		),
-		newTestCase(
-			schemaName,
-			"test for error condition with batch size 0",
-			0,
-			true,
-		),
 		newTestCaseForNumRows(
 			schemaName,
 			"ensure all rows are in 1 partition if num_rows_per_partition is size of table",

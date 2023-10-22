@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
@@ -63,36 +62,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	// 	log.Warnf("failed to lock table %s: %v", config.WatermarkTable, err)
 	// }
 
-	if config.NumRowsPerPartition > 0 {
-		return c.getNumRowsPartitions(tx, config, last)
-	}
-
-	minValue, maxValue, err := c.getMinMaxValues(tx, config, last)
-	if err != nil {
-		return nil, err
-	}
-
-	var partitions []*protos.QRepPartition
-	switch v := minValue.(type) {
-	case int64:
-		maxValue := maxValue.(int64) + 1
-		partitions, err = c.getIntPartitions(v, maxValue, config.BatchSizeInt)
-	case time.Time:
-		maxValue := maxValue.(time.Time).Add(time.Microsecond)
-		partitions, err = c.getTimePartitions(v, maxValue, config.BatchDurationSeconds)
-	// only hit when there is no data in the source table
-	case nil:
-		log.Warnf("no records to replicate for flow job %s, returning", config.FlowJobName)
-		return make([]*protos.QRepPartition, 0), nil
-	default:
-		return nil, fmt.Errorf("unsupported type: %T", v)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return partitions, nil
+	return c.getNumRowsPartitions(tx, config, last)
 }
 
 func (c *PostgresConnector) setTransactionSnapshot(tx pgx.Tx) error {
@@ -606,82 +576,4 @@ func (c *PostgresConnector) isPartitionSynced(partitionID string) (bool, error) 
 	}
 
 	return count > 0, nil
-}
-
-func (c *PostgresConnector) getTimePartitions(
-	start time.Time,
-	end time.Time,
-	batchDurationSeconds uint32,
-) ([]*protos.QRepPartition, error) {
-	if batchDurationSeconds == 0 {
-		return nil, fmt.Errorf("batch duration must be greater than 0")
-	}
-
-	batchDuration := time.Duration(batchDurationSeconds) * time.Second
-	var partitions []*protos.QRepPartition
-
-	for start.Before(end) {
-		partitionEnd := start.Add(batchDuration)
-		if partitionEnd.After(end) {
-			partitionEnd = end
-		}
-
-		rangePartition := protos.PartitionRange{
-			Range: &protos.PartitionRange_TimestampRange{
-				TimestampRange: &protos.TimestampPartitionRange{
-					Start: timestamppb.New(start),
-					End:   timestamppb.New(partitionEnd),
-				},
-			},
-		}
-
-		partitions = append(partitions, &protos.QRepPartition{
-			PartitionId: uuid.New().String(),
-			Range:       &rangePartition,
-		})
-
-		start = partitionEnd
-	}
-
-	return partitions, nil
-}
-
-func (c *PostgresConnector) getIntPartitions(
-	start int64, end int64, batchSizeInt uint32) ([]*protos.QRepPartition, error) {
-	var partitions []*protos.QRepPartition
-	batchSize := int64(batchSizeInt)
-
-	if batchSize == 0 {
-		return nil, fmt.Errorf("batch size cannot be 0")
-	}
-
-	for start < end {
-		partitionEnd := start + batchSize
-		// safeguard against integer overflow
-		if partitionEnd > end || partitionEnd < start {
-			partitionEnd = end
-		}
-
-		rangePartition := protos.PartitionRange{
-			Range: &protos.PartitionRange_IntRange{
-				IntRange: &protos.IntPartitionRange{
-					Start: start,
-					End:   partitionEnd,
-				},
-			},
-		}
-
-		partitions = append(partitions, &protos.QRepPartition{
-			PartitionId: uuid.New().String(),
-			Range:       &rangePartition,
-		})
-
-		if partitionEnd == end {
-			break
-		}
-
-		start = partitionEnd
-	}
-
-	return partitions, nil
 }

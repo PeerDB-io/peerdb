@@ -262,14 +262,6 @@ func QRepFlowWorkflow(
 		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
 	}
 
-	if config.BatchDurationSeconds == 0 {
-		config.BatchDurationSeconds = 60
-	}
-
-	if config.BatchSizeInt == 0 {
-		config.BatchSizeInt = 10000
-	}
-
 	// register a signal handler to terminate the workflow
 	terminateWorkflow := false
 	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
