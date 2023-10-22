@@ -154,6 +154,8 @@ func (p *PostgresCDCSource) consumeStream(
 		consumedXLogPos = clientXLogPos - 1
 	}
 
+	var standByLastLogged time.Time
+
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) ||
 			(len(records.Records) >= int(req.MaxBatchSize)) {
@@ -167,7 +169,12 @@ func (p *PostgresCDCSource) consumeStream(
 
 			numRowsProcessedMessage := fmt.Sprintf("processed %d rows", len(records.Records))
 			utils.RecordHeartbeatWithRecover(p.ctx, numRowsProcessedMessage)
-			log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
+
+			if time.Since(standByLastLogged) > 10*time.Second {
+				log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
+				standByLastLogged = time.Now()
+			}
+
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 
 			if !p.commitLock && (len(records.Records) >= int(req.MaxBatchSize)) {
