@@ -191,7 +191,7 @@ pub fn process_options(
 
     // all options processed have been removed from the map
     // so any leftover keys are options that shouldn't be here
-    if raw_opts.len() > 0 {
+    if !raw_opts.is_empty() {
         anyhow::bail!("Unknown options for QRep mirrors: {:#?}", raw_opts.into_keys().collect::<Vec<&str>>());
     }
 
