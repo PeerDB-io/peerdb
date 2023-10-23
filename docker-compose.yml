@@ -57,7 +57,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.22.2
+    image: temporalio/auto-setup:1.22.1
     ports:
       - 7233:7233
     volumes:
@@ -72,7 +72,7 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
-    image: temporalio/admin-tools:1.22.2
+    image: temporalio/admin-tools:1.22.1
     stdin_open: true
     tty: true
     healthcheck:
@@ -95,10 +95,7 @@ services:
 
   flow-api:
     container_name: flow_api
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-api
+    image: ghcr.io/peerdb-io/flow-api:latest-dev
     ports:
       - 8112:8112
       - 8113:8113
@@ -111,10 +108,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-snapshot-worker
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev
     environment:
       <<: [*peerdb-temporal-namespace]
       TEMPORAL_HOST_PORT: temporal:7233
@@ -124,10 +118,7 @@ services:
 
   flow-worker1:
     container_name: flow-worker1
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-worker
+    image: ghcr.io/peerdb-io/flow-worker:latest-dev
     environment:
       <<: [*catalog-config, *flow-worker-env, *peerdb-temporal-namespace]
       METRICS_SERVER: 0.0.0.0:6061

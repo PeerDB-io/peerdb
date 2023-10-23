@@ -42,7 +42,7 @@ RUN chown nextjs:nodejs .next
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY stacks/ui-entrypoint.sh /app/entrypoint.sh
+COPY stacks/ui/ui-entrypoint.sh /app/entrypoint.sh
 
 # allow permissions for nextjs user to do anything in /app
 RUN chown -R nextjs:nodejs /app

@@ -57,7 +57,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.22.2
+    image: temporalio/auto-setup:1.22.1
     ports:
       - 7233:7233
     volumes:
@@ -78,7 +78,7 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
-    image: temporalio/admin-tools:1.22.2
+    image: temporalio/admin-tools:1.22.1
     stdin_open: true
     tty: true
     healthcheck:
@@ -103,7 +103,8 @@ services:
     container_name: flow_api
     build:
       context: .
-      dockerfile: stacks/flow-api.Dockerfile
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-api
     ports:
       - 8112:8112
       - 8113:8113
@@ -118,7 +119,8 @@ services:
     container_name: flow-snapshot-worker
     build:
       context: .
-      dockerfile: stacks/flow-snapshot-worker.Dockerfile
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-snapshot-worker
     environment:
       TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
@@ -129,7 +131,8 @@ services:
     container_name: flow-worker1
     build:
       context: .
-      dockerfile: stacks/flow-worker.Dockerfile
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
       METRICS_SERVER: 0.0.0.0:6061
@@ -144,7 +147,8 @@ services:
     container_name: flow-worker2
     build:
       context: .
-      dockerfile: stacks/flow-worker.Dockerfile
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
       METRICS_SERVER: 0.0.0.0:6063
@@ -162,7 +166,8 @@ services:
     container_name: flow-worker3
     build:
       context: .
-      dockerfile: stacks/flow-worker.Dockerfile
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
       METRICS_SERVER: 0.0.0.0:6065
