@@ -18,11 +18,11 @@ x-flow-worker-env: &flow-worker-env
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
+  # enables worker profiling using Grafana Pyroscope
+  ENABLE_PROFILING: "true"
   # enables exporting of mirror metrics to Prometheus for visualization using Grafana
   ENABLE_METRICS: "true"
-
-x-peerdb-temporal-namespace: &peerdb-temporal-namespace
-  PEERDB_TEMPORAL_NAMESPACE: default
+  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
 
 services:
   catalog:
@@ -65,6 +65,12 @@ services:
     labels:
       kompose.volume.type: configMap
 
+  pyroscope:
+    container_name: pyroscope
+    image: grafana/pyroscope:latest
+    ports:
+      - 4040:4040
+
   temporal-admin-tools:
     container_name: temporal-admin-tools
     depends_on:
@@ -95,12 +101,15 @@ services:
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:latest-dev
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-api
     ports:
       - 8112:8112
       - 8113:8113
     environment:
-      <<: [*catalog-config, *peerdb-temporal-namespace]
+      <<: [*catalog-config]
       TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:
@@ -108,9 +117,11 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-snapshot-worker
     environment:
-      <<: [*peerdb-temporal-namespace]
       TEMPORAL_HOST_PORT: temporal:7233
     depends_on:
       temporal-admin-tools:
@@ -118,9 +129,12 @@ services:
 
   flow-worker1:
     container_name: flow-worker1
-    image: ghcr.io/peerdb-io/flow-worker:latest-dev
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
     environment:
-      <<: [*catalog-config, *flow-worker-env, *peerdb-temporal-namespace]
+      <<: [*catalog-config, *flow-worker-env]
       METRICS_SERVER: 0.0.0.0:6061
     ports:
       - 6060:6060
@@ -131,9 +145,12 @@ services:
 
   flow-worker2:
     container_name: flow-worker2
-    image: ghcr.io/peerdb-io/flow-worker:latest-dev
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
     environment:
-      <<: [*catalog-config, *flow-worker-env, *peerdb-temporal-namespace]
+      <<: [*catalog-config, *flow-worker-env]
       METRICS_SERVER: 0.0.0.0:6063
     ports:
       - 6062:6062
@@ -147,9 +164,12 @@ services:
 
   flow-worker3:
     container_name: flow-worker3
-    image: ghcr.io/peerdb-io/flow-worker:latest-dev
+    build:
+      context: .
+      dockerfile: stacks/flow.Dockerfile
+      target: flow-worker
     environment:
-      <<: [*catalog-config, *flow-worker-env, *peerdb-temporal-namespace]
+      <<: [*catalog-config, *flow-worker-env]
       METRICS_SERVER: 0.0.0.0:6065
     ports:
       - 6064:6064
@@ -163,7 +183,9 @@ services:
 
   peerdb:
     container_name: peerdb-server
-    image: ghcr.io/peerdb-io/peerdb-server:latest-dev
+    build:
+      context: .
+      dockerfile: stacks/peerdb-server.Dockerfile
     environment:
       <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
@@ -206,7 +228,9 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:latest-dev
+    build:
+      context: .
+      dockerfile: stacks/peerdb-ui.Dockerfile
     ports:
       - 3001:3000
     environment:
