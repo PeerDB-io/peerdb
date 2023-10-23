@@ -238,6 +238,22 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	return nil
 }
 
+func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) error {
+	q.logger.Info("idling until new rows are detected")
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		HeartbeatTimeout:    5 * time.Minute,
+	})
+
+	if err := workflow.ExecuteActivity(ctx, flowable.QRepWaitUntilNewRows, q.config,
+		lastPartition).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed while idling for new rows: %w", err)
+	}
+
+	return nil
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
@@ -255,11 +271,6 @@ func QRepFlowWorkflow(
 	maxParallelWorkers := 16
 	if config.MaxParallelWorkers > 0 {
 		maxParallelWorkers = int(config.MaxParallelWorkers)
-	}
-
-	waitBetweenBatches := 5 * time.Second
-	if config.WaitBetweenBatchesSeconds > 0 {
-		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
 	}
 
 	// register a signal handler to terminate the workflow
@@ -345,9 +356,9 @@ func QRepFlowWorkflow(
 	}
 
 	// sleep for a while and continue the workflow
-	err = workflow.Sleep(ctx, waitBetweenBatches)
+	err = q.waitForNewRows(ctx, lastPartition)
 	if err != nil {
-		return fmt.Errorf("failed to sleep: %w", err)
+		return err
 	}
 
 	workflow.GetLogger(ctx).Info("Continuing as new workflow",

@@ -675,6 +675,9 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	defer connectors.CloseConnector(srcConn)
 	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
 
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Infof("current last partition value is %v\n", last)
 	attemptCount := 1
 	for {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
