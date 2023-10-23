@@ -251,7 +251,9 @@ message QRepConfig {
   bool initial_copy_only = 8;
   QRepSyncMode sync_mode = 9;
 
+  // DEPRECATED: eliminate when breaking changes are allowed.
   uint32 batch_size_int = 10;
+  // DEPRECATED: eliminate when breaking changes are allowed.
   uint32 batch_duration_seconds = 11;
 
   uint32 max_parallel_workers = 12;

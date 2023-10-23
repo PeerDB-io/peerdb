@@ -199,6 +199,7 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	ret.WriteMode = &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 	}
+	ret.NumRowsPerPartition = 1000
 
 	return ret, nil
 }
