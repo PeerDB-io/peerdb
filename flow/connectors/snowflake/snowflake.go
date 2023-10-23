@@ -27,9 +27,9 @@ const (
 	mirrorJobsTableIdentifier = "PEERDB_MIRROR_JOBS"
 	createMirrorJobsTableSQL  = `CREATE TABLE IF NOT EXISTS %s.%s(MIRROR_JOB_NAME STRING NOT NULL,OFFSET INT NOT NULL,
 		SYNC_BATCH_ID INT NOT NULL,NORMALIZE_BATCH_ID INT NOT NULL)`
-	rawTablePrefix                = "_PEERDB_RAW"
-	createPeerDBInternalSchemaSQL = "CREATE TRANSIENT SCHEMA IF NOT EXISTS %s"
-	createRawTableSQL             = `CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_UID STRING NOT NULL,
+	rawTablePrefix    = "_PEERDB_RAW"
+	createSchemaSQL   = "CREATE TRANSIENT SCHEMA IF NOT EXISTS %s"
+	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_UID STRING NOT NULL,
 		_PEERDB_TIMESTAMP INT NOT NULL,_PEERDB_DESTINATION_TABLE_NAME STRING NOT NULL,_PEERDB_DATA STRING NOT NULL,
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
@@ -202,6 +202,14 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
 	}
+	// in case we return after error, ensure transaction is rolled back
+	defer func() {
+		deferErr := createMetadataTablesTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for creating metadata tables: %v", deferErr)
+		}
+	}()
+
 	err = c.createPeerDBInternalSchema(createMetadataTablesTx)
 	if err != nil {
 		return err
@@ -1105,7 +1113,7 @@ func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string,
 }
 
 func (c *SnowflakeConnector) createPeerDBInternalSchema(createSchemaTx *sql.Tx) error {
-	_, err := createSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createPeerDBInternalSchemaSQL, c.metadataSchema))
+	_, err := createSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
 	if err != nil {
 		return fmt.Errorf("error while creating internal schema for PeerDB: %w", err)
 	}

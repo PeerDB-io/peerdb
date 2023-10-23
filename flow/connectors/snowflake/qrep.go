@@ -126,7 +126,23 @@ func (c *SnowflakeConnector) isPartitionSynced(partitionID string) (bool, error)
 }
 
 func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	err := c.createQRepMetadataTable()
+	// NOTE that Snowflake does not support transactional DDL
+	createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
+	if err != nil {
+		return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
+	}
+	// in case we return after error, ensure transaction is rolled back
+	defer func() {
+		deferErr := createMetadataTablesTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.Errorf("unexpected error while rolling back transaction for creating metadata tables: %v", deferErr)
+		}
+	}()
+	err = c.createPeerDBInternalSchema(createMetadataTablesTx)
+	if err != nil {
+		return err
+	}
+	err = c.createQRepMetadataTable(createMetadataTablesTx)
 	if err != nil {
 		return err
 	}
@@ -145,10 +161,15 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 		}
 	}
 
+	err = createMetadataTablesTx.Commit()
+	if err != nil {
+		return fmt.Errorf("unable to commit transaction for creating metadata tables: %w", err)
+	}
+
 	return nil
 }
 
-func (c *SnowflakeConnector) createQRepMetadataTable() error {
+func (c *SnowflakeConnector) createQRepMetadataTable(createMetadataTableTx *sql.Tx) error {
 	// Define the schema
 	schemaStatement := `
 	CREATE TABLE IF NOT EXISTS %s.%s (
@@ -161,7 +182,7 @@ func (c *SnowflakeConnector) createQRepMetadataTable() error {
 	`
 	queryString := fmt.Sprintf(schemaStatement, c.metadataSchema, qRepMetadataTableName)
 
-	_, err := c.database.Exec(queryString)
+	_, err := createMetadataTableTx.Exec(queryString)
 	if err != nil {
 		log.Errorf("failed to create table %s.%s: %v", c.metadataSchema, qRepMetadataTableName, err)
 		return fmt.Errorf("failed to create table %s.%s: %w", c.metadataSchema, qRepMetadataTableName, err)
