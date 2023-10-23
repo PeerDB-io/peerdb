@@ -20,6 +20,9 @@ pub struct SnowflakeConfig {
     pub s3_integration: ::prost::alloc::string::String,
     #[prost(string, optional, tag="10")]
     pub password: ::core::option::Option<::prost::alloc::string::String>,
+    /// defaults to _PEERDB_INTERNAL
+    #[prost(string, optional, tag="11")]
+    pub metadata_schema: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -77,6 +80,9 @@ pub struct PostgresConfig {
     /// this is used only in query replication mode right now.
     #[prost(string, tag="6")]
     pub transaction_snapshot: ::prost::alloc::string::String,
+    /// defaults to _peerdb_internal
+    #[prost(string, optional, tag="7")]
+    pub metadata_schema: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

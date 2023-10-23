@@ -1131,6 +1131,9 @@ impl serde::Serialize for PostgresConfig {
         if !self.transaction_snapshot.is_empty() {
             len += 1;
         }
+        if self.metadata_schema.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.PostgresConfig", len)?;
         if !self.host.is_empty() {
             struct_ser.serialize_field("host", &self.host)?;
@@ -1150,6 +1153,9 @@ impl serde::Serialize for PostgresConfig {
         if !self.transaction_snapshot.is_empty() {
             struct_ser.serialize_field("transactionSnapshot", &self.transaction_snapshot)?;
         }
+        if let Some(v) = self.metadata_schema.as_ref() {
+            struct_ser.serialize_field("metadataSchema", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1167,6 +1173,8 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
             "database",
             "transaction_snapshot",
             "transactionSnapshot",
+            "metadata_schema",
+            "metadataSchema",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1177,6 +1185,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
             Password,
             Database,
             TransactionSnapshot,
+            MetadataSchema,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1205,6 +1214,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                             "password" => Ok(GeneratedField::Password),
                             "database" => Ok(GeneratedField::Database),
                             "transactionSnapshot" | "transaction_snapshot" => Ok(GeneratedField::TransactionSnapshot),
+                            "metadataSchema" | "metadata_schema" => Ok(GeneratedField::MetadataSchema),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1230,6 +1240,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                 let mut password__ = None;
                 let mut database__ = None;
                 let mut transaction_snapshot__ = None;
+                let mut metadata_schema__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Host => {
@@ -1270,6 +1281,12 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                             }
                             transaction_snapshot__ = Some(map.next_value()?);
                         }
+                        GeneratedField::MetadataSchema => {
+                            if metadata_schema__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadataSchema"));
+                            }
+                            metadata_schema__ = map.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1282,6 +1299,7 @@ impl<'de> serde::Deserialize<'de> for PostgresConfig {
                     password: password__.unwrap_or_default(),
                     database: database__.unwrap_or_default(),
                     transaction_snapshot: transaction_snapshot__.unwrap_or_default(),
+                    metadata_schema: metadata_schema__,
                 })
             }
         }
@@ -1524,6 +1542,9 @@ impl serde::Serialize for SnowflakeConfig {
         if self.password.is_some() {
             len += 1;
         }
+        if self.metadata_schema.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.SnowflakeConfig", len)?;
         if !self.account_id.is_empty() {
             struct_ser.serialize_field("accountId", &self.account_id)?;
@@ -1552,6 +1573,9 @@ impl serde::Serialize for SnowflakeConfig {
         if let Some(v) = self.password.as_ref() {
             struct_ser.serialize_field("password", v)?;
         }
+        if let Some(v) = self.metadata_schema.as_ref() {
+            struct_ser.serialize_field("metadataSchema", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1575,6 +1599,8 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
             "s3_integration",
             "s3Integration",
             "password",
+            "metadata_schema",
+            "metadataSchema",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1588,6 +1614,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
             QueryTimeout,
             S3Integration,
             Password,
+            MetadataSchema,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1619,6 +1646,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                             "queryTimeout" | "query_timeout" => Ok(GeneratedField::QueryTimeout),
                             "s3Integration" | "s3_integration" => Ok(GeneratedField::S3Integration),
                             "password" => Ok(GeneratedField::Password),
+                            "metadataSchema" | "metadata_schema" => Ok(GeneratedField::MetadataSchema),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1647,6 +1675,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                 let mut query_timeout__ = None;
                 let mut s3_integration__ = None;
                 let mut password__ = None;
+                let mut metadata_schema__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::AccountId => {
@@ -1705,6 +1734,12 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                             }
                             password__ = map.next_value()?;
                         }
+                        GeneratedField::MetadataSchema => {
+                            if metadata_schema__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadataSchema"));
+                            }
+                            metadata_schema__ = map.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1720,6 +1755,7 @@ impl<'de> serde::Deserialize<'de> for SnowflakeConfig {
                     query_timeout: query_timeout__.unwrap_or_default(),
                     s3_integration: s3_integration__.unwrap_or_default(),
                     password: password__,
+                    metadata_schema: metadata_schema__,
                 })
             }
         }

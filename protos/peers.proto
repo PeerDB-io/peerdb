@@ -12,6 +12,8 @@ message SnowflakeConfig {
   uint64 query_timeout = 8;
   string s3_integration = 9;
   optional string password = 10;
+  // defaults to _PEERDB_INTERNAL
+  optional string metadata_schema = 11;
 }
 
 message BigqueryConfig {
@@ -42,9 +44,10 @@ message PostgresConfig {
   string user = 3;
   string password = 4;
   string database = 5;
-
   // this is used only in query replication mode right now.
   string transaction_snapshot = 6;
+  // defaults to _peerdb_internal
+  optional string metadata_schema = 7;
 }
 
 message EventHubConfig {

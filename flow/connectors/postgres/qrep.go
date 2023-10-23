@@ -553,19 +553,34 @@ func (c *PostgresConnector) SyncQRepRecords(
 
 // SetupQRepMetadataTables function for postgres connector
 func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	qRepMetadataSchema := `CREATE TABLE IF NOT EXISTS %s (
+	createQRepMetadataTableTx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for creating qrep metadata table: %w", err)
+	}
+	defer func() {
+		deferErr := createQRepMetadataTableTx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for creating qrep metadata table: %v", err)
+		}
+	}()
+
+	err = c.createMetadataSchema(createQRepMetadataTableTx)
+	if err != nil {
+		return fmt.Errorf("error creating metadata schema: %w", err)
+	}
+
+	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
+	createQRepMetadataTableSQL := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(
 		flowJobName TEXT,
 		partitionID TEXT,
 		syncPartition JSONB,
 		syncStartTime TIMESTAMP,
 		syncFinishTime TIMESTAMP DEFAULT NOW()
-	)`
-
-	// replace table name in schema
-	qRepMetadataSchema = fmt.Sprintf(qRepMetadataSchema, qRepMetadataTableName)
-
+	)`, metadataTableIdentifier.Sanitize())
 	// execute create table query
-	_, err := c.pool.Exec(c.ctx, qRepMetadataSchema)
+	_, err = createQRepMetadataTableTx.Exec(c.ctx, createQRepMetadataTableSQL)
 	if err != nil {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
@@ -575,10 +590,16 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 
 	if config.WriteMode != nil &&
 		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.pool.Exec(c.ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		_, err = createQRepMetadataTableTx.Exec(c.ctx,
+			fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
+	}
+
+	err = createQRepMetadataTableTx.Commit(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error committing transaction for creating qrep metadata table: %w", err)
 	}
 
 	return nil
@@ -612,17 +633,18 @@ func BuildQuery(query string, flowJobName string) (string, error) {
 // isPartitionSynced checks whether a specific partition is synced
 func (c *PostgresConnector) isPartitionSynced(partitionID string) (bool, error) {
 	// setup the query string
+	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
 	queryString := fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s WHERE partitionID = $1;",
-		qRepMetadataTableName,
+		"SELECT COUNT(*)>0 FROM %s WHERE partitionID = $1;",
+		metadataTableIdentifier.Sanitize(),
 	)
 
 	// prepare and execute the query
-	var count int
-	err := c.pool.QueryRow(c.ctx, queryString, partitionID).Scan(&count)
+	var result bool
+	err := c.pool.QueryRow(c.ctx, queryString, partitionID).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	return count > 0, nil
+	return result, nil
 }

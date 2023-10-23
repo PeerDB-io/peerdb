@@ -79,7 +79,7 @@ func (c *SnowflakeConnector) createMetadataInsertStatement(
 		`INSERT INTO %s.%s
 			(flowJobName, partitionID, syncPartition, syncStartTime, syncFinishTime)
 			VALUES ('%s', '%s', '%s', '%s'::timestamp, CURRENT_TIMESTAMP);`,
-		"public", qRepMetadataTableName, jobName, partition.PartitionId,
+		c.metadataSchema, qRepMetadataTableName, jobName, partition.PartitionId,
 		partitionJSON, startTime.Format(time.RFC3339))
 
 	return insertMetadataStmt, nil
@@ -111,9 +111,9 @@ func (c *SnowflakeConnector) isPartitionSynced(partitionID string) (bool, error)
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
 		SELECT COUNT(*)
-		FROM _peerdb_query_replication_metadata
+		FROM %s.%s
 		WHERE partitionID = '%s'
-	`, partitionID)
+	`, c.metadataSchema, qRepMetadataTableName, partitionID)
 
 	row := c.database.QueryRow(queryString)
 
@@ -159,12 +159,12 @@ func (c *SnowflakeConnector) createQRepMetadataTable() error {
 			syncFinishTime TIMESTAMP_LTZ
 	);
 	`
-	queryString := fmt.Sprintf(schemaStatement, "public", qRepMetadataTableName)
+	queryString := fmt.Sprintf(schemaStatement, c.metadataSchema, qRepMetadataTableName)
 
 	_, err := c.database.Exec(queryString)
 	if err != nil {
-		log.Errorf("failed to create table %s.%s: %v", "public", qRepMetadataTableName, err)
-		return fmt.Errorf("failed to create table %s.%s: %w", "public", qRepMetadataTableName, err)
+		log.Errorf("failed to create table %s.%s: %v", c.metadataSchema, qRepMetadataTableName, err)
+		return fmt.Errorf("failed to create table %s.%s: %w", c.metadataSchema, qRepMetadataTableName, err)
 	}
 
 	log.Infof("Created table %s", qRepMetadataTableName)
@@ -384,6 +384,5 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 }
 
 func (c *SnowflakeConnector) getStageNameForJob(job string) string {
-	// TODO move this from public to peerdb internal schema.
-	return fmt.Sprintf("public.peerdb_stage_%s", job)
+	return fmt.Sprintf("%s.peerdb_stage_%s", c.metadataSchema, job)
 }

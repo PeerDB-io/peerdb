@@ -82,7 +82,11 @@ export interface SnowflakeConfig {
   role: string;
   queryTimeout: number;
   s3Integration: string;
-  password?: string | undefined;
+  password?:
+    | string
+    | undefined;
+  /** defaults to _PEERDB_INTERNAL */
+  metadataSchema?: string | undefined;
 }
 
 export interface BigqueryConfig {
@@ -115,6 +119,8 @@ export interface PostgresConfig {
   database: string;
   /** this is used only in query replication mode right now. */
   transactionSnapshot: string;
+  /** defaults to _peerdb_internal */
+  metadataSchema?: string | undefined;
 }
 
 export interface EventHubConfig {
@@ -186,6 +192,7 @@ function createBaseSnowflakeConfig(): SnowflakeConfig {
     queryTimeout: 0,
     s3Integration: "",
     password: undefined,
+    metadataSchema: undefined,
   };
 }
 
@@ -217,6 +224,9 @@ export const SnowflakeConfig = {
     }
     if (message.password !== undefined) {
       writer.uint32(82).string(message.password);
+    }
+    if (message.metadataSchema !== undefined) {
+      writer.uint32(90).string(message.metadataSchema);
     }
     return writer;
   },
@@ -291,6 +301,13 @@ export const SnowflakeConfig = {
 
           message.password = reader.string();
           continue;
+        case 11:
+          if (tag !== 90) {
+            break;
+          }
+
+          message.metadataSchema = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -311,6 +328,7 @@ export const SnowflakeConfig = {
       queryTimeout: isSet(object.queryTimeout) ? Number(object.queryTimeout) : 0,
       s3Integration: isSet(object.s3Integration) ? String(object.s3Integration) : "",
       password: isSet(object.password) ? String(object.password) : undefined,
+      metadataSchema: isSet(object.metadataSchema) ? String(object.metadataSchema) : undefined,
     };
   },
 
@@ -343,6 +361,9 @@ export const SnowflakeConfig = {
     if (message.password !== undefined) {
       obj.password = message.password;
     }
+    if (message.metadataSchema !== undefined) {
+      obj.metadataSchema = message.metadataSchema;
+    }
     return obj;
   },
 
@@ -360,6 +381,7 @@ export const SnowflakeConfig = {
     message.queryTimeout = object.queryTimeout ?? 0;
     message.s3Integration = object.s3Integration ?? "";
     message.password = object.password ?? undefined;
+    message.metadataSchema = object.metadataSchema ?? undefined;
     return message;
   },
 };
@@ -705,7 +727,15 @@ export const MongoConfig = {
 };
 
 function createBasePostgresConfig(): PostgresConfig {
-  return { host: "", port: 0, user: "", password: "", database: "", transactionSnapshot: "" };
+  return {
+    host: "",
+    port: 0,
+    user: "",
+    password: "",
+    database: "",
+    transactionSnapshot: "",
+    metadataSchema: undefined,
+  };
 }
 
 export const PostgresConfig = {
@@ -727,6 +757,9 @@ export const PostgresConfig = {
     }
     if (message.transactionSnapshot !== "") {
       writer.uint32(50).string(message.transactionSnapshot);
+    }
+    if (message.metadataSchema !== undefined) {
+      writer.uint32(58).string(message.metadataSchema);
     }
     return writer;
   },
@@ -780,6 +813,13 @@ export const PostgresConfig = {
 
           message.transactionSnapshot = reader.string();
           continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.metadataSchema = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -797,6 +837,7 @@ export const PostgresConfig = {
       password: isSet(object.password) ? String(object.password) : "",
       database: isSet(object.database) ? String(object.database) : "",
       transactionSnapshot: isSet(object.transactionSnapshot) ? String(object.transactionSnapshot) : "",
+      metadataSchema: isSet(object.metadataSchema) ? String(object.metadataSchema) : undefined,
     };
   },
 
@@ -820,6 +861,9 @@ export const PostgresConfig = {
     if (message.transactionSnapshot !== "") {
       obj.transactionSnapshot = message.transactionSnapshot;
     }
+    if (message.metadataSchema !== undefined) {
+      obj.metadataSchema = message.metadataSchema;
+    }
     return obj;
   },
 
@@ -834,6 +878,7 @@ export const PostgresConfig = {
     message.password = object.password ?? "";
     message.database = object.database ?? "";
     message.transactionSnapshot = object.transactionSnapshot ?? "";
+    message.metadataSchema = object.metadataSchema ?? undefined;
     return message;
   },
 };

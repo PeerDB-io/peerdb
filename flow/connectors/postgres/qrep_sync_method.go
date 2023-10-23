@@ -86,7 +86,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	} else {
 		// Step 2.1: Create a temp staging table
 		stagingTableName := fmt.Sprintf("_peerdb_staging_%s", util.RandomString(8))
-		stagingTableIdentifier := pgx.Identifier{dstTableName.Schema, stagingTableName}
+		stagingTableIdentifier := pgx.Identifier{s.connector.metadataSchema, stagingTableName}
 		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
 
 		createStagingTableStmt := fmt.Sprintf(
@@ -109,7 +109,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			schema.GetColumnNames(),
 			copySource,
 		)
-		if err != nil {
+		if err != nil || numRowsSynced != int64(copySource.NumRecords()) {
 			return -1, fmt.Errorf("failed to copy records into staging table: %v", err)
 		}
 
@@ -173,9 +173,10 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to marshal partition to json: %v", err)
 	}
 
+	metadataTableIdentifier := pgx.Identifier{s.connector.metadataSchema, qRepMetadataTableName}
 	insertMetadataStmt := fmt.Sprintf(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
-		qRepMetadataTableName,
+		metadataTableIdentifier.Sanitize(),
 	)
 	log.WithFields(log.Fields{
 		"flowName":         flowJobName,

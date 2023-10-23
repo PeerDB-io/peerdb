@@ -24,8 +24,6 @@ import (
 
 //nolint:stylecheck
 const (
-	// all PeerDB specific tables should go in the internal schema.
-	peerDBInternalSchema      = "_PEERDB_INTERNAL"
 	mirrorJobsTableIdentifier = "PEERDB_MIRROR_JOBS"
 	createMirrorJobsTableSQL  = `CREATE TABLE IF NOT EXISTS %s.%s(MIRROR_JOB_NAME STRING NOT NULL,OFFSET INT NOT NULL,
 		SYNC_BATCH_ID INT NOT NULL,NORMALIZE_BATCH_ID INT NOT NULL)`
@@ -90,6 +88,7 @@ type SnowflakeConnector struct {
 	ctx                context.Context
 	database           *sql.DB
 	tableSchemaMapping map[string]*protos.TableSchema
+	metadataSchema     string
 }
 
 type snowflakeRawRecord struct {
@@ -157,10 +156,16 @@ func NewSnowflakeConnector(ctx context.Context,
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
+	metadataSchema := "_PEERDB_INTERNAL"
+	if snowflakeProtoConfig.MetadataSchema != nil {
+		metadataSchema = *snowflakeProtoConfig.MetadataSchema
+	}
+
 	return &SnowflakeConnector{
 		ctx:                ctx,
 		database:           database,
 		tableSchemaMapping: nil,
+		metadataSchema:     metadataSchema,
 	}, nil
 }
 
@@ -184,7 +189,7 @@ func (c *SnowflakeConnector) ConnectionActive() bool {
 }
 
 func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
-	result, err := c.checkIfTableExists(peerDBInternalSchema, mirrorJobsTableIdentifier)
+	result, err := c.checkIfTableExists(c.metadataSchema, mirrorJobsTableIdentifier)
 	if err != nil {
 		return true
 	}
@@ -202,7 +207,7 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 		return err
 	}
 	_, err = createMetadataTablesTx.ExecContext(c.ctx, fmt.Sprintf(createMirrorJobsTableSQL,
-		peerDBInternalSchema, mirrorJobsTableIdentifier))
+		c.metadataSchema, mirrorJobsTableIdentifier))
 	if err != nil {
 		return fmt.Errorf("error while setting up mirror jobs table: %w", err)
 	}
@@ -275,7 +280,7 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 
 func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
-		peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
+		c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return nil, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
 	}
@@ -306,7 +311,7 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, peerDBInternalSchema,
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, c.metadataSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return 0, fmt.Errorf("error querying Snowflake peer for last syncBatchId: %w", err)
@@ -325,7 +330,7 @@ func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 }
 
 func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, peerDBInternalSchema,
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return 0, fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
@@ -347,7 +352,7 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 	normalizeBatchID int64) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getDistinctDestinationTableNames, peerDBInternalSchema,
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.metadataSchema,
 		rawTableIdentifier, normalizeBatchID, syncBatchID))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -369,7 +374,7 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	normalizeBatchID int64) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNametoUnchangedColsSQL, peerDBInternalSchema,
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNametoUnchangedColsSQL, c.metadataSchema,
 		rawTableIdentifier, normalizeBatchID, syncBatchID))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -658,7 +663,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	qrepConfig := &protos.QRepConfig{
 		StagingPath: "",
 		FlowJobName: req.FlowJobName,
-		DestinationTableIdentifier: fmt.Sprintf("%s.%s", peerDBInternalSchema,
+		DestinationTableIdentifier: fmt.Sprintf("%s.%s", c.metadataSchema,
 			rawTableIdentifier),
 	}
 	avroSyncer := NewSnowflakeAvroSyncMethod(qrepConfig, c)
@@ -788,7 +793,7 @@ func (c *SnowflakeConnector) CreateRawTable(req *protos.CreateRawTableInput) (*p
 	// there is no easy way to check if a table has the same schema in Snowflake,
 	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
 	_, err = createRawTableTx.ExecContext(c.ctx,
-		fmt.Sprintf(createRawTableSQL, peerDBInternalSchema, rawTableIdentifier))
+		fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
@@ -824,7 +829,7 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 		}
 	}()
 
-	row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, peerDBInternalSchema)
+	row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, c.metadataSchema)
 	var schemaExists bool
 	err = row.Scan(&schemaExists)
 	if err != nil {
@@ -832,13 +837,13 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	}
 
 	if schemaExists {
-		_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, peerDBInternalSchema,
+		_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
 			getRawTableIdentifier(jobName)))
 		if err != nil {
 			return fmt.Errorf("unable to drop raw table: %w", err)
 		}
 		_, err = syncFlowCleanupTx.ExecContext(c.ctx,
-			fmt.Sprintf(deleteJobMetadataSQL, peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
+			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 		if err != nil {
 			return fmt.Errorf("unable to delete job metadata: %w", err)
 		}
@@ -906,11 +911,11 @@ func generateCreateTableSQLForNormalizedTable(
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
 }
 
-func generateMultiValueInsertSQL(tableIdentifier string, chunkSize int) string {
+func generateMultiValueInsertSQL(metadataSchema string, tableIdentifier string, chunkSize int) string {
 	// inferring the width of the raw table from the create table statement
 	rawTableWidth := strings.Count(createRawTableSQL, ",") + 1
 
-	return fmt.Sprintf(rawTableMultiValueInsertSQL, peerDBInternalSchema, tableIdentifier,
+	return fmt.Sprintf(rawTableMultiValueInsertSQL, metadataSchema, tableIdentifier,
 		strings.TrimSuffix(strings.Repeat(fmt.Sprintf("(%s),",
 			strings.TrimSuffix(strings.Repeat("?,", rawTableWidth), ",")), chunkSize), ","))
 }
@@ -929,7 +934,7 @@ func (c *SnowflakeConnector) insertRecordsInRawTable(rawTableIdentifier string,
 			record.data, record.recordType, record.matchData, record.batchID, record.unchangedToastColumns)
 	}
 	_, err := syncRecordsTx.ExecContext(c.ctx,
-		generateMultiValueInsertSQL(rawTableIdentifier, len(snowflakeRawRecords)), rawRecordsData...)
+		generateMultiValueInsertSQL(c.metadataSchema, rawTableIdentifier, len(snowflakeRawRecords)), rawRecordsData...)
 	if err != nil {
 		return fmt.Errorf("failed to insert record into raw table: %w", err)
 	}
@@ -1039,7 +1044,7 @@ func parseTableName(tableName string) (*tableNameComponents, error) {
 
 func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
 	rows, err := c.database.QueryContext(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, peerDBInternalSchema, mirrorJobsTableIdentifier), jobName)
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if job exists: %w", err)
 	}
@@ -1062,14 +1067,14 @@ func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64
 
 	if !jobMetadataExists {
 		_, err := syncRecordsTx.ExecContext(c.ctx,
-			fmt.Sprintf(insertJobMetadataSQL, peerDBInternalSchema, mirrorJobsTableIdentifier),
+			fmt.Sprintf(insertJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier),
 			flowJobName, lastCP, syncBatchID, 0)
 		if err != nil {
 			return fmt.Errorf("failed to insert flow job status: %w", err)
 		}
 	} else {
 		_, err := syncRecordsTx.ExecContext(c.ctx,
-			fmt.Sprintf(updateMetadataForSyncRecordsSQL, peerDBInternalSchema, mirrorJobsTableIdentifier),
+			fmt.Sprintf(updateMetadataForSyncRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
 			lastCP, syncBatchID, flowJobName)
 		if err != nil {
 			return fmt.Errorf("failed to update flow job status: %w", err)
@@ -1090,7 +1095,7 @@ func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string,
 	}
 
 	_, err = normalizeRecordsTx.ExecContext(c.ctx,
-		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, peerDBInternalSchema, mirrorJobsTableIdentifier),
+		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
 		normalizeBatchID, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
@@ -1100,7 +1105,7 @@ func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string,
 }
 
 func (c *SnowflakeConnector) createPeerDBInternalSchema(createSchemaTx *sql.Tx) error {
-	_, err := createSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createPeerDBInternalSchemaSQL, peerDBInternalSchema))
+	_, err := createSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createPeerDBInternalSchemaSQL, c.metadataSchema))
 	if err != nil {
 		return fmt.Errorf("error while creating internal schema for PeerDB: %w", err)
 	}

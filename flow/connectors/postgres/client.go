@@ -17,13 +17,12 @@ import (
 
 //nolint:stylecheck
 const (
-	internalSchema            = "_peerdb_internal"
 	mirrorJobsTableIdentifier = "peerdb_mirror_jobs"
 	createMirrorJobsTableSQL  = `CREATE TABLE IF NOT EXISTS %s.%s(mirror_job_name TEXT PRIMARY KEY,
 		lsn_offset BIGINT NOT NULL,sync_batch_id BIGINT NOT NULL,normalize_batch_id BIGINT NOT NULL)`
-	rawTablePrefix          = "_peerdb_raw"
-	createInternalSchemaSQL = "CREATE SCHEMA IF NOT EXISTS %s"
-	createRawTableSQL       = `CREATE TABLE IF NOT EXISTS %s.%s(_peerdb_uid TEXT NOT NULL,
+	rawTablePrefix    = "_peerdb_raw"
+	createSchemaSQL   = "CREATE SCHEMA IF NOT EXISTS %s"
+	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_peerdb_uid TEXT NOT NULL,
 		_peerdb_timestamp BIGINT NOT NULL,_peerdb_destination_table_name TEXT NOT NULL,_peerdb_data JSONB NOT NULL,
 		_peerdb_record_type INTEGER NOT NULL, _peerdb_match_data JSONB,_peerdb_batch_id INTEGER,
 		_peerdb_unchanged_toast_columns TEXT)`
@@ -292,8 +291,8 @@ func (c *PostgresConnector) createSlotAndPublication(
 	return nil
 }
 
-func (c *PostgresConnector) createInternalSchema(createSchemaTx pgx.Tx) error {
-	_, err := createSchemaTx.Exec(c.ctx, fmt.Sprintf(createInternalSchemaSQL, internalSchema))
+func (c *PostgresConnector) createMetadataSchema(createSchemaTx pgx.Tx) error {
+	_, err := createSchemaTx.Exec(c.ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
 	if err != nil {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
@@ -329,7 +328,7 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(
 		getLastSyncBatchID_SQL,
-		internalSchema,
+		c.metadataSchema,
 		mirrorJobsTableIdentifier,
 	), jobName)
 	if err != nil {
@@ -350,7 +349,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 }
 
 func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, error) {
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, internalSchema,
+	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return 0, fmt.Errorf("error querying Postgres peer for last normalizeBatchId: %w", err)
@@ -371,7 +370,7 @@ func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, erro
 
 func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
 	rows, err := c.pool.Query(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, internalSchema, mirrorJobsTableIdentifier), jobName)
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if job exists: %w", err)
 	}
@@ -405,14 +404,14 @@ func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64,
 
 	if !jobMetadataExists {
 		_, err := syncRecordsTx.Exec(c.ctx,
-			fmt.Sprintf(insertJobMetadataSQL, internalSchema, mirrorJobsTableIdentifier),
+			fmt.Sprintf(insertJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier),
 			flowJobName, lastCP, syncBatchID, 0)
 		if err != nil {
 			return fmt.Errorf("failed to insert flow job status: %w", err)
 		}
 	} else {
 		_, err := syncRecordsTx.Exec(c.ctx,
-			fmt.Sprintf(updateMetadataForSyncRecordsSQL, internalSchema, mirrorJobsTableIdentifier),
+			fmt.Sprintf(updateMetadataForSyncRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
 			lastCP, syncBatchID, flowJobName)
 		if err != nil {
 			return fmt.Errorf("failed to update flow job status: %w", err)
@@ -433,7 +432,7 @@ func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normaliz
 	}
 
 	_, err = normalizeRecordsTx.Exec(c.ctx,
-		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, internalSchema, mirrorJobsTableIdentifier),
+		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
 		normalizeBatchID, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
@@ -446,7 +445,7 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	normalizeBatchID int64) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getTableNameToUnchangedToastColsSQL, internalSchema,
+	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getTableNameToUnchangedToastColsSQL, c.metadataSchema,
 		rawTableIdentifier), normalizeBatchID, syncBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -512,11 +511,11 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 	deleteWhereClauseSQL := strings.TrimSuffix(strings.Join(deleteWhereClauseArray, ""), "AND ")
 
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
-		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), internalSchema,
+		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), c.metadataSchema,
 		rawTableIdentifier, destinationTableIdentifier, insertColumnsSQL, flattenedCastsSQL,
 		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
-		strings.Join(maps.Values(primaryKeyColumnCasts), ","), internalSchema,
+		strings.Join(maps.Values(primaryKeyColumnCasts), ","), c.metadataSchema,
 		rawTableIdentifier, destinationTableIdentifier, deleteWhereClauseSQL)
 
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
@@ -560,7 +559,7 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	updateStatements := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 
 	return fmt.Sprintf(mergeStatementSQL, strings.Join(maps.Values(primaryKeyColumnCasts), ","),
-		internalSchema, rawTableIdentifier, destinationTableIdentifier, flattenedCastsSQL,
+		c.metadataSchema, rawTableIdentifier, destinationTableIdentifier, flattenedCastsSQL,
 		strings.Join(primaryKeySelectSQLArray, " AND "), insertColumnsSQL, insertValuesSQL, updateStatements)
 }
 

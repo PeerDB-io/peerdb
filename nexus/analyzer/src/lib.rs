@@ -533,6 +533,7 @@ fn parse_db_options(
                     .parse::<u64>()
                     .context("unable to parse query_timeout")?,
                 password: opts.get("password").map(|s| s.to_string()),
+                metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
             let config = Config::SnowflakeConfig(snowflake_config);
@@ -585,6 +586,7 @@ fn parse_db_options(
                     .get("database")
                     .context("no default database specified")?
                     .to_string(),
+                metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
             };
             let config = Config::PostgresConfig(postgres_config);
