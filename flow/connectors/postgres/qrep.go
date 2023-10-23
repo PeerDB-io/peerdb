@@ -494,7 +494,8 @@ func (c *PostgresConnector) SyncQRepRecords(
 	switch syncMode {
 	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
 		stagingTableSync := &QRepStagingTableSync{connector: c}
-		return stagingTableSync.SyncQRepRecords(config.FlowJobName, dstTable, partition, stream)
+		return stagingTableSync.SyncQRepRecords(
+			config.FlowJobName, dstTable, partition, stream, config.WriteMode)
 	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
 		return 0, fmt.Errorf("[postgres] SyncQRepRecords not implemented for storage avro sync mode")
 	default:

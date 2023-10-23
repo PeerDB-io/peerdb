@@ -28,3 +28,20 @@ func GetEnvBool(name string, defaultValue bool) bool {
 
 	return b
 }
+
+// GetEnvInt returns the value of the environment variable with the given name
+// or defaultValue if the environment variable is not set or is not a valid
+// integer value.
+func GetEnvInt(name string, defaultValue int) int {
+	val, ok := GetEnv(name)
+	if !ok {
+		return defaultValue
+	}
+
+	i, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultValue
+	}
+
+	return i
+}

@@ -494,6 +494,14 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	}
 	syncBatchID = syncBatchID + 1
 
+	var res *model.SyncResponse
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
+		res, err = c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// transaction for SyncRecords
 	syncRecordsTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
@@ -510,13 +518,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		}
 	}()
 
-	var res *model.SyncResponse
-	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
-		res, err = c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
-		if err != nil {
-			return nil, err
-		}
-	} else if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
+	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
 		res, err = c.syncRecordsViaSQL(req, rawTableIdentifier, syncBatchID, syncRecordsTx)
 		if err != nil {
 			return nil, err
@@ -539,7 +541,6 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, rawTableIdentifier string,
 	syncBatchID int64, syncRecordsTx *sql.Tx) (*model.SyncResponse, error) {
-
 	records := make([]snowflakeRawRecord, 0)
 	tableNameRowsMapping := make(map[string]uint32)
 

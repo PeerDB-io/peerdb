@@ -193,6 +193,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
 	}
 
+	idleTimeout := utils.GetEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 10)
+
 	startTime := time.Now()
 	recordsWithTableSchemaDelta, err := srcConn.PullRecords(&model.PullRecordsRequest{
 		FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
@@ -200,7 +202,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		TableNameMapping:            tblNameMapping,
 		LastSyncState:               input.LastSyncState,
 		MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
-		IdleTimeout:                 10 * time.Second,
+		IdleTimeout:                 time.Duration(idleTimeout) * time.Second,
 		TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
 		OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 		OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
