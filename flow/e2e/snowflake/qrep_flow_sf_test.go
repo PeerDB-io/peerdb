@@ -108,7 +108,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple()
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		snowflakeSuffix, tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
@@ -153,7 +153,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		snowflakeSuffix, tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
@@ -173,7 +173,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
 	s.NoError(err)
 
@@ -218,7 +217,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
 	s.NoError(err)
 
@@ -240,7 +238,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		snowflakeSuffix, tblName)
 
 	sfPeer := s.sfHelper.Peer
@@ -263,7 +261,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
 	s.NoError(err)
 
