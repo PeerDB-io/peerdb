@@ -407,24 +407,28 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 	return qValueKind
 }
 
-func GeoValidate(hexWkb string) error {
-	log.Infof("Validating geometry shape %s", hexWkb)
+// returns the WKT representation of the geometry object if it is valid
+func GeoValidate(hexWkb string) (string, error) {
 	// Decode the WKB hex string into binary
 	wkb, hexErr := hex.DecodeString(hexWkb)
 	if hexErr != nil {
 		log.Warnf("Ignoring invalid WKB: %s", hexWkb)
-		return hexErr
+		return "", hexErr
 	}
+
 	// UnmarshalWKB performs geometry validation along with WKB parsing
 	geometryObject, geoErr := geom.NewGeomFromWKB(wkb)
 	if geoErr != nil {
 		log.Warnf("Ignoring invalid geometry WKB %s: %v", hexWkb, geoErr)
-		return geoErr
+		return "", geoErr
 	}
+
 	invalidReason := geometryObject.IsValidReason()
 	if invalidReason != "Valid Geometry" {
 		log.Warnf("Ignoring invalid geometry shape %s: %s", hexWkb, invalidReason)
-		return errors.New(invalidReason)
+		return "", errors.New(invalidReason)
 	}
-	return nil
+
+	wkt := geometryObject.ToWKT()
+	return wkt, nil
 }

@@ -537,16 +537,21 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 
 	typeName, ok := p.customTypeMapping[dataType]
 	if ok {
+		var wkt string
 		customQKind := customTypeToQKind(typeName)
 		if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
-			err := GeoValidate(string(data))
+			wkt, err = GeoValidate(string(data))
 			if err != nil {
-				return &qvalue.QValue{Kind: customQKind,
-					Value: nil}, nil
+				return &qvalue.QValue{
+					Kind:  customQKind,
+					Value: nil,
+				}, nil
 			}
 		}
-		return &qvalue.QValue{Kind: customQKind,
-			Value: string(data)}, nil
+		return &qvalue.QValue{
+			Kind:  customQKind,
+			Value: wkt,
+		}, nil
 	}
 
 	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
