@@ -177,7 +177,8 @@ func (p *PostgresCDCSource) consumeStream(
 
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 
-			if !p.commitLock && (len(records.Records) >= int(req.MaxBatchSize)) {
+			if !p.commitLock {
+				log.Infof("Stand-by timeout reached, returning currently '%d' records", len(records.Records))
 				return result, nil
 			}
 		}
@@ -187,7 +188,7 @@ func (p *PostgresCDCSource) consumeStream(
 		cancel()
 		if err != nil && !p.commitLock {
 			if pgconn.Timeout(err) {
-				log.Infof("Idle timeout reached, returning currently accumulated records")
+				log.Infof("Idle timeout reached, returning currently accumulated records - %d", len(records.Records))
 				return result, nil
 			} else {
 				return nil, fmt.Errorf("ReceiveMessage failed: %w", err)
