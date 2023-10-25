@@ -66,7 +66,7 @@ func (c *EventHubConnector) Close() error {
 }
 
 func (c *EventHubConnector) ConnectionActive() bool {
-	return true
+	return c.pgMetadata.Ping()
 }
 
 func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {

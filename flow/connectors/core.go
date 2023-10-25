@@ -223,7 +223,12 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
-
+	case protos.DBType_S3:
+		s3Config := peer.GetS3Config()
+		if s3Config == nil {
+			return nil, fmt.Errorf("missing s3 config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return conns3.NewS3Connector(ctx, s3Config)
 	case protos.DBType_SQLSERVER:
 		sqlServerConfig := peer.GetSqlserverConfig()
 		if sqlServerConfig == nil {

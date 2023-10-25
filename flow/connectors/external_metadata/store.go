@@ -52,6 +52,16 @@ func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConf
 	}, nil
 }
 
+func (p *PostgresMetadataStore) Ping() bool {
+	err := p.pool.Ping(p.ctx)
+	if err != nil {
+		log.Errorf("failed to connect to metadata db: %v", err)
+		return false
+	}
+
+	return true
+}
+
 func (p *PostgresMetadataStore) Close() error {
 	if p.pool != nil {
 		p.pool.Close()

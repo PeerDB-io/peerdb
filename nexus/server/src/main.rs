@@ -157,8 +157,7 @@ impl NexusBackend {
     fn is_peer_validity_supported(peer_type: i32) -> bool {
         let unsupported_peer_types = [
             4, // EVENTHUB
-            5, // S3
-            7,
+            7, // EVENTHUB_GROUP
         ];
         !unsupported_peer_types.contains(&peer_type)
     }
@@ -411,7 +410,7 @@ impl NexusBackend {
                 } => {
                     let peer_type = peer.r#type;
                     if Self::is_peer_validity_supported(peer_type) {
-                        self.validate_peer(peer_type, peer).await.map_err(|e| {
+                        self.validate_peer(peer).await.map_err(|e| {
                             PgWireError::UserError(Box::new(ErrorInfo::new(
                                 "ERROR".to_owned(),
                                 "internal_error".to_owned(),

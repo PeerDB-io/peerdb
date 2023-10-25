@@ -205,6 +205,11 @@ func (c *BigQueryConnector) Close() error {
 
 // ConnectionActive returns true if the connection is active.
 func (c *BigQueryConnector) ConnectionActive() bool {
+	_, err := c.client.Dataset(c.datasetID).Metadata(c.ctx)
+	if err != nil {
+		return false
+	}
+
 	return c.client != nil
 }
 

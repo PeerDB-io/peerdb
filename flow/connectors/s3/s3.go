@@ -141,8 +141,9 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 }
 
 func (c *S3Connector) ConnectionActive() bool {
-	_, err := c.client.ListBuckets(nil)
-	return err == nil
+	_, listErr := c.client.ListBuckets(nil)
+	pinged := c.pgMetadata.Ping()
+	return listErr == nil && pinged
 }
 
 func (c *S3Connector) NeedsSetupMetadataTables() bool {
