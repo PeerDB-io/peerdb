@@ -93,7 +93,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		}
 
 		// we know these are int64s so we can just cast them
-		minValInt := maxVal.(int64)
+		minValInt := minVal.(int64)
 		maxValInt := maxVal.(int64)
 
 		// we will only return 1 partition for xmin:
