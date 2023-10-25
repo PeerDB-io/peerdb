@@ -133,7 +133,7 @@ export default function CreateConfig({
           {!loading && formMessage.msg.length > 0 && (
             <Label
               colorName='lowContrast'
-              colorSet={formMessage.ok ? 'positive' : 'destructive'}
+              colorSet={formMessage.ok === true ? 'positive' : 'destructive'}
               variant='subheadline'
             >
               {formMessage.msg}

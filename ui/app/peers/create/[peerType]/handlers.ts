@@ -61,9 +61,8 @@ export const handleValidate = async (
     setMessage({ ok: false, msg: valid.message });
     setLoading(false);
     return;
-  } else {
-    setMessage({ ok: true, msg: 'Peer is valid' });
   }
+  setMessage({ ok: true, msg: 'Peer is valid' });
   setLoading(false);
 };
 
