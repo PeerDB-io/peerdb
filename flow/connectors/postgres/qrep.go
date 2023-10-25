@@ -101,7 +101,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		// if there is a last partition, we will return a partition with the last partition's end value + 1 and the max value
 		if last != nil && last.Range != nil {
 			minValInt += 1
-			minVal = minValInt
 		}
 
 		if minValInt > maxValInt {
@@ -114,15 +113,15 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
-		}).Infof("single xmin partition range: %v - %v", minVal, maxVal)
+		}).Infof("single xmin partition range: %v - %v", minValInt, maxValInt)
 
 		partition := &protos.QRepPartition{
 			PartitionId: uuid.New().String(),
 			Range: &protos.PartitionRange{
 				Range: &protos.PartitionRange_IntRange{
 					IntRange: &protos.IntPartitionRange{
-						Start: minVal.(int64),
-						End:   maxVal.(int64),
+						Start: minValInt,
+						End:   maxValInt,
 					},
 				},
 			},
