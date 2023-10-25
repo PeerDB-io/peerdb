@@ -156,6 +156,16 @@ func (p *PostgresCDCSource) consumeStream(
 
 	var standByLastLogged time.Time
 
+	shutdown := utils.HeartbeatRoutine(p.ctx, 10*time.Second, func() string {
+		jobName := req.FlowJobName
+		currRecords := len(records.Records)
+		return fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
+	})
+
+	defer func() {
+		shutdown <- true
+	}()
+
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) ||
 			(len(records.Records) >= int(req.MaxBatchSize)) {
