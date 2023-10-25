@@ -22,6 +22,8 @@ import {
   ValidatePeerRequest,
   ValidatePeerResponse,
   ValidatePeerStatus,
+  createPeerStatusFromJSON,
+  validatePeerStatusFromJSON,
 } from '@/grpc_generated/route';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
@@ -65,7 +67,9 @@ export async function POST(request: Request) {
       return res.json();
     });
     let response: UValidatePeerResponse = {
-      valid: validateStatus.status === ValidatePeerStatus.VALID,
+      valid:
+        validatePeerStatusFromJSON(validateStatus.status) ===
+        ValidatePeerStatus.VALID,
       message: validateStatus.message,
     };
     return new Response(JSON.stringify(response));
@@ -81,7 +85,9 @@ export async function POST(request: Request) {
       return res.json();
     });
     let response: UCreatePeerResponse = {
-      created: createStatus.status === CreatePeerStatus.CREATED,
+      created:
+        createPeerStatusFromJSON(createStatus.status) ===
+        CreatePeerStatus.CREATED,
       message: createStatus.message,
     };
     return new Response(JSON.stringify(response));
