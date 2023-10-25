@@ -100,7 +100,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		// if there is no last partition, we will return a partition with the min and max values
 		// if there is a last partition, we will return a partition with the last partition's end value + 1 and the max value
 		if last != nil && last.Range != nil {
-			maxValInt += 1
+			minValInt += 1
 			minVal = minValInt
 		}
 
