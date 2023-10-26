@@ -12,7 +12,7 @@ import { Divider } from '@tremor/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { CDCConfig, TableMapRow } from '../types';
+import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc';
 import { handleCreateCDC, handleCreateQRep } from './handlers';
 import { cdcSettings } from './helpers/cdc';

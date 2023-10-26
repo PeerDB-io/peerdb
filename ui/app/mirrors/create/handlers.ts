@@ -1,7 +1,7 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { Dispatch, SetStateAction } from 'react';
-import { CDCConfig, TableMapRow } from '../types';
+import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import { cdcSchema, qrepSchema, tableMappingSchema } from './schema';
 
 const validateCDCFields = (

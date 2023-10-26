@@ -4,7 +4,7 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { TextField } from '@/lib/TextField';
 import { Dispatch, SetStateAction } from 'react';
-import { TableMapRow } from '../types';
+import { TableMapRow } from '../../dto/MirrorsDTO';
 
 interface TableMappingProps {
   rows: TableMapRow[];

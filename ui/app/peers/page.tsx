@@ -23,7 +23,7 @@ function PeerRow({ peer }: { peer: Peer }) {
         <Checkbox />
       </TableCell>
       <TableCell variant='extended'>
-        <Label as={Link} href='/peers/edit/TestPeer'>
+        <Label as={Link} href={`/peers/${peer.name}`}>
           {peer.name}
         </Label>
       </TableCell>

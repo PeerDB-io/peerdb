@@ -1,6 +1,6 @@
 import { QRepSyncMode } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
-import { CDCConfig } from '../../types';
+import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
   {

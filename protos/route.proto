@@ -94,6 +94,31 @@ message CDCSyncStatus {
   google.protobuf.Timestamp end_time = 5;
 }
 
+message PeerDataRequest {
+  string peer_name = 1;
+}
+
+message SlotInfo {
+  string slot_name = 1;
+  string redo_lSN = 2;
+  string restart_lSN = 3;
+  float lag_in_mb = 4;
+}
+
+message StatInfo {
+  int64 pid = 1;
+  string query = 2;
+  float duration = 3;
+}
+
+message PeerSlotResponse {
+  repeated SlotInfo slot_data = 1;
+}
+
+message PeerStatResponse {
+  repeated StatInfo stat_data = 1;
+}
+
 message SnapshotStatus {
   repeated QRepMirrorStatus clones = 1;
 }
@@ -137,6 +162,12 @@ service FlowService {
       post: "/v1/flows/qrep/create",
       body: "*"
      };
+  }
+  rpc GetSlotInfo(PeerDataRequest) returns (PeerSlotResponse) {
+    option (google.api.http) = { get: "/v1/peers/slots/{peer_name}" };
+  }
+  rpc GetStatInfo(PeerDataRequest) returns (PeerStatResponse) {
+    option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
   }
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
