@@ -192,8 +192,18 @@ pub fn process_options(
     // all options processed have been removed from the map
     // so any leftover keys are options that shouldn't be here
     if !raw_opts.is_empty() {
-        anyhow::bail!("Unknown options for QRep mirrors: {:#?}", raw_opts.into_keys().collect::<Vec<&str>>());
+        anyhow::bail!(
+            "Unknown options for QRep mirrors: {:#?}",
+            raw_opts.into_keys().collect::<Vec<&str>>()
+        );
     }
 
+    // If mode is upsert, we need unique key columns
+    if opts.get("mode") == Some(&Value::String(String::from("upsert")))
+        && (opts.get("unique_key_columns") == None
+            || opts.get("unique_key_columns") == Some(&Value::Array(vec![])))
+    {
+        anyhow::bail!("For upsert mode, unique_key_columns must be specified");
+    }
     Ok(opts)
 }
