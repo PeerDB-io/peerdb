@@ -255,7 +255,7 @@ func CDCFlowWorkflowWithConfig(
 		if cfg.Resync {
 			renameOpts := &protos.RenameTablesInput{}
 			renameOpts.FlowJobName = cfg.FlowJobName
-			renameOpts.Peer = cfg.Source
+			renameOpts.Peer = cfg.Destination
 			for _, mapping := range cfg.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
 				newName := strings.TrimSuffix(oldName, "_resync")
