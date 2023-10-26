@@ -7,8 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"go.temporal.io/sdk/temporal"
+
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
+	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
@@ -701,4 +704,24 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	}
 
 	return nil
+}
+
+func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(dstConn)
+
+	// check if destination is snowflake, if not error out
+	if config.Peer.Type != protos.DBType_SNOWFLAKE {
+		return nil, fmt.Errorf("rename tables is only supported for snowflake")
+	}
+
+	sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast connector to snowflake connector")
+	}
+
+	return sfConn.RenameTables(config)
 }

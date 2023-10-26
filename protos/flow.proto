@@ -62,6 +62,24 @@ message FlowConnectionConfigs {
   // the below two are for eventhub only
   int64 push_batch_size = 21;
   int64 push_parallelism = 22;
+
+  // if true, then the flow will be resynced
+  bool resync = 23;
+}
+
+message RenameTableOption {
+  string current_name = 1;
+  string new_name = 2;
+}
+
+message RenameTablesInput {
+  string flow_job_name = 1;
+  peerdb_peers.Peer peer = 2;
+  repeated RenameTableOption rename_table_options = 3;
+}
+
+message RenameTablesOutput {
+  string flow_job_name = 1;
 }
 
 message SyncFlowOptions {

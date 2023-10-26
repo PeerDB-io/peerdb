@@ -133,6 +133,8 @@ export interface FlowConnectionConfigs {
   /** the below two are for eventhub only */
   pushBatchSize: number;
   pushParallelism: number;
+  /** if true, then the flow will be resynced */
+  resync: boolean;
 }
 
 export interface FlowConnectionConfigs_SrcTableIdNameMappingEntry {
@@ -143,6 +145,21 @@ export interface FlowConnectionConfigs_SrcTableIdNameMappingEntry {
 export interface FlowConnectionConfigs_TableNameSchemaMappingEntry {
   key: string;
   value: TableSchema | undefined;
+}
+
+export interface RenameTableOption {
+  currentName: string;
+  newName: string;
+}
+
+export interface RenameTablesInput {
+  flowJobName: string;
+  peer: Peer | undefined;
+  renameTableOptions: RenameTableOption[];
+}
+
+export interface RenameTablesOutput {
+  flowJobName: string;
 }
 
 export interface SyncFlowOptions {
@@ -357,7 +374,9 @@ export interface QRepConfig {
   watermarkColumn: string;
   initialCopyOnly: boolean;
   syncMode: QRepSyncMode;
+  /** DEPRECATED: eliminate when breaking changes are allowed. */
   batchSizeInt: number;
+  /** DEPRECATED: eliminate when breaking changes are allowed. */
   batchDurationSeconds: number;
   maxParallelWorkers: number;
   /** time to wait between getting partitions to process */
@@ -786,6 +805,7 @@ function createBaseFlowConnectionConfigs(): FlowConnectionConfigs {
     replicationSlotName: "",
     pushBatchSize: 0,
     pushParallelism: 0,
+    resync: false,
   };
 }
 
@@ -858,6 +878,9 @@ export const FlowConnectionConfigs = {
     }
     if (message.pushParallelism !== 0) {
       writer.uint32(176).int64(message.pushParallelism);
+    }
+    if (message.resync === true) {
+      writer.uint32(184).bool(message.resync);
     }
     return writer;
   },
@@ -1029,6 +1052,13 @@ export const FlowConnectionConfigs = {
 
           message.pushParallelism = longToNumber(reader.int64() as Long);
           continue;
+        case 23:
+          if (tag !== 184) {
+            break;
+          }
+
+          message.resync = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1080,6 +1110,7 @@ export const FlowConnectionConfigs = {
       replicationSlotName: isSet(object.replicationSlotName) ? String(object.replicationSlotName) : "",
       pushBatchSize: isSet(object.pushBatchSize) ? Number(object.pushBatchSize) : 0,
       pushParallelism: isSet(object.pushParallelism) ? Number(object.pushParallelism) : 0,
+      resync: isSet(object.resync) ? Boolean(object.resync) : false,
     };
   },
 
@@ -1163,6 +1194,9 @@ export const FlowConnectionConfigs = {
     if (message.pushParallelism !== 0) {
       obj.pushParallelism = Math.round(message.pushParallelism);
     }
+    if (message.resync === true) {
+      obj.resync = message.resync;
+    }
     return obj;
   },
 
@@ -1215,6 +1249,7 @@ export const FlowConnectionConfigs = {
     message.replicationSlotName = object.replicationSlotName ?? "";
     message.pushBatchSize = object.pushBatchSize ?? 0;
     message.pushParallelism = object.pushParallelism ?? 0;
+    message.resync = object.resync ?? false;
     return message;
   },
 };
@@ -1376,6 +1411,228 @@ export const FlowConnectionConfigs_TableNameSchemaMappingEntry = {
     message.value = (object.value !== undefined && object.value !== null)
       ? TableSchema.fromPartial(object.value)
       : undefined;
+    return message;
+  },
+};
+
+function createBaseRenameTableOption(): RenameTableOption {
+  return { currentName: "", newName: "" };
+}
+
+export const RenameTableOption = {
+  encode(message: RenameTableOption, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.currentName !== "") {
+      writer.uint32(10).string(message.currentName);
+    }
+    if (message.newName !== "") {
+      writer.uint32(18).string(message.newName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RenameTableOption {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRenameTableOption();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.currentName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.newName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RenameTableOption {
+    return {
+      currentName: isSet(object.currentName) ? String(object.currentName) : "",
+      newName: isSet(object.newName) ? String(object.newName) : "",
+    };
+  },
+
+  toJSON(message: RenameTableOption): unknown {
+    const obj: any = {};
+    if (message.currentName !== "") {
+      obj.currentName = message.currentName;
+    }
+    if (message.newName !== "") {
+      obj.newName = message.newName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RenameTableOption>, I>>(base?: I): RenameTableOption {
+    return RenameTableOption.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RenameTableOption>, I>>(object: I): RenameTableOption {
+    const message = createBaseRenameTableOption();
+    message.currentName = object.currentName ?? "";
+    message.newName = object.newName ?? "";
+    return message;
+  },
+};
+
+function createBaseRenameTablesInput(): RenameTablesInput {
+  return { flowJobName: "", peer: undefined, renameTableOptions: [] };
+}
+
+export const RenameTablesInput = {
+  encode(message: RenameTablesInput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowJobName !== "") {
+      writer.uint32(10).string(message.flowJobName);
+    }
+    if (message.peer !== undefined) {
+      Peer.encode(message.peer, writer.uint32(18).fork()).ldelim();
+    }
+    for (const v of message.renameTableOptions) {
+      RenameTableOption.encode(v!, writer.uint32(26).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RenameTablesInput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRenameTablesInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.peer = Peer.decode(reader, reader.uint32());
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.renameTableOptions.push(RenameTableOption.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RenameTablesInput {
+    return {
+      flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
+      peer: isSet(object.peer) ? Peer.fromJSON(object.peer) : undefined,
+      renameTableOptions: Array.isArray(object?.renameTableOptions)
+        ? object.renameTableOptions.map((e: any) => RenameTableOption.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: RenameTablesInput): unknown {
+    const obj: any = {};
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    if (message.peer !== undefined) {
+      obj.peer = Peer.toJSON(message.peer);
+    }
+    if (message.renameTableOptions?.length) {
+      obj.renameTableOptions = message.renameTableOptions.map((e) => RenameTableOption.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RenameTablesInput>, I>>(base?: I): RenameTablesInput {
+    return RenameTablesInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RenameTablesInput>, I>>(object: I): RenameTablesInput {
+    const message = createBaseRenameTablesInput();
+    message.flowJobName = object.flowJobName ?? "";
+    message.peer = (object.peer !== undefined && object.peer !== null) ? Peer.fromPartial(object.peer) : undefined;
+    message.renameTableOptions = object.renameTableOptions?.map((e) => RenameTableOption.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseRenameTablesOutput(): RenameTablesOutput {
+  return { flowJobName: "" };
+}
+
+export const RenameTablesOutput = {
+  encode(message: RenameTablesOutput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowJobName !== "") {
+      writer.uint32(10).string(message.flowJobName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RenameTablesOutput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRenameTablesOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RenameTablesOutput {
+    return { flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "" };
+  },
+
+  toJSON(message: RenameTablesOutput): unknown {
+    const obj: any = {};
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RenameTablesOutput>, I>>(base?: I): RenameTablesOutput {
+    return RenameTablesOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RenameTablesOutput>, I>>(object: I): RenameTablesOutput {
+    const message = createBaseRenameTablesOutput();
+    message.flowJobName = object.flowJobName ?? "";
     return message;
   },
 };

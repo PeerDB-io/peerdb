@@ -191,6 +191,7 @@ impl FlowGrpcClient {
             push_batch_size: job.push_batch_size.unwrap_or_default(),
             push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
+            resync: job.resync,
             ..Default::default()
         };
 
