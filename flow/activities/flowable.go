@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"go.temporal.io/sdk/temporal"
-
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
