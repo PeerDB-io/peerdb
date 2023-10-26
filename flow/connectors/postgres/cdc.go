@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -80,7 +81,7 @@ func getChildToParentRelIdMap(ctx context.Context, pool *pgxpool.Pool) (map[uint
 		WHERE parent.relking='p';
 	`
 
-	rows, err := pool.Query(ctx, query)
+	rows, err := pool.Query(ctx, query, pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
