@@ -37,8 +37,8 @@ type FlowServiceClient interface {
 	CreatePeer(ctx context.Context, in *CreatePeerRequest, opts ...grpc.CallOption) (*CreatePeerResponse, error)
 	CreateCDCFlow(ctx context.Context, in *CreateCDCFlowRequest, opts ...grpc.CallOption) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error)
-	GetSlotInfo(ctx context.Context, in *PeerDataRequest, opts ...grpc.CallOption) (*PeerSlotResponse, error)
-	GetStatInfo(ctx context.Context, in *PeerDataRequest, opts ...grpc.CallOption) (*PeerStatResponse, error)
+	GetSlotInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSlotResponse, error)
+	GetStatInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerStatResponse, error)
 	ShutdownFlow(ctx context.Context, in *ShutdownRequest, opts ...grpc.CallOption) (*ShutdownResponse, error)
 	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
 }
@@ -87,7 +87,7 @@ func (c *flowServiceClient) CreateQRepFlow(ctx context.Context, in *CreateQRepFl
 	return out, nil
 }
 
-func (c *flowServiceClient) GetSlotInfo(ctx context.Context, in *PeerDataRequest, opts ...grpc.CallOption) (*PeerSlotResponse, error) {
+func (c *flowServiceClient) GetSlotInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSlotResponse, error) {
 	out := new(PeerSlotResponse)
 	err := c.cc.Invoke(ctx, FlowService_GetSlotInfo_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -96,7 +96,7 @@ func (c *flowServiceClient) GetSlotInfo(ctx context.Context, in *PeerDataRequest
 	return out, nil
 }
 
-func (c *flowServiceClient) GetStatInfo(ctx context.Context, in *PeerDataRequest, opts ...grpc.CallOption) (*PeerStatResponse, error) {
+func (c *flowServiceClient) GetStatInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerStatResponse, error) {
 	out := new(PeerStatResponse)
 	err := c.cc.Invoke(ctx, FlowService_GetStatInfo_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -131,8 +131,8 @@ type FlowServiceServer interface {
 	CreatePeer(context.Context, *CreatePeerRequest) (*CreatePeerResponse, error)
 	CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error)
-	GetSlotInfo(context.Context, *PeerDataRequest) (*PeerSlotResponse, error)
-	GetStatInfo(context.Context, *PeerDataRequest) (*PeerStatResponse, error)
+	GetSlotInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSlotResponse, error)
+	GetStatInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerStatResponse, error)
 	ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
 	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
@@ -154,10 +154,10 @@ func (UnimplementedFlowServiceServer) CreateCDCFlow(context.Context, *CreateCDCF
 func (UnimplementedFlowServiceServer) CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateQRepFlow not implemented")
 }
-func (UnimplementedFlowServiceServer) GetSlotInfo(context.Context, *PeerDataRequest) (*PeerSlotResponse, error) {
+func (UnimplementedFlowServiceServer) GetSlotInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSlotResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSlotInfo not implemented")
 }
-func (UnimplementedFlowServiceServer) GetStatInfo(context.Context, *PeerDataRequest) (*PeerStatResponse, error) {
+func (UnimplementedFlowServiceServer) GetStatInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerStatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetStatInfo not implemented")
 }
 func (UnimplementedFlowServiceServer) ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error) {
@@ -252,7 +252,7 @@ func _FlowService_CreateQRepFlow_Handler(srv interface{}, ctx context.Context, d
 }
 
 func _FlowService_GetSlotInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PeerDataRequest)
+	in := new(PostgresPeerActivityInfoRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -264,13 +264,13 @@ func _FlowService_GetSlotInfo_Handler(srv interface{}, ctx context.Context, dec 
 		FullMethod: FlowService_GetSlotInfo_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FlowServiceServer).GetSlotInfo(ctx, req.(*PeerDataRequest))
+		return srv.(FlowServiceServer).GetSlotInfo(ctx, req.(*PostgresPeerActivityInfoRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _FlowService_GetStatInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PeerDataRequest)
+	in := new(PostgresPeerActivityInfoRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -282,7 +282,7 @@ func _FlowService_GetStatInfo_Handler(srv interface{}, ctx context.Context, dec 
 		FullMethod: FlowService_GetStatInfo_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FlowServiceServer).GetStatInfo(ctx, req.(*PeerDataRequest))
+		return srv.(FlowServiceServer).GetStatInfo(ctx, req.(*PostgresPeerActivityInfoRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

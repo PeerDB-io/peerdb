@@ -192,7 +192,7 @@ pub mod flow_service_client {
         ///
         pub async fn get_slot_info(
             &mut self,
-            request: impl tonic::IntoRequest<super::PeerDataRequest>,
+            request: impl tonic::IntoRequest<super::PostgresPeerActivityInfoRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PeerSlotResponse>,
             tonic::Status,
@@ -218,7 +218,7 @@ pub mod flow_service_client {
         ///
         pub async fn get_stat_info(
             &mut self,
-            request: impl tonic::IntoRequest<super::PeerDataRequest>,
+            request: impl tonic::IntoRequest<super::PostgresPeerActivityInfoRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PeerStatResponse>,
             tonic::Status,
@@ -337,7 +337,7 @@ pub mod flow_service_server {
         ///
         async fn get_slot_info(
             &self,
-            request: tonic::Request<super::PeerDataRequest>,
+            request: tonic::Request<super::PostgresPeerActivityInfoRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PeerSlotResponse>,
             tonic::Status,
@@ -345,7 +345,7 @@ pub mod flow_service_server {
         ///
         async fn get_stat_info(
             &self,
-            request: tonic::Request<super::PeerDataRequest>,
+            request: tonic::Request<super::PostgresPeerActivityInfoRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PeerStatResponse>,
             tonic::Status,
@@ -634,7 +634,7 @@ pub mod flow_service_server {
                     struct GetSlotInfoSvc<T: FlowService>(pub Arc<T>);
                     impl<
                         T: FlowService,
-                    > tonic::server::UnaryService<super::PeerDataRequest>
+                    > tonic::server::UnaryService<super::PostgresPeerActivityInfoRequest>
                     for GetSlotInfoSvc<T> {
                         type Response = super::PeerSlotResponse;
                         type Future = BoxFuture<
@@ -643,7 +643,9 @@ pub mod flow_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::PeerDataRequest>,
+                            request: tonic::Request<
+                                super::PostgresPeerActivityInfoRequest,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -680,7 +682,7 @@ pub mod flow_service_server {
                     struct GetStatInfoSvc<T: FlowService>(pub Arc<T>);
                     impl<
                         T: FlowService,
-                    > tonic::server::UnaryService<super::PeerDataRequest>
+                    > tonic::server::UnaryService<super::PostgresPeerActivityInfoRequest>
                     for GetStatInfoSvc<T> {
                         type Response = super::PeerStatResponse;
                         type Future = BoxFuture<
@@ -689,7 +691,9 @@ pub mod flow_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::PeerDataRequest>,
+                            request: tonic::Request<
+                                super::PostgresPeerActivityInfoRequest,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

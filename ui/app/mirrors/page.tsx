@@ -75,10 +75,18 @@ async function CDCFlows() {
             </Label>
           </TableCell>
           <TableCell>
-            <Label>{flow.sourcePeer.name}</Label>
+            <div style={{ cursor: 'pointer' }}>
+              <Label as={Link} href={`/peers/${flow.sourcePeer.name}`}>
+                {flow.sourcePeer.name}
+              </Label>
+            </div>
           </TableCell>
           <TableCell>
-            <Label>{flow.destinationPeer.name}</Label>
+            <div style={{ cursor: 'pointer' }}>
+              <Label as={Link} href={`/peers/${flow.destinationPeer.name}`}>
+                {flow.destinationPeer.name}
+              </Label>
+            </div>
           </TableCell>
           <TableCell>
             <Label>
@@ -159,10 +167,18 @@ async function QRepFlows() {
             </Label>
           </TableCell>
           <TableCell>
-            <Label>{flow.sourcePeer.name}</Label>
+            <div style={{ cursor: 'pointer' }}>
+              <Label as={Link} href={`/peers/${flow.sourcePeer.name}`}>
+                {flow.sourcePeer.name}
+              </Label>
+            </div>
           </TableCell>
           <TableCell>
-            <Label>{flow.destinationPeer.name}</Label>
+            <div style={{ cursor: 'pointer' }}>
+              <Label as={Link} href={`/peers/${flow.destinationPeer.name}`}>
+                {flow.destinationPeer.name}
+              </Label>
+            </div>
           </TableCell>
           <TableCell>
             <Label>

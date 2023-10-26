@@ -119,7 +119,7 @@ pub struct CdcSyncStatus {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PeerDataRequest {
+pub struct PostgresPeerActivityInfoRequest {
     #[prost(string, tag="1")]
     pub peer_name: ::prost::alloc::string::String,
 }
@@ -132,7 +132,9 @@ pub struct SlotInfo {
     pub redo_l_sn: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub restart_l_sn: ::prost::alloc::string::String,
-    #[prost(float, tag="4")]
+    #[prost(bool, tag="4")]
+    pub active: bool,
+    #[prost(float, tag="5")]
     pub lag_in_mb: f32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -141,8 +143,14 @@ pub struct StatInfo {
     #[prost(int64, tag="1")]
     pub pid: i64,
     #[prost(string, tag="2")]
+    pub wait_event: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub wait_event_type: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub query_start: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
     pub query: ::prost::alloc::string::String,
-    #[prost(float, tag="3")]
+    #[prost(float, tag="6")]
     pub duration: f32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

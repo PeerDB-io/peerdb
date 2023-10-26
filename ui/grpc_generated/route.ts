@@ -175,7 +175,7 @@ export interface CDCSyncStatus {
   endTime: Date | undefined;
 }
 
-export interface PeerDataRequest {
+export interface PostgresPeerActivityInfoRequest {
   peerName: string;
 }
 
@@ -183,11 +183,15 @@ export interface SlotInfo {
   slotName: string;
   redoLSN: string;
   restartLSN: string;
+  active: boolean;
   lagInMb: number;
 }
 
 export interface StatInfo {
   pid: number;
+  waitEvent: string;
+  waitEventType: string;
+  queryStart: string;
   query: string;
   duration: number;
 }
@@ -1287,22 +1291,22 @@ export const CDCSyncStatus = {
   },
 };
 
-function createBasePeerDataRequest(): PeerDataRequest {
+function createBasePostgresPeerActivityInfoRequest(): PostgresPeerActivityInfoRequest {
   return { peerName: "" };
 }
 
-export const PeerDataRequest = {
-  encode(message: PeerDataRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+export const PostgresPeerActivityInfoRequest = {
+  encode(message: PostgresPeerActivityInfoRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.peerName !== "") {
       writer.uint32(10).string(message.peerName);
     }
     return writer;
   },
 
-  decode(input: _m0.Reader | Uint8Array, length?: number): PeerDataRequest {
+  decode(input: _m0.Reader | Uint8Array, length?: number): PostgresPeerActivityInfoRequest {
     const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBasePeerDataRequest();
+    const message = createBasePostgresPeerActivityInfoRequest();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1322,11 +1326,11 @@ export const PeerDataRequest = {
     return message;
   },
 
-  fromJSON(object: any): PeerDataRequest {
+  fromJSON(object: any): PostgresPeerActivityInfoRequest {
     return { peerName: isSet(object.peerName) ? String(object.peerName) : "" };
   },
 
-  toJSON(message: PeerDataRequest): unknown {
+  toJSON(message: PostgresPeerActivityInfoRequest): unknown {
     const obj: any = {};
     if (message.peerName !== "") {
       obj.peerName = message.peerName;
@@ -1334,18 +1338,20 @@ export const PeerDataRequest = {
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<PeerDataRequest>, I>>(base?: I): PeerDataRequest {
-    return PeerDataRequest.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<PostgresPeerActivityInfoRequest>, I>>(base?: I): PostgresPeerActivityInfoRequest {
+    return PostgresPeerActivityInfoRequest.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<PeerDataRequest>, I>>(object: I): PeerDataRequest {
-    const message = createBasePeerDataRequest();
+  fromPartial<I extends Exact<DeepPartial<PostgresPeerActivityInfoRequest>, I>>(
+    object: I,
+  ): PostgresPeerActivityInfoRequest {
+    const message = createBasePostgresPeerActivityInfoRequest();
     message.peerName = object.peerName ?? "";
     return message;
   },
 };
 
 function createBaseSlotInfo(): SlotInfo {
-  return { slotName: "", redoLSN: "", restartLSN: "", lagInMb: 0 };
+  return { slotName: "", redoLSN: "", restartLSN: "", active: false, lagInMb: 0 };
 }
 
 export const SlotInfo = {
@@ -1359,8 +1365,11 @@ export const SlotInfo = {
     if (message.restartLSN !== "") {
       writer.uint32(26).string(message.restartLSN);
     }
+    if (message.active === true) {
+      writer.uint32(32).bool(message.active);
+    }
     if (message.lagInMb !== 0) {
-      writer.uint32(37).float(message.lagInMb);
+      writer.uint32(45).float(message.lagInMb);
     }
     return writer;
   },
@@ -1394,7 +1403,14 @@ export const SlotInfo = {
           message.restartLSN = reader.string();
           continue;
         case 4:
-          if (tag !== 37) {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.active = reader.bool();
+          continue;
+        case 5:
+          if (tag !== 45) {
             break;
           }
 
@@ -1414,6 +1430,7 @@ export const SlotInfo = {
       slotName: isSet(object.slotName) ? String(object.slotName) : "",
       redoLSN: isSet(object.redoLSN) ? String(object.redoLSN) : "",
       restartLSN: isSet(object.restartLSN) ? String(object.restartLSN) : "",
+      active: isSet(object.active) ? Boolean(object.active) : false,
       lagInMb: isSet(object.lagInMb) ? Number(object.lagInMb) : 0,
     };
   },
@@ -1429,6 +1446,9 @@ export const SlotInfo = {
     if (message.restartLSN !== "") {
       obj.restartLSN = message.restartLSN;
     }
+    if (message.active === true) {
+      obj.active = message.active;
+    }
     if (message.lagInMb !== 0) {
       obj.lagInMb = message.lagInMb;
     }
@@ -1443,13 +1463,14 @@ export const SlotInfo = {
     message.slotName = object.slotName ?? "";
     message.redoLSN = object.redoLSN ?? "";
     message.restartLSN = object.restartLSN ?? "";
+    message.active = object.active ?? false;
     message.lagInMb = object.lagInMb ?? 0;
     return message;
   },
 };
 
 function createBaseStatInfo(): StatInfo {
-  return { pid: 0, query: "", duration: 0 };
+  return { pid: 0, waitEvent: "", waitEventType: "", queryStart: "", query: "", duration: 0 };
 }
 
 export const StatInfo = {
@@ -1457,11 +1478,20 @@ export const StatInfo = {
     if (message.pid !== 0) {
       writer.uint32(8).int64(message.pid);
     }
+    if (message.waitEvent !== "") {
+      writer.uint32(18).string(message.waitEvent);
+    }
+    if (message.waitEventType !== "") {
+      writer.uint32(26).string(message.waitEventType);
+    }
+    if (message.queryStart !== "") {
+      writer.uint32(34).string(message.queryStart);
+    }
     if (message.query !== "") {
-      writer.uint32(18).string(message.query);
+      writer.uint32(42).string(message.query);
     }
     if (message.duration !== 0) {
-      writer.uint32(29).float(message.duration);
+      writer.uint32(53).float(message.duration);
     }
     return writer;
   },
@@ -1485,10 +1515,31 @@ export const StatInfo = {
             break;
           }
 
-          message.query = reader.string();
+          message.waitEvent = reader.string();
           continue;
         case 3:
-          if (tag !== 29) {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.waitEventType = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.queryStart = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.query = reader.string();
+          continue;
+        case 6:
+          if (tag !== 53) {
             break;
           }
 
@@ -1506,6 +1557,9 @@ export const StatInfo = {
   fromJSON(object: any): StatInfo {
     return {
       pid: isSet(object.pid) ? Number(object.pid) : 0,
+      waitEvent: isSet(object.waitEvent) ? String(object.waitEvent) : "",
+      waitEventType: isSet(object.waitEventType) ? String(object.waitEventType) : "",
+      queryStart: isSet(object.queryStart) ? String(object.queryStart) : "",
       query: isSet(object.query) ? String(object.query) : "",
       duration: isSet(object.duration) ? Number(object.duration) : 0,
     };
@@ -1515,6 +1569,15 @@ export const StatInfo = {
     const obj: any = {};
     if (message.pid !== 0) {
       obj.pid = Math.round(message.pid);
+    }
+    if (message.waitEvent !== "") {
+      obj.waitEvent = message.waitEvent;
+    }
+    if (message.waitEventType !== "") {
+      obj.waitEventType = message.waitEventType;
+    }
+    if (message.queryStart !== "") {
+      obj.queryStart = message.queryStart;
     }
     if (message.query !== "") {
       obj.query = message.query;
@@ -1531,6 +1594,9 @@ export const StatInfo = {
   fromPartial<I extends Exact<DeepPartial<StatInfo>, I>>(object: I): StatInfo {
     const message = createBaseStatInfo();
     message.pid = object.pid ?? 0;
+    message.waitEvent = object.waitEvent ?? "";
+    message.waitEventType = object.waitEventType ?? "";
+    message.queryStart = object.queryStart ?? "";
     message.query = object.query ?? "";
     message.duration = object.duration ?? 0;
     return message;
@@ -1951,8 +2017,9 @@ export const FlowServiceService = {
     path: "/peerdb_route.FlowService/GetSlotInfo",
     requestStream: false,
     responseStream: false,
-    requestSerialize: (value: PeerDataRequest) => Buffer.from(PeerDataRequest.encode(value).finish()),
-    requestDeserialize: (value: Buffer) => PeerDataRequest.decode(value),
+    requestSerialize: (value: PostgresPeerActivityInfoRequest) =>
+      Buffer.from(PostgresPeerActivityInfoRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PostgresPeerActivityInfoRequest.decode(value),
     responseSerialize: (value: PeerSlotResponse) => Buffer.from(PeerSlotResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => PeerSlotResponse.decode(value),
   },
@@ -1960,8 +2027,9 @@ export const FlowServiceService = {
     path: "/peerdb_route.FlowService/GetStatInfo",
     requestStream: false,
     responseStream: false,
-    requestSerialize: (value: PeerDataRequest) => Buffer.from(PeerDataRequest.encode(value).finish()),
-    requestDeserialize: (value: Buffer) => PeerDataRequest.decode(value),
+    requestSerialize: (value: PostgresPeerActivityInfoRequest) =>
+      Buffer.from(PostgresPeerActivityInfoRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PostgresPeerActivityInfoRequest.decode(value),
     responseSerialize: (value: PeerStatResponse) => Buffer.from(PeerStatResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => PeerStatResponse.decode(value),
   },
@@ -1990,8 +2058,8 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   createPeer: handleUnaryCall<CreatePeerRequest, CreatePeerResponse>;
   createCdcFlow: handleUnaryCall<CreateCDCFlowRequest, CreateCDCFlowResponse>;
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
-  getSlotInfo: handleUnaryCall<PeerDataRequest, PeerSlotResponse>;
-  getStatInfo: handleUnaryCall<PeerDataRequest, PeerStatResponse>;
+  getSlotInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSlotResponse>;
+  getStatInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerStatResponse>;
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
   mirrorStatus: handleUnaryCall<MirrorStatusRequest, MirrorStatusResponse>;
 }
@@ -2058,31 +2126,31 @@ export interface FlowServiceClient extends Client {
     callback: (error: ServiceError | null, response: CreateQRepFlowResponse) => void,
   ): ClientUnaryCall;
   getSlotInfo(
-    request: PeerDataRequest,
+    request: PostgresPeerActivityInfoRequest,
     callback: (error: ServiceError | null, response: PeerSlotResponse) => void,
   ): ClientUnaryCall;
   getSlotInfo(
-    request: PeerDataRequest,
+    request: PostgresPeerActivityInfoRequest,
     metadata: Metadata,
     callback: (error: ServiceError | null, response: PeerSlotResponse) => void,
   ): ClientUnaryCall;
   getSlotInfo(
-    request: PeerDataRequest,
+    request: PostgresPeerActivityInfoRequest,
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: PeerSlotResponse) => void,
   ): ClientUnaryCall;
   getStatInfo(
-    request: PeerDataRequest,
+    request: PostgresPeerActivityInfoRequest,
     callback: (error: ServiceError | null, response: PeerStatResponse) => void,
   ): ClientUnaryCall;
   getStatInfo(
-    request: PeerDataRequest,
+    request: PostgresPeerActivityInfoRequest,
     metadata: Metadata,
     callback: (error: ServiceError | null, response: PeerStatResponse) => void,
   ): ClientUnaryCall;
   getStatInfo(
-    request: PeerDataRequest,
+    request: PostgresPeerActivityInfoRequest,
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: PeerStatResponse) => void,

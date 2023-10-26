@@ -168,7 +168,7 @@ func local_request_FlowService_CreateQRepFlow_0(ctx context.Context, marshaler r
 }
 
 func request_FlowService_GetSlotInfo_0(ctx context.Context, marshaler runtime.Marshaler, client FlowServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PeerDataRequest
+	var protoReq PostgresPeerActivityInfoRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -194,7 +194,7 @@ func request_FlowService_GetSlotInfo_0(ctx context.Context, marshaler runtime.Ma
 }
 
 func local_request_FlowService_GetSlotInfo_0(ctx context.Context, marshaler runtime.Marshaler, server FlowServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PeerDataRequest
+	var protoReq PostgresPeerActivityInfoRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -220,7 +220,7 @@ func local_request_FlowService_GetSlotInfo_0(ctx context.Context, marshaler runt
 }
 
 func request_FlowService_GetStatInfo_0(ctx context.Context, marshaler runtime.Marshaler, client FlowServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PeerDataRequest
+	var protoReq PostgresPeerActivityInfoRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -246,7 +246,7 @@ func request_FlowService_GetStatInfo_0(ctx context.Context, marshaler runtime.Ma
 }
 
 func local_request_FlowService_GetStatInfo_0(ctx context.Context, marshaler runtime.Marshaler, server FlowServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PeerDataRequest
+	var protoReq PostgresPeerActivityInfoRequest
 	var metadata runtime.ServerMetadata
 
 	var (

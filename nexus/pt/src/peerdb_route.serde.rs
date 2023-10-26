@@ -1408,102 +1408,6 @@ impl<'de> serde::Deserialize<'de> for PartitionStatus {
         deserializer.deserialize_struct("peerdb_route.PartitionStatus", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for PeerDataRequest {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.peer_name.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("peerdb_route.PeerDataRequest", len)?;
-        if !self.peer_name.is_empty() {
-            struct_ser.serialize_field("peerName", &self.peer_name)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for PeerDataRequest {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "peer_name",
-            "peerName",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            PeerName,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "peerName" | "peer_name" => Ok(GeneratedField::PeerName),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = PeerDataRequest;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct peerdb_route.PeerDataRequest")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<PeerDataRequest, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut peer_name__ = None;
-                while let Some(k) = map.next_key()? {
-                    match k {
-                        GeneratedField::PeerName => {
-                            if peer_name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("peerName"));
-                            }
-                            peer_name__ = Some(map.next_value()?);
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(PeerDataRequest {
-                    peer_name: peer_name__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("peerdb_route.PeerDataRequest", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for PeerSlotResponse {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1694,6 +1598,102 @@ impl<'de> serde::Deserialize<'de> for PeerStatResponse {
             }
         }
         deserializer.deserialize_struct("peerdb_route.PeerStatResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PostgresPeerActivityInfoRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.peer_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.PostgresPeerActivityInfoRequest", len)?;
+        if !self.peer_name.is_empty() {
+            struct_ser.serialize_field("peerName", &self.peer_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PostgresPeerActivityInfoRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "peer_name",
+            "peerName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PeerName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "peerName" | "peer_name" => Ok(GeneratedField::PeerName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PostgresPeerActivityInfoRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.PostgresPeerActivityInfoRequest")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PostgresPeerActivityInfoRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut peer_name__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::PeerName => {
+                            if peer_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peerName"));
+                            }
+                            peer_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(PostgresPeerActivityInfoRequest {
+                    peer_name: peer_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.PostgresPeerActivityInfoRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for QRepMirrorStatus {
@@ -2088,6 +2088,9 @@ impl serde::Serialize for SlotInfo {
         if !self.restart_l_sn.is_empty() {
             len += 1;
         }
+        if self.active {
+            len += 1;
+        }
         if self.lag_in_mb != 0. {
             len += 1;
         }
@@ -2100,6 +2103,9 @@ impl serde::Serialize for SlotInfo {
         }
         if !self.restart_l_sn.is_empty() {
             struct_ser.serialize_field("restartLSN", &self.restart_l_sn)?;
+        }
+        if self.active {
+            struct_ser.serialize_field("active", &self.active)?;
         }
         if self.lag_in_mb != 0. {
             struct_ser.serialize_field("lagInMb", &self.lag_in_mb)?;
@@ -2120,6 +2126,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
             "redoLSN",
             "restart_lSN",
             "restartLSN",
+            "active",
             "lag_in_mb",
             "lagInMb",
         ];
@@ -2129,6 +2136,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
             SlotName,
             RedoLSn,
             RestartLSn,
+            Active,
             LagInMb,
             __SkipField__,
         }
@@ -2155,6 +2163,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
                             "slotName" | "slot_name" => Ok(GeneratedField::SlotName),
                             "redoLSN" | "redo_lSN" => Ok(GeneratedField::RedoLSn),
                             "restartLSN" | "restart_lSN" => Ok(GeneratedField::RestartLSn),
+                            "active" => Ok(GeneratedField::Active),
                             "lagInMb" | "lag_in_mb" => Ok(GeneratedField::LagInMb),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -2178,6 +2187,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
                 let mut slot_name__ = None;
                 let mut redo_l_sn__ = None;
                 let mut restart_l_sn__ = None;
+                let mut active__ = None;
                 let mut lag_in_mb__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -2199,6 +2209,12 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
                             }
                             restart_l_sn__ = Some(map.next_value()?);
                         }
+                        GeneratedField::Active => {
+                            if active__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("active"));
+                            }
+                            active__ = Some(map.next_value()?);
+                        }
                         GeneratedField::LagInMb => {
                             if lag_in_mb__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("lagInMb"));
@@ -2216,6 +2232,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
                     slot_name: slot_name__.unwrap_or_default(),
                     redo_l_sn: redo_l_sn__.unwrap_or_default(),
                     restart_l_sn: restart_l_sn__.unwrap_or_default(),
+                    active: active__.unwrap_or_default(),
                     lag_in_mb: lag_in_mb__.unwrap_or_default(),
                 })
             }
@@ -2329,6 +2346,15 @@ impl serde::Serialize for StatInfo {
         if self.pid != 0 {
             len += 1;
         }
+        if !self.wait_event.is_empty() {
+            len += 1;
+        }
+        if !self.wait_event_type.is_empty() {
+            len += 1;
+        }
+        if !self.query_start.is_empty() {
+            len += 1;
+        }
         if !self.query.is_empty() {
             len += 1;
         }
@@ -2338,6 +2364,15 @@ impl serde::Serialize for StatInfo {
         let mut struct_ser = serializer.serialize_struct("peerdb_route.StatInfo", len)?;
         if self.pid != 0 {
             struct_ser.serialize_field("pid", ToString::to_string(&self.pid).as_str())?;
+        }
+        if !self.wait_event.is_empty() {
+            struct_ser.serialize_field("waitEvent", &self.wait_event)?;
+        }
+        if !self.wait_event_type.is_empty() {
+            struct_ser.serialize_field("waitEventType", &self.wait_event_type)?;
+        }
+        if !self.query_start.is_empty() {
+            struct_ser.serialize_field("queryStart", &self.query_start)?;
         }
         if !self.query.is_empty() {
             struct_ser.serialize_field("query", &self.query)?;
@@ -2356,6 +2391,12 @@ impl<'de> serde::Deserialize<'de> for StatInfo {
     {
         const FIELDS: &[&str] = &[
             "pid",
+            "wait_event",
+            "waitEvent",
+            "wait_event_type",
+            "waitEventType",
+            "query_start",
+            "queryStart",
             "query",
             "duration",
         ];
@@ -2363,6 +2404,9 @@ impl<'de> serde::Deserialize<'de> for StatInfo {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Pid,
+            WaitEvent,
+            WaitEventType,
+            QueryStart,
             Query,
             Duration,
             __SkipField__,
@@ -2388,6 +2432,9 @@ impl<'de> serde::Deserialize<'de> for StatInfo {
                     {
                         match value {
                             "pid" => Ok(GeneratedField::Pid),
+                            "waitEvent" | "wait_event" => Ok(GeneratedField::WaitEvent),
+                            "waitEventType" | "wait_event_type" => Ok(GeneratedField::WaitEventType),
+                            "queryStart" | "query_start" => Ok(GeneratedField::QueryStart),
                             "query" => Ok(GeneratedField::Query),
                             "duration" => Ok(GeneratedField::Duration),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -2410,6 +2457,9 @@ impl<'de> serde::Deserialize<'de> for StatInfo {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut pid__ = None;
+                let mut wait_event__ = None;
+                let mut wait_event_type__ = None;
+                let mut query_start__ = None;
                 let mut query__ = None;
                 let mut duration__ = None;
                 while let Some(k) = map.next_key()? {
@@ -2421,6 +2471,24 @@ impl<'de> serde::Deserialize<'de> for StatInfo {
                             pid__ = 
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::WaitEvent => {
+                            if wait_event__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("waitEvent"));
+                            }
+                            wait_event__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::WaitEventType => {
+                            if wait_event_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("waitEventType"));
+                            }
+                            wait_event_type__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::QueryStart => {
+                            if query_start__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("queryStart"));
+                            }
+                            query_start__ = Some(map.next_value()?);
                         }
                         GeneratedField::Query => {
                             if query__.is_some() {
@@ -2443,6 +2511,9 @@ impl<'de> serde::Deserialize<'de> for StatInfo {
                 }
                 Ok(StatInfo {
                     pid: pid__.unwrap_or_default(),
+                    wait_event: wait_event__.unwrap_or_default(),
+                    wait_event_type: wait_event_type__.unwrap_or_default(),
+                    query_start: query_start__.unwrap_or_default(),
                     query: query__.unwrap_or_default(),
                     duration: duration__.unwrap_or_default(),
                 })
