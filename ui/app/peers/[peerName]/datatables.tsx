@@ -1,6 +1,5 @@
+import { CopyButton } from '@/components/CopyButton';
 import { SlotInfo, StatInfo } from '@/grpc_generated/route';
-import { Button } from '@/lib/Button';
-import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
@@ -13,9 +12,11 @@ export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
     return '';
   };
   return (
-    <>
-      <div style={{ fontSize: 17 }}>Replication Slot Information</div>
-      <div style={{ maxHeight: '50%', overflow: 'scroll' }}>
+    <div style={{ height: '30%', marginTop: '2rem' }}>
+      <div style={{ fontSize: 17, marginBottom: '1rem' }}>
+        Replication Slot Information
+      </div>
+      <div style={{ maxHeight: '100%', overflow: 'scroll' }}>
         <Table
           header={
             <TableRow>
@@ -55,15 +56,17 @@ export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
           })}
         </Table>
       </div>
-    </>
+    </div>
   );
 };
 
 export const StatTable = ({ data }: { data: StatInfo[] }) => {
   return (
-    <>
-      <div style={{ fontSize: 17 }}>Stat Activity Information</div>
-      <div style={{ maxHeight: '50%', overflow: 'scroll' }}>
+    <div style={{ height: '50%' }}>
+      <div style={{ fontSize: 17, marginBottom: '1rem' }}>
+        Stat Activity Information
+      </div>
+      <div style={{ maxHeight: '100%', overflow: 'scroll' }}>
         <Table
           header={
             <TableRow>
@@ -97,15 +100,13 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
                   }}
                 >
                   {query}
-                  <Button>
-                    <Icon name='content_copy' />
-                  </Button>
+                  <CopyButton text={query} />
                 </div>
               </TableCell>
             </TableRow>
           ))}
         </Table>
       </div>
-    </>
+    </div>
   );
 };

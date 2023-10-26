@@ -37,7 +37,6 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
             display: 'flex',
             flexDirection: 'column',
             height: '80vh',
-            justifyContent: 'space-around',
           }}
         >
           <SlotTable data={slots} />

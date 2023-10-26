@@ -40,7 +40,7 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	if err != nil {
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
-
+	defer peerPool.Close()
 	rows, err := peerPool.Query(ctx, "SELECT slot_name, redo_lsn::Text,restart_lsn::text,"+
 		"round((redo_lsn-restart_lsn) / 1024 / 1024 , 2) AS MB_Behind"+
 		" FROM pg_control_checkpoint(), pg_replication_slots;")
@@ -79,7 +79,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 	if err != nil {
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
-
+	defer peerPool.Close()
 	rows, err := peerPool.Query(ctx, "SELECT pid, query, EXTRACT(epoch FROM(now()-query_start)) AS dur"+
 		" FROM pg_stat_activity WHERE query_start IS NOT NULL;")
 	if err != nil {
