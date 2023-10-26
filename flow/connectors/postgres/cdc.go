@@ -166,6 +166,8 @@ func (p *PostgresCDCSource) consumeStream(
 		shutdown <- true
 	}()
 
+	firstProcessed := false
+
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) ||
 			(len(records.Records) >= int(req.MaxBatchSize)) {
@@ -213,8 +215,6 @@ func (p *PostgresCDCSource) consumeStream(
 			log.Warnf("unexpected message type: %T", rawMsg)
 			continue
 		}
-
-		firstProcessed := false
 
 		switch msg.Data[0] {
 		case pglogrepl.PrimaryKeepaliveMessageByteID:
