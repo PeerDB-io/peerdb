@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -203,6 +204,16 @@ func CDCFlowWorkflowWithConfig(
 	})
 
 	if !state.SetupComplete {
+		// if resync is true, alter the table name schema mapping to temporarily add
+		// a suffix to the table names.
+		if cfg.Resync {
+			for _, mapping := range cfg.TableMappings {
+				oldName := mapping.DestinationTableIdentifier
+				newName := fmt.Sprintf("%s_resync", oldName)
+				mapping.DestinationTableIdentifier = newName
+			}
+		}
+
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
 		setupFlowID, err := GetChildWorkflowID(ctx, "setup-flow", cfg.FlowJobName)
@@ -239,6 +250,30 @@ func CDCFlowWorkflowWithConfig(
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
+		}
+
+		if cfg.Resync {
+			renameOpts := &protos.RenameTablesInput{}
+			renameOpts.FlowJobName = cfg.FlowJobName
+			renameOpts.Peer = cfg.Destination
+			for _, mapping := range cfg.TableMappings {
+				oldName := mapping.DestinationTableIdentifier
+				newName := strings.TrimSuffix(oldName, "_resync")
+				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
+					CurrentName: oldName,
+					NewName:     newName,
+				})
+				mapping.DestinationTableIdentifier = newName
+			}
+
+			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 12 * time.Hour,
+				HeartbeatTimeout:    1 * time.Hour,
+			})
+			renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
+			if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
+				return state, fmt.Errorf("failed to execute rename tables activity: %w", err)
+			}
 		}
 
 		state.SetupComplete = true

@@ -89,6 +89,33 @@ pub struct FlowConnectionConfigs {
     pub push_batch_size: i64,
     #[prost(int64, tag="22")]
     pub push_parallelism: i64,
+    /// if true, then the flow will be resynced
+    #[prost(bool, tag="23")]
+    pub resync: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RenameTableOption {
+    #[prost(string, tag="1")]
+    pub current_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub new_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RenameTablesInput {
+    #[prost(string, tag="1")]
+    pub flow_job_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub peer: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(message, repeated, tag="3")]
+    pub rename_table_options: ::prost::alloc::vec::Vec<RenameTableOption>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RenameTablesOutput {
+    #[prost(string, tag="1")]
+    pub flow_job_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -379,8 +406,10 @@ pub struct QRepConfig {
     pub initial_copy_only: bool,
     #[prost(enumeration="QRepSyncMode", tag="9")]
     pub sync_mode: i32,
+    /// DEPRECATED: eliminate when breaking changes are allowed.
     #[prost(uint32, tag="10")]
     pub batch_size_int: u32,
+    /// DEPRECATED: eliminate when breaking changes are allowed.
     #[prost(uint32, tag="11")]
     pub batch_duration_seconds: u32,
     #[prost(uint32, tag="12")]
