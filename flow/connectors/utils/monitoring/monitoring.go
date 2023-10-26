@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pglogrepl"
@@ -89,7 +90,8 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtTargetForCDCFlow(ctx context.Con
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) GetLastLSNUpdatedAtTargetForCDCFlow(ctx context.Context, flowJobName string) (*protos.LastSyncState, error) {
+func (c *CatalogMirrorMonitor) GetLastLSNUpdatedAtTargetForCDCFlow(
+	ctx context.Context, flowJobName string) (*protos.LastSyncState, error) {
 	if c == nil || c.catalogConn == nil {
 		return nil, fmt.Errorf("catalog hasn't been configured")
 	}
