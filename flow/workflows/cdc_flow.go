@@ -69,7 +69,7 @@ type CDCFlowState struct {
 	NormalizeFlowErrors error
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
-	RelationMessageMapping model.RelationMessageMapping
+	RelationMessageMapping *model.RelationMessageMapping
 }
 
 // returns a new empty PeerFlowState
@@ -83,7 +83,7 @@ func NewCDCFlowState() *CDCFlowState {
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
 		// WORKAROUND: empty maps are protobufed into nil maps for reasons beyond me
-		RelationMessageMapping: model.RelationMessageMapping{
+		RelationMessageMapping: &model.RelationMessageMapping{
 			0: &protos.RelationMessage{
 				RelationId:   0,
 				RelationName: "protobuf_workaround",
@@ -315,7 +315,7 @@ func CDCFlowWorkflowWithConfig(
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
-		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
+		syncFlowOptions.RelationMessageMapping = *state.RelationMessageMapping
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			SyncFlowWorkflow,

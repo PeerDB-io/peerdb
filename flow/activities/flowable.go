@@ -11,7 +11,6 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -19,6 +18,7 @@ import (
 	"github.com/jackc/pglogrepl"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
+	"golang.org/x/sync/errgroup"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
@@ -196,28 +196,32 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	idleTimeout := utils.GetEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 10)
 
+	recordBatch := model.NewCDCRecordStream()
+
 	startTime := time.Now()
-	recordsWithTableSchemaDelta, err := srcConn.PullRecords(&model.PullRecordsRequest{
-		FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
-		SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
-		TableNameMapping:            tblNameMapping,
-		LastSyncState:               input.LastSyncState,
-		MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
-		IdleTimeout:                 time.Duration(idleTimeout) * time.Second,
-		TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
-		OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
-		OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
-		RelationMessageMapping:      input.RelationMessageMapping,
+
+	errGroup, ctx := errgroup.WithContext(ctx)
+
+	// start a goroutine to pull records from the source
+	errGroup.Go(func() error {
+		return srcConn.PullRecords(&model.PullRecordsRequest{
+			FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
+			SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
+			TableNameMapping:            tblNameMapping,
+			LastSyncState:               input.LastSyncState,
+			MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
+			IdleTimeout:                 time.Duration(idleTimeout) * time.Second,
+			TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
+			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
+			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
+			RelationMessageMapping:      input.RelationMessageMapping,
+			RecordStream:                 recordBatch,
+		})
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to pull records: %w", err)
-	}
-	recordBatch := recordsWithTableSchemaDelta.RecordBatch
 
-	pullRecordWithCount := fmt.Sprintf("pulled %d records", len(recordBatch.Records))
-	activity.RecordHeartbeat(ctx, pullRecordWithCount)
+	hasRecords := recordBatch.WaitAndCheckEmpty()
 
-	if a.CatalogMirrorMonitor.IsActive() && len(recordBatch.Records) > 0 {
+	if a.CatalogMirrorMonitor.IsActive() && hasRecords {
 		syncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
 		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
 			return nil, err
@@ -225,8 +229,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 		err = a.CatalogMirrorMonitor.AddCDCBatchForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
 			monitoring.CDCBatchInfo{
-				BatchID:       syncBatchID + 1,
-				RowsInBatch:   uint32(len(recordBatch.Records)),
+				BatchID: syncBatchID + 1,
+				// TODO (kaushik) : after push we need to update the num records!
+				RowsInBatch:   0,
 				BatchStartLSN: pglogrepl.LSN(recordBatch.FirstCheckPointID),
 				BatchEndlSN:   pglogrepl.LSN(recordBatch.LastCheckPointID),
 				StartTime:     startTime,
@@ -236,24 +241,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}
 	}
 
-	pullDuration := time.Since(startTime)
-	numRecords := len(recordBatch.Records)
-	log.WithFields(log.Fields{
-		"flowName": input.FlowConnectionConfigs.FlowJobName,
-	}).Infof("pulled %d records in %d seconds\n", numRecords, int(pullDuration.Seconds()))
-	activity.RecordHeartbeat(ctx, fmt.Sprintf("pulled %d records", numRecords))
-
-	if numRecords == 0 {
-		log.WithFields(log.Fields{
-			"flowName": input.FlowConnectionConfigs.FlowJobName,
-		}).Info("no records to push")
-		metrics.LogSyncMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1)
-		metrics.LogNormalizeMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1, 0)
-		metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0)
-		return &model.SyncResponse{
-			RelationMessageMapping: recordsWithTableSchemaDelta.RelationMessageMapping,
-			TableSchemaDeltas:      recordsWithTableSchemaDelta.TableSchemaDeltas,
-		}, nil
+	if !hasRecords {
+		log.WithFields(log.Fields{"flowName": input.FlowConnectionConfigs.FlowJobName}).Info("no records to push")
+		syncResponse := &model.SyncResponse{}
+		syncResponse.RelationMessageMapping = <-recordBatch.RelationMessageMapping
+		syncResponse.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas()
+		return syncResponse, nil
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
@@ -279,6 +272,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
 
+	err = errGroup.Wait()
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull records: %w", err)
+	}
+
+	numRecords := res.NumRecordsSynced
 	syncDuration := time.Since(syncStartTime)
 	log.WithFields(log.Fields{
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
@@ -300,14 +299,11 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	res.TableSchemaDeltas = recordsWithTableSchemaDelta.TableSchemaDeltas
-	res.RelationMessageMapping = recordsWithTableSchemaDelta.RelationMessageMapping
+	res.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas()
+	res.RelationMessageMapping = <-recordBatch.RelationMessageMapping
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
-
-	metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName,
-		float64(numRecords)/(pullDuration.Seconds()+syncDuration.Seconds()))
 
 	return res, nil
 }

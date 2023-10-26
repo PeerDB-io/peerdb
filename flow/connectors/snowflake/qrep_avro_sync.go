@@ -9,7 +9,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -148,7 +147,6 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 
 	stage := s.connector.getStageNameForJob(config.FlowJobName)
 
-	putFileStartTime := time.Now()
 	err = s.putFileToStage(localFilePath, stage)
 	if err != nil {
 		return 0, err
@@ -157,8 +155,6 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		"flowName":    config.FlowJobName,
 		"partitionID": partition.PartitionId,
 	}).Infof("Put file to stage in Avro sync for snowflake")
-	metrics.LogQRepSyncMetrics(s.connector.ctx, config.FlowJobName, int64(numRecords),
-		time.Since(putFileStartTime))
 
 	err = s.insertMetadata(partition, config.FlowJobName, startTime)
 	if err != nil {
@@ -515,8 +511,10 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 		if err != nil {
 			return err
 		}
-		metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rowCount, time.Since(startTime),
-			totalRowsAtTarget)
+		log.WithFields(log.Fields{
+			"flowName": flowJobName,
+		}).Infof("merged %d rows into destination table %s, total rows at target: %d",
+			rowCount, s.dstTableName, totalRowsAtTarget)
 	} else {
 		log.WithFields(log.Fields{
 			"flowName": flowJobName,
@@ -525,7 +523,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 
 	log.WithFields(log.Fields{
 		"flowName": flowJobName,
-	}).Infof("merged data from temp table %s into destination table %s",
-		tempTableName, s.dstTableName)
+	}).Infof("merged data from temp table %s into destination table %s, time taken %v",
+		tempTableName, s.dstTableName, time.Since(startTime))
 	return nil
 }

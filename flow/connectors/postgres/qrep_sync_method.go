@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -70,7 +69,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	// Step 2: Insert records into the destination table.
 	copySource := model.NewQRecordBatchCopyFromSource(stream)
 
-	syncRecordsStartTime := time.Now()
 	var numRowsSynced int64
 
 	if writeMode == nil ||
@@ -163,7 +161,11 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		}
 	}
 
-	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName, numRowsSynced, time.Since(syncRecordsStartTime))
+	log.WithFields(log.Fields{
+		"flowName":         flowJobName,
+		"partitionID":      partitionID,
+		"destinationTable": dstTableName,
+	}).Infof("pushed %d records to %s", numRowsSynced, dstTableName)
 
 	// marshal the partition to json using protojson
 	pbytes, err := protojson.Marshal(partition)
@@ -171,7 +173,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to marshal partition to json: %v", err)
 	}
 
-	normalizeRecordsStartTime := time.Now()
 	insertMetadataStmt := fmt.Sprintf(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
 		qRepMetadataTableName,
@@ -181,7 +182,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		"partitionID":      partitionID,
 		"destinationTable": dstTableName,
 	}).Infof("Executing transaction inside Qrep sync")
-	rows, err := tx.Exec(
+	_, err = tx.Exec(
 		context.Background(),
 		insertMetadataStmt,
 		flowJobName,
@@ -198,13 +199,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to commit transaction: %v", err)
 	}
-
-	totalRecordsAtTarget, err := s.connector.getApproxTableCounts([]string{dstTableName.String()})
-	if err != nil {
-		return -1, fmt.Errorf("failed to get total records at target: %v", err)
-	}
-	metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rows.RowsAffected(),
-		time.Since(normalizeRecordsStartTime), totalRecordsAtTarget)
 
 	numRowsInserted := copySource.NumRecords()
 	log.WithFields(log.Fields{

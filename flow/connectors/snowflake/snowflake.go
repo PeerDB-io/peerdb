@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -478,16 +477,8 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 }
 
 func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	if len(req.Records.Records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	log.Printf("pushing %d records to Snowflake table %s", len(req.Records.Records), rawTableIdentifier)
+	log.Printf("pushing records to Snowflake table %s", rawTableIdentifier)
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -549,7 +540,7 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 	var firstCP int64 = 0
 	lastCP := req.Records.LastCheckPointID
 
-	for _, record := range req.Records.Records {
+	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
 			// json.Marshal converts bytes in Hex automatically to BASE64 string.
@@ -622,10 +613,8 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 
 	// inserting records into raw table.
 	numRecords := len(records)
-	startTime := time.Now()
 	for begin := 0; begin < numRecords; begin += syncRecordsChunkSize {
 		end := begin + syncRecordsChunkSize
-
 		if end > numRecords {
 			end = numRecords
 		}
@@ -634,7 +623,6 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 			return nil, err
 		}
 	}
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
@@ -647,20 +635,14 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 
 func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, rawTableIdentifier string,
 	syncBatchID int64) (*model.SyncResponse, error) {
-
 	lastCP := req.Records.LastCheckPointID
 	tableNameRowsMapping := make(map[string]uint32)
-	streamRes, err := utils.RecordsToRawTableStream(model.RecordsToStreamRequest{
-		Records:      req.Records.Records,
-		TableMapping: tableNameRowsMapping,
-		CP:           0,
-		BatchID:      syncBatchID,
-	})
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, 0, syncBatchID)
+	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
-	firstCP := streamRes.CP
-	recordStream := streamRes.Stream
+
 	qrepConfig := &protos.QRepConfig{
 		StagingPath: "",
 		FlowJobName: req.FlowJobName,
@@ -673,17 +655,15 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, r
 		return nil, err
 	}
 
-	startTime := time.Now()
-	close(recordStream.Records)
-	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, recordStream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, streamRes.Stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
+
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
+		FirstSyncedCheckPointID: 0,
 		LastSyncedCheckPointID:  lastCP,
-		NumRecordsSynced:        int64(len(req.Records.Records)),
+		NumRecordsSynced:        int64(numRecords),
 		CurrentSyncBatchID:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
@@ -744,7 +724,6 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}()
 
 	var totalRowsAffected int64 = 0
-	startTime := time.Now()
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
 	for _, destinationTableName := range destinationTableNames {
 		rowsAffected, err := c.generateAndExecuteMergeStatement(
@@ -759,14 +738,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		}
 		totalRowsAffected += rowsAffected
 	}
-	if totalRowsAffected > 0 {
-		totalRowsAtTarget, err := c.getTableCounts(destinationTableNames)
-		if err != nil {
-			return nil, err
-		}
-		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, totalRowsAffected, time.Since(startTime),
-			totalRowsAtTarget)
-	}
+
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)
 	if err != nil {
