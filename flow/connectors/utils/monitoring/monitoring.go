@@ -2,7 +2,9 @@ package monitoring
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -79,12 +81,35 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtTargetForCDCFlow(ctx context.Con
 	}
 
 	_, err := c.catalogConn.Exec(ctx,
-		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
+		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1, updated_at=now() WHERE flow_name=$3",
 		uint64(latestLSNAtTarget), flowJobName)
 	if err != nil {
 		return fmt.Errorf("error while updating flow in cdc_flows: %w", err)
 	}
 	return nil
+}
+
+func (c *CatalogMirrorMonitor) GetLastLSNUpdatedAtTargetForCDCFlow(ctx context.Context, flowJobName string) (*protos.LastSyncState, error) {
+	if c == nil || c.catalogConn == nil {
+		return nil, fmt.Errorf("catalog hasn't been configured")
+	}
+
+	var lsnAtTarget uint64
+	var lastLSNUpdatedAtTarget time.Time
+	err := c.catalogConn.QueryRow(ctx,
+		"SELECT latest_lsn_at_target, updated_at FROM peerdb_stats.cdc_flows WHERE flow_name=$1",
+		flowJobName).Scan(&lsnAtTarget, &lastLSNUpdatedAtTarget)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("error while querying cdc_flows: %w", err)
+	}
+
+	return &protos.LastSyncState{
+		LastSyncedAt: timestamppb.New(lastLSNUpdatedAtTarget),
+		Checkpoint:   int64(lsnAtTarget),
+	}, nil
 }
 
 func (c *CatalogMirrorMonitor) AddCDCBatchForFlow(ctx context.Context, flowJobName string,

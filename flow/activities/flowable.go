@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go.temporal.io/sdk/temporal"
 	"sync"
 	"time"
 
@@ -81,7 +82,19 @@ func (a *FlowableActivity) GetLastSyncedID(
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	return dstConn.GetLastOffset(config.FlowJobName)
+	offsetAtDestination, err := dstConn.GetLastOffset(config.FlowJobName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last offset: %w", err)
+	}
+	log.Infof("[%s] target last sync state (lsn, updated_at): (%v, %v)", config.FlowJobName, offsetAtDestination.Checkpoint, offsetAtDestination.LastSyncedAt)
+
+	offsetAtCatalog, err := a.CatalogMirrorMonitor.GetLastLSNUpdatedAtTargetForCDCFlow(ctx, config.FlowJobName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last offset from catalog: %w", err)
+	}
+	log.Infof("[%s] catalog last sync state (lsn, updated_at): (%v, %v)", config.FlowJobName, offsetAtCatalog.Checkpoint, offsetAtCatalog.LastSyncedAt)
+
+	return offsetAtCatalog, nil
 }
 
 // EnsurePullability implements EnsurePullability.
@@ -159,6 +172,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx, "starting flow...")
+	flowJobName := input.FlowConnectionConfigs.FlowJobName
 	conn := input.FlowConnectionConfigs
 
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
@@ -185,7 +199,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	activity.RecordHeartbeat(ctx, "initialized table schema")
 
 	log.WithFields(log.Fields{
-		"flowName": input.FlowConnectionConfigs.FlowJobName,
+		"flowName": flowJobName,
 	}).Info("pulling records...")
 
 	tblNameMapping := make(map[string]string)
@@ -197,7 +211,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	startTime := time.Now()
 	recordsWithTableSchemaDelta, err := srcConn.PullRecords(&model.PullRecordsRequest{
-		FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
+		FlowJobName:                 flowJobName,
 		SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
 		TableNameMapping:            tblNameMapping,
 		LastSyncState:               input.LastSyncState,
@@ -217,12 +231,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	activity.RecordHeartbeat(ctx, pullRecordWithCount)
 
 	if a.CatalogMirrorMonitor.IsActive() && len(recordBatch.Records) > 0 {
-		syncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
+		syncBatchID, err := dstConn.GetLastSyncBatchID(flowJobName)
 		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
 			return nil, err
 		}
 
-		err = a.CatalogMirrorMonitor.AddCDCBatchForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
+		err = a.CatalogMirrorMonitor.AddCDCBatchForFlow(ctx, flowJobName,
 			monitoring.CDCBatchInfo{
 				BatchID:       syncBatchID + 1,
 				RowsInBatch:   uint32(len(recordBatch.Records)),
@@ -238,17 +252,34 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	pullDuration := time.Since(startTime)
 	numRecords := len(recordBatch.Records)
 	log.WithFields(log.Fields{
-		"flowName": input.FlowConnectionConfigs.FlowJobName,
+		"flowName": flowJobName,
 	}).Infof("pulled %d records in %d seconds\n", numRecords, int(pullDuration.Seconds()))
 	activity.RecordHeartbeat(ctx, fmt.Sprintf("pulled %d records", numRecords))
 
 	if numRecords == 0 {
 		log.WithFields(log.Fields{
-			"flowName": input.FlowConnectionConfigs.FlowJobName,
+			"flowName": flowJobName,
 		}).Info("no records to push")
-		metrics.LogSyncMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1)
-		metrics.LogNormalizeMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0, 1, 0)
-		metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName, 0)
+
+		catalogSyncState, err := a.CatalogMirrorMonitor.GetLastLSNUpdatedAtTargetForCDCFlow(ctx, flowJobName)
+		if err != nil {
+			return nil, err
+		}
+
+		// if it's been over 3 hours since the last update, we should update the wal position on the catalog
+		// to prevent slot growth.
+		updatedTime := catalogSyncState.LastSyncedAt.AsTime()
+		if time.Since(updatedTime) > 3*time.Hour {
+			err = a.CatalogMirrorMonitor.UpdateLatestLSNAtTargetForCDCFlow(ctx, flowJobName,
+				pglogrepl.LSN(recordBatch.LastCheckPointID))
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		metrics.LogSyncMetrics(ctx, flowJobName, 0, 1)
+		metrics.LogNormalizeMetrics(ctx, flowJobName, 0, 1, 0)
+		metrics.LogCDCRawThroughputMetrics(ctx, flowJobName, 0)
 		return &model.SyncResponse{
 			RelationMessageMapping: recordsWithTableSchemaDelta.RelationMessageMapping,
 			TableSchemaDeltas:      recordsWithTableSchemaDelta.TableSchemaDeltas,
@@ -256,7 +287,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 
 	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
-		jobName := input.FlowConnectionConfigs.FlowJobName
+		jobName := flowJobName
 		return fmt.Sprintf("pushing records for job - %s", jobName)
 	})
 
@@ -267,7 +298,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
 		Records:         recordBatch,
-		FlowJobName:     input.FlowConnectionConfigs.FlowJobName,
+		FlowJobName:     flowJobName,
 		SyncMode:        input.FlowConnectionConfigs.CdcSyncMode,
 		StagingPath:     input.FlowConnectionConfigs.CdcStagingPath,
 		PushBatchSize:   input.FlowConnectionConfigs.PushBatchSize,
@@ -280,32 +311,32 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	syncDuration := time.Since(syncStartTime)
 	log.WithFields(log.Fields{
-		"flowName": input.FlowConnectionConfigs.FlowJobName,
+		"flowName": flowJobName,
 	}).Infof("pushed %d records in %d seconds\n", numRecords, int(syncDuration.Seconds()))
 
 	err = a.CatalogMirrorMonitor.
-		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
+		UpdateLatestLSNAtTargetForCDCFlow(ctx, flowJobName,
 			pglogrepl.LSN(recordBatch.LastCheckPointID))
 	if err != nil {
-		return nil, err
+		return nil, temporal.NewNonRetryableApplicationError(
+			"unable to update latest lsn at target", err.Error(), err)
 	}
+
 	if res.TableNameRowsMapping != nil {
-		err = a.CatalogMirrorMonitor.AddCDCBatchTablesForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
-			res.CurrentSyncBatchID, res.TableNameRowsMapping)
+		err = a.CatalogMirrorMonitor.AddCDCBatchTablesForFlow(
+			ctx, flowJobName, res.CurrentSyncBatchID, res.TableNameRowsMapping)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
+
 	res.TableSchemaDeltas = recordsWithTableSchemaDelta.TableSchemaDeltas
 	res.RelationMessageMapping = recordsWithTableSchemaDelta.RelationMessageMapping
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 
-	metrics.LogCDCRawThroughputMetrics(ctx, input.FlowConnectionConfigs.FlowJobName,
+	metrics.LogCDCRawThroughputMetrics(ctx, flowJobName,
 		float64(numRecords)/(pullDuration.Seconds()+syncDuration.Seconds()))
 
 	return res, nil
