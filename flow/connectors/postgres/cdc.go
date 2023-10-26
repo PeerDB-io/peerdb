@@ -78,7 +78,7 @@ func getChildToParentRelIdMap(ctx context.Context, pool *pgxpool.Pool) (map[uint
 		FROM pg_inherits
 				JOIN pg_class parent            ON pg_inherits.inhparent = parent.oid
 				JOIN pg_class child             ON pg_inherits.inhrelid   = child.oid
-		WHERE parent.relking='p';
+		WHERE parent.relkind='p';
 	`
 
 	rows, err := pool.Query(ctx, query, pgx.QueryExecModeSimpleProtocol)
