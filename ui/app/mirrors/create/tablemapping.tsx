@@ -5,12 +5,16 @@ import { Label } from '@/lib/Label';
 import { TextField } from '@/lib/TextField';
 import { Dispatch, SetStateAction } from 'react';
 import { TableMapRow } from '../../dto/MirrorsDTO';
+import { RowWithSelect } from '@/lib/Layout';
+import { Select } from '@/lib/Select';
 
 interface TableMappingProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
+  schema: string;
+  setSchema:Dispatch<SetStateAction<string>>;
 }
-const TableMapping = ({ rows, setRows }: TableMappingProps) => {
+const TableMapping = ({ rows, setRows, schema, setSchema }: TableMappingProps) => {
   const handleAddRow = () => {
     setRows([...rows, { source: '', destination: '' }]);
   };
@@ -37,6 +41,28 @@ const TableMapping = ({ rows, setRows }: TableMappingProps) => {
   return (
     <div style={{ marginTop: '1rem' }}>
       <Label colorName='lowContrast'>Table Mapping</Label>
+      <RowWithSelect
+        label={
+          <Label>
+            Source Schema
+          </Label>
+        }
+        action={
+        <Select
+          placeholder="Select a schema"
+          onValueChange={(val) => setSchema(val)}
+          defaultValue={schema}
+        >
+          {/* {schemas.map((schemaName, id) => {
+            return (
+              <SelectItem key={id} value={schemaName}>
+                {schemaName}
+              </SelectItem>
+            );
+          })} */}
+        </Select>
+        }
+      />
       <table>
         <thead>
           <tr>

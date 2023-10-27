@@ -119,6 +119,42 @@ pub struct CdcSyncStatus {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PeerSchemasResponse {
+    #[prost(string, repeated, tag="1")]
+    pub schemas: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SchemaTablesRequest {
+    #[prost(string, tag="1")]
+    pub peer_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub schema_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SchemaTablesResponse {
+    #[prost(string, repeated, tag="1")]
+    pub tables: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TableColumnsRequest {
+    #[prost(string, tag="1")]
+    pub peer_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub schema_name: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub table_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TableColumnsResponse {
+    #[prost(string, repeated, tag="1")]
+    pub columns: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PostgresPeerActivityInfoRequest {
     #[prost(string, tag="1")]
     pub peer_name: ::prost::alloc::string::String,

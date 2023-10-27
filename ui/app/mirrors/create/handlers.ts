@@ -155,3 +155,7 @@ export const handleCreateQRep = async (
   route();
   setLoading(false);
 };
+
+const fetchSchemas = (peerName:string) => {
+    
+}

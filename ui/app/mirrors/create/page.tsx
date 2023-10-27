@@ -40,6 +40,7 @@ export default function CreateMirrors() {
   const [rows, setRows] = useState<TableMapRow[]>([
     { source: '', destination: '' },
   ]);
+  const [sourceSchema, setSourceSchema] = useState("public");
   const [qrepQuery, setQrepQuery] = useState<string>('');
 
   useEffect(() => {
@@ -114,7 +115,7 @@ export default function CreateMirrors() {
         <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
 
         {mirrorType === 'CDC' ? (
-          <TableMapping rows={rows} setRows={setRows} />
+          <TableMapping rows={rows} setRows={setRows} setSchema={setSourceSchema} schema={sourceSchema} />
         ) : (
           mirrorType != 'XMIN' && (
             <QRepQuery query={qrepQuery} setter={setQrepQuery} />

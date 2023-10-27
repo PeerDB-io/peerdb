@@ -27,9 +27,9 @@ func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName stri
 	connStr := utils.GetPGConnectionString(&pgPeerConfig)
 	peerPool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
-		return nil, "", unmarshalErr
+		return nil, unmarshalErr
 	}
-	return peerPool, pgPeerConfig.User, nil
+	return peerPool, nil
 }
 
 func (h *FlowRequestHandler) GetSlotInfo(

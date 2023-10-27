@@ -19,14 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	FlowService_ValidatePeer_FullMethodName   = "/peerdb_route.FlowService/ValidatePeer"
-	FlowService_CreatePeer_FullMethodName     = "/peerdb_route.FlowService/CreatePeer"
-	FlowService_CreateCDCFlow_FullMethodName  = "/peerdb_route.FlowService/CreateCDCFlow"
-	FlowService_CreateQRepFlow_FullMethodName = "/peerdb_route.FlowService/CreateQRepFlow"
-	FlowService_GetSlotInfo_FullMethodName    = "/peerdb_route.FlowService/GetSlotInfo"
-	FlowService_GetStatInfo_FullMethodName    = "/peerdb_route.FlowService/GetStatInfo"
-	FlowService_ShutdownFlow_FullMethodName   = "/peerdb_route.FlowService/ShutdownFlow"
-	FlowService_MirrorStatus_FullMethodName   = "/peerdb_route.FlowService/MirrorStatus"
+	FlowService_ValidatePeer_FullMethodName      = "/peerdb_route.FlowService/ValidatePeer"
+	FlowService_CreatePeer_FullMethodName        = "/peerdb_route.FlowService/CreatePeer"
+	FlowService_CreateCDCFlow_FullMethodName     = "/peerdb_route.FlowService/CreateCDCFlow"
+	FlowService_CreateQRepFlow_FullMethodName    = "/peerdb_route.FlowService/CreateQRepFlow"
+	FlowService_GetSchemas_FullMethodName        = "/peerdb_route.FlowService/GetSchemas"
+	FlowService_GetTablesInSchema_FullMethodName = "/peerdb_route.FlowService/GetTablesInSchema"
+	FlowService_GetColumns_FullMethodName        = "/peerdb_route.FlowService/GetColumns"
+	FlowService_GetSlotInfo_FullMethodName       = "/peerdb_route.FlowService/GetSlotInfo"
+	FlowService_GetStatInfo_FullMethodName       = "/peerdb_route.FlowService/GetStatInfo"
+	FlowService_ShutdownFlow_FullMethodName      = "/peerdb_route.FlowService/ShutdownFlow"
+	FlowService_MirrorStatus_FullMethodName      = "/peerdb_route.FlowService/MirrorStatus"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -37,6 +40,9 @@ type FlowServiceClient interface {
 	CreatePeer(ctx context.Context, in *CreatePeerRequest, opts ...grpc.CallOption) (*CreatePeerResponse, error)
 	CreateCDCFlow(ctx context.Context, in *CreateCDCFlowRequest, opts ...grpc.CallOption) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error)
+	GetSchemas(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSchemasResponse, error)
+	GetTablesInSchema(ctx context.Context, in *SchemaTablesRequest, opts ...grpc.CallOption) (*SchemaTablesResponse, error)
+	GetColumns(ctx context.Context, in *TableColumnsRequest, opts ...grpc.CallOption) (*TableColumnsResponse, error)
 	GetSlotInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSlotResponse, error)
 	GetStatInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerStatResponse, error)
 	ShutdownFlow(ctx context.Context, in *ShutdownRequest, opts ...grpc.CallOption) (*ShutdownResponse, error)
@@ -87,6 +93,33 @@ func (c *flowServiceClient) CreateQRepFlow(ctx context.Context, in *CreateQRepFl
 	return out, nil
 }
 
+func (c *flowServiceClient) GetSchemas(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSchemasResponse, error) {
+	out := new(PeerSchemasResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetSchemas_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetTablesInSchema(ctx context.Context, in *SchemaTablesRequest, opts ...grpc.CallOption) (*SchemaTablesResponse, error) {
+	out := new(SchemaTablesResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetTablesInSchema_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetColumns(ctx context.Context, in *TableColumnsRequest, opts ...grpc.CallOption) (*TableColumnsResponse, error) {
+	out := new(TableColumnsResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetColumns_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) GetSlotInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSlotResponse, error) {
 	out := new(PeerSlotResponse)
 	err := c.cc.Invoke(ctx, FlowService_GetSlotInfo_FullMethodName, in, out, opts...)
@@ -131,6 +164,9 @@ type FlowServiceServer interface {
 	CreatePeer(context.Context, *CreatePeerRequest) (*CreatePeerResponse, error)
 	CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error)
+	GetSchemas(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSchemasResponse, error)
+	GetTablesInSchema(context.Context, *SchemaTablesRequest) (*SchemaTablesResponse, error)
+	GetColumns(context.Context, *TableColumnsRequest) (*TableColumnsResponse, error)
 	GetSlotInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSlotResponse, error)
 	GetStatInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerStatResponse, error)
 	ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
@@ -153,6 +189,15 @@ func (UnimplementedFlowServiceServer) CreateCDCFlow(context.Context, *CreateCDCF
 }
 func (UnimplementedFlowServiceServer) CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateQRepFlow not implemented")
+}
+func (UnimplementedFlowServiceServer) GetSchemas(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSchemasResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSchemas not implemented")
+}
+func (UnimplementedFlowServiceServer) GetTablesInSchema(context.Context, *SchemaTablesRequest) (*SchemaTablesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTablesInSchema not implemented")
+}
+func (UnimplementedFlowServiceServer) GetColumns(context.Context, *TableColumnsRequest) (*TableColumnsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetColumns not implemented")
 }
 func (UnimplementedFlowServiceServer) GetSlotInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSlotResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSlotInfo not implemented")
@@ -251,6 +296,60 @@ func _FlowService_CreateQRepFlow_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetSchemas_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PostgresPeerActivityInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetSchemas(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetSchemas_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetSchemas(ctx, req.(*PostgresPeerActivityInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetTablesInSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SchemaTablesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetTablesInSchema(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetTablesInSchema_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetTablesInSchema(ctx, req.(*SchemaTablesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetColumns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TableColumnsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetColumns(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetColumns_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetColumns(ctx, req.(*TableColumnsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_GetSlotInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PostgresPeerActivityInfoRequest)
 	if err := dec(in); err != nil {
@@ -345,6 +444,18 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateQRepFlow",
 			Handler:    _FlowService_CreateQRepFlow_Handler,
+		},
+		{
+			MethodName: "GetSchemas",
+			Handler:    _FlowService_GetSchemas_Handler,
+		},
+		{
+			MethodName: "GetTablesInSchema",
+			Handler:    _FlowService_GetTablesInSchema_Handler,
+		},
+		{
+			MethodName: "GetColumns",
+			Handler:    _FlowService_GetColumns_Handler,
 		},
 		{
 			MethodName: "GetSlotInfo",

@@ -175,6 +175,29 @@ export interface CDCSyncStatus {
   endTime: Date | undefined;
 }
 
+export interface PeerSchemasResponse {
+  schemas: string[];
+}
+
+export interface SchemaTablesRequest {
+  peerName: string;
+  schemaName: string;
+}
+
+export interface SchemaTablesResponse {
+  tables: string[];
+}
+
+export interface TableColumnsRequest {
+  peerName: string;
+  schemaName: string;
+  tableName: string;
+}
+
+export interface TableColumnsResponse {
+  columns: string[];
+}
+
 export interface PostgresPeerActivityInfoRequest {
   peerName: string;
 }
@@ -1291,6 +1314,340 @@ export const CDCSyncStatus = {
   },
 };
 
+function createBasePeerSchemasResponse(): PeerSchemasResponse {
+  return { schemas: [] };
+}
+
+export const PeerSchemasResponse = {
+  encode(message: PeerSchemasResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.schemas) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PeerSchemasResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePeerSchemasResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.schemas.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PeerSchemasResponse {
+    return { schemas: Array.isArray(object?.schemas) ? object.schemas.map((e: any) => String(e)) : [] };
+  },
+
+  toJSON(message: PeerSchemasResponse): unknown {
+    const obj: any = {};
+    if (message.schemas?.length) {
+      obj.schemas = message.schemas;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PeerSchemasResponse>, I>>(base?: I): PeerSchemasResponse {
+    return PeerSchemasResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PeerSchemasResponse>, I>>(object: I): PeerSchemasResponse {
+    const message = createBasePeerSchemasResponse();
+    message.schemas = object.schemas?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseSchemaTablesRequest(): SchemaTablesRequest {
+  return { peerName: "", schemaName: "" };
+}
+
+export const SchemaTablesRequest = {
+  encode(message: SchemaTablesRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.peerName !== "") {
+      writer.uint32(10).string(message.peerName);
+    }
+    if (message.schemaName !== "") {
+      writer.uint32(18).string(message.schemaName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SchemaTablesRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSchemaTablesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.peerName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.schemaName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SchemaTablesRequest {
+    return {
+      peerName: isSet(object.peerName) ? String(object.peerName) : "",
+      schemaName: isSet(object.schemaName) ? String(object.schemaName) : "",
+    };
+  },
+
+  toJSON(message: SchemaTablesRequest): unknown {
+    const obj: any = {};
+    if (message.peerName !== "") {
+      obj.peerName = message.peerName;
+    }
+    if (message.schemaName !== "") {
+      obj.schemaName = message.schemaName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SchemaTablesRequest>, I>>(base?: I): SchemaTablesRequest {
+    return SchemaTablesRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SchemaTablesRequest>, I>>(object: I): SchemaTablesRequest {
+    const message = createBaseSchemaTablesRequest();
+    message.peerName = object.peerName ?? "";
+    message.schemaName = object.schemaName ?? "";
+    return message;
+  },
+};
+
+function createBaseSchemaTablesResponse(): SchemaTablesResponse {
+  return { tables: [] };
+}
+
+export const SchemaTablesResponse = {
+  encode(message: SchemaTablesResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.tables) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SchemaTablesResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSchemaTablesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.tables.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SchemaTablesResponse {
+    return { tables: Array.isArray(object?.tables) ? object.tables.map((e: any) => String(e)) : [] };
+  },
+
+  toJSON(message: SchemaTablesResponse): unknown {
+    const obj: any = {};
+    if (message.tables?.length) {
+      obj.tables = message.tables;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SchemaTablesResponse>, I>>(base?: I): SchemaTablesResponse {
+    return SchemaTablesResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SchemaTablesResponse>, I>>(object: I): SchemaTablesResponse {
+    const message = createBaseSchemaTablesResponse();
+    message.tables = object.tables?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseTableColumnsRequest(): TableColumnsRequest {
+  return { peerName: "", schemaName: "", tableName: "" };
+}
+
+export const TableColumnsRequest = {
+  encode(message: TableColumnsRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.peerName !== "") {
+      writer.uint32(10).string(message.peerName);
+    }
+    if (message.schemaName !== "") {
+      writer.uint32(18).string(message.schemaName);
+    }
+    if (message.tableName !== "") {
+      writer.uint32(26).string(message.tableName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TableColumnsRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTableColumnsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.peerName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.schemaName = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.tableName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TableColumnsRequest {
+    return {
+      peerName: isSet(object.peerName) ? String(object.peerName) : "",
+      schemaName: isSet(object.schemaName) ? String(object.schemaName) : "",
+      tableName: isSet(object.tableName) ? String(object.tableName) : "",
+    };
+  },
+
+  toJSON(message: TableColumnsRequest): unknown {
+    const obj: any = {};
+    if (message.peerName !== "") {
+      obj.peerName = message.peerName;
+    }
+    if (message.schemaName !== "") {
+      obj.schemaName = message.schemaName;
+    }
+    if (message.tableName !== "") {
+      obj.tableName = message.tableName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TableColumnsRequest>, I>>(base?: I): TableColumnsRequest {
+    return TableColumnsRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TableColumnsRequest>, I>>(object: I): TableColumnsRequest {
+    const message = createBaseTableColumnsRequest();
+    message.peerName = object.peerName ?? "";
+    message.schemaName = object.schemaName ?? "";
+    message.tableName = object.tableName ?? "";
+    return message;
+  },
+};
+
+function createBaseTableColumnsResponse(): TableColumnsResponse {
+  return { columns: [] };
+}
+
+export const TableColumnsResponse = {
+  encode(message: TableColumnsResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.columns) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TableColumnsResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTableColumnsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.columns.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TableColumnsResponse {
+    return { columns: Array.isArray(object?.columns) ? object.columns.map((e: any) => String(e)) : [] };
+  },
+
+  toJSON(message: TableColumnsResponse): unknown {
+    const obj: any = {};
+    if (message.columns?.length) {
+      obj.columns = message.columns;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TableColumnsResponse>, I>>(base?: I): TableColumnsResponse {
+    return TableColumnsResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TableColumnsResponse>, I>>(object: I): TableColumnsResponse {
+    const message = createBaseTableColumnsResponse();
+    message.columns = object.columns?.map((e) => e) || [];
+    return message;
+  },
+};
+
 function createBasePostgresPeerActivityInfoRequest(): PostgresPeerActivityInfoRequest {
   return { peerName: "" };
 }
@@ -2013,6 +2370,34 @@ export const FlowServiceService = {
     responseSerialize: (value: CreateQRepFlowResponse) => Buffer.from(CreateQRepFlowResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => CreateQRepFlowResponse.decode(value),
   },
+  getSchemas: {
+    path: "/peerdb_route.FlowService/GetSchemas",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: PostgresPeerActivityInfoRequest) =>
+      Buffer.from(PostgresPeerActivityInfoRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PostgresPeerActivityInfoRequest.decode(value),
+    responseSerialize: (value: PeerSchemasResponse) => Buffer.from(PeerSchemasResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => PeerSchemasResponse.decode(value),
+  },
+  getTablesInSchema: {
+    path: "/peerdb_route.FlowService/GetTablesInSchema",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: SchemaTablesRequest) => Buffer.from(SchemaTablesRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => SchemaTablesRequest.decode(value),
+    responseSerialize: (value: SchemaTablesResponse) => Buffer.from(SchemaTablesResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => SchemaTablesResponse.decode(value),
+  },
+  getColumns: {
+    path: "/peerdb_route.FlowService/GetColumns",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: TableColumnsRequest) => Buffer.from(TableColumnsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => TableColumnsRequest.decode(value),
+    responseSerialize: (value: TableColumnsResponse) => Buffer.from(TableColumnsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => TableColumnsResponse.decode(value),
+  },
   getSlotInfo: {
     path: "/peerdb_route.FlowService/GetSlotInfo",
     requestStream: false,
@@ -2058,6 +2443,9 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   createPeer: handleUnaryCall<CreatePeerRequest, CreatePeerResponse>;
   createCdcFlow: handleUnaryCall<CreateCDCFlowRequest, CreateCDCFlowResponse>;
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
+  getSchemas: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSchemasResponse>;
+  getTablesInSchema: handleUnaryCall<SchemaTablesRequest, SchemaTablesResponse>;
+  getColumns: handleUnaryCall<TableColumnsRequest, TableColumnsResponse>;
   getSlotInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSlotResponse>;
   getStatInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerStatResponse>;
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
@@ -2124,6 +2512,51 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: CreateQRepFlowResponse) => void,
+  ): ClientUnaryCall;
+  getSchemas(
+    request: PostgresPeerActivityInfoRequest,
+    callback: (error: ServiceError | null, response: PeerSchemasResponse) => void,
+  ): ClientUnaryCall;
+  getSchemas(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: PeerSchemasResponse) => void,
+  ): ClientUnaryCall;
+  getSchemas(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: PeerSchemasResponse) => void,
+  ): ClientUnaryCall;
+  getTablesInSchema(
+    request: SchemaTablesRequest,
+    callback: (error: ServiceError | null, response: SchemaTablesResponse) => void,
+  ): ClientUnaryCall;
+  getTablesInSchema(
+    request: SchemaTablesRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: SchemaTablesResponse) => void,
+  ): ClientUnaryCall;
+  getTablesInSchema(
+    request: SchemaTablesRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: SchemaTablesResponse) => void,
+  ): ClientUnaryCall;
+  getColumns(
+    request: TableColumnsRequest,
+    callback: (error: ServiceError | null, response: TableColumnsResponse) => void,
+  ): ClientUnaryCall;
+  getColumns(
+    request: TableColumnsRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: TableColumnsResponse) => void,
+  ): ClientUnaryCall;
+  getColumns(
+    request: TableColumnsRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: TableColumnsResponse) => void,
   ): ClientUnaryCall;
   getSlotInfo(
     request: PostgresPeerActivityInfoRequest,

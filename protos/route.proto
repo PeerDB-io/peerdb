@@ -94,6 +94,29 @@ message CDCSyncStatus {
   google.protobuf.Timestamp end_time = 5;
 }
 
+message PeerSchemasResponse {
+  repeated string schemas = 1;
+}
+
+message SchemaTablesRequest {
+  string peer_name = 1;
+  string schema_name = 2;
+}
+
+message SchemaTablesResponse {
+  repeated string tables = 1;
+}
+
+message TableColumnsRequest {
+  string peer_name = 1;
+  string schema_name = 2;
+  string table_name = 3;
+}
+
+message TableColumnsResponse {
+  repeated string columns = 1;
+}
+
 message PostgresPeerActivityInfoRequest {
   string peer_name = 1;
 }
@@ -167,6 +190,19 @@ service FlowService {
       body: "*"
      };
   }
+
+  rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {
+    option (google.api.http) = { get: "/v1/peers/schemas" };
+  }
+
+  rpc GetTablesInSchema(SchemaTablesRequest) returns (SchemaTablesResponse) {
+    option (google.api.http) = { get: "/v1/peers/tables" };
+  }
+
+  rpc GetColumns(TableColumnsRequest) returns (TableColumnsResponse) {
+    option (google.api.http) = { get: "/v1/peers/columns" };
+  }
+
   rpc GetSlotInfo(PostgresPeerActivityInfoRequest) returns (PeerSlotResponse) {
     option (google.api.http) = { get: "/v1/peers/slots/{peer_name}" };
   }
