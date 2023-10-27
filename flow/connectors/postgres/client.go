@@ -76,12 +76,12 @@ const (
 )
 
 // getRelIDForTable returns the relation ID for a table.
-func (c *PostgresConnector) getRelIDForTable(schemaTable *SchemaTable) (uint32, error) {
+func (c *PostgresConnector) getRelIDForTable(schemaTable *utils.SchemaTable) (uint32, error) {
 	var relID uint32
 	err := c.pool.QueryRow(c.ctx,
 		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
-		 ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2`,
-		strings.ToLower(schemaTable.Schema), strings.ToLower(schemaTable.Table)).Scan(&relID)
+		 ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
+		schemaTable.Schema, schemaTable.Table).Scan(&relID)
 	if err != nil {
 		return 0, fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
 	}
@@ -90,7 +90,7 @@ func (c *PostgresConnector) getRelIDForTable(schemaTable *SchemaTable) (uint32, 
 }
 
 // getReplicaIdentity returns the replica identity for a table.
-func (c *PostgresConnector) isTableFullReplica(schemaTable *SchemaTable) (bool, error) {
+func (c *PostgresConnector) isTableFullReplica(schemaTable *utils.SchemaTable) (bool, error) {
 	relID, relIDErr := c.getRelIDForTable(schemaTable)
 	if relIDErr != nil {
 		return false, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, relIDErr)
@@ -108,7 +108,7 @@ func (c *PostgresConnector) isTableFullReplica(schemaTable *SchemaTable) (bool, 
 
 // getPrimaryKeyColumns for table returns the primary key column for a given table
 // errors if there is no primary key column or if there is more than one primary key column.
-func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *SchemaTable) ([]string, error) {
+func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *utils.SchemaTable) ([]string, error) {
 	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
@@ -144,7 +144,7 @@ func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *SchemaTable) ([]st
 	return pkCols, nil
 }
 
-func (c *PostgresConnector) tableExists(schemaTable *SchemaTable) (bool, error) {
+func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) (bool, error) {
 	var exists bool
 	err := c.pool.QueryRow(c.ctx,
 		`SELECT EXISTS (
@@ -216,10 +216,11 @@ func (c *PostgresConnector) createSlotAndPublication(
 	*/
 	srcTableNames := make([]string, 0, len(tableNameMapping))
 	for srcTableName := range tableNameMapping {
-		if len(strings.Split(srcTableName, ".")) != 2 {
-			return fmt.Errorf("source tables identifier is invalid: %v", srcTableName)
+		parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
+		if err != nil {
+			return fmt.Errorf("source table identifier %s is invalid", srcTableName)
 		}
-		srcTableNames = append(srcTableNames, srcTableName)
+		srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 	}
 	tableNameString := strings.Join(srcTableNames, ", ")
 
@@ -229,6 +230,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		_, err := c.pool.Exec(c.ctx, stmt)
 		if err != nil {
 			log.Warnf("Error creating publication '%s': %v", publication, err)
+			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
 		}
 	}
 
@@ -588,13 +590,14 @@ func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error)
 	countTablesBatch := &pgx.Batch{}
 	totalCount := int64(0)
 	for _, table := range tables {
-		_, err := parseSchemaTable(table)
+		parsedTable, err := utils.ParseSchemaTable(table)
 		if err != nil {
 			log.Errorf("error while parsing table %s: %v", table, err)
 			return 0, fmt.Errorf("error while parsing table %s: %w", table, err)
 		}
 		countTablesBatch.Queue(
-			fmt.Sprintf("SELECT reltuples::bigint AS estimate FROM pg_class WHERE oid = '%s'::regclass;", table)).
+			fmt.Sprintf("SELECT reltuples::bigint AS estimate FROM pg_class WHERE oid = '%s'::regclass;",
+				parsedTable.String())).
 			QueryRow(func(row pgx.Row) error {
 				var count int64
 				err := row.Scan(&count)

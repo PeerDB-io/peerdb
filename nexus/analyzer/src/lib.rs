@@ -156,12 +156,10 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             flow_job_table_mappings.push(FlowJobTableMapping {
                                 source_table_identifier: table_mapping
                                     .source
-                                    .to_string()
-                                    .to_lowercase(),
+                                    .to_string(),
                                 destination_table_identifier: table_mapping
                                     .destination
-                                    .to_string()
-                                    .to_lowercase(),
+                                    .to_string(),
                                 partition_key: table_mapping
                                     .partition_key
                                     .clone()

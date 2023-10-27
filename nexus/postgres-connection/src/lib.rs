@@ -17,7 +17,7 @@ pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
     connection_string.push('/');
     connection_string.push_str(&config.database);
 
-    // Add the timeout as a query parameter
+    // Add the timeout as a query parameter, sslmode changes here appear to be useless
     connection_string.push_str("?connect_timeout=15");
 
     connection_string
@@ -27,6 +27,8 @@ pub async fn connect_postgres(config: &PostgresConfig) -> anyhow::Result<tokio_p
     let connection_string = get_pg_connection_string(config);
 
     let mut builder = SslConnector::builder(SslMethod::tls())?;
+    // NONE seems roughly equivalent to the guarantees of sslmode=prefer or sslmode=require
+    // PEER seems to be equivalent to sslmode=verify-ca or sslmode=verify-full, requires presence of root certs.
     builder.set_verify(SslVerifyMode::NONE);
 
     let tls_connector = MakeTlsConnector::new(builder.build());

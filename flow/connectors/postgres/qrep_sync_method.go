@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -30,7 +31,7 @@ type QRepStagingTableSync struct {
 
 func (s *QRepStagingTableSync) SyncQRepRecords(
 	flowJobName string,
-	dstTableName *SchemaTable,
+	dstTableName *utils.SchemaTable,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 	writeMode *protos.QRepWriteMode,

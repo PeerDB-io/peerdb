@@ -222,7 +222,6 @@ func (p *PostgresCDCSource) consumeStream(
 			}
 
 			numRowsProcessedMessage := fmt.Sprintf("processed %d rows", len(records.Records))
-			utils.RecordHeartbeatWithRecover(p.ctx, numRowsProcessedMessage)
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)

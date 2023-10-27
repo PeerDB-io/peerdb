@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -32,18 +31,6 @@ type PostgresConnector struct {
 	replPool           *pgxpool.Pool
 	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
-}
-
-// SchemaTable is a table in a schema.
-type SchemaTable struct {
-	Schema string
-	Table  string
-}
-
-func (t *SchemaTable) String() string {
-	quotedSchema := fmt.Sprintf(`"%s"`, t.Schema)
-	quotedTable := fmt.Sprintf(`"%s"`, t.Table)
-	return fmt.Sprintf("%s.%s", quotedSchema, quotedTable)
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
@@ -120,7 +107,7 @@ func (c *PostgresConnector) ConnectionActive() bool {
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
 func (c *PostgresConnector) NeedsSetupMetadataTables() bool {
-	result, err := c.tableExists(&SchemaTable{
+	result, err := c.tableExists(&utils.SchemaTable{
 		Schema: internalSchema,
 		Table:  mirrorJobsTableIdentifier,
 	})
@@ -582,7 +569,7 @@ func (c *PostgresConnector) GetTableSchema(
 func (c *PostgresConnector) getTableSchemaForTable(
 	tableName string,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := parseSchemaTable(tableName)
+	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +581,8 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
-		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName), pgx.QueryExecModeSimpleProtocol)
+		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, schemaTable.String()),
+		pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
@@ -655,7 +643,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 	}()
 
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		normalizedTableNameComponents, err := parseSchemaTable(tableIdentifier)
+		normalizedTableNameComponents, err := utils.ParseSchemaTable(tableIdentifier)
 		if err != nil {
 			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 		}
@@ -752,7 +740,7 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 
 	tableIdentifierMapping := make(map[string]*protos.TableIdentifier)
 	for _, tableName := range req.SourceTableIdentifiers {
-		schemaTable, err := parseSchemaTable(tableName)
+		schemaTable, err := utils.ParseSchemaTable(tableName)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing schema and table: %w", err)
 		}
@@ -895,17 +883,4 @@ func (c *PostgresConnector) SendWALHeartbeat() error {
 	}
 
 	return nil
-}
-
-// parseSchemaTable parses a table name into schema and table name.
-func parseSchemaTable(tableName string) (*SchemaTable, error) {
-	parts := strings.Split(tableName, ".")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid table name: %s", tableName)
-	}
-
-	return &SchemaTable{
-		Schema: parts[0],
-		Table:  parts[1],
-	}, nil
 }

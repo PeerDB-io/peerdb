@@ -1,4 +1,4 @@
-package utils
+package partition_utils
 
 import (
 	"fmt"
