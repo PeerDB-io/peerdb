@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/snowflakedb/gosnowflake"
+	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
 )
 
@@ -1148,4 +1149,49 @@ func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchanged
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return updateStmts
+}
+
+func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+	renameTablesTx, err := c.database.BeginTx(c.ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
+	}
+
+	for _, renameRequest := range req.RenameTableOptions {
+		src := renameRequest.CurrentName
+		dst := renameRequest.NewName
+
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Infof("renaming table '%s' to '%s'...", src, dst)
+
+		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
+
+		// drop the dst table if exists
+		_, err = renameTablesTx.ExecContext(c.ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", dst))
+		if err != nil {
+			return nil, fmt.Errorf("unable to drop table %s: %w", dst, err)
+		}
+
+		// rename the src table to dst
+		_, err = renameTablesTx.ExecContext(c.ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dst))
+		if err != nil {
+			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
+		}
+
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Infof("successfully renamed table '%s' to '%s'", src, dst)
+
+		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
+	}
+
+	err = renameTablesTx.Commit()
+	if err != nil {
+		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
+	}
+
+	return &protos.RenameTablesOutput{
+		FlowJobName: req.FlowJobName,
+	}, nil
 }

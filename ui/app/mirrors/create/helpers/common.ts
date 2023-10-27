@@ -42,6 +42,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   replicationSlotName: '',
   pushBatchSize: 0,
   pushParallelism: 0,
+  resync: false,
 };
 
 export const blankQRepSetting: QRepConfig = {

@@ -9,7 +9,7 @@ import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { InfoPopover } from '../../../components/InfoPopover';
-import { MirrorSetter } from '../types';
+import { MirrorSetter } from '../../dto/MirrorsDTO';
 import { MirrorSetting } from './helpers/common';
 interface QRepConfigProps {
   settings: MirrorSetting[];
@@ -36,7 +36,6 @@ export default function QRepConfigForm(props: QRepConfigProps) {
           ? QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO
           : QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
     } else if (setting.label.includes('Write Type')) {
-      console.log('Handling write type: ' + val);
       switch (val) {
         case 'Upsert':
           stateVal = QRepWriteType.QREP_WRITE_MODE_UPSERT;

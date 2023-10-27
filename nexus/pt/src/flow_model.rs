@@ -77,6 +77,7 @@ pub struct FlowJob {
     pub push_parallelism: Option<i64>,
     pub push_batch_size: Option<i64>,
     pub max_batch_size: Option<u32>,
+    pub resync: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

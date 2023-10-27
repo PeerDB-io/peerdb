@@ -189,6 +189,20 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             _ => return Err(anyhow::anyhow!("do_initial_copy must be a boolean")),
                         };
 
+                        // bool resync true or false, default to false if not in opts
+                        let resync = match raw_options.remove("resync") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            // also support "true" and "false" as strings
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                match s.as_ref() {
+                                    "true" => true,
+                                    "false" => false,
+                                    _ => return Err(anyhow::anyhow!("resync must be a boolean")),
+                                }
+                            }
+                            _ => false,
+                        };
+
                         let publication_name: Option<String> = match raw_options
                             .remove("publication_name")
                         {
@@ -296,6 +310,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             push_batch_size,
                             push_parallelism,
                             max_batch_size,
+                            resync,
                         };
 
                         // Error reporting

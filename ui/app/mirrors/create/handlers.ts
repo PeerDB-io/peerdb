@@ -1,7 +1,7 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
-import { QRepConfig } from '@/grpc_generated/flow';
+import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
 import { Dispatch, SetStateAction } from 'react';
-import { CDCConfig, TableMapRow } from '../types';
+import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import { cdcSchema, qrepSchema, tableMappingSchema } from './schema';
 
 const validateCDCFields = (
@@ -122,6 +122,16 @@ export const handleCreateQRep = async (
     config.initialCopyOnly = false;
   }
 
+  if (
+    config.writeMode?.writeType == QRepWriteType.QREP_WRITE_MODE_UPSERT &&
+    !config.writeMode?.upsertKeyColumns
+  ) {
+    setMsg({
+      ok: false,
+      msg: 'For upsert mode, unique key columns cannot be empty.',
+    });
+    return;
+  }
   const isValid = validateQRepFields(query, setMsg, config);
   if (!isValid) return;
   config.flowJobName = flowJobName;

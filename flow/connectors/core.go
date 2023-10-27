@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
@@ -254,5 +255,8 @@ func CloseConnector(conn Connector) {
 		return
 	}
 
-	conn.Close()
+	err := conn.Close()
+	if err != nil {
+		log.Errorf("error closing connector: %v", err)
+	}
 }
