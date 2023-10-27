@@ -1,7 +1,7 @@
 'use client';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepSyncMode } from '@/grpc_generated/flow';
-import { Peer } from '@/grpc_generated/peers';
+import { DBType, Peer } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Select, SelectItem } from '@/lib/Select';
@@ -18,13 +18,55 @@ interface MirrorConfigProps {
 }
 
 export default function CDCConfigForm(props: MirrorConfigProps) {
+  const defaultSyncMode = (
+    dtype: DBType | undefined,
+    setting: MirrorSetting
+  ) => {
+    switch (dtype) {
+      case DBType.POSTGRES:
+        return 'Copy with Binary';
+      case DBType.SNOWFLAKE:
+        return 'AVRO';
+      default:
+        return 'Copy with Binary';
+    }
+  };
+
+  const setToDefault = (setting: MirrorSetting) => {
+    const destinationPeerType = props.mirrorConfig.destination?.type;
+    return (
+      setting.label.includes('Sync') &&
+      (destinationPeerType === DBType.POSTGRES ||
+        destinationPeerType === DBType.SNOWFLAKE)
+    );
+  };
+
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean | Peer | QRepSyncMode = val;
     if (setting.label.includes('Peer')) {
       stateVal = props.peers.find((peer) => peer.name === val)!;
+      if (setting.label === 'Destination Peer') {
+        if (stateVal.type === DBType.POSTGRES) {
+          props.setter((curr) => {
+            return {
+              ...curr,
+              cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+              snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+            };
+          });
+        } else if (stateVal.type === DBType.SNOWFLAKE) {
+          props.setter((curr) => {
+            return {
+              ...curr,
+              cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+              snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+            };
+          });
+        }
+      }
     } else if (setting.label.includes('Sync Mode')) {
       stateVal =
-        val === 'avro'
+        val === 'AVRO'
           ? QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO
           : QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
     }
@@ -98,10 +140,19 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
                       setting.label.includes('Peer') ? 'a peer' : 'a sync mode'
                     }`}
                     onValueChange={(val) => handleChange(val, setting)}
+                    disabled={setToDefault(setting)}
+                    value={
+                      setToDefault(setting)
+                        ? defaultSyncMode(
+                            props.mirrorConfig.destination?.type,
+                            setting
+                          )
+                        : undefined
+                    }
                   >
                     {(setting.label.includes('Peer')
                       ? (props.peers ?? []).map((peer) => peer.name)
-                      : ['avro', 'sql']
+                      : ['AVRO', 'Copy with Binary']
                     ).map((item, id) => {
                       return (
                         <SelectItem key={id} value={item.toString()}>

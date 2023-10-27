@@ -84,7 +84,8 @@ func (h *FlowRequestHandler) GetStatInfo(
 	defer peerPool.Close()
 	rows, err := peerPool.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
 		"EXTRACT(epoch FROM(now()-query_start)) AS dur"+
-		" FROM pg_stat_activity WHERE usename=$1 AND state != 'idle' AND query_start IS NOT NULL;", peerUser)
+		" FROM pg_stat_activity WHERE "+
+		"usename=$1 AND state != 'idle';", peerUser)
 	if err != nil {
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
@@ -92,24 +93,49 @@ func (h *FlowRequestHandler) GetStatInfo(
 	var statInfoRows []*protos.StatInfo
 	for rows.Next() {
 		var pid int64
-		var waitEvent string
-		var waitEventType string
-		var queryStart string
-		var query string
-		var duration float32
+		var waitEvent sql.NullString
+		var waitEventType sql.NullString
+		var queryStart sql.NullString
+		var query sql.NullString
+		var duration sql.NullFloat64
 
 		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration)
 		if err != nil {
 			return &protos.PeerStatResponse{StatData: nil}, err
 		}
 
+		we := waitEvent.String
+		if !waitEvent.Valid {
+			we = ""
+		}
+
+		wet := waitEventType.String
+		if !waitEventType.Valid {
+			wet = ""
+		}
+
+		q := query.String
+		if !query.Valid {
+			q = ""
+		}
+
+		qs := queryStart.String
+		if !queryStart.Valid {
+			qs = ""
+		}
+
+		d := duration.Float64
+		if !duration.Valid {
+			d = -1
+		}
+
 		statInfoRows = append(statInfoRows, &protos.StatInfo{
 			Pid:           pid,
-			WaitEvent:     waitEvent,
-			WaitEventType: waitEventType,
-			QueryStart:    queryStart,
-			Query:         query,
-			Duration:      duration,
+			WaitEvent:     we,
+			WaitEventType: wet,
+			QueryStart:    qs,
+			Query:         q,
+			Duration:      float32(d),
 		})
 	}
 	return &protos.PeerStatResponse{
