@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -345,19 +346,19 @@ func (suite *PostgresCDCTestSuite) TearDownSuite() {
 }
 
 func (suite *PostgresCDCTestSuite) TestParseSchemaTable() {
-	schemaTest1, err := parseSchemaTable("schema")
+	schemaTest1, err := utils.ParseSchemaTable("schema")
 	suite.Nil(schemaTest1)
 	suite.NotNil(err)
 
-	schemaTest2, err := parseSchemaTable("schema.table")
-	suite.Equal(&SchemaTable{
+	schemaTest2, err := utils.ParseSchemaTable("schema.table")
+	suite.Equal(&utils.SchemaTable{
 		Schema: "schema",
 		Table:  "table",
 	}, schemaTest2)
 	suite.Equal("\"schema\".\"table\"", schemaTest2.String())
 	suite.Nil(err)
 
-	schemaTest3, err := parseSchemaTable("database.schema.table")
+	schemaTest3, err := utils.ParseSchemaTable("database.schema.table")
 	suite.Nil(schemaTest3)
 	suite.NotNil(err)
 }

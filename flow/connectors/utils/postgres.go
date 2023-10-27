@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -46,4 +47,27 @@ func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]str
 		customTypeMap[typeID] = typeName
 	}
 	return customTypeMap, nil
+}
+
+// SchemaTable is a table in a schema.
+type SchemaTable struct {
+	Schema string
+	Table  string
+}
+
+func (t *SchemaTable) String() string {
+	return fmt.Sprintf(`"%s"."%s"`, t.Schema, t.Table)
+}
+
+// ParseSchemaTable parses a table name into schema and table name.
+func ParseSchemaTable(tableName string) (*SchemaTable, error) {
+	parts := strings.Split(tableName, ".")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	return &SchemaTable{
+		Schema: parts[0],
+		Table:  parts[1],
+	}, nil
 }
