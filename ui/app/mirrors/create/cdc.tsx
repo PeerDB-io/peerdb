@@ -8,7 +8,7 @@ import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { InfoPopover } from '../../../components/InfoPopover';
-import { CDCConfig, MirrorSetter } from '../types';
+import { CDCConfig, MirrorSetter } from '../../dto/MirrorsDTO';
 import { MirrorSetting } from './helpers/common';
 interface MirrorConfigProps {
   settings: MirrorSetting[];

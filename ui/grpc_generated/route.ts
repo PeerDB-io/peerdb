@@ -175,6 +175,35 @@ export interface CDCSyncStatus {
   endTime: Date | undefined;
 }
 
+export interface PostgresPeerActivityInfoRequest {
+  peerName: string;
+}
+
+export interface SlotInfo {
+  slotName: string;
+  redoLSN: string;
+  restartLSN: string;
+  active: boolean;
+  lagInMb: number;
+}
+
+export interface StatInfo {
+  pid: number;
+  waitEvent: string;
+  waitEventType: string;
+  queryStart: string;
+  query: string;
+  duration: number;
+}
+
+export interface PeerSlotResponse {
+  slotData: SlotInfo[];
+}
+
+export interface PeerStatResponse {
+  statData: StatInfo[];
+}
+
 export interface SnapshotStatus {
   clones: QRepMirrorStatus[];
 }
@@ -1262,6 +1291,432 @@ export const CDCSyncStatus = {
   },
 };
 
+function createBasePostgresPeerActivityInfoRequest(): PostgresPeerActivityInfoRequest {
+  return { peerName: "" };
+}
+
+export const PostgresPeerActivityInfoRequest = {
+  encode(message: PostgresPeerActivityInfoRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.peerName !== "") {
+      writer.uint32(10).string(message.peerName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PostgresPeerActivityInfoRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePostgresPeerActivityInfoRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.peerName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PostgresPeerActivityInfoRequest {
+    return { peerName: isSet(object.peerName) ? String(object.peerName) : "" };
+  },
+
+  toJSON(message: PostgresPeerActivityInfoRequest): unknown {
+    const obj: any = {};
+    if (message.peerName !== "") {
+      obj.peerName = message.peerName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PostgresPeerActivityInfoRequest>, I>>(base?: I): PostgresPeerActivityInfoRequest {
+    return PostgresPeerActivityInfoRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PostgresPeerActivityInfoRequest>, I>>(
+    object: I,
+  ): PostgresPeerActivityInfoRequest {
+    const message = createBasePostgresPeerActivityInfoRequest();
+    message.peerName = object.peerName ?? "";
+    return message;
+  },
+};
+
+function createBaseSlotInfo(): SlotInfo {
+  return { slotName: "", redoLSN: "", restartLSN: "", active: false, lagInMb: 0 };
+}
+
+export const SlotInfo = {
+  encode(message: SlotInfo, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.slotName !== "") {
+      writer.uint32(10).string(message.slotName);
+    }
+    if (message.redoLSN !== "") {
+      writer.uint32(18).string(message.redoLSN);
+    }
+    if (message.restartLSN !== "") {
+      writer.uint32(26).string(message.restartLSN);
+    }
+    if (message.active === true) {
+      writer.uint32(32).bool(message.active);
+    }
+    if (message.lagInMb !== 0) {
+      writer.uint32(45).float(message.lagInMb);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SlotInfo {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSlotInfo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.slotName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.redoLSN = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.restartLSN = reader.string();
+          continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.active = reader.bool();
+          continue;
+        case 5:
+          if (tag !== 45) {
+            break;
+          }
+
+          message.lagInMb = reader.float();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SlotInfo {
+    return {
+      slotName: isSet(object.slotName) ? String(object.slotName) : "",
+      redoLSN: isSet(object.redoLSN) ? String(object.redoLSN) : "",
+      restartLSN: isSet(object.restartLSN) ? String(object.restartLSN) : "",
+      active: isSet(object.active) ? Boolean(object.active) : false,
+      lagInMb: isSet(object.lagInMb) ? Number(object.lagInMb) : 0,
+    };
+  },
+
+  toJSON(message: SlotInfo): unknown {
+    const obj: any = {};
+    if (message.slotName !== "") {
+      obj.slotName = message.slotName;
+    }
+    if (message.redoLSN !== "") {
+      obj.redoLSN = message.redoLSN;
+    }
+    if (message.restartLSN !== "") {
+      obj.restartLSN = message.restartLSN;
+    }
+    if (message.active === true) {
+      obj.active = message.active;
+    }
+    if (message.lagInMb !== 0) {
+      obj.lagInMb = message.lagInMb;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SlotInfo>, I>>(base?: I): SlotInfo {
+    return SlotInfo.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SlotInfo>, I>>(object: I): SlotInfo {
+    const message = createBaseSlotInfo();
+    message.slotName = object.slotName ?? "";
+    message.redoLSN = object.redoLSN ?? "";
+    message.restartLSN = object.restartLSN ?? "";
+    message.active = object.active ?? false;
+    message.lagInMb = object.lagInMb ?? 0;
+    return message;
+  },
+};
+
+function createBaseStatInfo(): StatInfo {
+  return { pid: 0, waitEvent: "", waitEventType: "", queryStart: "", query: "", duration: 0 };
+}
+
+export const StatInfo = {
+  encode(message: StatInfo, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.pid !== 0) {
+      writer.uint32(8).int64(message.pid);
+    }
+    if (message.waitEvent !== "") {
+      writer.uint32(18).string(message.waitEvent);
+    }
+    if (message.waitEventType !== "") {
+      writer.uint32(26).string(message.waitEventType);
+    }
+    if (message.queryStart !== "") {
+      writer.uint32(34).string(message.queryStart);
+    }
+    if (message.query !== "") {
+      writer.uint32(42).string(message.query);
+    }
+    if (message.duration !== 0) {
+      writer.uint32(53).float(message.duration);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): StatInfo {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStatInfo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.pid = longToNumber(reader.int64() as Long);
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.waitEvent = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.waitEventType = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.queryStart = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.query = reader.string();
+          continue;
+        case 6:
+          if (tag !== 53) {
+            break;
+          }
+
+          message.duration = reader.float();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): StatInfo {
+    return {
+      pid: isSet(object.pid) ? Number(object.pid) : 0,
+      waitEvent: isSet(object.waitEvent) ? String(object.waitEvent) : "",
+      waitEventType: isSet(object.waitEventType) ? String(object.waitEventType) : "",
+      queryStart: isSet(object.queryStart) ? String(object.queryStart) : "",
+      query: isSet(object.query) ? String(object.query) : "",
+      duration: isSet(object.duration) ? Number(object.duration) : 0,
+    };
+  },
+
+  toJSON(message: StatInfo): unknown {
+    const obj: any = {};
+    if (message.pid !== 0) {
+      obj.pid = Math.round(message.pid);
+    }
+    if (message.waitEvent !== "") {
+      obj.waitEvent = message.waitEvent;
+    }
+    if (message.waitEventType !== "") {
+      obj.waitEventType = message.waitEventType;
+    }
+    if (message.queryStart !== "") {
+      obj.queryStart = message.queryStart;
+    }
+    if (message.query !== "") {
+      obj.query = message.query;
+    }
+    if (message.duration !== 0) {
+      obj.duration = message.duration;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<StatInfo>, I>>(base?: I): StatInfo {
+    return StatInfo.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StatInfo>, I>>(object: I): StatInfo {
+    const message = createBaseStatInfo();
+    message.pid = object.pid ?? 0;
+    message.waitEvent = object.waitEvent ?? "";
+    message.waitEventType = object.waitEventType ?? "";
+    message.queryStart = object.queryStart ?? "";
+    message.query = object.query ?? "";
+    message.duration = object.duration ?? 0;
+    return message;
+  },
+};
+
+function createBasePeerSlotResponse(): PeerSlotResponse {
+  return { slotData: [] };
+}
+
+export const PeerSlotResponse = {
+  encode(message: PeerSlotResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.slotData) {
+      SlotInfo.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PeerSlotResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePeerSlotResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.slotData.push(SlotInfo.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PeerSlotResponse {
+    return { slotData: Array.isArray(object?.slotData) ? object.slotData.map((e: any) => SlotInfo.fromJSON(e)) : [] };
+  },
+
+  toJSON(message: PeerSlotResponse): unknown {
+    const obj: any = {};
+    if (message.slotData?.length) {
+      obj.slotData = message.slotData.map((e) => SlotInfo.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PeerSlotResponse>, I>>(base?: I): PeerSlotResponse {
+    return PeerSlotResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PeerSlotResponse>, I>>(object: I): PeerSlotResponse {
+    const message = createBasePeerSlotResponse();
+    message.slotData = object.slotData?.map((e) => SlotInfo.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBasePeerStatResponse(): PeerStatResponse {
+  return { statData: [] };
+}
+
+export const PeerStatResponse = {
+  encode(message: PeerStatResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.statData) {
+      StatInfo.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PeerStatResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePeerStatResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.statData.push(StatInfo.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PeerStatResponse {
+    return { statData: Array.isArray(object?.statData) ? object.statData.map((e: any) => StatInfo.fromJSON(e)) : [] };
+  },
+
+  toJSON(message: PeerStatResponse): unknown {
+    const obj: any = {};
+    if (message.statData?.length) {
+      obj.statData = message.statData.map((e) => StatInfo.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PeerStatResponse>, I>>(base?: I): PeerStatResponse {
+    return PeerStatResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PeerStatResponse>, I>>(object: I): PeerStatResponse {
+    const message = createBasePeerStatResponse();
+    message.statData = object.statData?.map((e) => StatInfo.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 function createBaseSnapshotStatus(): SnapshotStatus {
   return { clones: [] };
 }
@@ -1558,6 +2013,26 @@ export const FlowServiceService = {
     responseSerialize: (value: CreateQRepFlowResponse) => Buffer.from(CreateQRepFlowResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => CreateQRepFlowResponse.decode(value),
   },
+  getSlotInfo: {
+    path: "/peerdb_route.FlowService/GetSlotInfo",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: PostgresPeerActivityInfoRequest) =>
+      Buffer.from(PostgresPeerActivityInfoRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PostgresPeerActivityInfoRequest.decode(value),
+    responseSerialize: (value: PeerSlotResponse) => Buffer.from(PeerSlotResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => PeerSlotResponse.decode(value),
+  },
+  getStatInfo: {
+    path: "/peerdb_route.FlowService/GetStatInfo",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: PostgresPeerActivityInfoRequest) =>
+      Buffer.from(PostgresPeerActivityInfoRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PostgresPeerActivityInfoRequest.decode(value),
+    responseSerialize: (value: PeerStatResponse) => Buffer.from(PeerStatResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => PeerStatResponse.decode(value),
+  },
   shutdownFlow: {
     path: "/peerdb_route.FlowService/ShutdownFlow",
     requestStream: false,
@@ -1583,6 +2058,8 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   createPeer: handleUnaryCall<CreatePeerRequest, CreatePeerResponse>;
   createCdcFlow: handleUnaryCall<CreateCDCFlowRequest, CreateCDCFlowResponse>;
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
+  getSlotInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSlotResponse>;
+  getStatInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerStatResponse>;
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
   mirrorStatus: handleUnaryCall<MirrorStatusRequest, MirrorStatusResponse>;
 }
@@ -1647,6 +2124,36 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: CreateQRepFlowResponse) => void,
+  ): ClientUnaryCall;
+  getSlotInfo(
+    request: PostgresPeerActivityInfoRequest,
+    callback: (error: ServiceError | null, response: PeerSlotResponse) => void,
+  ): ClientUnaryCall;
+  getSlotInfo(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: PeerSlotResponse) => void,
+  ): ClientUnaryCall;
+  getSlotInfo(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: PeerSlotResponse) => void,
+  ): ClientUnaryCall;
+  getStatInfo(
+    request: PostgresPeerActivityInfoRequest,
+    callback: (error: ServiceError | null, response: PeerStatResponse) => void,
+  ): ClientUnaryCall;
+  getStatInfo(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: PeerStatResponse) => void,
+  ): ClientUnaryCall;
+  getStatInfo(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: PeerStatResponse) => void,
   ): ClientUnaryCall;
   shutdownFlow(
     request: ShutdownRequest,

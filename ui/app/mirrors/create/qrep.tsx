@@ -9,7 +9,7 @@ import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { InfoPopover } from '../../../components/InfoPopover';
-import { MirrorSetter } from '../types';
+import { MirrorSetter } from '../../dto/MirrorsDTO';
 import { MirrorSetting } from './helpers/common';
 interface QRepConfigProps {
   settings: MirrorSetting[];
