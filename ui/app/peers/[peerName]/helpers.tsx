@@ -28,6 +28,7 @@ export const SlotNameDisplay = ({ slotName }: { slotName: string }) => {
 };
 
 export const DurationDisplay = ({ duration }: { duration: number }) => {
+  if (duration < 0) return 'N/A';
   return duration >= 3600
     ? `${Math.floor(duration / 3600)} hour(s) ${Math.floor(
         (duration % 3600) / 60

@@ -51,10 +51,10 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
           header={
             <TableRow>
               <TableCell as='th'>PID</TableCell>
+              <TableCell as='th'>Duration</TableCell>
               <TableCell as='th'>Wait Event</TableCell>
               <TableCell as='th'>Wait Event Type</TableCell>
               <TableCell as='th'>Query Start Time</TableCell>
-              <TableCell as='th'>Duration</TableCell>
               <TableCell as='th'>Query</TableCell>
             </TableRow>
           }
@@ -65,9 +65,9 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
               <TableCell>
                 <DurationDisplay duration={stat.duration} />
               </TableCell>
-              <TableCell>{stat.waitEvent}</TableCell>
-              <TableCell>{stat.waitEventType}</TableCell>
-              <TableCell>{stat.queryStart}</TableCell>
+              <TableCell>{stat.waitEvent || 'N/A'}</TableCell>
+              <TableCell>{stat.waitEventType || 'N/A'}</TableCell>
+              <TableCell>{stat.queryStart || 'N/A'}</TableCell>
               <TableCell>
                 <div
                   style={{
