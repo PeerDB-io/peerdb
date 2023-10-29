@@ -191,7 +191,6 @@ func (p *PostgresCDCSource) consumeStream(
 			records.SignalAsEmpty()
 		}
 		records.RelationMessageMapping <- &p.relationMessageMapping
-		records.Close()
 	}()
 
 	shutdown := utils.HeartbeatRoutine(p.ctx, 10*time.Second, func() string {
@@ -246,7 +245,7 @@ func (p *PostgresCDCSource) consumeStream(
 		cancel()
 		if err != nil && !p.commitLock {
 			if pgconn.Timeout(err) {
-				log.Infof("Idle timeout reached, returning currently accumulated records")
+				log.Infof("Idle timeout reached, returning currently accumulated records - %d", len(localRecords))
 				return nil
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)

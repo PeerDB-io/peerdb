@@ -67,7 +67,7 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtSourceForCDCFlow(ctx context.Con
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_source=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtSource), flowJobName)
 	if err != nil {
-		return fmt.Errorf("error while updating flow in cdc_flows: %w", err)
+		return fmt.Errorf("[source] error while updating flow in cdc_flows: %w", err)
 	}
 	return nil
 }
@@ -82,7 +82,7 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtTargetForCDCFlow(ctx context.Con
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtTarget), flowJobName)
 	if err != nil {
-		return fmt.Errorf("error while updating flow in cdc_flows: %w", err)
+		return fmt.Errorf("[target] error while updating flow in cdc_flows: %w", err)
 	}
 	return nil
 }

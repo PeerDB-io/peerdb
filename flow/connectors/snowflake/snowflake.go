@@ -478,7 +478,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 
 func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	log.Printf("pushing records to Snowflake table %s", rawTableIdentifier)
+	log.Infof("pushing records to Snowflake table %s", rawTableIdentifier)
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -488,11 +488,14 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 	var res *model.SyncResponse
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
+		log.Infof("sync mode is for flow %s is AVRO", req.FlowJobName)
 		res, err = c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
 		if err != nil {
 			return nil, err
 		}
 	}
+
+	log.Infof("sync mode is for flow %s is MULTI_INSERT", req.FlowJobName)
 
 	// transaction for SyncRecords
 	syncRecordsTx, err := c.database.BeginTx(c.ctx, nil)
@@ -633,8 +636,11 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 	}, nil
 }
 
-func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, rawTableIdentifier string,
-	syncBatchID int64) (*model.SyncResponse, error) {
+func (c *SnowflakeConnector) syncRecordsViaAvro(
+	req *model.SyncRecordsRequest,
+	rawTableIdentifier string,
+	syncBatchID int64,
+) (*model.SyncResponse, error) {
 	lastCP := req.Records.LastCheckPointID
 	tableNameRowsMapping := make(map[string]uint32)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, 0, syncBatchID)

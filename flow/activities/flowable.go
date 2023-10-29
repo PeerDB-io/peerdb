@@ -165,11 +165,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
 
-	srcConn, err := connectors.GetCDCPullConnector(ctx, conn.Source)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source connector: %w", err)
-	}
-	defer connectors.CloseConnector(srcConn)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
@@ -200,7 +195,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	startTime := time.Now()
 
-	errGroup, ctx := errgroup.WithContext(ctx)
+	errGroup, errCtx := errgroup.WithContext(ctx)
+	srcConn, err := connectors.GetCDCPullConnector(errCtx, conn.Source)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
 
 	// start a goroutine to pull records from the source
 	errGroup.Go(func() error {
@@ -215,11 +215,14 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
 			RelationMessageMapping:      input.RelationMessageMapping,
-			RecordStream:                 recordBatch,
+			RecordStream:                recordBatch,
 		})
 	})
 
-	hasRecords := recordBatch.WaitAndCheckEmpty()
+	hasRecords := !recordBatch.WaitAndCheckEmpty()
+	log.WithFields(log.Fields{
+		"flowName": input.FlowConnectionConfigs.FlowJobName,
+	}).Infof("the current sync flow has records: %v", hasRecords)
 
 	if a.CatalogMirrorMonitor.IsActive() && hasRecords {
 		syncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
@@ -242,6 +245,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 
 	if !hasRecords {
+		// wait for the pull goroutine to finish
+		err = errGroup.Wait()
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull records: %w", err)
+		}
+
 		log.WithFields(log.Fields{"flowName": input.FlowConnectionConfigs.FlowJobName}).Info("no records to push")
 		syncResponse := &model.SyncResponse{}
 		syncResponse.RelationMessageMapping = <-recordBatch.RelationMessageMapping

@@ -321,7 +321,8 @@ func (r *CDCRecordStream) SignalAsNotEmpty() {
 }
 
 func (r *CDCRecordStream) WaitAndCheckEmpty() bool {
-	return <-r.emptySignal
+	isEmpty := <-r.emptySignal
+	return isEmpty
 }
 
 func (r *CDCRecordStream) WaitForSchemaDeltas() []*protos.TableSchemaDelta {

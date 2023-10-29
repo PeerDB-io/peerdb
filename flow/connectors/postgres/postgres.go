@@ -175,6 +175,10 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 
 // PullRecords pulls records from the source.
 func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
+	defer func() {
+		req.RecordStream.Close()
+	}()
+
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
