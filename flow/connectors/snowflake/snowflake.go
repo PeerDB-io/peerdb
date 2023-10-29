@@ -77,11 +77,6 @@ const (
 	checkSchemaExistsSQL        = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 )
 
-type tableNameComponents struct {
-	schemaIdentifier string
-	tableIdentifier  string
-}
-
 type SnowflakeConnector struct {
 	ctx                context.Context
 	database           *sql.DB
@@ -233,12 +228,12 @@ func (c *SnowflakeConnector) GetTableSchema(
 }
 
 func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
-	tableNameComponents, err := parseTableName(tableName)
+	parsedSrcTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
-		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+		return nil, fmt.Errorf("error while parsing table name: %w", err)
 	}
-	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, tableNameComponents.schemaIdentifier,
-		tableNameComponents.tableIdentifier)
+	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, parsedSrcTable.Schema,
+		parsedSrcTable.Table)
 	if err != nil {
 		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
 	}
@@ -395,12 +390,12 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		normalizedTableNameComponents, err := parseTableName(tableIdentifier)
+		parsedSrcTableName, err := utils.ParseSchemaTable(tableIdentifier)
 		if err != nil {
-			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+			return nil, fmt.Errorf("error while parsing table name: %w", err)
 		}
-		tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
-			normalizedTableNameComponents.tableIdentifier)
+		tableAlreadyExists, err := c.checkIfTableExists(parsedSrcTableName.Schema,
+			parsedSrcTableName.Table)
 		if err != nil {
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
@@ -409,8 +404,8 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 			continue
 		}
 
-		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-			tableIdentifier, tableSchema, req.SoftDeleteColName, req.SyncedAtColName)
+		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(tableIdentifier, tableSchema,
+			req.SoftDeleteColName, req.SyncedAtColName)
 		_, err = c.database.ExecContext(c.ctx, normalizedTableCreateSQL)
 		if err != nil {
 			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
@@ -527,11 +522,8 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	return res, nil
 }
 
-func (c *SnowflakeConnector) syncRecordsViaAvro(
-	req *model.SyncRecordsRequest,
-	rawTableIdentifier string,
-	syncBatchID int64,
-) (*model.SyncResponse, error) {
+func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, rawTableIdentifier string,
+	syncBatchID int64) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
@@ -545,13 +537,12 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		DestinationTableIdentifier: fmt.Sprintf("%s.%s", c.metadataSchema,
 			rawTableIdentifier),
 	}
-	avroSyncer := NewSnowflakeAvroSyncMethod(qrepConfig, c)
-	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
+	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
 	if err != nil {
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, streamRes.Stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(streamRes.Stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -764,7 +755,8 @@ func generateCreateTableSQLForNormalizedTable(
 			log.Warnf("failed to convert column type %s to snowflake type: %v", genericColumnType, err)
 			continue
 		}
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper, sfColType))
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper,
+			sfColType))
 	}
 
 	// add a _peerdb_is_deleted column to the normalized table
@@ -783,15 +775,13 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	// add composite primary key to the table
-	if len(sourceTableSchema.PrimaryKeyColumns) > 0 {
-		primaryKeyColsUpperQuoted := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
-		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
-			primaryKeyColsUpperQuoted = append(primaryKeyColsUpperQuoted,
-				fmt.Sprintf(`"%s"`, strings.ToUpper(primaryKeyCol)))
-		}
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
-			strings.TrimSuffix(strings.Join(primaryKeyColsUpperQuoted, ","), ",")))
+	primaryKeyColsUpperQuoted := make([]string, 0)
+	for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
+		primaryKeyColsUpperQuoted = append(primaryKeyColsUpperQuoted,
+			fmt.Sprintf(`"%s"`, strings.ToUpper(primaryKeyCol)))
 	}
+	createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
+		strings.TrimSuffix(strings.Join(primaryKeyColsUpperQuoted, ","), ",")))
 
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
@@ -799,7 +789,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 func getRawTableIdentifier(jobName string) string {
 	jobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(jobName, "_")
-	return fmt.Sprintf("%s_%s", rawTablePrefix, jobName)
+	return strings.ToUpper(fmt.Sprintf("%s_%s", rawTablePrefix, jobName))
 }
 
 func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
@@ -813,6 +803,10 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 ) (int64, error) {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := maps.Keys(normalizedTableSchema.Columns)
+	parsedDstTable, err := utils.ParseSchemaTable(destinationTableIdentifier)
+	if err != nil {
+		return 0, fmt.Errorf("unable to parse destination table '%s'", parsedDstTable)
+	}
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
@@ -821,7 +815,6 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 				genericColumnType, err)
 		}
-
 		targetColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
@@ -847,28 +840,16 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")
 
-	quotedUpperColNames := make([]string, 0, len(columnNames))
+	normalizedColNames := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
-		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(columnName)))
+		normalizedColNames = append(normalizedColNames, snowflakeIdentifierNormalize(columnName))
 	}
-
-	// add soft delete and synced at columns to the list of columns
-	if normalizeReq.SoftDelete {
-		colName := normalizeReq.SoftDeleteColName
-		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(colName)))
-	}
-
-	if normalizeReq.SyncedAtColName != "" {
-		colName := normalizeReq.SyncedAtColName
-		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(colName)))
-	}
-
-	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
+	insertColumnsSQL := strings.TrimSuffix(strings.Join(normalizedColNames, ","), ",")
 
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
-		quotedUpperColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", quotedUpperColumnName))
+		normalizedColName := snowflakeIdentifierNormalize(columnName)
+		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", normalizedColName))
 	}
 
 	// add soft delete and synced at columns to the list of columns
@@ -890,8 +871,9 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	pkeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for _, pkeyColName := range normalizedTableSchema.PrimaryKeyColumns {
+		normalizedpkeyColName := snowflakeIdentifierNormalize(pkeyColName)
 		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("TARGET.%s = SOURCE.%s",
-			pkeyColName, pkeyColName))
+			normalizedpkeyColName, normalizedpkeyColName))
 	}
 	// TARGET.<pkey1> = SOURCE.<pkey1> AND TARGET.<pkey2> = SOURCE.<pkey2> ...
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
@@ -905,8 +887,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		}
 	}
 
-	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
-		rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
+	mergeStatement := fmt.Sprintf(mergeStatementSQL, snowflakeSchemaTableNormalize(parsedDstTable),
+		toVariantColumnName, rawTableIdentifier, normalizeBatchID, syncBatchID, flattenedCastsSQL,
 		fmt.Sprintf("(%s)", strings.Join(normalizedTableSchema.PrimaryKeyColumns, ",")),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
@@ -926,19 +908,6 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		destinationTableIdentifier, endTime.Sub(startTime)/time.Second)
 
 	return result.RowsAffected()
-}
-
-// parseTableName parses a table name into schema and table name.
-func parseTableName(tableName string) (*tableNameComponents, error) {
-	parts := strings.Split(tableName, ".")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid table name: %s", tableName)
-	}
-
-	return &tableNameComponents{
-		schemaIdentifier: parts[0],
-		tableIdentifier:  parts[1],
-	}, nil
 }
 
 func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
@@ -1043,8 +1012,8 @@ func (c *SnowflakeConnector) generateUpdateStatement(
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0)
 		for _, colName := range otherCols {
-			quotedUpperColName := fmt.Sprintf(`"%s"`, strings.ToUpper(colName))
-			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", quotedUpperColName, quotedUpperColName))
+			normalizedColName := snowflakeIdentifierNormalize(colName)
+			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", normalizedColName, normalizedColName))
 		}
 
 		// set the synced at column to the current timestamp

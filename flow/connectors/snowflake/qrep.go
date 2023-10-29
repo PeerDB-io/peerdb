@@ -49,7 +49,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 		return 0, nil
 	}
 
-	avroSync := NewSnowflakeAvroSyncMethod(config, c)
+	avroSync := NewSnowflakeAvroSyncHandler(config, c)
 	return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
 }
 
@@ -78,12 +78,17 @@ func (c *SnowflakeConnector) createMetadataInsertStatement(
 }
 
 func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
+	parsedTableName, err := utils.ParseSchemaTable(tableName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse table '%s'", tableName)
+	}
+
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
 	SELECT *
 	FROM %s
 	LIMIT 0
-	`, tableName)
+	`, snowflakeSchemaTableNormalize(parsedTableName))
 
 	rows, err := c.database.Query(queryString)
 	if err != nil {
@@ -261,7 +266,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
-	colInfo, err := c.getColsFromTable(destTable)
+	colInfo, err := c.getColsFromTable(destTable, false)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
@@ -269,8 +274,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 		return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
 	}
 
-	allCols := colInfo.Columns
-	err = CopyStageToDestination(c, config, destTable, stageName, allCols)
+	err = copyStageToDestination(c, config, destTable, stageName, colInfo)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
@@ -289,23 +293,20 @@ func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
-func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnInformation, error) {
+func (c *SnowflakeConnector) getColsFromTable(tableName string,
+	correctForAvro bool) (*model.ColumnInformation, error) {
 	// parse the table name to get the schema and table name
-	components, err := parseTableName(tableName)
+	components, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
-
-	// convert tableIdentifier and schemaIdentifier to upper case
-	components.tableIdentifier = strings.ToUpper(components.tableIdentifier)
-	components.schemaIdentifier = strings.ToUpper(components.schemaIdentifier)
 
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
 	SELECT column_name, data_type
 	FROM information_schema.columns
 	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
-	`, components.tableIdentifier, components.schemaIdentifier)
+	`, strings.ToUpper(components.Table), strings.ToUpper(components.Schema))
 
 	rows, err := c.database.Query(queryString)
 	if err != nil {
@@ -314,11 +315,16 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnIn
 	defer rows.Close()
 
 	columnMap := map[string]string{}
+	var colName string
+	var colType string
 	for rows.Next() {
-		var colName string
-		var colType string
 		if err := rows.Scan(&colName, &colType); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		// Avro file was written with caseless identifiers being lowercase, as the information is fetched from Postgres
+		// Snowflake retrieves the column information with caseless identifiers being UPPERCASE
+		if correctForAvro && strings.ToUpper(colName) == colName {
+			colName = strings.ToLower(colName)
 		}
 		columnMap[colName] = colType
 	}

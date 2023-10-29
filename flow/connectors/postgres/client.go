@@ -495,6 +495,7 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
+	parsedDstTable, _ := utils.ParseSchemaTable(destinationTableIdentifier)
 
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(columnNames, ","), ",")
 	updateColumnsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
@@ -511,11 +512,11 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
 		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), c.metadataSchema,
-		rawTableIdentifier, destinationTableIdentifier, insertColumnsSQL, flattenedCastsSQL,
+		rawTableIdentifier, parsedDstTable.String(), insertColumnsSQL, flattenedCastsSQL,
 		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
 		strings.Join(maps.Values(primaryKeyColumnCasts), ","), c.metadataSchema,
-		rawTableIdentifier, destinationTableIdentifier, deleteWhereClauseSQL)
+		rawTableIdentifier, parsedDstTable.String(), deleteWhereClauseSQL)
 
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
@@ -527,6 +528,7 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	for i, columnName := range columnNames {
 		columnNames[i] = fmt.Sprintf("\"%s\"", columnName)
 	}
+	parsedDstTable, _ := utils.ParseSchemaTable(destinationTableIdentifier)
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	primaryKeyColumnCasts := make(map[string]string)
@@ -558,7 +560,7 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	updateStatements := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 
 	return fmt.Sprintf(mergeStatementSQL, strings.Join(maps.Values(primaryKeyColumnCasts), ","),
-		c.metadataSchema, rawTableIdentifier, destinationTableIdentifier, flattenedCastsSQL,
+		c.metadataSchema, rawTableIdentifier, parsedDstTable.String(), flattenedCastsSQL,
 		strings.Join(primaryKeySelectSQLArray, " AND "), insertColumnsSQL, insertValuesSQL, updateStatements)
 }
 
@@ -601,7 +603,7 @@ func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error)
 				err := row.Scan(&count)
 				if err != nil {
 					log.WithFields(log.Fields{
-						"table": table,
+						"table": parsedTable.String(),
 					}).Errorf("error while scanning row: %v", err)
 					return fmt.Errorf("error while scanning row: %w", err)
 				}

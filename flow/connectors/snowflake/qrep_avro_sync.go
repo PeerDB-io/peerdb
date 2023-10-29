@@ -23,22 +23,21 @@ type CopyInfo struct {
 	columnsSQL        string
 }
 
-type SnowflakeAvroSyncMethod struct {
+type SnowflakeAvroSyncHandler struct {
 	config    *protos.QRepConfig
 	connector *SnowflakeConnector
 }
 
-func NewSnowflakeAvroSyncMethod(
+func NewSnowflakeAvroSyncHandler(
 	config *protos.QRepConfig,
-	connector *SnowflakeConnector) *SnowflakeAvroSyncMethod {
-	return &SnowflakeAvroSyncMethod{
+	connector *SnowflakeConnector) *SnowflakeAvroSyncHandler {
+	return &SnowflakeAvroSyncHandler{
 		config:    config,
 		connector: connector,
 	}
 }
 
-func (s *SnowflakeAvroSyncMethod) SyncRecords(
-	dstTableSchema []*sql.ColumnType,
+func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	stream *model.QRecordStream,
 	flowJobName string,
 ) (int, error) {
@@ -79,12 +78,11 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 		"flowName":         flowJobName,
 	}).Infof("Created stage %s", stage)
 
-	colInfo, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
+	colInfo, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier, true)
 	if err != nil {
 		return 0, err
 	}
 
-	allCols := colInfo.Columns
 	err = s.putFileToStage(localFilePath, stage)
 	if err != nil {
 		return 0, err
@@ -93,7 +91,7 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 		"destinationTable": dstTableName,
 	}).Infof("pushed avro file to stage")
 
-	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, allCols)
+	err = copyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, colInfo)
 	if err != nil {
 		return 0, err
 	}
@@ -104,7 +102,7 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	return numRecords, nil
 }
 
-func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
+func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
@@ -178,7 +176,7 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	return numRecords, nil
 }
 
-func (s *SnowflakeAvroSyncMethod) addMissingColumns(
+func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 	flowJobName string,
 	schema *model.QRecordSchema,
 	dstTableSchema []*sql.ColumnType,
@@ -250,7 +248,7 @@ func (s *SnowflakeAvroSyncMethod) addMissingColumns(
 	return nil
 }
 
-func (s *SnowflakeAvroSyncMethod) getAvroSchema(
+func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 	dstTableName string,
 	schema *model.QRecordSchema,
 	flowJobName string,
@@ -266,7 +264,7 @@ func (s *SnowflakeAvroSyncMethod) getAvroSchema(
 	return avroSchema, nil
 }
 
-func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
+func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
@@ -316,7 +314,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	return 0, "", fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
 }
 
-func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage string) error {
+func (s *SnowflakeAvroSyncHandler) putFileToStage(localFilePath string, stage string) error {
 	if localFilePath == "" {
 		log.Infof("no file to put to stage")
 		return nil
@@ -341,88 +339,7 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage str
 	return nil
 }
 
-func (c *SnowflakeConnector) GetCopyTransformation(
-	dstTableName string,
-) (*CopyInfo, error) {
-	colInfo, colsErr := c.getColsFromTable(dstTableName)
-	if colsErr != nil {
-		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
-	}
-
-	var transformations []string
-	var columnOrder []string
-	for colName, colType := range colInfo.ColumnMap {
-		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
-		switch colType {
-		case "GEOGRAPHY":
-			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
-		case "GEOMETRY":
-			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
-		case "NUMBER":
-			transformations = append(transformations,
-				fmt.Sprintf("$1:\"%s\" AS \"%s\"", strings.ToLower(colName), colName))
-		default:
-			transformations = append(transformations,
-				fmt.Sprintf("($1:\"%s\")::%s AS \"%s\"", strings.ToLower(colName), colType, colName))
-		}
-	}
-	transformationSQL := strings.Join(transformations, ",")
-	columnsSQL := strings.Join(columnOrder, ",")
-	return &CopyInfo{transformationSQL, columnsSQL}, nil
-}
-
-func CopyStageToDestination(
-	connector *SnowflakeConnector,
-	config *protos.QRepConfig,
-	dstTableName string,
-	stage string,
-	allCols []string,
-) error {
-	log.WithFields(log.Fields{
-		"flowName": config.FlowJobName,
-	}).Infof("Copying stage to destination %s", dstTableName)
-	copyOpts := []string{
-		"FILE_FORMAT = (TYPE = AVRO)",
-		"PURGE = TRUE",
-		"ON_ERROR = 'CONTINUE'",
-	}
-
-	writeHandler := NewSnowflakeAvroWriteHandler(connector, dstTableName, stage, copyOpts)
-
-	appendMode := true
-	if config.WriteMode != nil {
-		writeType := config.WriteMode.WriteType
-		if writeType == protos.QRepWriteType_QREP_WRITE_MODE_UPSERT {
-			appendMode = false
-		}
-	}
-
-	copyTransformation, err := connector.GetCopyTransformation(dstTableName)
-	if err != nil {
-		return fmt.Errorf("failed to get copy transformation: %w", err)
-	}
-	switch appendMode {
-	case true:
-		err := writeHandler.HandleAppendMode(config.FlowJobName, copyTransformation)
-		if err != nil {
-			return fmt.Errorf("failed to handle append mode: %w", err)
-		}
-
-	case false:
-		upsertKeyCols := config.WriteMode.UpsertKeyColumns
-		err := writeHandler.HandleUpsertMode(allCols, upsertKeyCols, config.WatermarkColumn,
-			config.FlowJobName, copyTransformation)
-		if err != nil {
-			return fmt.Errorf("failed to handle upsert mode: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (s *SnowflakeAvroSyncMethod) insertMetadata(
+func (s *SnowflakeAvroSyncHandler) insertMetadata(
 	partition *protos.QRepPartition,
 	flowJobName string,
 	startTime time.Time,
@@ -585,30 +502,14 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 		return fmt.Errorf("failed to generate merge command: %w", err)
 	}
 
-	startTime := time.Now()
-	rows, err := s.connector.database.Exec(mergeCmd)
+	_, err = s.connector.database.Exec(mergeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
-	}
-	rowCount, err := rows.RowsAffected()
-	if err == nil {
-		totalRowsAtTarget, err := s.connector.getTableCounts([]string{s.dstTableName})
-		if err != nil {
-			return err
-		}
-		log.WithFields(log.Fields{
-			"flowName": flowJobName,
-		}).Infof("merged %d rows into destination table %s, total rows at target: %d",
-			rowCount, s.dstTableName, totalRowsAtTarget)
-	} else {
-		log.WithFields(log.Fields{
-			"flowName": flowJobName,
-		}).Errorf("failed to get rows affected: %v", err)
 	}
 
 	log.WithFields(log.Fields{
 		"flowName": flowJobName,
-	}).Infof("merged data from temp table %s into destination table %s, time taken %v",
-		tempTableName, s.dstTableName, time.Since(startTime))
+	}).Infof("merged data from temp table %s into destination table %s",
+		tempTableName, s.dstTableName)
 	return nil
 }
