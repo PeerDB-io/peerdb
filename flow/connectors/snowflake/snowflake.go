@@ -495,8 +495,6 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 		}
 	}
 
-	log.Infof("sync mode is for flow %s is MULTI_INSERT", req.FlowJobName)
-
 	// transaction for SyncRecords
 	syncRecordsTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
@@ -514,6 +512,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	}()
 
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
+		log.Infof("sync mode is for flow %s is MULTI_INSERT", req.FlowJobName)
 		res, err = c.syncRecordsViaSQL(req, rawTableIdentifier, syncBatchID, syncRecordsTx)
 		if err != nil {
 			return nil, err
