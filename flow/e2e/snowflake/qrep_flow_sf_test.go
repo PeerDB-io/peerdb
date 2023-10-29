@@ -3,6 +3,7 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -18,18 +19,6 @@ func (s *PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, rowCount int
 	s.NoError(err)
 }
 
-func (s *PeerFlowE2ETestSuiteSF) setupSFDestinationTable(dstTable string) {
-	schema := e2e.GetOwnersSchema()
-	err := s.sfHelper.CreateTable(dstTable, schema)
-
-	// fail if table creation fails
-	if err != nil {
-		s.FailNow("unable to create table on snowflake", err)
-	}
-
-	fmt.Printf("created table on snowflake: %s.%s. %v\n", s.sfHelper.testSchemaName, dstTable, err)
-}
-
 func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
@@ -43,9 +32,9 @@ func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, select
 	qualifiedTableName := fmt.Sprintf("%s.%s.%s", s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
 	var sfSelQuery string
 	if caseSensitive {
-		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
+		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, strings.ToUpper(selector), qualifiedTableName)
 	} else {
-		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
+		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, strings.ToUpper(selector), qualifiedTableName)
 	}
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
 
@@ -63,7 +52,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 
 	tblName := "test_qrep_flow_avro_sf"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -78,6 +66,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 		s.sfHelper.Peer,
 		"",
 	)
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	s.NoError(err)
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
@@ -90,7 +79,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	s.NoError(err)
 
 	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
+	s.compareTableContentsSF(tblName, sel, false)
 
 	env.AssertExpectations(s.T())
 }
@@ -103,7 +92,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple()
 
 	tblName := "test_qrep_flow_avro_sf_ups"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -122,6 +110,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple()
 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
 		UpsertKeyColumns: []string{"id"},
 	}
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	s.NoError(err)
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
@@ -134,7 +123,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple()
 	s.NoError(err)
 
 	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
+	s.compareTableContentsSF(tblName, sel, false)
 
 	env.AssertExpectations(s.T())
 }
@@ -147,7 +136,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 
 	tblName := "test_qrep_flow_avro_sf_s3"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -162,6 +150,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 		s.sfHelper.Peer,
 		"",
 	)
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	s.NoError(err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 
@@ -174,7 +163,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	s.NoError(err)
 
 	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
+	s.compareTableContentsSF(tblName, sel, false)
 
 	env.AssertExpectations(s.T())
 }
@@ -186,7 +175,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 
 	tblName := "test_qrep_flow_avro_sf_ups_xmin"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -206,6 +194,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 		UpsertKeyColumns: []string{"id"},
 	}
 	qrepConfig.WatermarkColumn = "xmin"
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	s.NoError(err)
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
@@ -217,7 +206,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	s.NoError(err)
 
 	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
+	s.compareTableContentsSF(tblName, sel, false)
 
 	env.AssertExpectations(s.T())
 }
@@ -230,7 +219,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 
 	tblName := "test_qrep_flow_avro_sf_s3_int"
 	s.setupSourceTable(tblName, numRows)
-	s.setupSFDestinationTable(tblName)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
@@ -250,6 +238,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 		"",
 	)
 	s.NoError(err)
+	qrepConfig.SetupWatermarkTableOnDestination = true
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
@@ -261,7 +250,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 	s.NoError(err)
 
 	sel := e2e.GetOwnersSelectorString()
-	s.compareTableContentsSF(tblName, sel, true)
+	s.compareTableContentsSF(tblName, sel, false)
 
 	env.AssertExpectations(s.T())
 }

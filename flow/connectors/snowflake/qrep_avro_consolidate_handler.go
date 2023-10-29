@@ -39,26 +39,29 @@ func NewSnowflakeAvroConsolidateHandler(
 func (s *SnowflakeAvroConsolidateHandler) generateCopyTransformation() *CopyInfo {
 	var transformations []string
 	var columnOrder []string
-	for colName, colType := range s.colInfo.ColumnMap {
-		if colName == "_PEERDB_IS_DELETED" {
+	for avroColName, colType := range s.colInfo.ColumnMap {
+		if avroColName == "_PEERDB_IS_DELETED" {
 			continue
 		}
-		normalizedColName := snowflakeIdentifierNormalize(colName)
+		if strings.ToUpper(avroColName) == avroColName {
+			avroColName = strings.ToLower(avroColName)
+		}
+		normalizedColName := snowflakeIdentifierNormalize(avroColName)
 		columnOrder = append(columnOrder, normalizedColName)
 		// Avro files are written with lowercase in mind, so don't normalize it like everything else
 		switch colType {
 		case "GEOGRAPHY":
 			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string, true) AS %s", colName, normalizedColName))
+				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string, true) AS %s", avroColName, normalizedColName))
 		case "GEOMETRY":
 			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string, true) AS %s", colName, normalizedColName))
+				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string, true) AS %s", avroColName, normalizedColName))
 		case "NUMBER":
 			transformations = append(transformations,
-				fmt.Sprintf("$1:\"%s\" AS %s", colName, normalizedColName))
+				fmt.Sprintf("$1:\"%s\" AS %s", avroColName, normalizedColName))
 		default:
 			transformations = append(transformations,
-				fmt.Sprintf("($1:\"%s\")::%s AS %s", colName, colType, normalizedColName))
+				fmt.Sprintf("($1:\"%s\")::%s AS %s", avroColName, colType, normalizedColName))
 		}
 	}
 	transformationSQL := strings.Join(transformations, ",")

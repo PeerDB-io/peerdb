@@ -78,7 +78,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 		"flowName":         flowJobName,
 	}).Infof("Created stage %s", stage)
 
-	colInfo, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier, true)
+	colInfo, err := s.connector.getNormalizedColsFromTable(s.config.DestinationTableIdentifier)
 	if err != nil {
 		return 0, err
 	}

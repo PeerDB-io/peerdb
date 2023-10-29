@@ -266,7 +266,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
-	colInfo, err := c.getColsFromTable(destTable, false)
+	colInfo, err := c.getNormalizedColsFromTable(destTable)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
@@ -293,8 +293,7 @@ func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
-func (c *SnowflakeConnector) getColsFromTable(tableName string,
-	correctForAvro bool) (*model.ColumnInformation, error) {
+func (c *SnowflakeConnector) getNormalizedColsFromTable(tableName string) (*model.ColumnInformation, error) {
 	// parse the table name to get the schema and table name
 	components, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
@@ -320,11 +319,6 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string,
 	for rows.Next() {
 		if err := rows.Scan(&colName, &colType); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-		// Avro file was written with caseless identifiers being lowercase, as the information is fetched from Postgres
-		// Snowflake retrieves the column information with caseless identifiers being UPPERCASE
-		if correctForAvro && strings.ToUpper(colName) == colName {
-			colName = strings.ToLower(colName)
 		}
 		columnMap[colName] = colType
 	}
