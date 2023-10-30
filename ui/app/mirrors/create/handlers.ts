@@ -1,9 +1,13 @@
 import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
+import {
+  UColumnsResponse,
+  USchemasResponse,
+  UTablesResponse,
+} from '@/app/dto/PeersDTO';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
 import { Dispatch, SetStateAction } from 'react';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import { cdcSchema, qrepSchema, tableMappingSchema } from './schema';
-import { UColumnsResponse, USchemasResponse, UTablesResponse } from '@/app/dto/PeersDTO';
 
 const validateCDCFields = (
   tableMapping: TableMapRow[],
@@ -53,7 +57,7 @@ const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
     return {
       sourceTableIdentifier: row.source,
       destinationTableIdentifier: row.destination,
-      partitionKey: '',
+      partitionKey: row.partitionKey,
     };
   });
   return mapping;
@@ -158,59 +162,53 @@ export const handleCreateQRep = async (
 };
 
 export const fetchSchemas = async (
-  peerName:string,
-  setLoading: Dispatch<SetStateAction<boolean>>) => {
-    setLoading(true);
-    const schemasRes:USchemasResponse = await fetch(
-      '/api/peers/schemas',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          peerName,
-        }),
-      }
-    ).then((res) => res.json());
-    setLoading(false);
-    return schemasRes.schemas
-}
+  peerName: string,
+  setLoading: Dispatch<SetStateAction<boolean>>
+) => {
+  setLoading(true);
+  const schemasRes: USchemasResponse = await fetch('/api/peers/schemas', {
+    method: 'POST',
+    body: JSON.stringify({
+      peerName,
+    }),
+  }).then((res) => res.json());
+  setLoading(false);
+  return schemasRes.schemas;
+};
 
 export const fetchTables = async (
-  peerName:string,
-  schemaName:string,
-  setLoading: Dispatch<SetStateAction<boolean>>) => {
-    if(schemaName.length === 0) return []
-    setLoading(true);
-    const tablesRes:UTablesResponse = await fetch(
-      '/api/peers/tables',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          peerName,
-          schemaName
-        }),
-      }
-    ).then((res) => res.json());
-    setLoading(false)
-    return tablesRes.tables
-}
+  peerName: string,
+  schemaName: string,
+  setLoading: Dispatch<SetStateAction<boolean>>
+) => {
+  if (schemaName.length === 0) return [];
+  setLoading(true);
+  const tablesRes: UTablesResponse = await fetch('/api/peers/tables', {
+    method: 'POST',
+    body: JSON.stringify({
+      peerName,
+      schemaName,
+    }),
+  }).then((res) => res.json());
+  setLoading(false);
+  return tablesRes.tables;
+};
 
 export const fetchColumns = async (
-  peerName:string,
-  schemaName:string,
-  tableName:string,
-  setLoading: Dispatch<SetStateAction<boolean>>) => {
-    setLoading(true);
-    const columnsRes:UColumnsResponse = await fetch(
-      '/api/peers/columns',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          peerName,
-          schemaName,
-          tableName
-        }),
-      }
-    ).then((res) => res.json());
-    setLoading(false)
-    return columnsRes.columns
-}
+  peerName: string,
+  schemaName: string,
+  tableName: string,
+  setLoading: Dispatch<SetStateAction<boolean>>
+) => {
+  setLoading(true);
+  const columnsRes: UColumnsResponse = await fetch('/api/peers/columns', {
+    method: 'POST',
+    body: JSON.stringify({
+      peerName,
+      schemaName,
+      tableName,
+    }),
+  }).then((res) => res.json());
+  setLoading(false);
+  return columnsRes.columns;
+};

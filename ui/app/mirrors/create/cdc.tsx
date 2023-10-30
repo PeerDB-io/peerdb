@@ -7,12 +7,11 @@ import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
+import { Dispatch, SetStateAction } from 'react';
 import { InfoPopover } from '../../../components/InfoPopover';
-import { CDCConfig, MirrorSetter } from '../../dto/MirrorsDTO';
+import { CDCConfig, MirrorSetter, TableMapRow } from '../../dto/MirrorsDTO';
 import { MirrorSetting } from './helpers/common';
 import TableMapping from './tablemapping';
-import { Dispatch, SetStateAction } from 'react';
-import { TableMapRow } from '../../dto/MirrorsDTO';
 
 interface MirrorConfigProps {
   settings: MirrorSetting[];
@@ -22,7 +21,7 @@ interface MirrorConfigProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   schema: string;
-  setSchema:Dispatch<SetStateAction<string>>;
+  setSchema: Dispatch<SetStateAction<string>>;
 }
 
 export default function CDCConfigForm(props: MirrorConfigProps) {
@@ -97,54 +96,64 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
 
   return (
     <>
-          <RowWithSelect
-              label={
-                <Label>
-                  Source Peer
-                  {RequiredIndicator(true)}
-                </Label>
+      <RowWithSelect
+        label={
+          <Label>
+            Source Peer
+            {RequiredIndicator(true)}
+          </Label>
+        }
+        action={
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <Select
+              placeholder='Select the source peer'
+              onValueChange={(val) =>
+                handleChange(val, {
+                  label: 'Source Peer',
+                  stateHandler: (value, setter) =>
+                    setter((curr: CDCConfig) => ({
+                      ...curr,
+                      source: value as Peer,
+                    })),
+                })
               }
-              action={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Select
-                    placeholder="Select the source peer"
-                    onValueChange={(val) => handleChange(val,{
-                      label: 'Source Peer',
-                      stateHandler: (value, setter) =>
-                        setter((curr: CDCConfig) => ({ ...curr, source: value as Peer })),
-                    })}
-                  >
-                    {(props.peers ?? []).map((peer) => peer.name)
-                      .map((peerName, id) => {
-                      return (
-                        <SelectItem key={id} value={peerName}>
-                          {peerName}
-                        </SelectItem>
-                      );
-                    })}
-                  </Select>
-                  <InfoPopover
-                    tips={'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'}
-                    link={'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'}
-                  />
-                </div>
+            >
+              {(props.peers ?? [])
+                .map((peer) => peer.name)
+                .map((peerName, id) => {
+                  return (
+                    <SelectItem key={id} value={peerName}>
+                      {peerName}
+                    </SelectItem>
+                  );
+                })}
+            </Select>
+            <InfoPopover
+              tips={
+                'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
+              }
+              link={
+                'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'
               }
             />
-            {props.mirrorConfig.source &&
-              <TableMapping 
-                sourcePeerName={props.mirrorConfig.source.name}
-                rows={props.rows} 
-                setRows={props.setRows} 
-                setSchema={props.setSchema} 
-                schema={props.schema} 
-              />
-            } 
+          </div>
+        }
+      />
+      {props.mirrorConfig.source && (
+        <TableMapping
+          sourcePeerName={props.mirrorConfig.source.name}
+          rows={props.rows}
+          setRows={props.setRows}
+          setSchema={props.setSchema}
+          schema={props.schema}
+        />
+      )}
       {props.settings.map((setting, id) => {
         return (
           paramDisplayCondition(setting) &&
@@ -193,7 +202,9 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
                 >
                   <Select
                     placeholder={`Select ${
-                      setting.label.includes('Peer') ? 'a destination peer' : 'a sync mode'
+                      setting.label.includes('Peer')
+                        ? 'a destination peer'
+                        : 'a sync mode'
                     }`}
                     onValueChange={(val) => handleChange(val, setting)}
                     disabled={setToDefault(setting)}

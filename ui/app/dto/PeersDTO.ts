@@ -20,6 +20,6 @@ export type UTablesResponse = {
 
 export type UColumnsResponse = {
   columns: string[];
-}
+};
 
 export type PeerConfig = PostgresConfig | SnowflakeConfig;
