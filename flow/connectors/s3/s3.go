@@ -155,7 +155,6 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	partition := &protos.QRepPartition{
 		PartitionId: fmt.Sprint(syncBatchID),
 	}
-	close(recordStream.Records)
 	numRecords, err := c.SyncQRepRecords(qrepConfig, partition, recordStream)
 	if err != nil {
 		return nil, err

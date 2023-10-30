@@ -835,7 +835,6 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 		}
 	}
 
-	close(recordStream.Records)
 	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath)
 	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
 	if err != nil {
