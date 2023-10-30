@@ -362,7 +362,7 @@ func (p *PostgresCDCSource) consumeStream(
 				records.UpdateLatestCheckpoint(int64(clientXLogPos))
 			}
 
-			if len(localRecords) == 0 {
+			if len(records.Records) == 0 {
 				// given that we have no records it is safe to update the flush wal position
 				// to the clientXLogPos. clientXLogPos can be moved forward due to PKM messages.
 				consumedXLogPos = clientXLogPos
