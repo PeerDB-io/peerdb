@@ -20,9 +20,6 @@ import { blankCDCSetting, blankQRepSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import QRepConfigForm from './qrep';
 import QRepQuery from './query';
-import TableMapping from './tablemapping';
-
-export const dynamic = 'force-dynamic';
 
 export default function CreateMirrors() {
   const router = useRouter();
@@ -113,14 +110,11 @@ export default function CreateMirrors() {
           }
         />
         <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
-
-        {mirrorType === 'CDC' ? (
-          <TableMapping rows={rows} setRows={setRows} setSchema={setSourceSchema} schema={sourceSchema} />
-        ) : (
-          mirrorType != 'XMIN' && (
+        
+        {mirrorType === 'Query Replication' && (
             <QRepQuery query={qrepQuery} setter={setQrepQuery} />
           )
-        )}
+        }
 
         <Label colorName='lowContrast'>Configuration</Label>
         {!loading && formMessage.msg.length > 0 && (
@@ -138,6 +132,10 @@ export default function CreateMirrors() {
             mirrorConfig={config as CDCConfig}
             peers={peers}
             setter={setConfig}
+            rows={rows} 
+            setRows={setRows} 
+            setSchema={setSourceSchema} 
+            schema={sourceSchema}
           />
         ) : (
           <QRepConfigForm
