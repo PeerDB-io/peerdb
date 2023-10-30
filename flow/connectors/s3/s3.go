@@ -139,10 +139,9 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
 	syncBatchID = syncBatchID + 1
-	lastCP := req.Records.LastCheckPointID
 
 	tableNameRowsMapping := make(map[string]uint32)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, lastCP, syncBatchID)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -161,7 +160,12 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	}
 	log.Infof("Synced %d records", numRecords)
 
-	err = c.updateLastOffset(req.FlowJobName, lastCP)
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
+	}
+
+	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
 		log.Errorf("failed to update last offset for s3 cdc: %v", err)
 		return nil, err
@@ -173,8 +177,8 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	}
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: 0, // TODO (kaushik) - fix this for both sf and s3
-		LastSyncedCheckPointID:  lastCP,
+		FirstSyncedCheckPointID: req.Records.GetFirstCheckpoint(),
+		LastSyncedCheckPointID:  lastCheckpoint,
 		NumRecordsSynced:        int64(numRecords),
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil

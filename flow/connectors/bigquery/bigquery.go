@@ -477,7 +477,7 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
+
 	// loop over req.Records
 	for record := range req.Records.GetRecords() {
 		switch r := record.(type) {
@@ -577,14 +577,6 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	}
 
 	numRecords := len(records)
-	if numRecords == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
 	// insert the records into the staging table
 	stagingInserter := stagingTable.Inserter()
 	stagingInserter.IgnoreUnknownValues = true
@@ -602,6 +594,11 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert chunked rows into staging table: %v", err)
 		}
+	}
+
+	lastCP, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
 	}
 
 	// we have to do the following things in a transaction
@@ -644,7 +641,6 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
 	recordStream := model.NewQRecordStream(1 << 20)
 	err := recordStream.SetSchema(&model.QRecordSchema{
 		Fields: []*model.QField{
@@ -839,6 +835,11 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
+	}
+
+	lastCP, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
 	}
 
 	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName,

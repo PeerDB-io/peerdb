@@ -22,20 +22,17 @@ type QRecordStream struct {
 type RecordsToStreamRequest struct {
 	records      chan Record
 	TableMapping map[string]uint32
-	CP           int64
 	BatchID      int64
 }
 
 func NewRecordsToStreamRequest(
 	records chan Record,
 	tableMapping map[string]uint32,
-	cp int64,
 	batchID int64,
 ) *RecordsToStreamRequest {
 	return &RecordsToStreamRequest{
 		records:      records,
 		TableMapping: tableMapping,
-		CP:           cp,
 		BatchID:      batchID,
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -290,10 +291,14 @@ type CDCRecordStream struct {
 	SchemaDeltas chan *protos.TableSchemaDelta
 	// Relation message mapping
 	RelationMessageMapping chan *RelationMessageMapping
-	// FirstCheckPointID is the first ID that was pulled.
-	FirstCheckPointID int64
-	// LastCheckPointID is the last ID of the commit that corresponds to this batch.
-	LastCheckPointID int64
+	// Mutex for synchronizing access to the checkpoint fields
+	checkpointMutex sync.Mutex
+	// firstCheckPointID is the first ID of the commit that corresponds to this batch.
+	firstCheckPointID int64
+	// Indicates if the last checkpoint has been set.
+	lastCheckpointSet bool
+	// lastCheckPointID is the last ID of the commit that corresponds to this batch.
+	lastCheckPointID int64
 	// empty signal to indicate if the records are going to be empty or not.
 	emptySignal chan bool
 }
@@ -305,7 +310,40 @@ func NewCDCRecordStream() *CDCRecordStream {
 		SchemaDeltas:           make(chan *protos.TableSchemaDelta, 1<<10),
 		emptySignal:            make(chan bool, 1),
 		RelationMessageMapping: make(chan *RelationMessageMapping, 1),
+		lastCheckpointSet:      false,
+		lastCheckPointID:       0,
+		firstCheckPointID:      0,
 	}
+}
+
+func (r *CDCRecordStream) UpdateLatestCheckpoint(val int64) {
+	r.checkpointMutex.Lock()
+	defer r.checkpointMutex.Unlock()
+
+	if r.firstCheckPointID == 0 {
+		r.firstCheckPointID = val
+	}
+
+	if val > r.lastCheckPointID {
+		r.lastCheckPointID = val
+	}
+}
+
+func (r *CDCRecordStream) GetFirstCheckpoint() int64 {
+	r.checkpointMutex.Lock()
+	defer r.checkpointMutex.Unlock()
+
+	return r.firstCheckPointID
+}
+
+func (r *CDCRecordStream) GetLastCheckpoint() (int64, error) {
+	r.checkpointMutex.Lock()
+	defer r.checkpointMutex.Unlock()
+
+	if !r.lastCheckpointSet {
+		return 0, errors.New("last checkpoint not set, stream is still active")
+	}
+	return r.lastCheckPointID, nil
 }
 
 func (r *CDCRecordStream) AddRecord(record Record) {
@@ -338,6 +376,7 @@ func (r *CDCRecordStream) Close() {
 	close(r.records)
 	close(r.SchemaDeltas)
 	close(r.RelationMessageMapping)
+	r.lastCheckpointSet = true
 }
 
 func (r *CDCRecordStream) GetRecords() chan Record {

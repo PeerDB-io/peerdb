@@ -234,7 +234,13 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 	}
 
-	err = c.updateLastOffset(req.FlowJobName, batch.LastCheckPointID)
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		log.Errorf("failed to get last checkpoint: %v", err)
+		return nil, err
+	}
+
+	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
 		log.Errorf("failed to update last offset: %v", err)
 		return nil, err
@@ -247,8 +253,8 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	rowsSynced := int64(numRecords)
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: batch.FirstCheckPointID,
-		LastSyncedCheckPointID:  batch.LastCheckPointID,
+		FirstSyncedCheckPointID: batch.GetFirstCheckpoint(),
+		LastSyncedCheckPointID:  lastCheckpoint,
 		NumRecordsSynced:        rowsSynced,
 		TableNameRowsMapping:    make(map[string]uint32),
 	}, nil

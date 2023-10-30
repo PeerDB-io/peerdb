@@ -104,8 +104,32 @@ func (c *CatalogMirrorMonitor) AddCDCBatchForFlow(ctx context.Context, flowJobNa
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateEndTimeForCDCBatch(ctx context.Context, flowJobName string,
-	batchID int64) error {
+// update num records and end-lsn for a cdc batch
+func (c *CatalogMirrorMonitor) UpdateNumRowsAndEndLSNForCDCBatch(
+	ctx context.Context,
+	flowJobName string,
+	batchID int64,
+	numRows uint32,
+	batchEndLSN pglogrepl.LSN,
+) error {
+	if c == nil || c.catalogConn == nil {
+		return nil
+	}
+
+	_, err := c.catalogConn.Exec(ctx,
+		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2 WHERE flow_name=$3 AND batch_id=$4",
+		numRows, uint64(batchEndLSN), flowJobName, batchID)
+	if err != nil {
+		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
+	}
+	return nil
+}
+
+func (c *CatalogMirrorMonitor) UpdateEndTimeForCDCBatch(
+	ctx context.Context,
+	flowJobName string,
+	batchID int64,
+) error {
 	if c == nil || c.catalogConn == nil {
 		return nil
 	}

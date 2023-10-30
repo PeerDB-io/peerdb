@@ -265,7 +265,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
 
 	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
@@ -370,6 +369,11 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	log.WithFields(log.Fields{
 		"flowName": req.FlowJobName,
 	}).Printf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier)
+
+	lastCP, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("error getting last checkpoint: %w", err)
+	}
 
 	// updating metadata with new offset and syncBatchID
 	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)

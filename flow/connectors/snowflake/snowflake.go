@@ -540,7 +540,6 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
 
 	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
@@ -626,9 +625,14 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 		}
 	}
 
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, err
+	}
+
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
+		LastSyncedCheckPointID:  lastCheckpoint,
 		NumRecordsSynced:        int64(len(records)),
 		CurrentSyncBatchID:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
@@ -640,9 +644,8 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	rawTableIdentifier string,
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
-	lastCP := req.Records.LastCheckPointID
 	tableNameRowsMapping := make(map[string]uint32)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, 0, syncBatchID)
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
 	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -665,9 +668,14 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, err
+	}
+
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: 0,
-		LastSyncedCheckPointID:  lastCP,
+		FirstSyncedCheckPointID: req.Records.GetFirstCheckpoint(),
+		LastSyncedCheckPointID:  lastCheckpoint,
 		NumRecordsSynced:        int64(numRecords),
 		CurrentSyncBatchID:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,

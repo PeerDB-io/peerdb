@@ -203,7 +203,6 @@ func (p *PostgresCDCSource) consumeStream(
 		shutdown <- true
 	}()
 
-	firstProcessed := false
 	tablePKeyLastSeen := make(map[model.TableWithPkey]int)
 
 	addRecord := func(rec model.Record) {
@@ -293,10 +292,6 @@ func (p *PostgresCDCSource) consumeStream(
 				return fmt.Errorf("error processing message: %w", err)
 			}
 
-			if !firstProcessed {
-				firstProcessed = true
-				records.FirstCheckPointID = int64(xld.WALStart)
-			}
 			if rec != nil {
 				tableName := rec.GetTableName()
 				switch r := rec.(type) {
@@ -364,7 +359,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 			if xld.WALStart > clientXLogPos {
 				clientXLogPos = xld.WALStart
-				records.LastCheckPointID = int64(clientXLogPos)
+				records.UpdateLatestCheckpoint(int64(clientXLogPos))
 			}
 		}
 	}
@@ -391,7 +386,7 @@ func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pgl
 		// for a commit message, update the last checkpoint id for the record batch.
 		log.Debugf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
 			msg.CommitLSN, msg.TransactionEndLSN)
-		batch.LastCheckPointID = int64(xld.WALStart)
+		batch.UpdateLatestCheckpoint(int64(xld.WALStart))
 		p.commitLock = false
 	case *pglogrepl.RelationMessage:
 		// treat all relation messages as correponding to parent if partitioned.

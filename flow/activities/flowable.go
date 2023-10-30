@@ -232,11 +232,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 		err = a.CatalogMirrorMonitor.AddCDCBatchForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
 			monitoring.CDCBatchInfo{
-				BatchID: syncBatchID + 1,
-				// TODO (kaushik) : after push we need to update the num records!
+				BatchID:       syncBatchID + 1,
 				RowsInBatch:   0,
-				BatchStartLSN: pglogrepl.LSN(recordBatch.FirstCheckPointID),
-				BatchEndlSN:   pglogrepl.LSN(recordBatch.LastCheckPointID),
+				BatchStartLSN: pglogrepl.LSN(recordBatch.GetFirstCheckpoint()),
+				BatchEndlSN:   0,
 				StartTime:     startTime,
 			})
 		if err != nil {
@@ -292,9 +291,24 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
 	}).Infof("pushed %d records in %d seconds\n", numRecords, int(syncDuration.Seconds()))
 
+	lastCheckpoint, err := recordBatch.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
+	}
+
+	err = a.CatalogMirrorMonitor.UpdateNumRowsAndEndLSNForCDCBatch(
+		ctx,
+		input.FlowConnectionConfigs.FlowJobName,
+		res.CurrentSyncBatchID,
+		uint32(numRecords),
+		pglogrepl.LSN(lastCheckpoint),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	err = a.CatalogMirrorMonitor.
-		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
-			pglogrepl.LSN(recordBatch.LastCheckPointID))
+		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName, pglogrepl.LSN(lastCheckpoint))
 	if err != nil {
 		return nil, err
 	}
