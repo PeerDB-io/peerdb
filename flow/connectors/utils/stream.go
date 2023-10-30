@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TODO (kaushik): this needs fixing!
 func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsToStreamResponse, error) {
 	recordStream := model.NewQRecordStream(1 << 16)
 	err := recordStream.SetSchema(&model.QRecordSchema{
