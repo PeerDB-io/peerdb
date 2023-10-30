@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -30,6 +31,99 @@ func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName stri
 		return nil, unmarshalErr
 	}
 	return peerPool, nil
+}
+
+func (h *FlowRequestHandler) GetSchemas(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.PeerSchemasResponse, error) {
+	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	if err != nil {
+		return &protos.PeerSchemasResponse{Schemas: nil}, err
+	}
+
+	defer peerPool.Close()
+	rows, err := peerPool.Query(ctx, "SELECT schema_name"+
+		" FROM information_schema.schemata;")
+	if err != nil {
+		return &protos.PeerSchemasResponse{Schemas: nil}, err
+	}
+
+	defer rows.Close()
+	var schemas []string
+	for rows.Next() {
+		var schema string
+		err := rows.Scan(&schema)
+		if err != nil {
+			return &protos.PeerSchemasResponse{Schemas: nil}, err
+		}
+
+		schemas = append(schemas, schema)
+	}
+	return &protos.PeerSchemasResponse{Schemas: schemas}, nil
+}
+
+func (h *FlowRequestHandler) GetTablesInSchema(
+	ctx context.Context,
+	req *protos.SchemaTablesRequest,
+) (*protos.SchemaTablesResponse, error) {
+	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	if err != nil {
+		return &protos.SchemaTablesResponse{Tables: nil}, err
+	}
+
+	defer peerPool.Close()
+	rows, err := peerPool.Query(ctx, "SELECT table_name "+
+		"FROM information_schema.tables "+
+		"WHERE table_schema = $1 AND table_type = 'BASE TABLE';", req.SchemaName)
+	if err != nil {
+		return &protos.SchemaTablesResponse{Tables: nil}, err
+	}
+
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var table string
+		err := rows.Scan(&table)
+		if err != nil {
+			return &protos.SchemaTablesResponse{Tables: nil}, err
+		}
+
+		tables = append(tables, table)
+	}
+	return &protos.SchemaTablesResponse{Tables: tables}, nil
+}
+
+func (h *FlowRequestHandler) GetColumns(
+	ctx context.Context,
+	req *protos.TableColumnsRequest,
+) (*protos.TableColumnsResponse, error) {
+	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	if err != nil {
+		return &protos.TableColumnsResponse{Columns: nil}, err
+	}
+
+	defer peerPool.Close()
+	rows, err := peerPool.Query(ctx, "SELECT column_name, data_type"+
+		" FROM information_schema.columns"+
+		" WHERE table_schema = $1 AND table_name = $2;", req.SchemaName, req.TableName)
+	if err != nil {
+		return &protos.TableColumnsResponse{Columns: nil}, err
+	}
+
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var columnName string
+		var datatype string
+		err := rows.Scan(&columnName, &datatype)
+		if err != nil {
+			return &protos.TableColumnsResponse{Columns: nil}, err
+		}
+		column := fmt.Sprintf("%s:%s", columnName, datatype)
+		columns = append(columns, column)
+	}
+	return &protos.TableColumnsResponse{Columns: columns}, nil
 }
 
 func (h *FlowRequestHandler) GetSlotInfo(

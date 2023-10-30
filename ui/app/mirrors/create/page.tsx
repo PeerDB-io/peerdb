@@ -4,7 +4,7 @@ import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
-import { LayoutMain, RowWithSelect, RowWithTextField } from '@/lib/Layout';
+import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { Select, SelectItem } from '@/lib/Select';
 import { TextField } from '@/lib/TextField';
@@ -65,7 +65,7 @@ export default function CreateMirrors() {
   };
 
   return (
-    <LayoutMain width='xxLarge' alignSelf='center' justifySelf='center'>
+    <div style={{width:'40%',alignSelf:'center',justifySelf:'center'}}>
       <Panel>
         <Label variant='title3' as={'h2'}>
           Create a new mirror
@@ -179,6 +179,6 @@ export default function CreateMirrors() {
           </Button>
         </ButtonGroup>
       </Panel>
-    </LayoutMain>
+    </div>
   );
 }
