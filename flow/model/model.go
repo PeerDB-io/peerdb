@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -32,6 +33,8 @@ type PullRecordsRequest struct {
 	OverrideReplicationSlotName string
 	// for supporting schema changes
 	RelationMessageMapping RelationMessageMapping
+	// record batch for pushing changes into
+	RecordStream *CDCRecordStream
 }
 
 type Record interface {
@@ -281,19 +284,107 @@ type TableWithPkey struct {
 	PkeyColVal string
 }
 
-type RecordBatch struct {
+type CDCRecordStream struct {
 	// Records are a list of json objects.
-	Records []Record
-	// FirstCheckPointID is the first ID that was pulled.
-	FirstCheckPointID int64
-	// LastCheckPointID is the last ID of the commit that corresponds to this batch.
-	LastCheckPointID int64
-	//TablePkey to record index mapping
-	TablePKeyLastSeen map[TableWithPkey]int
+	records chan Record
+	// Schema changes from the slot
+	SchemaDeltas chan *protos.TableSchemaDelta
+	// Relation message mapping
+	RelationMessageMapping chan *RelationMessageMapping
+	// Mutex for synchronizing access to the checkpoint fields
+	checkpointMutex sync.Mutex
+	// firstCheckPointID is the first ID of the commit that corresponds to this batch.
+	firstCheckPointID int64
+	// Indicates if the last checkpoint has been set.
+	lastCheckpointSet bool
+	// lastCheckPointID is the last ID of the commit that corresponds to this batch.
+	lastCheckPointID int64
+	// empty signal to indicate if the records are going to be empty or not.
+	emptySignal chan bool
+}
+
+func NewCDCRecordStream() *CDCRecordStream {
+	return &CDCRecordStream{
+		records: make(chan Record, 1<<18),
+		// TODO (kaushik): more than 1024 schema deltas can cause problems!
+		SchemaDeltas:           make(chan *protos.TableSchemaDelta, 1<<10),
+		emptySignal:            make(chan bool, 1),
+		RelationMessageMapping: make(chan *RelationMessageMapping, 1),
+		lastCheckpointSet:      false,
+		lastCheckPointID:       0,
+		firstCheckPointID:      0,
+	}
+}
+
+func (r *CDCRecordStream) UpdateLatestCheckpoint(val int64) {
+	r.checkpointMutex.Lock()
+	defer r.checkpointMutex.Unlock()
+
+	if r.firstCheckPointID == 0 {
+		r.firstCheckPointID = val
+	}
+
+	if val > r.lastCheckPointID {
+		r.lastCheckPointID = val
+	}
+}
+
+func (r *CDCRecordStream) GetFirstCheckpoint() int64 {
+	r.checkpointMutex.Lock()
+	defer r.checkpointMutex.Unlock()
+
+	return r.firstCheckPointID
+}
+
+func (r *CDCRecordStream) GetLastCheckpoint() (int64, error) {
+	r.checkpointMutex.Lock()
+	defer r.checkpointMutex.Unlock()
+
+	if !r.lastCheckpointSet {
+		return 0, errors.New("last checkpoint not set, stream is still active")
+	}
+	return r.lastCheckPointID, nil
+}
+
+func (r *CDCRecordStream) AddRecord(record Record) {
+	r.records <- record
+}
+
+func (r *CDCRecordStream) SignalAsEmpty() {
+	r.emptySignal <- true
+}
+
+func (r *CDCRecordStream) SignalAsNotEmpty() {
+	r.emptySignal <- false
+}
+
+func (r *CDCRecordStream) WaitAndCheckEmpty() bool {
+	isEmpty := <-r.emptySignal
+	return isEmpty
+}
+
+func (r *CDCRecordStream) WaitForSchemaDeltas() []*protos.TableSchemaDelta {
+	schemaDeltas := make([]*protos.TableSchemaDelta, 0)
+	for delta := range r.SchemaDeltas {
+		schemaDeltas = append(schemaDeltas, delta)
+	}
+	return schemaDeltas
+}
+
+func (r *CDCRecordStream) Close() {
+	close(r.emptySignal)
+	close(r.records)
+	close(r.SchemaDeltas)
+	close(r.RelationMessageMapping)
+	r.lastCheckpointSet = true
+}
+
+func (r *CDCRecordStream) GetRecords() chan Record {
+	return r.records
 }
 
 type SyncRecordsRequest struct {
-	Records *RecordBatch
+	Records *CDCRecordStream
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
 	// SyncMode to use for pushing raw records
@@ -325,7 +416,7 @@ type SyncResponse struct {
 	// to be carried to parent WorkFlow
 	TableSchemaDeltas []*protos.TableSchemaDelta
 	// to be stored in state for future PullFlows
-	RelationMessageMapping RelationMessageMapping
+	RelationMessageMapping *RelationMessageMapping
 }
 
 type NormalizeResponse struct {
@@ -333,13 +424,6 @@ type NormalizeResponse struct {
 	Done         bool
 	StartBatchID int64
 	EndBatchID   int64
-}
-
-// sync all the records normally, then apply the schema delta after NormalizeFlow.
-type RecordsWithTableSchemaDelta struct {
-	RecordBatch            *RecordBatch
-	TableSchemaDeltas      []*protos.TableSchemaDelta
-	RelationMessageMapping RelationMessageMapping
 }
 
 // being clever and passing the delta back as a regular record instead of heavy CDC refactoring.

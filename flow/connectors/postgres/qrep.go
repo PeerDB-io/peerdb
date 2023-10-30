@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -426,11 +425,6 @@ func (c *PostgresConnector) PullQRepRecords(
 		return nil, err
 	}
 
-	totalRecordsAtSource, err := c.getApproxTableCounts([]string{config.WatermarkTable})
-	if err != nil {
-		return nil, err
-	}
-	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, int(records.NumRecords), totalRecordsAtSource)
 	return records, nil
 }
 
@@ -503,11 +497,6 @@ func (c *PostgresConnector) PullQRepRecordStream(
 		return 0, err
 	}
 
-	totalRecordsAtSource, err := c.getApproxTableCounts([]string{config.WatermarkTable})
-	if err != nil {
-		return 0, err
-	}
-	metrics.LogQRepPullMetrics(c.ctx, config.FlowJobName, numRecords, totalRecordsAtSource)
 	log.WithFields(log.Fields{
 		"partition": partition.PartitionId,
 	}).Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)

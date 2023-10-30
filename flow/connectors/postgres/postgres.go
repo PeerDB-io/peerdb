@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -19,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 )
 
 // PostgresConnector is a Connector implementation for Postgres.
@@ -176,7 +174,11 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 // PullRecords pulls records from the source.
-func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error) {
+func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
+	defer func() {
+		req.RecordStream.Close()
+	}()
+
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
 	if req.OverrideReplicationSlotName != "" {
@@ -192,7 +194,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(slotName, publicationName)
 	if err != nil {
-		return nil, fmt.Errorf("error checking for replication slot and publication: %w", err)
+		return fmt.Errorf("error checking for replication slot and publication: %w", err)
 	}
 
 	if !exists.PublicationExists {
@@ -206,7 +208,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		log.WithFields(log.Fields{
 			"flowName": req.FlowJobName,
 		}).Warnf("slot %s does not exist", slotName)
-		return nil, fmt.Errorf("replication slot %s does not exist", slotName)
+		return fmt.Errorf("replication slot %s does not exist", slotName)
 	}
 
 	log.WithFields(log.Fields{
@@ -223,36 +225,27 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) (*model.R
 		RelationMessageMapping: req.RelationMessageMapping,
 	}, c.customTypesMapping)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create cdc source: %w", err)
+		return fmt.Errorf("failed to create cdc source: %w", err)
 	}
 
-	startTime := time.Now()
-	recordsWithSchemaDelta, err := cdc.PullRecords(req)
+	err = cdc.PullRecords(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	totalRecordsAtSource, err := c.getApproxTableCounts(maps.Keys(req.TableNameMapping))
-	if err != nil {
-		return nil, err
-	}
-	metrics.LogPullMetrics(c.ctx, req.FlowJobName, recordsWithSchemaDelta.RecordBatch,
-		totalRecordsAtSource, time.Since(startTime))
-	if len(recordsWithSchemaDelta.RecordBatch.Records) > 0 {
-		cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
-		if ok {
-			latestLSN, err := c.getCurrentLSN()
-			if err != nil {
-				return nil, err
-			}
-			err = cdcMirrorMonitor.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, req.FlowJobName, latestLSN)
-			if err != nil {
-				return nil, err
-			}
+	cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
+	if ok {
+		latestLSN, err := c.getCurrentLSN()
+		if err != nil {
+			return fmt.Errorf("failed to get current LSN: %w", err)
+		}
+		err = cdcMirrorMonitor.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, req.FlowJobName, latestLSN)
+		if err != nil {
+			return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 		}
 	}
 
-	return recordsWithSchemaDelta, nil
+	return nil
 }
 
 // SyncRecords pushes records to the destination.
@@ -260,7 +253,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 	log.WithFields(log.Fields{
 		"flowName": req.FlowJobName,
-	}).Printf("pushing %d records to Postgres table %s via COPY", len(req.Records.Records), rawTableIdentifier)
+	}).Printf("pushing records to Postgres table %s via COPY", rawTableIdentifier)
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -272,9 +265,8 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
 
-	for _, record := range req.Records.Records {
+	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
 			itemsJSON, err := typedRecord.Items.ToJSON()
@@ -362,7 +354,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 	}()
 
-	startTime := time.Now()
 	syncedRecordsCount, err := syncRecordsTx.CopyFrom(c.ctx, pgx.Identifier{internalSchema, rawTableIdentifier},
 		[]string{"_peerdb_uid", "_peerdb_timestamp", "_peerdb_destination_table_name", "_peerdb_data",
 			"_peerdb_record_type", "_peerdb_match_data", "_peerdb_batch_id", "_peerdb_unchanged_toast_columns"},
@@ -374,11 +365,15 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, fmt.Errorf("error syncing records: expected %d records to be synced, but %d were synced",
 			len(records), syncedRecordsCount)
 	}
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, syncedRecordsCount, time.Since(startTime))
 
 	log.WithFields(log.Fields{
 		"flowName": req.FlowJobName,
 	}).Printf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier)
+
+	lastCP, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("error getting last checkpoint: %w", err)
+	}
 
 	// updating metadata with new offset and syncBatchID
 	err = c.updateSyncMetadata(req.FlowJobName, lastCP, syncBatchID, syncRecordsTx)
@@ -461,7 +456,6 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 				})
 		}
 	}
-	startTime := time.Now()
 	if mergeStatementsBatch.Len() > 0 {
 		mergeResults := normalizeRecordsTx.SendBatch(c.ctx, mergeStatementsBatch)
 		err = mergeResults.Close()
@@ -472,14 +466,6 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	log.WithFields(log.Fields{
 		"flowName": req.FlowJobName,
 	}).Infof("normalized %d records", totalRowsAffected)
-	if totalRowsAffected > 0 {
-		totalRowsAtTarget, err := c.getApproxTableCounts(maps.Keys(unchangedToastColsMap))
-		if err != nil {
-			return nil, err
-		}
-		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, int64(totalRowsAffected),
-			time.Since(startTime), totalRowsAtTarget)
-	}
 
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)
