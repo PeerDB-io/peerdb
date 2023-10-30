@@ -38,7 +38,8 @@ jobs:
 
       - name: extract branch name suffix for customer
         id: branch
-        run: echo "::set-output name=branch::$(echo ${{ github.ref }} | sed 's/customer-//g')"
+        run: |
+          echo "::set-output name=branch::$(echo $GITHUB_REF | sed -e 's/.*customer-//')"
 
       - name: Build (optionally publish) PeerDB Images
         uses: depot/bake-action@v1
@@ -47,5 +48,5 @@ jobs:
           files: ./docker-bake.hcl
           push: ${{ startsWith(github.ref, 'refs/heads/customer-') }}
         env:
-          SHA_SHORT: dev-${{ steps.vars.outputs.sha_short }}
+          SHA_SHORT: ${{ steps.branch.outputs.branch }}-${{ steps.vars.outputs.sha_short }}
           TAG: latest-${{ steps.branch.outputs.branch }}
