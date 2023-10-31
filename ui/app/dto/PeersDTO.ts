@@ -23,3 +23,9 @@ export type UColumnsResponse = {
 };
 
 export type PeerConfig = PostgresConfig | SnowflakeConfig;
+export type CatalogPeer = {
+  id: number;
+  name: string;
+  type: number;
+  options: Buffer;
+};

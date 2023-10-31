@@ -1,6 +1,8 @@
 import ReloadButton from '@/components/ReloadButton';
 import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
+import { Label } from '@/lib/Label';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
+import Link from 'next/link';
 import { SlotTable, StatTable } from './datatables';
 export const dynamic = 'force-dynamic';
 
@@ -43,17 +45,31 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
           style={{
             display: 'flex',
             flexDirection: 'column',
-            height: '80vh',
+            justifyContent: 'space-between',
+            height: '70vh',
           }}
         >
           <SlotTable data={slots} />
           <StatTable data={stats} />
         </div>
       ) : (
-        <div style={{ fontSize: 15 }}>
-          We do not have stats to show for this peer at the moment. Please note
-          that peer replication slot information and stat activity is currently
-          only supported for PostgreSQL peers.
+        <div style={{ fontSize: 15, marginTop: '2rem' }}>
+          We do not have stats to show for this peer at the moment. Please check
+          if your PostgreSQL peer is open for connections. Note that peer
+          replication slot information and stat activity is currently only
+          supported for PostgreSQL peers.
+          <Label
+            as={Link}
+            style={{
+              color: 'teal',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+            target='_blank'
+            href='https://docs.peerdb.io/sql/commands/supported-connectors'
+          >
+            More information about PeerDB connector support
+          </Label>
         </div>
       )}
     </div>

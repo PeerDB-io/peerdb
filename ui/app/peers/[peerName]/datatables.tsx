@@ -1,15 +1,25 @@
 import { CopyButton } from '@/components/CopyButton';
 import { SlotInfo, StatInfo } from '@/grpc_generated/route';
+import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { DurationDisplay, SlotNameDisplay } from './helpers';
 
 export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
   return (
-    <div style={{ height: '30%', marginTop: '2rem' }}>
-      <div style={{ fontSize: 17, marginBottom: '1rem' }}>
+    <div style={{ height: '30%', marginTop: '2rem', marginBottom: '1rem' }}>
+      <Label as='label' variant='headline' style={{ marginBottom: '1rem' }}>
         Replication Slot Information
-      </div>
-      <div style={{ maxHeight: '100%', overflow: 'scroll' }}>
+      </Label>
+      <div
+        style={{
+          maxHeight: '100%',
+          overflow: 'scroll',
+          background: 'linear-gradient(ghostwhite,#f5f7ff)',
+          padding: '1rem',
+          borderRadius: '1rem',
+          boxShadow: '2px 2px 4px 2px rgba(0,0,0,0.1)',
+        }}
+      >
         <Table
           header={
             <TableRow>
@@ -43,10 +53,19 @@ export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
 export const StatTable = ({ data }: { data: StatInfo[] }) => {
   return (
     <div style={{ height: '50%' }}>
-      <div style={{ fontSize: 17, marginBottom: '1rem' }}>
+      <Label as='label' variant='headline' style={{ marginBottom: '1rem' }}>
         Stat Activity Information
-      </div>
-      <div style={{ maxHeight: '100%', overflow: 'scroll' }}>
+      </Label>
+      <div
+        style={{
+          maxHeight: '100%',
+          overflow: 'scroll',
+          background: 'linear-gradient(ghostwhite,#f5f7ff)',
+          padding: '1rem',
+          borderRadius: '1rem',
+          boxShadow: '2px 2px 4px 2px rgba(0,0,0,0.1)',
+        }}
+      >
         <Table
           header={
             <TableRow>

@@ -1,3 +1,4 @@
+import { DropDialog } from '@/components/DropDialog';
 import { Badge } from '@/lib/Badge';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
@@ -10,6 +11,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import Link from 'next/link';
+import { getTruePeer } from '../api/peers/route';
 import prisma from '../utils/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -60,7 +62,7 @@ async function CDCFlows() {
           <TableCell as='th'>Source</TableCell>
           <TableCell as='th'>Destination</TableCell>
           <TableCell as='th'>Start Time</TableCell>
-          <TableCell as='th'>Status</TableCell>
+          <TableCell as='th'></TableCell>
         </TableRow>
       }
     >
@@ -94,10 +96,12 @@ async function CDCFlows() {
             </Label>
           </TableCell>
           <TableCell>
-            <Badge variant='positive' key={1}>
-              <Icon name='play_circle' />
-              Active
-            </Badge>
+            <DropDialog
+              workflowId={flow.workflow_id}
+              flowJobName={flow.name}
+              sourcePeer={getTruePeer(flow.sourcePeer)}
+              destinationPeer={getTruePeer(flow.destinationPeer)}
+            />
           </TableCell>
         </TableRow>
       ))}
@@ -152,7 +156,7 @@ async function QRepFlows() {
           <TableCell as='th'>Source</TableCell>
           <TableCell as='th'>Destination</TableCell>
           <TableCell as='th'>Start Time</TableCell>
-          <TableCell as='th'>Status</TableCell>
+          <TableCell as='th'></TableCell>
         </TableRow>
       }
     >
