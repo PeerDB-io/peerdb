@@ -208,29 +208,38 @@ func (s *SnowflakeAvroSyncMethod) addMissingColumns(
 	}
 
 	if len(colsToTypes) > 0 {
-		// construct an alter table statement
-		alterTableCmd := fmt.Sprintf("ALTER TABLE %s ", dstTableName)
+		tx, err := s.connector.database.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+
 		for colName, colType := range colsToTypes {
 			sfColType, err := colType.ToDWHColumnType(qvalue.QDWHTypeSnowflake)
 			if err != nil {
 				return fmt.Errorf("failed to convert QValueKind to Snowflake column type: %w", err)
 			}
-			alterTableCmd += fmt.Sprintf("ADD COLUMN IF NOT EXISTS \"%s\" %s, ", colName, sfColType)
-		}
-		alterTableCmd = strings.TrimSuffix(alterTableCmd, ", ")
-		log.WithFields(log.Fields{
-			"flowName":    flowJobName,
-			"partitionID": partition.PartitionId,
-		}).Infof("altering destination table %s with command `%s`", dstTableName, alterTableCmd)
+			upperCasedColName := strings.ToUpper(colName)
+			alterTableCmd := fmt.Sprintf("ALTER TABLE %s ", dstTableName)
+			alterTableCmd += fmt.Sprintf("ADD COLUMN IF NOT EXISTS \"%s\" %s;", upperCasedColName, sfColType)
 
-		if _, err := s.connector.database.Exec(alterTableCmd); err != nil {
-			return fmt.Errorf("failed to alter destination table: %w", err)
-		} else {
 			log.WithFields(log.Fields{
 				"flowName":    flowJobName,
 				"partitionID": partition.PartitionId,
-			}).Infof("added missing columns to destination table %s", dstTableName)
+			}).Infof("altering destination table %s with command `%s`", dstTableName, alterTableCmd)
+
+			if _, err := tx.Exec(alterTableCmd); err != nil {
+				return fmt.Errorf("failed to alter destination table: %w", err)
+			}
 		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partition.PartitionId,
+		}).Infof("successfully added missing columns to destination table %s", dstTableName)
 	} else {
 		log.WithFields(log.Fields{
 			"flowName":    flowJobName,
