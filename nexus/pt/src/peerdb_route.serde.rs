@@ -1408,6 +1408,101 @@ impl<'de> serde::Deserialize<'de> for PartitionStatus {
         deserializer.deserialize_struct("peerdb_route.PartitionStatus", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for PeerSchemasResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.schemas.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.PeerSchemasResponse", len)?;
+        if !self.schemas.is_empty() {
+            struct_ser.serialize_field("schemas", &self.schemas)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PeerSchemasResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "schemas",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Schemas,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "schemas" => Ok(GeneratedField::Schemas),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PeerSchemasResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.PeerSchemasResponse")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PeerSchemasResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut schemas__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Schemas => {
+                            if schemas__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("schemas"));
+                            }
+                            schemas__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(PeerSchemasResponse {
+                    schemas: schemas__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.PeerSchemasResponse", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for PeerSlotResponse {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1806,6 +1901,215 @@ impl<'de> serde::Deserialize<'de> for QRepMirrorStatus {
             }
         }
         deserializer.deserialize_struct("peerdb_route.QRepMirrorStatus", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SchemaTablesRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.peer_name.is_empty() {
+            len += 1;
+        }
+        if !self.schema_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.SchemaTablesRequest", len)?;
+        if !self.peer_name.is_empty() {
+            struct_ser.serialize_field("peerName", &self.peer_name)?;
+        }
+        if !self.schema_name.is_empty() {
+            struct_ser.serialize_field("schemaName", &self.schema_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SchemaTablesRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "peer_name",
+            "peerName",
+            "schema_name",
+            "schemaName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PeerName,
+            SchemaName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "peerName" | "peer_name" => Ok(GeneratedField::PeerName),
+                            "schemaName" | "schema_name" => Ok(GeneratedField::SchemaName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SchemaTablesRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.SchemaTablesRequest")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<SchemaTablesRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut peer_name__ = None;
+                let mut schema_name__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::PeerName => {
+                            if peer_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peerName"));
+                            }
+                            peer_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::SchemaName => {
+                            if schema_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("schemaName"));
+                            }
+                            schema_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SchemaTablesRequest {
+                    peer_name: peer_name__.unwrap_or_default(),
+                    schema_name: schema_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.SchemaTablesRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SchemaTablesResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.tables.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.SchemaTablesResponse", len)?;
+        if !self.tables.is_empty() {
+            struct_ser.serialize_field("tables", &self.tables)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SchemaTablesResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "tables",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Tables,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "tables" => Ok(GeneratedField::Tables),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SchemaTablesResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.SchemaTablesResponse")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<SchemaTablesResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut tables__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Tables => {
+                            if tables__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tables"));
+                            }
+                            tables__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SchemaTablesResponse {
+                    tables: tables__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.SchemaTablesResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ShutdownRequest {
@@ -2520,6 +2824,233 @@ impl<'de> serde::Deserialize<'de> for StatInfo {
             }
         }
         deserializer.deserialize_struct("peerdb_route.StatInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for TableColumnsRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.peer_name.is_empty() {
+            len += 1;
+        }
+        if !self.schema_name.is_empty() {
+            len += 1;
+        }
+        if !self.table_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.TableColumnsRequest", len)?;
+        if !self.peer_name.is_empty() {
+            struct_ser.serialize_field("peerName", &self.peer_name)?;
+        }
+        if !self.schema_name.is_empty() {
+            struct_ser.serialize_field("schemaName", &self.schema_name)?;
+        }
+        if !self.table_name.is_empty() {
+            struct_ser.serialize_field("tableName", &self.table_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for TableColumnsRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "peer_name",
+            "peerName",
+            "schema_name",
+            "schemaName",
+            "table_name",
+            "tableName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PeerName,
+            SchemaName,
+            TableName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "peerName" | "peer_name" => Ok(GeneratedField::PeerName),
+                            "schemaName" | "schema_name" => Ok(GeneratedField::SchemaName),
+                            "tableName" | "table_name" => Ok(GeneratedField::TableName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = TableColumnsRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.TableColumnsRequest")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<TableColumnsRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut peer_name__ = None;
+                let mut schema_name__ = None;
+                let mut table_name__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::PeerName => {
+                            if peer_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peerName"));
+                            }
+                            peer_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::SchemaName => {
+                            if schema_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("schemaName"));
+                            }
+                            schema_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::TableName => {
+                            if table_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tableName"));
+                            }
+                            table_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(TableColumnsRequest {
+                    peer_name: peer_name__.unwrap_or_default(),
+                    schema_name: schema_name__.unwrap_or_default(),
+                    table_name: table_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.TableColumnsRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for TableColumnsResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.columns.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.TableColumnsResponse", len)?;
+        if !self.columns.is_empty() {
+            struct_ser.serialize_field("columns", &self.columns)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for TableColumnsResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "columns",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Columns,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "columns" => Ok(GeneratedField::Columns),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = TableColumnsResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.TableColumnsResponse")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<TableColumnsResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut columns__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Columns => {
+                            if columns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("columns"));
+                            }
+                            columns__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(TableColumnsResponse {
+                    columns: columns__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.TableColumnsResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ValidatePeerRequest {

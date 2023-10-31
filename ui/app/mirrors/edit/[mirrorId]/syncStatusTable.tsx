@@ -93,7 +93,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
           </TableCell>
           <TableCell as='th'>Batch ID</TableCell>
           <TableCell as='th'>Start Time</TableCell>
-          <TableCell as='th'>End Time (Duation)</TableCell>
+          <TableCell as='th'>End Time (Duration)</TableCell>
           <TableCell as='th'>Num Rows Synced</TableCell>
         </TableRow>
       }
