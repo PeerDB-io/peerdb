@@ -91,8 +91,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		}).Errorf("failed to delete staging table %s: %v", stagingTable, err)
 	}
 
-	log.Printf("loaded stage into %s.%s",
-		datasetID, dstTableName)
+	log.Printf("loaded stage into %s.%s", datasetID, dstTableName)
 
 	return numRecords, nil
 }

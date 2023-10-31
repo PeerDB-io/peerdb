@@ -7,4 +7,5 @@ then
     exit 1
 fi
 
-docker compose -f docker-compose-dev.yml up --build
+docker compose -f docker-compose-dev.yml up --build\
+ --no-attach temporal --no-attach pyroscope --no-attach temporal-ui

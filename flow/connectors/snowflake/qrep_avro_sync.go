@@ -11,6 +11,7 @@ import (
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	log "github.com/sirupsen/logrus"
 	_ "github.com/snowflakedb/gosnowflake"
@@ -121,6 +122,17 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		"partitionID": partition.PartitionId,
 	}).Infof("sync function called and schema acquired")
 
+	err = s.addMissingColumns(
+		config.FlowJobName,
+		schema,
+		dstTableSchema,
+		dstTableName,
+		partition,
+	)
+	if err != nil {
+		return 0, err
+	}
+
 	avroSchema, err := s.getAvroSchema(dstTableName, schema, config.FlowJobName)
 	if err != nil {
 		return 0, err
@@ -164,6 +176,78 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	activity.RecordHeartbeat(s.connector.ctx, "finished syncing records")
 
 	return numRecords, nil
+}
+
+func (s *SnowflakeAvroSyncMethod) addMissingColumns(
+	flowJobName string,
+	schema *model.QRecordSchema,
+	dstTableSchema []*sql.ColumnType,
+	dstTableName string,
+	partition *protos.QRepPartition,
+) error {
+	// check if avro schema has additional columns compared to destination table
+	// if so, we need to add those columns to the destination table
+	colsToTypes := map[string]qvalue.QValueKind{}
+	for _, col := range schema.Fields {
+		hasColumn := false
+		// check ignoring case
+		for _, dstCol := range dstTableSchema {
+			if strings.EqualFold(col.Name, dstCol.Name()) {
+				hasColumn = true
+				break
+			}
+		}
+
+		if !hasColumn {
+			log.WithFields(log.Fields{
+				"flowName":    flowJobName,
+				"partitionID": partition.PartitionId,
+			}).Infof("adding column %s to destination table %s", col.Name, dstTableName)
+			colsToTypes[col.Name] = col.Type
+		}
+	}
+
+	if len(colsToTypes) > 0 {
+		tx, err := s.connector.database.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+
+		for colName, colType := range colsToTypes {
+			sfColType, err := colType.ToDWHColumnType(qvalue.QDWHTypeSnowflake)
+			if err != nil {
+				return fmt.Errorf("failed to convert QValueKind to Snowflake column type: %w", err)
+			}
+			upperCasedColName := strings.ToUpper(colName)
+			alterTableCmd := fmt.Sprintf("ALTER TABLE %s ", dstTableName)
+			alterTableCmd += fmt.Sprintf("ADD COLUMN IF NOT EXISTS \"%s\" %s;", upperCasedColName, sfColType)
+
+			log.WithFields(log.Fields{
+				"flowName":    flowJobName,
+				"partitionID": partition.PartitionId,
+			}).Infof("altering destination table %s with command `%s`", dstTableName, alterTableCmd)
+
+			if _, err := tx.Exec(alterTableCmd); err != nil {
+				return fmt.Errorf("failed to alter destination table: %w", err)
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partition.PartitionId,
+		}).Infof("successfully added missing columns to destination table %s", dstTableName)
+	} else {
+		log.WithFields(log.Fields{
+			"flowName":    flowJobName,
+			"partitionID": partition.PartitionId,
+		}).Infof("no missing columns found in destination table %s", dstTableName)
+	}
+
+	return nil
 }
 
 func (s *SnowflakeAvroSyncMethod) getAvroSchema(
