@@ -1,6 +1,7 @@
 'use client';
 import { Button } from '@/lib/Button';
 import { Dispatch, SetStateAction, useState } from 'react';
+import { PulseLoader } from 'react-spinners';
 import { fetchColumns } from './handlers';
 
 interface ColumnsDisplayProps {
@@ -64,11 +65,13 @@ const ColumnsDisplay = (props: ColumnsDisplayProps) => {
           fontSize: 14,
         }}
       >
-        {loading
-          ? 'Loading...'
-          : getTableColumns(props.tableName)
-          ? 'Close'
-          : 'Show columns'}
+        {loading ? (
+          <PulseLoader color='#36d7b7' size={10} />
+        ) : getTableColumns(props.tableName) ? (
+          'Close'
+        ) : (
+          'Show columns'
+        )}
       </Button>
 
       <div

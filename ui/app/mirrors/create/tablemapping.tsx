@@ -6,10 +6,10 @@ import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../dto/MirrorsDTO';
 import ColumnsDisplay from './columns';
 import { fetchSchemas, fetchTables } from './handlers';
-
 interface TableMappingProps {
   sourcePeerName: string;
   rows: TableMapRow[];
@@ -73,8 +73,9 @@ const TableMapping = ({
 
   useEffect(() => {
     fetchSchemas(sourcePeerName, setLoading).then((res) => setAllSchemas(res));
+    setSchema('public');
     getTablesOfSchema('public');
-  }, []);
+  }, [sourcePeerName]);
 
   return (
     <div style={{ marginTop: '1rem' }}>
@@ -88,9 +89,8 @@ const TableMapping = ({
               setSchema(val);
               getTablesOfSchema(val);
             }}
-            defaultValue={schema.length > 0 ? schema : 'Loading...'}
+            value={schema.length > 0 ? schema : 'Loading...'}
           >
-            {/*<TextInput placeholder='Search schema..'/>*/}
             {allSchemas ? (
               allSchemas.map((schemaName, id) => {
                 return (
@@ -205,7 +205,6 @@ const TableMapping = ({
                             }}
                           >
                             Partition Key
-                            {RequiredIndicator(true)}
                           </div>
                         }
                         action={
@@ -232,7 +231,7 @@ const TableMapping = ({
                         }
                       />
                       <div style={{ fontSize: 14 }}>
-                        This is required if you enable initial load, and
+                        This is used only if you enable initial load, and
                         specifies its watermark.
                       </div>
                     </div>
@@ -249,7 +248,17 @@ const TableMapping = ({
             </div>
           ))
         ) : (
-          <p>Loading tables</p>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+            }}
+          >
+            <BarLoader color='#36d7b7' width='40%' />
+          </div>
         )}
       </div>
     </div>
