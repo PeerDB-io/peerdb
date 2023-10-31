@@ -31,6 +31,7 @@ export const DropDialog = (dropArgs: {
     setLoading(false);
     if (dropRes.dropped !== true)
       setMsg('Something went wrong when trying to drop the mirror.');
+    else setMsg('Mirror dropped successfully.');
   };
 
   return (
@@ -66,11 +67,14 @@ export const DropDialog = (dropArgs: {
               color: 'white',
             }}
           >
-            {loading ? <BarLoader /> : 'Delete'}
+            {loading ? <BarLoader /> : 'Drop'}
           </Button>
         </div>
         {msg && (
-          <Label as='label' style={{ color: '#dc3545' }}>
+          <Label
+            as='label'
+            style={{ color: msg.includes('success') ? 'green' : '#dc3545' }}
+          >
             {msg}
           </Label>
         )}

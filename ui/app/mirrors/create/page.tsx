@@ -207,8 +207,8 @@ export default function CreateMirrors() {
               />
               <Label>
                 <div style={{ fontSize: 14 }}>
-                  XMIN mode is a sync method which uses the xmin system column
-                  of PostgreSQL as a watermark column for replication.
+                  XMIN mode uses the xmin system column of PostgreSQL as a
+                  watermark column for replication.
                 </div>
               </Label>
               <Label

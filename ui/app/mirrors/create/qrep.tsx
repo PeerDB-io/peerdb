@@ -1,7 +1,7 @@
 'use client';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepSyncMode, QRepWriteType } from '@/grpc_generated/flow';
-import { Peer } from '@/grpc_generated/peers';
+import { DBType, Peer } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Select, SelectItem } from '@/lib/Select';
@@ -10,6 +10,7 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { MirrorSetter } from '../../dto/MirrorsDTO';
+import { defaultSyncMode } from './cdc';
 import { MirrorSetting } from './helpers/common';
 interface QRepConfigProps {
   settings: MirrorSetting[];
@@ -20,6 +21,15 @@ interface QRepConfigProps {
 }
 
 export default function QRepConfigForm(props: QRepConfigProps) {
+  const setToDefault = (setting: MirrorSetting) => {
+    const destinationPeerType = props.mirrorConfig.destinationPeer?.type;
+    return (
+      setting.label.includes('Sync') &&
+      (destinationPeerType === DBType.POSTGRES ||
+        destinationPeerType === DBType.SNOWFLAKE)
+    );
+  };
+
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal:
       | string
@@ -30,9 +40,26 @@ export default function QRepConfigForm(props: QRepConfigProps) {
       | string[] = val;
     if (setting.label.includes('Peer')) {
       stateVal = props.peers.find((peer) => peer.name === val)!;
+      if (setting.label === 'Destination Peer') {
+        if (stateVal.type === DBType.POSTGRES) {
+          props.setter((curr) => {
+            return {
+              ...curr,
+              syncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+            };
+          });
+        } else if (stateVal.type === DBType.SNOWFLAKE) {
+          props.setter((curr) => {
+            return {
+              ...curr,
+              syncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+            };
+          });
+        }
+      }
     } else if (setting.label.includes('Sync Mode')) {
       stateVal =
-        val === 'avro'
+        val === 'AVRO'
           ? QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO
           : QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
     } else if (setting.label.includes('Write Type')) {
@@ -127,11 +154,19 @@ export default function QRepConfigForm(props: QRepConfigProps) {
                       setting.label.includes('Peer') ? 'a peer' : 'a mode'
                     }`}
                     onValueChange={(val) => handleChange(val, setting)}
+                    disabled={setToDefault(setting)}
+                    value={
+                      setToDefault(setting)
+                        ? defaultSyncMode(
+                            props.mirrorConfig.destinationPeer?.type
+                          )
+                        : undefined
+                    }
                   >
                     {(setting.label.includes('Peer')
                       ? (props.peers ?? []).map((peer) => peer.name)
                       : setting.label.includes('Sync')
-                      ? ['avro', 'sql']
+                      ? ['AVRO', 'Copy with Binary']
                       : ['Append', 'Upsert', 'Overwrite']
                     ).map((item, id) => {
                       return (
