@@ -28,16 +28,16 @@ func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName stri
 	connStr := utils.GetPGConnectionString(&pgPeerConfig)
 	peerPool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
-		return nil, unmarshalErr
+		return nil, "", err
 	}
-	return peerPool, nil
+	return peerPool, pgPeerConfig.User, nil
 }
 
 func (h *FlowRequestHandler) GetSchemas(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSchemasResponse, error) {
-	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
 	}
@@ -67,7 +67,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	ctx context.Context,
 	req *protos.SchemaTablesRequest,
 ) (*protos.SchemaTablesResponse, error) {
-	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
@@ -98,7 +98,7 @@ func (h *FlowRequestHandler) GetColumns(
 	ctx context.Context,
 	req *protos.TableColumnsRequest,
 ) (*protos.TableColumnsResponse, error) {
-	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
 	}
