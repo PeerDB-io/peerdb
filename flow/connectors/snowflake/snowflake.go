@@ -456,7 +456,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 					addedColumn.ColumnType, err)
 			}
-			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
+			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
 				schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
