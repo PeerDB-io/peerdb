@@ -54,7 +54,7 @@ type RecordItems struct {
 func NewRecordItems() *RecordItems {
 	return &RecordItems{
 		colToValIdx: make(map[string]int),
-		// create a slice of 64 qvalues so that we don't have to allocate memory
+		// create a slice of 32 qvalues so that we don't have to allocate memory
 		// for each record to reduce GC pressure
 		values: make([]*qvalue.QValue, 0, 32),
 	}

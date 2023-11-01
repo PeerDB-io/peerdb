@@ -523,7 +523,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
 	var wg sync.WaitGroup
-	var numRecords int64
 
 	var goroutineErr error = nil
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
@@ -533,7 +532,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		pullPgRecords := func() {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
 			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
-			numRecords = int64(tmp)
+			numRecords := int64(tmp)
 			if err != nil {
 				log.WithFields(log.Fields{
 					"flowName": config.FlowJobName,
@@ -554,7 +553,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("failed to pull records: %w", err)
 		}
-		numRecords = int64(recordBatch.NumRecords)
+		numRecords := int64(recordBatch.NumRecords)
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
 		}).Infof("pulled %d records\n", len(recordBatch.Records))

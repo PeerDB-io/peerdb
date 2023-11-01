@@ -11,6 +11,7 @@ pub struct FlowJobTableMapping {
     pub destination_table_identifier: String,
     pub exclude: Vec<String>,
     pub partition_key: Option<String>,
+    pub exclude: Option<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

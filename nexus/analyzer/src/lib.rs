@@ -178,6 +178,10 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                     .partition_key
                                     .as_ref()
                                     .map(|s| s.to_string()),
+                                exclude: table_mapping
+                                    .exclude
+                                    .as_ref()
+                                    .map(|ss| ss.iter().map(|s| s.to_string()).collect())
                             });
                         }
 
