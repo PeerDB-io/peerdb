@@ -209,7 +209,9 @@ service FlowService {
   rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
     option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
   }
-  rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
+  rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
+  }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
   }

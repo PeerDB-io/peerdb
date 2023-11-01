@@ -1,6 +1,5 @@
-import { Badge } from '@/lib/Badge';
+import { DropDialog } from '@/components/DropDialog';
 import { Button } from '@/lib/Button';
-import { Checkbox } from '@/lib/Checkbox';
 import { Header } from '@/lib/Header';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -10,6 +9,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import Link from 'next/link';
+import { getTruePeer } from '../api/peers/route';
 import prisma from '../utils/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -27,81 +27,81 @@ async function CDCFlows() {
   });
 
   return (
-    <Table
-      title={<Label variant='headline'>Change-data capture</Label>}
-      toolbar={{
-        left: (
-          <>
-            <Button variant='normalBorderless'>
-              <Icon name='chevron_left' />
-            </Button>
-            <Button variant='normalBorderless'>
-              <Icon name='chevron_right' />
-            </Button>
-            <Button variant='normalBorderless'>
-              <Icon name='refresh' />
-            </Button>
-            <Button variant='normalBorderless'>
-              <Icon name='help' />
-            </Button>
-            <Button variant='normalBorderless' disabled>
-              <Icon name='download' />
-            </Button>
-          </>
-        ),
-        right: <SearchField placeholder='Search' />,
-      }}
-      header={
-        <TableRow>
-          <TableCell as='th' variant='button'>
-            <Checkbox variant='mixed' defaultChecked />
-          </TableCell>
-          <TableCell as='th'>Name</TableCell>
-          <TableCell as='th'>Source</TableCell>
-          <TableCell as='th'>Destination</TableCell>
-          <TableCell as='th'>Start Time</TableCell>
-          <TableCell as='th'>Status</TableCell>
-        </TableRow>
-      }
-    >
-      {cdcFlows.map((flow) => (
-        <TableRow key={flow.id}>
-          <TableCell variant='button'>
-            <Checkbox />
-          </TableCell>
-          <TableCell>
-            <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
-              <div className='cursor-pointer underline'>{flow.name}</div>
-            </Label>
-          </TableCell>
-          <TableCell>
-            <div style={{ cursor: 'pointer' }}>
-              <Label as={Link} href={`/peers/${flow.sourcePeer.name}`}>
-                {flow.sourcePeer.name}
-              </Label>
-            </div>
-          </TableCell>
-          <TableCell>
-            <div style={{ cursor: 'pointer' }}>
-              <Label as={Link} href={`/peers/${flow.destinationPeer.name}`}>
-                {flow.destinationPeer.name}
-              </Label>
-            </div>
-          </TableCell>
-          <TableCell>
-            <Label>
-              {moment(flow.created_at).format('YYYY-MM-DD HH:mm:ss')}
-            </Label>
-          </TableCell>
-          <TableCell>
-            <Badge variant='positive' key={1}>
-              <Icon name='play_circle' />
-              Active
-            </Badge>
-          </TableCell>
-        </TableRow>
-      ))}
-    </Table>
+    <>
+      <Label variant='headline'>Change-data capture</Label>
+      <div style={{ maxHeight: '35vh', overflow: 'scroll', width: '100%' }}>
+        <Table
+          toolbar={{
+            left: (
+              <>
+                <Button variant='normalBorderless'>
+                  <Icon name='chevron_left' />
+                </Button>
+                <Button variant='normalBorderless'>
+                  <Icon name='chevron_right' />
+                </Button>
+                <Button variant='normalBorderless'>
+                  <Icon name='refresh' />
+                </Button>
+                <Button variant='normalBorderless'>
+                  <Icon name='help' />
+                </Button>
+                <Button variant='normalBorderless' disabled>
+                  <Icon name='download' />
+                </Button>
+              </>
+            ),
+            right: <SearchField placeholder='Search' />,
+          }}
+          header={
+            <TableRow>
+              <TableCell as='th'>Name</TableCell>
+              <TableCell as='th'>Source</TableCell>
+              <TableCell as='th'>Destination</TableCell>
+              <TableCell as='th'>Start Time</TableCell>
+              <TableCell as='th'></TableCell>
+            </TableRow>
+          }
+        >
+          {cdcFlows.map((flow) => (
+            <TableRow key={flow.id}>
+              <TableCell>
+                <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
+                  <div className='cursor-pointer underline'>{flow.name}</div>
+                </Label>
+              </TableCell>
+              <TableCell>
+                <div style={{ cursor: 'pointer' }}>
+                  <Label as={Link} href={`/peers/${flow.sourcePeer.name}`}>
+                    {flow.sourcePeer.name}
+                  </Label>
+                </div>
+              </TableCell>
+              <TableCell>
+                <div style={{ cursor: 'pointer' }}>
+                  <Label as={Link} href={`/peers/${flow.destinationPeer.name}`}>
+                    {flow.destinationPeer.name}
+                  </Label>
+                </div>
+              </TableCell>
+              <TableCell>
+                <Label>
+                  {moment(flow.created_at).format('YYYY-MM-DD HH:mm:ss')}
+                </Label>
+              </TableCell>
+              <TableCell>
+                <DropDialog
+                  workflowId={flow.workflow_id}
+                  flowJobName={flow.name}
+                  sourcePeer={getTruePeer(flow.sourcePeer)}
+                  destinationPeer={getTruePeer(flow.destinationPeer)}
+                />
+              </TableCell>
+            </TableRow>
+          ))}
+        </Table>
+      </div>
+    </>
   );
 }
 
@@ -119,81 +119,81 @@ async function QRepFlows() {
   });
 
   return (
-    <Table
-      title={<Label variant='headline'>Query replication</Label>}
-      toolbar={{
-        left: (
-          <>
-            <Button variant='normalBorderless'>
-              <Icon name='chevron_left' />
-            </Button>
-            <Button variant='normalBorderless'>
-              <Icon name='chevron_right' />
-            </Button>
-            <Button variant='normalBorderless'>
-              <Icon name='refresh' />
-            </Button>
-            <Button variant='normalBorderless'>
-              <Icon name='help' />
-            </Button>
-            <Button variant='normalBorderless' disabled>
-              <Icon name='download' />
-            </Button>
-          </>
-        ),
-        right: <SearchField placeholder='Search' />,
-      }}
-      header={
-        <TableRow>
-          <TableCell as='th' variant='button'>
-            <Checkbox variant='mixed' defaultChecked />
-          </TableCell>
-          <TableCell as='th'>Name</TableCell>
-          <TableCell as='th'>Source</TableCell>
-          <TableCell as='th'>Destination</TableCell>
-          <TableCell as='th'>Start Time</TableCell>
-          <TableCell as='th'>Status</TableCell>
-        </TableRow>
-      }
-    >
-      {qrepFlows.map((flow) => (
-        <TableRow key={flow.id}>
-          <TableCell variant='button'>
-            <Checkbox />
-          </TableCell>
-          <TableCell>
-            <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
-              <div className='cursor-pointer underline'>{flow.name}</div>
-            </Label>
-          </TableCell>
-          <TableCell>
-            <div style={{ cursor: 'pointer' }}>
-              <Label as={Link} href={`/peers/${flow.sourcePeer.name}`}>
-                {flow.sourcePeer.name}
-              </Label>
-            </div>
-          </TableCell>
-          <TableCell>
-            <div style={{ cursor: 'pointer' }}>
-              <Label as={Link} href={`/peers/${flow.destinationPeer.name}`}>
-                {flow.destinationPeer.name}
-              </Label>
-            </div>
-          </TableCell>
-          <TableCell>
-            <Label>
-              {moment(flow.created_at).format('YYYY-MM-DD HH:mm:ss')}
-            </Label>
-          </TableCell>
-          <TableCell>
-            <Badge variant='positive' key={1}>
-              <Icon name='play_circle' />
-              Active
-            </Badge>
-          </TableCell>
-        </TableRow>
-      ))}
-    </Table>
+    <>
+      <Label variant='headline'>Query replication</Label>
+      <div style={{ maxHeight: '35vh', overflow: 'scroll', width: '100%' }}>
+        <Table
+          toolbar={{
+            left: (
+              <>
+                <Button variant='normalBorderless'>
+                  <Icon name='chevron_left' />
+                </Button>
+                <Button variant='normalBorderless'>
+                  <Icon name='chevron_right' />
+                </Button>
+                <Button variant='normalBorderless'>
+                  <Icon name='refresh' />
+                </Button>
+                <Button variant='normalBorderless'>
+                  <Icon name='help' />
+                </Button>
+                <Button variant='normalBorderless' disabled>
+                  <Icon name='download' />
+                </Button>
+              </>
+            ),
+            right: <SearchField placeholder='Search' />,
+          }}
+          header={
+            <TableRow>
+              <TableCell as='th'>Name</TableCell>
+              <TableCell as='th'>Source</TableCell>
+              <TableCell as='th'>Destination</TableCell>
+              <TableCell as='th'>Start Time</TableCell>
+              <TableCell as='th'></TableCell>
+            </TableRow>
+          }
+        >
+          {qrepFlows.map((flow) => (
+            <TableRow key={flow.id}>
+              <TableCell>
+                <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
+                  <div className='cursor-pointer underline'>{flow.name}</div>
+                </Label>
+              </TableCell>
+              <TableCell>
+                <div style={{ cursor: 'pointer' }}>
+                  <Label as={Link} href={`/peers/${flow.sourcePeer.name}`}>
+                    {flow.sourcePeer.name}
+                  </Label>
+                </div>
+              </TableCell>
+              <TableCell>
+                <div style={{ cursor: 'pointer' }}>
+                  <Label as={Link} href={`/peers/${flow.destinationPeer.name}`}>
+                    {flow.destinationPeer.name}
+                  </Label>
+                </div>
+              </TableCell>
+              <TableCell>
+                <Label>
+                  {moment(flow.created_at).format('YYYY-MM-DD HH:mm:ss')}
+                </Label>
+              </TableCell>
+              <TableCell>
+                <DropDialog
+                  workflowId={flow.workflow_id}
+                  flowJobName={flow.name}
+                  sourcePeer={getTruePeer(flow.sourcePeer)}
+                  destinationPeer={getTruePeer(flow.destinationPeer)}
+                />
+              </TableCell>
+            </TableRow>
+          ))}
+        </Table>
+      </div>
+    </>
   );
 }
 
