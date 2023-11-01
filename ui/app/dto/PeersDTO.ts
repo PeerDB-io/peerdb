@@ -22,6 +22,11 @@ export type UColumnsResponse = {
   columns: string[];
 };
 
+export type UDropPeerResponse = {
+  dropped: boolean;
+  errorMessage: string;
+};
+
 export type PeerConfig = PostgresConfig | SnowflakeConfig;
 export type CatalogPeer = {
   id: number;

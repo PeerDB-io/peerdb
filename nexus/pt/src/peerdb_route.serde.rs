@@ -1009,6 +1009,215 @@ impl<'de> serde::Deserialize<'de> for CreateQRepFlowResponse {
         deserializer.deserialize_struct("peerdb_route.CreateQRepFlowResponse", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for DropPeerRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.peer_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.DropPeerRequest", len)?;
+        if !self.peer_name.is_empty() {
+            struct_ser.serialize_field("peerName", &self.peer_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DropPeerRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "peer_name",
+            "peerName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PeerName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "peerName" | "peer_name" => Ok(GeneratedField::PeerName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DropPeerRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.DropPeerRequest")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<DropPeerRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut peer_name__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::PeerName => {
+                            if peer_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peerName"));
+                            }
+                            peer_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DropPeerRequest {
+                    peer_name: peer_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.DropPeerRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DropPeerResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.ok {
+            len += 1;
+        }
+        if !self.error_message.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.DropPeerResponse", len)?;
+        if self.ok {
+            struct_ser.serialize_field("ok", &self.ok)?;
+        }
+        if !self.error_message.is_empty() {
+            struct_ser.serialize_field("errorMessage", &self.error_message)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DropPeerResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "ok",
+            "error_message",
+            "errorMessage",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Ok,
+            ErrorMessage,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "ok" => Ok(GeneratedField::Ok),
+                            "errorMessage" | "error_message" => Ok(GeneratedField::ErrorMessage),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DropPeerResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_route.DropPeerResponse")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<DropPeerResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut ok__ = None;
+                let mut error_message__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Ok => {
+                            if ok__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ok"));
+                            }
+                            ok__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::ErrorMessage => {
+                            if error_message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("errorMessage"));
+                            }
+                            error_message__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DropPeerResponse {
+                    ok: ok__.unwrap_or_default(),
+                    error_message: error_message__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_route.DropPeerResponse", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for MirrorStatusRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

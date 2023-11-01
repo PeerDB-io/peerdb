@@ -81,7 +81,7 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_qrep_flow_req = pt::peerdb_route::CreateQRepFlowRequest {
             qrep_config: Some(qrep_config.clone()),
-            create_catalog_entry:false
+            create_catalog_entry: false,
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
         let workflow_id = response.into_inner().worflow_id;
@@ -138,6 +138,22 @@ impl FlowGrpcClient {
             Err(anyhow::anyhow!(format!(
                 "failed to shutdown flow job: {:?}",
                 shutdown_response.error_message
+            )))
+        }
+    }
+
+    pub async fn drop_peer(&mut self, peer_name: &str) -> anyhow::Result<()> {
+        let drop_peer_req = pt::peerdb_route::DropPeerRequest {
+            peer_name: String::from(peer_name),
+        };
+        let response = self.client.drop_peer(drop_peer_req).await?;
+        let drop_response = response.into_inner();
+        if drop_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to drop peer: {:?}",
+                drop_response.error_message
             )))
         }
     }

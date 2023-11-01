@@ -492,6 +492,54 @@ impl NexusBackend {
                         ))))
                     }
                 }
+                PeerDDL::DropPeer {
+                    if_exists,
+                    peer_name,
+                } => {
+                    if self.flow_handler.is_none() {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: "flow service is not configured".to_owned(),
+                        })));
+                    }
+
+                    let catalog = self.catalog.lock().await;
+                    tracing::info!("drop peer_name: {}, if_exists: {}", peer_name, if_exists);
+                    let peer_exists =
+                        catalog.check_peer_entry(&peer_name).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!(
+                                    "unable to query catalog for peer metadata: {:?}",
+                                    err
+                                ),
+                            }))
+                        })?;
+                    tracing::info!("peer exist count: {}", peer_exists);
+                    if peer_exists != 0 {
+                        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                        flow_handler.drop_peer(&peer_name).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to drop peer: {:?}", err),
+                            }))
+                        })?;
+                        let drop_peer_success = format!("DROP PEER {}", peer_name);
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            &drop_peer_success,
+                            None,
+                        ))])
+                    } else if *if_exists {
+                        let no_peer_success = "NO SUCH PEER";
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            no_peer_success,
+                            None,
+                        ))])
+                    } else {
+                        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "error".to_owned(),
+                            format!("no such peer: {:?}", peer_name),
+                        ))))
+                    }
+                }
             },
             NexusStatement::PeerQuery { stmt, assoc } => {
                 // get the query executor

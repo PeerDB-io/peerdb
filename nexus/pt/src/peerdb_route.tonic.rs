@@ -138,6 +138,32 @@ pub mod flow_service_client {
             self.inner.unary(req, path, codec).await
         }
         ///
+        pub async fn drop_peer(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DropPeerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::DropPeerResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/DropPeer",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "DropPeer"));
+            self.inner.unary(req, path, codec).await
+        }
+        ///
         pub async fn create_cdc_flow(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateCdcFlowRequest>,
@@ -399,6 +425,14 @@ pub mod flow_service_server {
             tonic::Status,
         >;
         ///
+        async fn drop_peer(
+            &self,
+            request: tonic::Request<super::DropPeerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::DropPeerResponse>,
+            tonic::Status,
+        >;
+        ///
         async fn create_cdc_flow(
             &self,
             request: tonic::Request<super::CreateCdcFlowRequest>,
@@ -626,6 +660,50 @@ pub mod flow_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = CreatePeerSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/DropPeer" => {
+                    #[allow(non_camel_case_types)]
+                    struct DropPeerSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::DropPeerRequest>
+                    for DropPeerSvc<T> {
+                        type Response = super::DropPeerResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DropPeerRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { (*inner).drop_peer(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = DropPeerSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

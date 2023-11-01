@@ -46,6 +46,15 @@ message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
 }
 
+message DropPeerRequest {
+  string peer_name = 1;
+}
+
+message DropPeerResponse {
+  bool ok = 1;
+  string error_message = 2;
+}
+
 enum ValidatePeerStatus {
   CREATION_UNKNOWN = 0;
   VALID = 1;
@@ -177,6 +186,12 @@ service FlowService {
       post: "/v1/peers/create",
       body: "*"
      };
+  }
+  rpc DropPeer(DropPeerRequest) returns (DropPeerResponse) {
+    option (google.api.http) = {
+      post: "/v1/peers/drop",
+      body: "*"
+    };
   }
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {
     option (google.api.http) = {
