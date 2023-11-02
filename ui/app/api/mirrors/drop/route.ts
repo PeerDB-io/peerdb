@@ -24,6 +24,7 @@ export async function POST(request: Request) {
   });
   let response: UDropMirrorResponse = {
     dropped: dropStatus.ok,
+    errorMessage: dropStatus.errorMessage,
   };
 
   return new Response(JSON.stringify(response));

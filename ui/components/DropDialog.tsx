@@ -1,5 +1,6 @@
 'use client';
 import { UDropMirrorResponse } from '@/app/dto/MirrorsDTO';
+import { UDropPeerResponse } from '@/app/dto/PeersDTO';
 import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
@@ -9,15 +10,27 @@ import { Divider } from '@tremor/react';
 import { useState } from 'react';
 import { BarLoader } from 'react-spinners';
 
-export const DropDialog = (dropArgs: {
+interface dropMirrorArgs {
   workflowId: string | null;
   flowJobName: string;
   sourcePeer: Peer;
   destinationPeer: Peer;
+}
+
+interface dropPeerArgs {
+  peerName: string;
+}
+
+export const DropDialog = ({
+  mode,
+  dropArgs,
+}: {
+  mode: 'PEER' | 'MIRROR';
+  dropArgs: dropMirrorArgs | dropPeerArgs;
 }) => {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
-  const handleDrop = async () => {
+  const handleDropMirror = async (dropArgs: dropMirrorArgs) => {
     if (!dropArgs.workflowId) {
       setMsg('Workflow ID not found for this mirror.');
       return;
@@ -30,8 +43,33 @@ export const DropDialog = (dropArgs: {
     }).then((res) => res.json());
     setLoading(false);
     if (dropRes.dropped !== true)
-      setMsg('Something went wrong when trying to drop the mirror.');
+      setMsg(
+        `Unable to drop peer ${dropArgs.flowJobName}. ${
+          dropRes.errorMessage ?? ''
+        }`
+      );
     else setMsg('Mirror dropped successfully.');
+  };
+
+  const handleDropPeer = async (dropArgs: dropPeerArgs) => {
+    if (!dropArgs.peerName) {
+      setMsg('Invalid peer name');
+      return;
+    }
+
+    setLoading(true);
+    const dropRes: UDropPeerResponse = await fetch('api/peers/drop', {
+      method: 'POST',
+      body: JSON.stringify(dropArgs),
+    }).then((res) => res.json());
+    setLoading(false);
+    if (dropRes.dropped !== true)
+      setMsg(
+        `Unable to drop peer ${dropArgs.peerName}. ${
+          dropRes.errorMessage ?? ''
+        }`
+      );
+    else setMsg('Peer dropped successfully.');
   };
 
   return (
@@ -46,12 +84,17 @@ export const DropDialog = (dropArgs: {
     >
       <div>
         <Label as='label' variant='action'>
-          Drop Mirror
+          Drop {mode === 'MIRROR' ? 'Mirror' : 'Peer'}
         </Label>
         <Divider style={{ margin: 0 }} />
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
-          Are you sure you want to drop mirror <b>{dropArgs.flowJobName}</b> ?
-          This action cannot be reverted.
+          Are you sure you want to drop {mode === 'MIRROR' ? 'mirror' : 'peer'}{' '}
+          <b>
+            {mode === 'MIRROR'
+              ? (dropArgs as dropMirrorArgs).flowJobName
+              : (dropArgs as dropPeerArgs).peerName}
+          </b>{' '}
+          ? This action cannot be reverted.
         </Label>
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
@@ -60,7 +103,11 @@ export const DropDialog = (dropArgs: {
             </Button>
           </DialogClose>
           <Button
-            onClick={handleDrop}
+            onClick={() =>
+              mode === 'MIRROR'
+                ? handleDropMirror(dropArgs as dropMirrorArgs)
+                : handleDropPeer(dropArgs as dropPeerArgs)
+            }
             style={{
               marginLeft: '1rem',
               backgroundColor: '#dc3545',

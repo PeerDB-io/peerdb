@@ -564,4 +564,13 @@ impl Catalog {
         }
         Ok(())
     }
+
+    pub async fn check_peer_entry(&self, peer_name: &str) -> anyhow::Result<i64> {
+        let peer_check = self
+            .pg
+            .query_one("SELECT COUNT(*) FROM PEERS WHERE NAME = $1", &[&peer_name])
+            .await?;
+        let peer_count: i64 = peer_check.get(0);
+        Ok(peer_count)
+    }
 }

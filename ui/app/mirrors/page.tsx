@@ -91,10 +91,13 @@ async function CDCFlows() {
               </TableCell>
               <TableCell>
                 <DropDialog
-                  workflowId={flow.workflow_id}
-                  flowJobName={flow.name}
-                  sourcePeer={getTruePeer(flow.sourcePeer)}
-                  destinationPeer={getTruePeer(flow.destinationPeer)}
+                  mode='MIRROR'
+                  dropArgs={{
+                    workflowId: flow.workflow_id,
+                    flowJobName: flow.name,
+                    sourcePeer: getTruePeer(flow.sourcePeer),
+                    destinationPeer: getTruePeer(flow.destinationPeer),
+                  }}
                 />
               </TableCell>
             </TableRow>
@@ -183,10 +186,13 @@ async function QRepFlows() {
               </TableCell>
               <TableCell>
                 <DropDialog
-                  workflowId={flow.workflow_id}
-                  flowJobName={flow.name}
-                  sourcePeer={getTruePeer(flow.sourcePeer)}
-                  destinationPeer={getTruePeer(flow.destinationPeer)}
+                  mode='MIRROR'
+                  dropArgs={{
+                    workflowId: flow.workflow_id,
+                    flowJobName: flow.name,
+                    sourcePeer: getTruePeer(flow.sourcePeer),
+                    destinationPeer: getTruePeer(flow.destinationPeer),
+                  }}
                 />
               </TableCell>
             </TableRow>
