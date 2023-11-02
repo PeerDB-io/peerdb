@@ -2341,6 +2341,9 @@ impl serde::Serialize for ShutdownRequest {
         if self.destination_peer.is_some() {
             len += 1;
         }
+        if self.remove_flow_entry {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_route.ShutdownRequest", len)?;
         if !self.workflow_id.is_empty() {
             struct_ser.serialize_field("workflowId", &self.workflow_id)?;
@@ -2353,6 +2356,9 @@ impl serde::Serialize for ShutdownRequest {
         }
         if let Some(v) = self.destination_peer.as_ref() {
             struct_ser.serialize_field("destinationPeer", v)?;
+        }
+        if self.remove_flow_entry {
+            struct_ser.serialize_field("removeFlowEntry", &self.remove_flow_entry)?;
         }
         struct_ser.end()
     }
@@ -2372,6 +2378,8 @@ impl<'de> serde::Deserialize<'de> for ShutdownRequest {
             "sourcePeer",
             "destination_peer",
             "destinationPeer",
+            "remove_flow_entry",
+            "removeFlowEntry",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2380,6 +2388,7 @@ impl<'de> serde::Deserialize<'de> for ShutdownRequest {
             FlowJobName,
             SourcePeer,
             DestinationPeer,
+            RemoveFlowEntry,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2406,6 +2415,7 @@ impl<'de> serde::Deserialize<'de> for ShutdownRequest {
                             "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
                             "sourcePeer" | "source_peer" => Ok(GeneratedField::SourcePeer),
                             "destinationPeer" | "destination_peer" => Ok(GeneratedField::DestinationPeer),
+                            "removeFlowEntry" | "remove_flow_entry" => Ok(GeneratedField::RemoveFlowEntry),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2429,6 +2439,7 @@ impl<'de> serde::Deserialize<'de> for ShutdownRequest {
                 let mut flow_job_name__ = None;
                 let mut source_peer__ = None;
                 let mut destination_peer__ = None;
+                let mut remove_flow_entry__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::WorkflowId => {
@@ -2455,6 +2466,12 @@ impl<'de> serde::Deserialize<'de> for ShutdownRequest {
                             }
                             destination_peer__ = map.next_value()?;
                         }
+                        GeneratedField::RemoveFlowEntry => {
+                            if remove_flow_entry__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("removeFlowEntry"));
+                            }
+                            remove_flow_entry__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2465,6 +2482,7 @@ impl<'de> serde::Deserialize<'de> for ShutdownRequest {
                     flow_job_name: flow_job_name__.unwrap_or_default(),
                     source_peer: source_peer__,
                     destination_peer: destination_peer__,
+                    remove_flow_entry: remove_flow_entry__.unwrap_or_default(),
                 })
             }
         }

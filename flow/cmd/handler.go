@@ -340,12 +340,14 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		}
 	}
 
-	delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
-	if delErr != nil {
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: err.Error(),
-		}, err
+	if req.RemoveFlowEntry {
+		delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
+		if delErr != nil {
+			return &protos.ShutdownResponse{
+				Ok:           false,
+				ErrorMessage: err.Error(),
+			}, err
+		}
 	}
 
 	return &protos.ShutdownResponse{
