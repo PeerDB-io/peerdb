@@ -7,6 +7,7 @@ export type UCreateMirrorResponse = {
 
 export type UDropMirrorResponse = {
   dropped: boolean;
+  errorMessage: string;
 };
 
 export type CDCConfig = FlowConnectionConfigs;
