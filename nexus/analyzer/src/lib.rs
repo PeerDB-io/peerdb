@@ -154,12 +154,8 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         let mut flow_job_table_mappings = vec![];
                         for table_mapping in &cdc.mapping_options {
                             flow_job_table_mappings.push(FlowJobTableMapping {
-                                source_table_identifier: table_mapping
-                                    .source
-                                    .to_string(),
-                                destination_table_identifier: table_mapping
-                                    .destination
-                                    .to_string(),
+                                source_table_identifier: table_mapping.source.to_string(),
+                                destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
                                     .partition_key
                                     .clone()
