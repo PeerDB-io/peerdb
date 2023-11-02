@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 )
 
@@ -18,7 +19,7 @@ func HeartbeatRoutine(
 	go func() {
 		for {
 			msg := fmt.Sprintf("heartbeat #%d: %s", counter, message())
-			activity.RecordHeartbeat(ctx, msg)
+			RecordHeartbeatWithRecover(ctx, msg)
 			counter += 1
 			to := time.After(interval)
 			select {
@@ -29,4 +30,16 @@ func HeartbeatRoutine(
 		}
 	}()
 	return shutdown
+}
+
+// if the functions are being called outside the context of a Temporal workflow,
+// activity.RecordHeartbeat panics, this is a bandaid for that.
+func RecordHeartbeatWithRecover(ctx context.Context, details ...interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Warnln("ignoring panic from activity.RecordHeartbeat")
+			log.Warnln("this can happen when function is invoked outside of a Temporal workflow")
+		}
+	}()
+	activity.RecordHeartbeat(ctx, details...)
 }

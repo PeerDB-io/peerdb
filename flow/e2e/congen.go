@@ -34,6 +34,12 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 		return fmt.Errorf("failed to drop e2e_test schema: %w", err)
 	}
 
+	// drop the S3 metadata database if it exists
+	_, err = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS peerdb_s3_metadata CASCADE")
+	if err != nil {
+		return fmt.Errorf("failed to drop metadata schema: %w", err)
+	}
+
 	// drop all open slots with the given suffix
 	_, err = pool.Exec(
 		context.Background(),
@@ -145,9 +151,17 @@ func GenerateSnowflakePeer(snowflakeConfig *protos.SnowflakeConfig) (*protos.Pee
 }
 
 func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*protos.FlowConnectionConfigs, error) {
+	tblMappings := []*protos.TableMapping{}
+	for k, v := range c.TableNameMapping {
+		tblMappings = append(tblMappings, &protos.TableMapping{
+			SourceTableIdentifier:      k,
+			DestinationTableIdentifier: v,
+		})
+	}
+
 	ret := &protos.FlowConnectionConfigs{}
 	ret.FlowJobName = c.FlowJobName
-	ret.TableNameMapping = c.TableNameMapping
+	ret.TableMappings = tblMappings
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
 	ret.Destination = c.Destination
 	ret.CdcSyncMode = c.CDCSyncMode
@@ -185,6 +199,7 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	ret.WriteMode = &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 	}
+	ret.NumRowsPerPartition = 1000
 
 	return ret, nil
 }

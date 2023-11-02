@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -68,7 +69,7 @@ type CDCFlowState struct {
 	NormalizeFlowErrors error
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
-	RelationMessageMapping model.RelationMessageMapping
+	RelationMessageMapping *model.RelationMessageMapping
 }
 
 // returns a new empty PeerFlowState
@@ -82,7 +83,7 @@ func NewCDCFlowState() *CDCFlowState {
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
 		// WORKAROUND: empty maps are protobufed into nil maps for reasons beyond me
-		RelationMessageMapping: model.RelationMessageMapping{
+		RelationMessageMapping: &model.RelationMessageMapping{
 			0: &protos.RelationMessage{
 				RelationId:   0,
 				RelationName: "protobuf_workaround",
@@ -102,6 +103,28 @@ func (s *CDCFlowState) TruncateProgress() {
 	if len(s.NormalizeFlowStatuses) > 10 {
 		s.NormalizeFlowStatuses = s.NormalizeFlowStatuses[len(s.NormalizeFlowStatuses)-10:]
 	}
+
+	if s.SyncFlowErrors != nil {
+		fmt.Println("SyncFlowErrors: ", s.SyncFlowErrors)
+		s.SyncFlowErrors = nil
+	}
+
+	if s.NormalizeFlowErrors != nil {
+		fmt.Println("NormalizeFlowErrors: ", s.NormalizeFlowErrors)
+		s.NormalizeFlowErrors = nil
+	}
+}
+
+func (s *CDCFlowState) SendWALHeartbeat(ctx workflow.Context, cfg *protos.FlowConnectionConfigs) error {
+	walHeartbeatCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+
+	if err := workflow.ExecuteActivity(walHeartbeatCtx, flowable.SendWALHeartbeat, cfg).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to send WAL heartbeat: %w", err)
+	}
+
+	return nil
 }
 
 // CDCFlowWorkflowExecution represents the state for execution of a peer flow.
@@ -181,6 +204,16 @@ func CDCFlowWorkflowWithConfig(
 	})
 
 	if !state.SetupComplete {
+		// if resync is true, alter the table name schema mapping to temporarily add
+		// a suffix to the table names.
+		if cfg.Resync {
+			for _, mapping := range cfg.TableMappings {
+				oldName := mapping.DestinationTableIdentifier
+				newName := fmt.Sprintf("%s_resync", oldName)
+				mapping.DestinationTableIdentifier = newName
+			}
+		}
+
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
 		setupFlowID, err := GetChildWorkflowID(ctx, "setup-flow", cfg.FlowJobName)
@@ -217,6 +250,30 @@ func CDCFlowWorkflowWithConfig(
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
+		}
+
+		if cfg.Resync {
+			renameOpts := &protos.RenameTablesInput{}
+			renameOpts.FlowJobName = cfg.FlowJobName
+			renameOpts.Peer = cfg.Destination
+			for _, mapping := range cfg.TableMappings {
+				oldName := mapping.DestinationTableIdentifier
+				newName := strings.TrimSuffix(oldName, "_resync")
+				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
+					CurrentName: oldName,
+					NewName:     newName,
+				})
+				mapping.DestinationTableIdentifier = newName
+			}
+
+			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 12 * time.Hour,
+				HeartbeatTimeout:    1 * time.Hour,
+			})
+			renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
+			if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
+				return state, fmt.Errorf("failed to execute rename tables activity: %w", err)
+			}
 		}
 
 		state.SetupComplete = true
@@ -258,7 +315,7 @@ func CDCFlowWorkflowWithConfig(
 			},
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
-		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
+		syncFlowOptions.RelationMessageMapping = *state.RelationMessageMapping
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			SyncFlowWorkflow,
@@ -291,16 +348,46 @@ func CDCFlowWorkflowWithConfig(
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 
-		var tableSchemaDelta *protos.TableSchemaDelta = nil
+		var tableSchemaDeltas []*protos.TableSchemaDelta = nil
 		if childSyncFlowRes != nil {
-			tableSchemaDelta = childSyncFlowRes.TableSchemaDelta
+			tableSchemaDeltas = childSyncFlowRes.TableSchemaDeltas
+		}
+
+		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+		if tableSchemaDeltas != nil {
+			modifiedSrcTables := make([]string, 0)
+			modifiedDstTables := make([]string, 0)
+
+			for _, tableSchemaDelta := range tableSchemaDeltas {
+				modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
+				modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
+			}
+
+			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 5 * time.Minute,
+			})
+			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
+				&protos.GetTableSchemaBatchInput{
+					PeerConnectionConfig: cfg.Source,
+					TableIdentifiers:     modifiedSrcTables,
+				})
+
+			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
+			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+				w.logger.Error("failed to execute schema update at source: ", err)
+				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+			} else {
+				for i := range modifiedSrcTables {
+					cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
+						getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
+				}
+			}
 		}
 
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,
 			NormalizeFlowWorkflow,
 			cfg,
-			tableSchemaDelta,
 		)
 
 		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
@@ -313,27 +400,11 @@ func CDCFlowWorkflowWithConfig(
 			}
 		})
 		selector.Select(ctx)
+	}
 
-		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-		if tableSchemaDelta != nil {
-			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 5 * time.Minute,
-			})
-			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
-				&protos.GetTableSchemaBatchInput{
-					PeerConnectionConfig: cfg.Source,
-					TableIdentifiers:     []string{tableSchemaDelta.SrcTableName},
-				})
-
-			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
-			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
-				w.logger.Error("failed to execute schema update at source: ", err)
-				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
-			} else {
-				cfg.TableNameSchemaMapping[tableSchemaDelta.DstTableName] =
-					getModifiedSchemaRes.TableNameSchemaMapping[tableSchemaDelta.SrcTableName]
-			}
-		}
+	// send WAL heartbeat
+	if err := state.SendWALHeartbeat(ctx, cfg); err != nil {
+		return state, err
 	}
 
 	state.TruncateProgress()

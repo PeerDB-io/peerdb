@@ -10,7 +10,7 @@ jobs:
   docker-build:
     strategy:
       matrix:
-        runner: [ubuntu-latest, ubicloud]
+        runner: [ubicloud]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -20,7 +20,6 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_CHECKOUT }}
 
       - uses: depot/setup-action@v1
 
@@ -35,46 +34,12 @@ jobs:
         id: vars
         run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
 
-      - name: Build (optionally publish) PeerDB Dev Image
-        uses: depot/build-push-action@v1
+      - name: Build (optionally publish) PeerDB Images
+        uses: depot/bake-action@v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
-          platforms: linux/amd64,linux/arm64
-          context: .
-          file: stacks/nexus.Dockerfile
+          files: ./docker-bake.hcl
           push: ${{ github.ref == 'refs/heads/main' }}
-          tags: |
-            ghcr.io/peerdb-io/peerdb-server:dev-${{ steps.vars.outputs.sha_short }}
-
-      - name: Build (optionally publish) Flow API Dev Image
-        uses: depot/build-push-action@v1
-        with:
-          token: ${{ secrets.DEPOT_TOKEN }}
-          platforms: linux/amd64,linux/arm64
-          context: .
-          file: stacks/flow-api.Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: |
-            ghcr.io/peerdb-io/flow-api:dev-${{ steps.vars.outputs.sha_short }}
-
-      - name: Build (optionally publish) Flow Worker Dev Image
-        uses: depot/build-push-action@v1
-        with:
-          token: ${{ secrets.DEPOT_TOKEN }}
-          platforms: linux/amd64,linux/arm64
-          context: .
-          file: stacks/flow-worker.Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: |
-            ghcr.io/peerdb-io/flow-worker:dev-${{ steps.vars.outputs.sha_short }}
-
-      - name: Build (optionally publish) Flow Snapshot Worker Dev Image
-        uses: depot/build-push-action@v1
-        with:
-          token: ${{ secrets.DEPOT_TOKEN }}
-          platforms: linux/amd64,linux/arm64
-          context: .
-          file: stacks/flow-snapshot-worker.Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: |
-            ghcr.io/peerdb-io/flow-snapshot-worker:dev-${{ steps.vars.outputs.sha_short }}
+        env:
+          SHA_SHORT: dev-${{ steps.vars.outputs.sha_short }}
+          TAG: latest-dev

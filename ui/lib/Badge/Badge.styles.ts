@@ -40,9 +40,16 @@ const singleDigitTypeStyle = css`
   height: 24px;
   justify-content: center;
 `;
+const longTextTypeStyle = css`
+  padding: 10;
+  width: max-content;
+  height: 32px;
+  justify-content: center;
+`;
 const types = {
   default: defaultTypeStyle,
   singleDigit: singleDigitTypeStyle,
+  longText: longTextTypeStyle,
 };
 
 const baseStyle = css`

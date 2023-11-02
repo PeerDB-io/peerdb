@@ -3,6 +3,9 @@ package connectors
 import (
 	"context"
 	"errors"
+	"fmt"
+
+	log "github.com/sirupsen/logrus"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
@@ -35,10 +38,13 @@ type CDCPullConnector interface {
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error)
+	PullRecords(req *model.PullRecordsRequest) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
+
+	// SendWALHeartbeat allows for activity to progress restart_lsn on postgres.
+	SendWALHeartbeat() error
 }
 
 type CDCSyncConnector interface {
@@ -86,7 +92,7 @@ type CDCNormalizeConnector interface {
 
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
 	// This could involve adding or dropping multiple columns.
-	ReplayTableSchemaDelta(flowJobName string, schemaDelta *protos.TableSchemaDelta) error
+	ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type QRepPullConnector interface {
@@ -141,7 +147,11 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
 	case *protos.Peer_EventhubConfig:
-		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubConfig())
+		return nil, fmt.Errorf("use eventhub group config instead")
+	case *protos.Peer_EventhubGroupConfig:
+		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubGroupConfig())
+	case *protos.Peer_S3Config:
+		return conns3.NewS3Connector(ctx, config.GetS3Config())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -190,6 +200,45 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 	}
 }
 
+func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
+	inner := peer.Type
+	switch inner {
+	case protos.DBType_POSTGRES:
+		pgConfig := peer.GetPostgresConfig()
+
+		if pgConfig == nil {
+			return nil, fmt.Errorf("missing postgres config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connpostgres.NewPostgresConnector(ctx, pgConfig)
+	case protos.DBType_BIGQUERY:
+		bqConfig := peer.GetBigqueryConfig()
+		if bqConfig == nil {
+			return nil, fmt.Errorf("missing bigquery config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connbigquery.NewBigQueryConnector(ctx, bqConfig)
+
+	case protos.DBType_SNOWFLAKE:
+		sfConfig := peer.GetSnowflakeConfig()
+		if sfConfig == nil {
+			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
+
+	case protos.DBType_SQLSERVER:
+		sqlServerConfig := peer.GetSqlserverConfig()
+		if sqlServerConfig == nil {
+			return nil, fmt.Errorf("missing sqlserver config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connsqlserver.NewSQLServerConnector(ctx, sqlServerConfig)
+	// case protos.DBType_S3:
+	// 	return conns3.NewS3Connector(ctx, config.GetS3Config())
+	// case protos.DBType_EVENTHUB:
+	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
+	default:
+		return nil, fmt.Errorf("unsupported peer type %s", peer.Type.String())
+	}
+}
+
 func GetQRepConsolidateConnector(ctx context.Context,
 	config *protos.Peer) (QRepConsolidateConnector, error) {
 	inner := config.Config
@@ -207,5 +256,8 @@ func CloseConnector(conn Connector) {
 		return
 	}
 
-	conn.Close()
+	err := conn.Close()
+	if err != nil {
+		log.Errorf("error closing connector: %v", err)
+	}
 }

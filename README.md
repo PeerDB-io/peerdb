@@ -27,11 +27,12 @@ You can use PeerDB for any of the below use-cases:
 git clone --recursive git@github.com:PeerDB-io/peerdb.git
 cd peerdb
 
-# Run docker containers: peerdb-server, postgres as catalog, temporal
-export COMPOSE_PROJECT_NAME=peerdb-stack
-docker compose up
+# Run docker containers: postgres as catalog, temporal, PeerDB server, PeerDB flow API + workers, PeerDB UI
+bash ./run-peerdb.sh
+# OR for local development, images will be built locally:
+bash ./dev-peerdb.sh
 
-# connect to peerdb and query away
+# connect to peerdb and query away (Use psql version >=14.0, <16.0)
 psql "port=9900 host=localhost password=peerdb"
 ```
 

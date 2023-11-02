@@ -2,9 +2,13 @@ package e2e_s3
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -12,27 +16,61 @@ import (
 )
 
 const (
-	peerName   string = "test_s3_peer"
-	bucketName string = "peerdb-test-bucket"
-	prefixName string = "test-s3"
+	peerName string = "test_s3_peer"
 )
 
 type S3TestHelper struct {
-	client   *s3.S3
-	s3Config *protos.S3Config
+	client     *s3.S3
+	s3Config   *protos.S3Config
+	bucketName string
+	prefix     string
 }
 
-func NewS3TestHelper() (*S3TestHelper, error) {
-	client, err := utils.CreateS3Client()
+func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
+	credsPath := os.Getenv("TEST_S3_CREDS")
+	bucketName := "peerdb-test-bucket"
+	if switchToGCS {
+		credsPath = os.Getenv("TEST_GCS_CREDS")
+		bucketName = "peerdb_staging"
+	}
+
+	content, err := e2e.ReadFileToBytes(credsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var config utils.S3PeerCredentials
+	err = json.Unmarshal(content, &config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+	}
+	endpoint := ""
+	if switchToGCS {
+		endpoint = "https://storage.googleapis.com"
+	}
+	client, err := utils.CreateS3Client(config)
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("S3 client obtained")
+	prefix := fmt.Sprintf("peerdb_test/%d", time.Now().UnixNano())
 	return &S3TestHelper{
 		client,
 		&protos.S3Config{
-			Url: fmt.Sprintf("s3://%s/%s", bucketName, prefixName),
+			Url:             fmt.Sprintf("s3://%s/%s", bucketName, prefix),
+			AccessKeyId:     &config.AccessKeyID,
+			SecretAccessKey: &config.SecretAccessKey,
+			Region:          &config.Region,
+			Endpoint:        &endpoint,
+			MetadataDb: &protos.PostgresConfig{
+				Host:     "localhost",
+				Port:     7132,
+				Password: "postgres",
+				User:     "postgres",
+				Database: "postgres",
+			},
 		},
+		bucketName,
+		prefix,
 	}, nil
 }
 
@@ -52,8 +90,9 @@ func (h *S3TestHelper) ListAllFiles(
 	ctx context.Context,
 	jobName string,
 ) ([]*s3.Object, error) {
-	Bucket := bucketName
-	Prefix := fmt.Sprintf("%s/%s/", prefixName, jobName)
+
+	Bucket := h.bucketName
+	Prefix := fmt.Sprintf("%s/%s/", h.prefix, jobName)
 	files, err := h.client.ListObjects(&s3.ListObjectsInput{
 		Bucket: &Bucket,
 		Prefix: &Prefix,
@@ -68,8 +107,8 @@ func (h *S3TestHelper) ListAllFiles(
 
 // Delete all generated objects during the test
 func (h *S3TestHelper) CleanUp() error {
-	Bucket := bucketName
-	Prefix := prefixName
+	Bucket := h.bucketName
+	Prefix := h.prefix
 	files, err := h.client.ListObjects(&s3.ListObjectsInput{
 		Bucket: &Bucket,
 		Prefix: &Prefix,

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use anyhow::Context;
 use catalog::WorkflowDetails;
@@ -9,6 +9,11 @@ use pt::{
 };
 use serde_json::Value;
 use tonic_health::pb::health_client;
+
+pub enum PeerValidationResult {
+    Valid,
+    Invalid(String),
+}
 
 pub struct FlowGrpcClient {
     client: peerdb_route::flow_service_client::FlowServiceClient<tonic::transport::Channel>,
@@ -76,10 +81,29 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_qrep_flow_req = pt::peerdb_route::CreateQRepFlowRequest {
             qrep_config: Some(qrep_config.clone()),
+            create_catalog_entry: false,
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
         let workflow_id = response.into_inner().worflow_id;
         Ok(workflow_id)
+    }
+
+    pub async fn validate_peer(
+        &mut self,
+        validate_request: &pt::peerdb_route::ValidatePeerRequest,
+    ) -> anyhow::Result<PeerValidationResult> {
+        let validate_peer_req = pt::peerdb_route::ValidatePeerRequest {
+            peer: validate_request.peer.clone(),
+        };
+        let response = self.client.validate_peer(validate_peer_req).await?;
+        let response_body = &response.into_inner();
+        let message = response_body.message.clone();
+        let status = response_body.status;
+        if status == pt::peerdb_route::ValidatePeerStatus::Valid as i32 {
+            Ok(PeerValidationResult::Valid)
+        } else {
+            Ok(PeerValidationResult::Invalid(message))
+        }
     }
 
     async fn start_peer_flow(
@@ -88,6 +112,7 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_peer_flow_req = pt::peerdb_route::CreateCdcFlowRequest {
             connection_configs: Some(peer_flow_config),
+            create_catalog_entry: false,
         };
         let response = self.client.create_cdc_flow(create_peer_flow_req).await?;
         let workflow_id = response.into_inner().worflow_id;
@@ -117,18 +142,35 @@ impl FlowGrpcClient {
         }
     }
 
+    pub async fn drop_peer(&mut self, peer_name: &str) -> anyhow::Result<()> {
+        let drop_peer_req = pt::peerdb_route::DropPeerRequest {
+            peer_name: String::from(peer_name),
+        };
+        let response = self.client.drop_peer(drop_peer_req).await?;
+        let drop_response = response.into_inner();
+        if drop_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to drop peer: {:?}",
+                drop_response.error_message
+            )))
+        }
+    }
+
     pub async fn start_peer_flow_job(
         &mut self,
         job: &FlowJob,
         src: pt::peerdb_peers::Peer,
         dst: pt::peerdb_peers::Peer,
     ) -> anyhow::Result<String> {
-        let mut src_dst_name_map: HashMap<String, String> = HashMap::new();
+        let mut table_mappings: Vec<pt::peerdb_flow::TableMapping> = vec![];
         job.table_mappings.iter().for_each(|mapping| {
-            src_dst_name_map.insert(
-                mapping.source_table_identifier.clone(),
-                mapping.target_table_identifier.clone(),
-            );
+            table_mappings.push(pt::peerdb_flow::TableMapping {
+                source_table_identifier: mapping.source_table_identifier.clone(),
+                destination_table_identifier: mapping.destination_table_identifier.clone(),
+                partition_key: mapping.partition_key.clone().unwrap_or_default(),
+            });
         });
 
         let do_initial_copy = job.do_initial_copy;
@@ -142,7 +184,7 @@ impl FlowGrpcClient {
             source: Some(src),
             destination: Some(dst),
             flow_job_name: job.name.clone(),
-            table_name_mapping: src_dst_name_map,
+            table_mappings,
             do_initial_copy,
             publication_name: publication_name.unwrap_or_default(),
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
@@ -165,6 +207,7 @@ impl FlowGrpcClient {
             push_batch_size: job.push_batch_size.unwrap_or_default(),
             push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
+            resync: job.resync,
             ..Default::default()
         };
 
@@ -218,13 +261,6 @@ impl FlowGrpcClient {
                             }
                             "append" => cfg.write_mode = Some(wm),
                             "overwrite" => {
-                                if !cfg.initial_copy_only {
-                                    return anyhow::Result::Err(
-                                        anyhow::anyhow!(
-                                            "write mode overwrite can only be set with initial_copy_only = true"
-                                        )
-                                    );
-                                }
                                 wm.write_type = QRepWriteType::QrepWriteModeOverwrite as i32;
                                 cfg.write_mode = Some(wm);
                             }
@@ -245,16 +281,6 @@ impl FlowGrpcClient {
                             cfg.wait_between_batches_seconds = n as u32;
                         }
                     }
-                    "batch_size_int" => {
-                        if let Some(n) = n.as_i64() {
-                            cfg.batch_size_int = n as u32;
-                        }
-                    }
-                    "batch_duration_timestamp" => {
-                        if let Some(n) = n.as_i64() {
-                            cfg.batch_duration_seconds = n as u32;
-                        }
-                    }
                     "num_rows_per_partition" => {
                         if let Some(n) = n.as_i64() {
                             cfg.num_rows_per_partition = n as u32;
@@ -265,6 +291,8 @@ impl FlowGrpcClient {
                 Value::Bool(v) => {
                     if key == "initial_copy_only" {
                         cfg.initial_copy_only = *v;
+                    } else if key == "setup_watermark_table_on_destination" {
+                        cfg.setup_watermark_table_on_destination = *v;
                     } else {
                         return anyhow::Result::Err(anyhow::anyhow!("invalid bool option {}", key));
                     }
@@ -274,7 +302,19 @@ impl FlowGrpcClient {
                 }
             }
         }
-
+        if !cfg.initial_copy_only {
+            if let Some(QRepWriteMode {
+                write_type: wt,
+                upsert_key_columns: _,
+            }) = cfg.write_mode
+            {
+                if wt == QRepWriteType::QrepWriteModeOverwrite as i32 {
+                    return anyhow::Result::Err(anyhow::anyhow!(
+                        "write mode overwrite can only be set with initial_copy_only = true"
+                    ));
+                }
+            }
+        }
         self.start_query_replication_flow(&cfg).await
     }
 

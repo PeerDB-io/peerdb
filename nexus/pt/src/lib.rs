@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 use peerdb_peers::DbType;
 use sqlparser::ast::PeerType;
 
@@ -16,6 +18,7 @@ impl From<PeerType> for DbType {
             PeerType::EventHub => DbType::Eventhub,
             PeerType::S3 => DbType::S3,
             PeerType::SQLServer => DbType::Sqlserver,
+            PeerType::EventHubGroup => DbType::EventhubGroup,
             PeerType::Kafka => todo!("Add Kafka support"),
         }
     }

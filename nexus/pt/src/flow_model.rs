@@ -8,7 +8,8 @@ use crate::peerdb_flow;
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct FlowJobTableMapping {
     pub source_table_identifier: String,
-    pub target_table_identifier: String,
+    pub destination_table_identifier: String,
+    pub partition_key: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
@@ -76,6 +77,7 @@ pub struct FlowJob {
     pub push_parallelism: Option<i64>,
     pub push_batch_size: Option<i64>,
     pub max_batch_size: Option<u32>,
+    pub resync: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

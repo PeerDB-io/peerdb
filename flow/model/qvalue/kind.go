@@ -1,5 +1,7 @@
 package qvalue
 
+import "fmt"
+
 type QValueKind string
 
 const (
@@ -23,6 +25,9 @@ const (
 	QValueKindJSON        QValueKind = "json"
 	QValueKindBit         QValueKind = "bit"
 	QValueKindHStore      QValueKind = "hstore"
+	QValueKindGeography   QValueKind = "geography"
+	QValueKindGeometry    QValueKind = "geometry"
+	QValueKindPoint       QValueKind = "point"
 
 	// array types
 	QValueKindArrayFloat32 QValueKind = "array_float32"
@@ -42,5 +47,50 @@ func QValueKindIsArray(kind QValueKind) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
+	QValueKindBoolean:     "BOOLEAN",
+	QValueKindInt16:       "INTEGER",
+	QValueKindInt32:       "INTEGER",
+	QValueKindInt64:       "INTEGER",
+	QValueKindFloat32:     "FLOAT",
+	QValueKindFloat64:     "FLOAT",
+	QValueKindNumeric:     "NUMBER(38, 9)",
+	QValueKindString:      "STRING",
+	QValueKindJSON:        "VARIANT",
+	QValueKindTimestamp:   "TIMESTAMP_NTZ",
+	QValueKindTimestampTZ: "TIMESTAMP_TZ",
+	QValueKindTime:        "TIME",
+	QValueKindDate:        "DATE",
+	QValueKindBit:         "BINARY",
+	QValueKindBytes:       "BINARY",
+	QValueKindStruct:      "STRING",
+	QValueKindUUID:        "STRING",
+	QValueKindTimeTZ:      "STRING",
+	QValueKindInvalid:     "STRING",
+	QValueKindHStore:      "STRING",
+	QValueKindGeography:   "GEOGRAPHY",
+	QValueKindGeometry:    "GEOMETRY",
+	QValueKindPoint:       "GEOMETRY",
+
+	// array types will be mapped to VARIANT
+	QValueKindArrayFloat32: "VARIANT",
+	QValueKindArrayFloat64: "VARIANT",
+	QValueKindArrayInt32:   "VARIANT",
+	QValueKindArrayInt64:   "VARIANT",
+	QValueKindArrayString:  "VARIANT",
+}
+
+func (kind QValueKind) ToDWHColumnType(dwhType QDWHType) (string, error) {
+	if dwhType != QDWHTypeSnowflake {
+		return "", fmt.Errorf("unsupported DWH type: %v", dwhType)
+	}
+
+	if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
+		return val, nil
+	} else {
+		return "STRING", nil
 	}
 }

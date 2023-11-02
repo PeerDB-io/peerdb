@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
@@ -123,6 +124,16 @@ func (g *GenericSQLQueryExecutor) CountRows(schemaName string, tableName string)
 	return count, err
 }
 
+func (g *GenericSQLQueryExecutor) CountNonNullRows(
+	schemaName string,
+	tableName string,
+	columnName string) (int64, error) {
+	var count int64
+	err := g.db.QueryRowx("SELECT COUNT(CASE WHEN " + columnName +
+		" IS NOT NULL THEN 1 END) AS non_null_count FROM " + schemaName + "." + tableName).Scan(&count)
+	return count, err
+}
+
 func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (*model.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {
@@ -198,6 +209,8 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 			case qvalue.QValueKindNumeric:
 				var s sql.NullString
 				values[i] = &s
+			case qvalue.QValueKindUUID:
+				values[i] = new([]byte)
 			default:
 				values[i] = new(interface{})
 			}
@@ -371,6 +384,20 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 		if v, ok := val.(*[]byte); ok && v != nil {
 			return qvalue.QValue{Kind: kind, Value: *v}, nil
+		}
+
+	case qvalue.QValueKindUUID:
+		if v, ok := val.(*[]byte); ok && v != nil {
+			// convert byte array to string
+			uuidVal, err := uuid.FromBytes(*v)
+			if err != nil {
+				return qvalue.QValue{}, fmt.Errorf("failed to parse uuid: %v", *v)
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: uuidVal.String()}, nil
+		}
+
+		if v, ok := val.(*[16]byte); ok && v != nil {
+			return qvalue.QValue{Kind: qvalue.QValueKindString, Value: *v}, nil
 		}
 
 	case qvalue.QValueKindJSON:

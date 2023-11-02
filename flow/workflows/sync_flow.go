@@ -82,10 +82,8 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	}
 
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 24 * time.Hour,
-		// TODO: activity needs to call heartbeat.
-		// see https://github.com/PeerDB-io/nexus/issues/216
-		HeartbeatTimeout: 30 * time.Second,
+		StartToCloseTimeout: 72 * time.Hour,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 
 	// execute StartFlow on the peers to start the flow
@@ -100,6 +98,20 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	var syncRes *model.SyncResponse
 	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
+	}
+
+	replayTableSchemaDeltaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Minute,
+	})
+	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
+		FlowConnectionConfigs: config,
+		TableSchemaDeltas:     syncRes.TableSchemaDeltas,
+	}
+
+	fReplayTableSchemaDelta := workflow.ExecuteActivity(replayTableSchemaDeltaCtx,
+		flowable.ReplayTableSchemaDeltas, replayTableSchemaInput)
+	if err := fReplayTableSchemaDelta.Get(replayTableSchemaDeltaCtx, nil); err != nil {
+		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
 	}
 
 	return syncRes, nil
@@ -122,20 +134,18 @@ func SyncFlowWorkflow(ctx workflow.Context,
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-	tableSchemaDelta *protos.TableSchemaDelta,
 ) (*model.NormalizeResponse, error) {
 	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
 		CDCFlowName: config.FlowJobName,
 		Progress:    []string{},
 	})
 
-	return s.executeNormalizeFlow(ctx, config, tableSchemaDelta)
+	return s.executeNormalizeFlow(ctx, config)
 }
 
 func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-	tableSchemaDelta *protos.TableSchemaDelta,
 ) (*model.NormalizeResponse, error) {
 	s.logger.Info("executing normalize flow - ", s.CDCFlowName)
 
@@ -153,17 +163,6 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	var normalizeResponse *model.NormalizeResponse
 	if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
-	}
-
-	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
-		FlowConnectionConfigs: config,
-		TableSchemaDelta:      tableSchemaDelta,
-	}
-
-	fReplayTableSchemaDelta := workflow.ExecuteActivity(normalizeFlowCtx, flowable.ReplayTableSchemaDelta,
-		replayTableSchemaInput)
-	if err := fReplayTableSchemaDelta.Get(normalizeFlowCtx, nil); err != nil {
-		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
 	}
 
 	return normalizeResponse, nil

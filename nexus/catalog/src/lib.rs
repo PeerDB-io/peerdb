@@ -143,6 +143,11 @@ impl Catalog {
                     buf.reserve(config_len);
                     sqlserver_config.encode(&mut buf)?;
                 }
+                Config::EventhubGroupConfig(eventhub_group_config) => {
+                    let config_len = eventhub_group_config.encoded_len();
+                    buf.reserve(config_len);
+                    eventhub_group_config.encode(&mut buf)?;
+                }
             };
 
             buf
@@ -331,6 +336,16 @@ impl Catalog {
                     pt::peerdb_peers::SqlServerConfig::decode(options.as_slice()).context(err)?;
                 Ok(Some(Config::SqlserverConfig(sqlserver_config)))
             }
+            Some(DbType::EventhubGroup) => {
+                let err = format!(
+                    "unable to decode {} options for peer {}",
+                    "eventhub_group", name
+                );
+                let eventhub_group_config =
+                    pt::peerdb_peers::EventHubGroupConfig::decode(options.as_slice())
+                        .context(err)?;
+                Ok(Some(Config::EventhubGroupConfig(eventhub_group_config)))
+            }
             None => Ok(None),
         }
     }
@@ -388,7 +403,7 @@ impl Catalog {
                             .await?,
                         &self
                             .normalize_schema_for_table_identifier(
-                                &table_mapping.target_table_identifier,
+                                &table_mapping.destination_table_identifier,
                                 destination_peer_id,
                             )
                             .await?,
@@ -512,7 +527,14 @@ impl Catalog {
         }
 
         let first_row = rows.get(0).unwrap();
-        let workflow_id: String = first_row.get(0);
+        let workflow_id: Option<String> = first_row.get(0);
+        if workflow_id.is_none() {
+            return Err(anyhow!(
+                "workflow id not found for existing flow job {}",
+                flow_job_name
+            ));
+        }
+        let workflow_id = workflow_id.unwrap();
         let source_peer_id: i32 = first_row.get(1);
         let destination_peer_id: i32 = first_row.get(2);
 
@@ -541,5 +563,14 @@ impl Catalog {
             return Err(anyhow!("unable to delete flow job metadata"));
         }
         Ok(())
+    }
+
+    pub async fn check_peer_entry(&self, peer_name: &str) -> anyhow::Result<i64> {
+        let peer_check = self
+            .pg
+            .query_one("SELECT COUNT(*) FROM PEERS WHERE NAME = $1", &[&peer_name])
+            .await?;
+        let peer_count: i64 = peer_check.get(0);
+        Ok(peer_count)
     }
 }

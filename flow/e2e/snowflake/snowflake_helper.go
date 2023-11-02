@@ -118,6 +118,16 @@ func (s *SnowflakeTestHelper) CountRows(tableName string) (int, error) {
 	return int(res), nil
 }
 
+// CountRows(tableName) returns the non-null number of rows in the given table.
+func (s *SnowflakeTestHelper) CountNonNullRows(tableName string, columnName string) (int, error) {
+	res, err := s.testClient.CountNonNullRows(s.testSchemaName, tableName, columnName)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(res), nil
+}
+
 func (s *SnowflakeTestHelper) CheckNull(tableName string, colNames []string) (bool, error) {
 	return s.testClient.CheckNull(s.testSchemaName, tableName, colNames)
 }

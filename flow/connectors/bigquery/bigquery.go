@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -205,38 +204,29 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
-// ReplayTableSchemaDelta changes a destination table to match the schema at source
+// ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
-func (c *BigQueryConnector) ReplayTableSchemaDelta(flowJobName string,
-	schemaDelta *protos.TableSchemaDelta) error {
-	if (schemaDelta == nil) || (len(schemaDelta.AddedColumns) == 0 && len(schemaDelta.DroppedColumns) == 0) {
-		return nil
-	}
+func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
+	schemaDeltas []*protos.TableSchemaDelta) error {
+	for _, schemaDelta := range schemaDeltas {
+		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
+			return nil
+		}
 
-	for _, droppedColumn := range schemaDelta.DroppedColumns {
-		_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s DROP COLUMN %s", c.datasetID,
-			schemaDelta.DstTableName, droppedColumn)).Read(c.ctx)
-		if err != nil {
-			return fmt.Errorf("failed to drop column %s for table %s: %w", droppedColumn,
-				schemaDelta.SrcTableName, err)
+		for _, addedColumn := range schemaDelta.AddedColumns {
+			_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN `%s` %s", c.datasetID,
+				schemaDelta.DstTableName, addedColumn.ColumnName,
+				qValueKindToBigQueryType(addedColumn.ColumnType))).Read(c.ctx)
+			if err != nil {
+				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
+					schemaDelta.SrcTableName, err)
+			}
+			log.WithFields(log.Fields{
+				"flowName":  flowJobName,
+				"tableName": schemaDelta.SrcTableName,
+			}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+				addedColumn.ColumnType)
 		}
-		log.WithFields(log.Fields{
-			"flowName":  flowJobName,
-			"tableName": schemaDelta.SrcTableName,
-		}).Infof("[schema delta replay] dropped column %s", droppedColumn)
-	}
-	for _, addedColumn := range schemaDelta.AddedColumns {
-		_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN %s %s", c.datasetID,
-			schemaDelta.DstTableName, addedColumn.ColumnName, addedColumn.ColumnType)).Read(c.ctx)
-		if err != nil {
-			return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
-				schemaDelta.SrcTableName, err)
-		}
-		log.WithFields(log.Fields{
-			"flowName":  flowJobName,
-			"tableName": schemaDelta.SrcTableName,
-		}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-			addedColumn.ColumnType)
 	}
 
 	return nil
@@ -298,7 +288,8 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
+	query := fmt.Sprintf("SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
+		c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
 	if err != nil {
@@ -322,7 +313,8 @@ func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 }
 
 func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
+	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
+		c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
 	if err != nil {
@@ -439,17 +431,9 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 // currently only supports inserts,updates and deletes
 // more record types will be added in the future.
 func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	if len(req.Records.Records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	log.Printf("pushing %d records to %s.%s", len(req.Records.Records), c.datasetID, rawTableName)
+	log.Printf("pushing records to %s.%s...", c.datasetID, rawTableName)
 
 	// generate a sequential number for the last synced batch
 	// this sequence will be used to keep track of records that are normalized
@@ -493,9 +477,9 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
+
 	// loop over req.Records
-	for _, record := range req.Records.Records {
+	for record := range req.Records.GetRecords() {
 		switch r := record.(type) {
 		case *model.InsertRecord:
 			// create the 3 required fields
@@ -519,7 +503,7 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 				matchData:             "",
 				batchID:               syncBatchID,
 				stagingBatchID:        stagingBatchID,
-				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 			tableNameRowsMapping[r.DestinationTableName] += 1
 		case *model.UpdateRecord:
@@ -578,7 +562,7 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 				matchData:             itemsJSON,
 				batchID:               syncBatchID,
 				stagingBatchID:        stagingBatchID,
-				unchangedToastColumns: utils.KeysToString(r.UnchangedToastColumns),
+				unchangedToastColumns: "",
 			})
 
 			tableNameRowsMapping[r.DestinationTableName] += 1
@@ -593,14 +577,6 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	}
 
 	numRecords := len(records)
-	if numRecords == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
 	// insert the records into the staging table
 	stagingInserter := stagingTable.Inserter()
 	stagingInserter.IgnoreUnknownValues = true
@@ -620,6 +596,11 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 		}
 	}
 
+	lastCP, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
+	}
+
 	// we have to do the following things in a transaction
 	// 1. append the records in the staging table to the raw table.
 	// 2. execute the update metadata query to store the last committed watermark.
@@ -636,13 +617,11 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	stmts = append(stmts, appendStmt)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
-	startTime := time.Now()
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
 	return &model.SyncResponse{
@@ -654,13 +633,15 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	}, nil
 }
 
-func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
-	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
+func (c *BigQueryConnector) syncRecordsViaAvro(
+	req *model.SyncRecordsRequest,
+	rawTableName string,
+	syncBatchID int64,
+) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
-	recordStream := model.NewQRecordStream(len(req.Records.Records))
+	recordStream := model.NewQRecordStream(1 << 20)
 	err := recordStream.SetSchema(&model.QRecordSchema{
 		Fields: []*model.QField{
 			{
@@ -720,7 +701,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 	}
 
 	// loop over req.Records
-	for _, record := range req.Records.Records {
+	for record := range req.Records.GetRecords() {
 		var entries [10]qvalue.QValue
 		switch r := record.(type) {
 		case *model.InsertRecord:
@@ -748,7 +729,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 			}
 			entries[9] = qvalue.QValue{
 				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(r.UnchangedToastColumns),
+				Value: "",
 			}
 
 			tableNameRowsMapping[r.DestinationTableName] += 1
@@ -809,7 +790,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 			}
 			entries[9] = qvalue.QValue{
 				Kind:  qvalue.QValueKindString,
-				Value: utils.KeysToString(r.UnchangedToastColumns),
+				Value: "",
 			}
 
 			tableNameRowsMapping[r.DestinationTableName] += 1
@@ -850,12 +831,16 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 		}
 	}
 
-	startTime := time.Now()
 	close(recordStream.Records)
 	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath)
 	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
+	}
+
+	lastCP, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
 	}
 
 	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName,
@@ -864,7 +849,6 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 		return nil, fmt.Errorf("failed to sync records via avro : %v", err)
 	}
 
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
 	return &model.SyncResponse{
@@ -900,7 +884,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	if !hasJob || normalizeBatchID == syncBatchID {
 		log.Printf("waiting for sync to catch up for job %s, so finishing", req.FlowJobName)
 		return &model.NormalizeResponse{
-			Done:         true,
+			Done:         false,
 			StartBatchID: normalizeBatchID,
 			EndBatchID:   syncBatchID,
 		}, nil
@@ -980,7 +964,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		{Name: "_peerdb_unchanged_toast_columns", Type: bigquery.StringFieldType},
 	}
 
-	staging_schema := bigquery.Schema{
+	stagingSchema := bigquery.Schema{
 		{Name: "_peerdb_uid", Type: bigquery.StringFieldType},
 		{Name: "_peerdb_timestamp", Type: bigquery.TimestampFieldType},
 		{Name: "_peerdb_timestamp_nanos", Type: bigquery.IntegerFieldType},
@@ -1021,7 +1005,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	stagingTableName := c.getStagingTableName(req.FlowJobName)
 	stagingTable := c.client.Dataset(c.datasetID).Table(stagingTableName)
 	err = stagingTable.Create(c.ctx, &bigquery.TableMetadata{
-		Schema: staging_schema,
+		Schema: stagingSchema,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, stagingTableName, err)
@@ -1033,7 +1017,8 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 }
 
 // getUpdateMetadataStmt updates the metadata tables for a given job.
-func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedCheckpointID int64, batchID int64) (string, error) {
+func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedCheckpointID int64,
+	batchID int64) (string, error) {
 	hasJob, err := c.metadataHasJob(jobName)
 	if err != nil {
 		return "", fmt.Errorf("failed to check if job exists: %w", err)
@@ -1041,7 +1026,7 @@ func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedChec
 
 	// create the job in the metadata table
 	jobStatement := fmt.Sprintf(
-		"INSERT INTO %s.%s (mirror_job_name, offset,sync_batch_id) VALUES ('%s',%d,%d);",
+		"INSERT INTO %s.%s (mirror_job_name,offset,sync_batch_id) VALUES ('%s',%d,%d);",
 		c.datasetID, MirrorJobsTable, jobName, lastSyncedCheckpointID, batchID)
 	if hasJob {
 		jobStatement = fmt.Sprintf(
@@ -1294,14 +1279,13 @@ func (m *MergeStmtGenerator) generateDeDupedCTE() string {
 			) _peerdb_ranked
 			WHERE _peerdb_rank = 1
 	) SELECT * FROM _peerdb_de_duplicated_data_res`
-	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
-	return fmt.Sprintf(cte, pkey)
+	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(m.NormalizedTableSchema.PrimaryKeyColumns,
+		", '_peerdb_concat_', "))
+	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
 // generateMergeStmt generates a merge statement.
 func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
-	pkey := m.NormalizedTableSchema.PrimaryKeyColumn
-
 	// comma separated list of column names
 	backtickColNames := make([]string, 0)
 	pureColNames := make([]string, 0)
@@ -1311,18 +1295,26 @@ func (m *MergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	}
 	csep := strings.Join(backtickColNames, ", ")
 
-	udateStatementsforToastCols := m.generateUpdateStatement(pureColNames, m.UnchangedToastColumns)
-	updateStringToastCols := strings.Join(udateStatementsforToastCols, " ")
+	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames, m.UnchangedToastColumns)
+	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
+
+	pkeySelectSQLArray := make([]string, 0, len(m.NormalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyColName := range m.NormalizedTableSchema.PrimaryKeyColumns {
+		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("_peerdb_target.%s = _peerdb_deduped.%s",
+			pkeyColName, pkeyColName))
+	}
+	// _peerdb_target.<pkey1> = _peerdb_deduped.<pkey1> AND _peerdb_target.<pkey2> = _peerdb_deduped.<pkey2> ...
+	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	return fmt.Sprintf(`
 	MERGE %s.%s _peerdb_target USING %s _peerdb_deduped
-	ON _peerdb_target.%s = _peerdb_deduped.%s
+	ON %s
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	DELETE;
-	`, m.Dataset, m.NormalizedTable, tempTable, pkey, pkey, csep, csep, updateStringToastCols)
+	`, m.Dataset, m.NormalizedTable, tempTable, pkeySelectSQL, csep, csep, updateStringToastCols)
 }
 
 /*
@@ -1340,7 +1332,7 @@ and updating the other columns (not the unchanged toast columns)
 6. Repeat steps 1-5 for each unique unchanged toast column group.
 7. Return the list of generated update statements.
 */
-func (m *MergeStmtGenerator) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
+func (m *MergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastCols []string) []string {
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {
