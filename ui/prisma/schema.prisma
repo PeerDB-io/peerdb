@@ -1,0 +1,146 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["peerdb_stats", "public"]
+}
+
+model flows {
+  id                           Int      @id @default(autoincrement())
+  name                         String   @db.VarChar(255)
+  source_peer                  Int
+  destination_peer             Int
+  description                  String?
+  created_at                   DateTime @default(now()) @db.Timestamp(6)
+  updated_at                   DateTime @default(now()) @db.Timestamp(6)
+  source_table_identifier      String?
+  destination_table_identifier String?
+  workflow_id                  String?
+  flow_status                  String?
+  flow_metadata                Json?
+  query_string                 String?
+  config_proto                 Bytes?
+  destinationPeer              peers    @relation("flows_destination_peerTopeers", fields: [destination_peer], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sourcePeer                   peers    @relation("flows_source_peerTopeers", fields: [source_peer], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
+}
+
+model peer_connections {
+  id        Int       @id @default(autoincrement())
+  conn_uuid String?   @db.Uuid
+  peer_name String
+  query     String?
+  opened_at DateTime  @default(now()) @db.Timestamptz(6)
+  closed_at DateTime? @db.Timestamptz(6)
+  peers     peers     @relation(fields: [peer_name], references: [name], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
+}
+
+model peers {
+  id                                  Int                @id @default(autoincrement())
+  name                                String             @unique
+  type                                Int
+  options                             Bytes
+  flows_flows_destination_peerTopeers flows[]            @relation("flows_destination_peerTopeers")
+  flows_flows_source_peerTopeers      flows[]            @relation("flows_source_peerTopeers")
+  peer_connections                    peer_connections[]
+
+  @@schema("public")
+}
+
+model refinery_schema_history {
+  version    Int     @id
+  name       String? @db.VarChar(255)
+  applied_on String? @db.VarChar(255)
+  checksum   String? @db.VarChar(255)
+
+  @@ignore
+  @@schema("public")
+}
+
+model cdc_batch_table {
+  flow_name              String
+  batch_id               BigInt
+  destination_table_name String
+  num_rows               BigInt
+  metadata               Json?
+  id                     Int       @id @default(autoincrement())
+  cdc_flows              cdc_flows @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batch_table_flow_name")
+
+  @@index([flow_name, batch_id], map: "idx_cdc_batch_table_flow_name_batch_id")
+  @@schema("peerdb_stats")
+}
+
+model cdc_batches {
+  flow_name       String
+  batch_id        BigInt
+  rows_in_batch   Int
+  batch_start_lsn Decimal   @db.Decimal
+  batch_end_lsn   Decimal   @db.Decimal
+  start_time      DateTime  @db.Timestamp(6)
+  end_time        DateTime? @db.Timestamp(6)
+  metadata        Json?
+  id              Int       @id @default(autoincrement())
+  cdc_flows       cdc_flows @relation(fields: [flow_name], references: [flow_name], onDelete: Cascade, onUpdate: NoAction, map: "fk_cdc_batches_flow_name")
+
+  @@index([batch_id], map: "idx_cdc_batches_batch_id")
+  @@index([flow_name], map: "idx_cdc_batches_flow_name", type: Hash)
+  @@index([start_time], map: "idx_cdc_batches_start_time")
+  @@schema("peerdb_stats")
+}
+
+model cdc_flows {
+  flow_name            String            @id
+  latest_lsn_at_source Decimal           @db.Decimal
+  latest_lsn_at_target Decimal           @db.Decimal
+  metadata             Json?
+  cdc_batch_table      cdc_batch_table[]
+  cdc_batches          cdc_batches[]
+
+  @@schema("peerdb_stats")
+}
+
+model qrep_partitions {
+  flow_name         String
+  run_uuid          String
+  partition_uuid    String
+  partition_start   String
+  partition_end     String
+  rows_in_partition Int?
+  start_time        DateTime? @db.Timestamp(6)
+  pull_end_time     DateTime? @db.Timestamp(6)
+  end_time          DateTime? @db.Timestamp(6)
+  restart_count     Int
+  metadata          Json?
+  id                Int       @id @default(autoincrement())
+  qrep_runs         qrep_runs @relation(fields: [flow_name, run_uuid], references: [flow_name, run_uuid], onDelete: Cascade, onUpdate: NoAction, map: "fk_qrep_partitions_run")
+
+  @@unique([run_uuid, partition_uuid])
+  @@index([flow_name, run_uuid], map: "idx_qrep_partitions_flow_name_run_uuid")
+  @@index([partition_uuid], map: "idx_qrep_partitions_partition_uuid", type: Hash)
+  @@index([start_time], map: "idx_qrep_partitions_start_time")
+  @@schema("peerdb_stats")
+}
+
+model qrep_runs {
+  flow_name       String
+  run_uuid        String
+  start_time      DateTime?         @db.Timestamp(6)
+  end_time        DateTime?         @db.Timestamp(6)
+  metadata        Json?
+  config_proto    Bytes?
+  id              Int               @id @default(autoincrement())
+  qrep_partitions qrep_partitions[]
+
+  @@unique([flow_name, run_uuid], map: "uq_qrep_runs_flow_run")
+  @@index([flow_name], map: "idx_qrep_runs_flow_name", type: Hash)
+  @@index([run_uuid], map: "idx_qrep_runs_run_uuid", type: Hash)
+  @@index([start_time], map: "idx_qrep_runs_start_time")
+  @@schema("peerdb_stats")
+}

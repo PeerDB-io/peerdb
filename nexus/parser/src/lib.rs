@@ -23,7 +23,7 @@ pub struct NexusQueryParser {
 pub enum NexusStatement {
     PeerDDL {
         stmt: Statement,
-        ddl: PeerDDL,
+        ddl: Box<PeerDDL>,
     },
     PeerQuery {
         stmt: Statement,
@@ -55,7 +55,7 @@ impl NexusStatement {
         if let Some(ddl) = ddl {
             return Ok(NexusStatement::PeerDDL {
                 stmt: stmt.clone(),
-                ddl,
+                ddl: Box::new(ddl),
             });
         }
 
@@ -100,8 +100,7 @@ impl NexusQueryParser {
         let peers = tokio::task::block_in_place(move || {
             tokio::runtime::Handle::current().block_on(async move {
                 let catalog = self.catalog.lock().await;
-                let peers = catalog.get_peers().await;
-                peers
+                catalog.get_peers().await
             })
         });
 

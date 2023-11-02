@@ -81,34 +81,26 @@ lazy_static::lazy_static! {
             required: false,
         },
         QRepOptionType::Int {
-            name: "batch_size_int",
-            min_value: Some(1),
-            default_value: 1000,
-            required: false,
-        },
-        QRepOptionType::Int {
-            name: "batch_duration_timestamp",
-            min_value: Some(1),
-            default_value: 60,
-            required: false,
-        },
-        QRepOptionType::Int {
             name: "num_rows_per_partition",
-            min_value: Some(0),
-            default_value: 0,
-            required: false,
+            min_value: Some(1),
+            default_value: 50000,
+            required: true,
         },
         QRepOptionType::Boolean {
             name: "initial_copy_only",
             default_value: false,
             required: false,
         },
-        ]
+        QRepOptionType::Boolean {
+            name: "setup_watermark_table_on_destination",
+            default_value: false,
+            required: false
+        }]
     };
 }
 
 pub fn process_options(
-    raw_opts: HashMap<&str, &SqlValue>,
+    mut raw_opts: HashMap<&str, &SqlValue>,
 ) -> anyhow::Result<HashMap<String, Value>> {
     let mut opts: HashMap<String, Value> = HashMap::new();
 
@@ -120,7 +112,7 @@ pub fn process_options(
                 required,
                 accepted_values,
             } => {
-                if let Some(raw_value) = raw_opts.get(*name) {
+                if let Some(raw_value) = raw_opts.remove(*name) {
                     if let SqlValue::SingleQuotedString(str) = raw_value {
                         if let Some(values) = accepted_values {
                             if !values.contains(&str.as_str()) {
@@ -143,7 +135,7 @@ pub fn process_options(
                 default_value,
                 required,
             } => {
-                if let Some(raw_value) = raw_opts.get(*name) {
+                if let Some(raw_value) = raw_opts.remove(*name) {
                     if let SqlValue::Number(num_str, _) = raw_value {
                         let num = num_str.parse::<u32>()?;
                         if let Some(min) = min_value {
@@ -164,7 +156,7 @@ pub fn process_options(
             }
             QRepOptionType::StringArray { name } => {
                 // read it as a string and split on comma
-                if let Some(raw_value) = raw_opts.get(*name) {
+                if let Some(raw_value) = raw_opts.remove(*name) {
                     if let SqlValue::SingleQuotedString(str) = raw_value {
                         let values: Vec<Value> = str
                             .split(',')
@@ -181,7 +173,7 @@ pub fn process_options(
                 default_value,
                 required,
             } => {
-                if let Some(raw_value) = raw_opts.get(*name) {
+                if let Some(raw_value) = raw_opts.remove(*name) {
                     if let SqlValue::Boolean(b) = raw_value {
                         opts.insert((*name).to_string(), Value::Bool(*b));
                     } else {
@@ -197,5 +189,21 @@ pub fn process_options(
         }
     }
 
+    // all options processed have been removed from the map
+    // so any leftover keys are options that shouldn't be here
+    if !raw_opts.is_empty() {
+        anyhow::bail!(
+            "Unknown options for QRep mirrors: {:#?}",
+            raw_opts.into_keys().collect::<Vec<&str>>()
+        );
+    }
+
+    // If mode is upsert, we need unique key columns
+    if opts.get("mode") == Some(&Value::String(String::from("upsert")))
+        && (opts.get("unique_key_columns").is_none()
+            || opts.get("unique_key_columns") == Some(&Value::Array(vec![])))
+    {
+        anyhow::bail!("For upsert mode, unique_key_columns must be specified");
+    }
     Ok(opts)
 }

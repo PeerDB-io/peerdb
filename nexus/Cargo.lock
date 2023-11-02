@@ -1989,7 +1989,7 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "async-trait",
- "base64 0.13.1",
+ "base64 0.21.4",
  "catalog",
  "chrono",
  "dashmap",

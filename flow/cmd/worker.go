@@ -8,9 +8,6 @@ import (
 	"syscall"
 	"time"
 
-	//nolint:gosec
-	_ "net/http/pprof"
-
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
@@ -28,12 +25,12 @@ import (
 )
 
 type WorkerOptions struct {
-	TemporalHostPort string
-	EnableProfiling  bool
-	EnableMetrics    bool
-	EnableMonitoring bool
-	PyroscopeServer  string
-	MetricsServer    string
+	TemporalHostPort  string
+	EnableProfiling   bool
+	EnableMetrics     bool
+	PyroscopeServer   string
+	MetricsServer     string
+	TemporalNamespace string
 }
 
 func setupPyroscope(opts *WorkerOptions) {
@@ -94,31 +91,24 @@ func WorkerMain(opts *WorkerOptions) error {
 		}
 	}()
 
-	var clientOptions client.Options
+	clientOptions := client.Options{
+		HostPort:  opts.TemporalHostPort,
+		Namespace: opts.TemporalNamespace,
+	}
 	if opts.EnableMetrics {
-		clientOptions = client.Options{
-			HostPort: opts.TemporalHostPort,
-			MetricsHandler: sdktally.NewMetricsHandler(newPrometheusScope(
-				prometheus.Configuration{
-					ListenAddress: opts.MetricsServer,
-					TimerType:     "histogram",
-				},
-			)),
-		}
-	} else {
-		clientOptions = client.Options{
-			HostPort: opts.TemporalHostPort,
-		}
+		clientOptions.MetricsHandler = sdktally.NewMetricsHandler(newPrometheusScope(
+			prometheus.Configuration{
+				ListenAddress: opts.MetricsServer,
+				TimerType:     "histogram",
+			},
+		))
 	}
 
-	catalogMirrorMonitor := monitoring.NewCatalogMirrorMonitor(nil)
-	if opts.EnableMonitoring {
-		conn, err := utils.GetCatalogConnectionPoolFromEnv()
-		if err != nil {
-			return fmt.Errorf("unable to create catalog connection pool: %w", err)
-		}
-		catalogMirrorMonitor = monitoring.NewCatalogMirrorMonitor(conn)
+	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	if err != nil {
+		return fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
+	catalogMirrorMonitor := monitoring.NewCatalogMirrorMonitor(conn)
 	defer catalogMirrorMonitor.Close()
 
 	c, err := client.Dial(clientOptions)
@@ -137,7 +127,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterActivity(&activities.FlowableActivity{
 		EnableMetrics:        opts.EnableMetrics,
-		CatalogMirrorMonitor: &catalogMirrorMonitor,
+		CatalogMirrorMonitor: catalogMirrorMonitor,
 	})
 
 	err = w.Run(worker.InterruptCh())

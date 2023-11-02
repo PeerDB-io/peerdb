@@ -126,12 +126,17 @@ export interface EventHubConfig {
     | undefined;
   /** if this is empty PeerDB uses `AZURE_SUBSCRIPTION_ID` environment variable. */
   subscriptionId: string;
+  /** defaults to 3 */
+  partitionCount: number;
+  /** defaults to 7 */
+  messageRetentionInDays: number;
 }
 
 export interface EventHubGroupConfig {
   /** event hub peer name to event hub config */
   eventhubs: { [key: string]: EventHubConfig };
   metadataDb: PostgresConfig | undefined;
+  unnestColumns: string[];
 }
 
 export interface EventHubGroupConfig_EventhubsEntry {
@@ -141,6 +146,12 @@ export interface EventHubGroupConfig_EventhubsEntry {
 
 export interface S3Config {
   url: string;
+  accessKeyId?: string | undefined;
+  secretAccessKey?: string | undefined;
+  roleArn?: string | undefined;
+  region?: string | undefined;
+  endpoint?: string | undefined;
+  metadataDb: PostgresConfig | undefined;
 }
 
 export interface SqlServerConfig {
@@ -828,7 +839,15 @@ export const PostgresConfig = {
 };
 
 function createBaseEventHubConfig(): EventHubConfig {
-  return { namespace: "", resourceGroup: "", location: "", metadataDb: undefined, subscriptionId: "" };
+  return {
+    namespace: "",
+    resourceGroup: "",
+    location: "",
+    metadataDb: undefined,
+    subscriptionId: "",
+    partitionCount: 0,
+    messageRetentionInDays: 0,
+  };
 }
 
 export const EventHubConfig = {
@@ -847,6 +866,12 @@ export const EventHubConfig = {
     }
     if (message.subscriptionId !== "") {
       writer.uint32(42).string(message.subscriptionId);
+    }
+    if (message.partitionCount !== 0) {
+      writer.uint32(48).uint32(message.partitionCount);
+    }
+    if (message.messageRetentionInDays !== 0) {
+      writer.uint32(56).uint32(message.messageRetentionInDays);
     }
     return writer;
   },
@@ -893,6 +918,20 @@ export const EventHubConfig = {
 
           message.subscriptionId = reader.string();
           continue;
+        case 6:
+          if (tag !== 48) {
+            break;
+          }
+
+          message.partitionCount = reader.uint32();
+          continue;
+        case 7:
+          if (tag !== 56) {
+            break;
+          }
+
+          message.messageRetentionInDays = reader.uint32();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -909,6 +948,8 @@ export const EventHubConfig = {
       location: isSet(object.location) ? String(object.location) : "",
       metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
       subscriptionId: isSet(object.subscriptionId) ? String(object.subscriptionId) : "",
+      partitionCount: isSet(object.partitionCount) ? Number(object.partitionCount) : 0,
+      messageRetentionInDays: isSet(object.messageRetentionInDays) ? Number(object.messageRetentionInDays) : 0,
     };
   },
 
@@ -929,6 +970,12 @@ export const EventHubConfig = {
     if (message.subscriptionId !== "") {
       obj.subscriptionId = message.subscriptionId;
     }
+    if (message.partitionCount !== 0) {
+      obj.partitionCount = Math.round(message.partitionCount);
+    }
+    if (message.messageRetentionInDays !== 0) {
+      obj.messageRetentionInDays = Math.round(message.messageRetentionInDays);
+    }
     return obj;
   },
 
@@ -944,12 +991,14 @@ export const EventHubConfig = {
       ? PostgresConfig.fromPartial(object.metadataDb)
       : undefined;
     message.subscriptionId = object.subscriptionId ?? "";
+    message.partitionCount = object.partitionCount ?? 0;
+    message.messageRetentionInDays = object.messageRetentionInDays ?? 0;
     return message;
   },
 };
 
 function createBaseEventHubGroupConfig(): EventHubGroupConfig {
-  return { eventhubs: {}, metadataDb: undefined };
+  return { eventhubs: {}, metadataDb: undefined, unnestColumns: [] };
 }
 
 export const EventHubGroupConfig = {
@@ -959,6 +1008,9 @@ export const EventHubGroupConfig = {
     });
     if (message.metadataDb !== undefined) {
       PostgresConfig.encode(message.metadataDb, writer.uint32(18).fork()).ldelim();
+    }
+    for (const v of message.unnestColumns) {
+      writer.uint32(26).string(v!);
     }
     return writer;
   },
@@ -987,6 +1039,13 @@ export const EventHubGroupConfig = {
 
           message.metadataDb = PostgresConfig.decode(reader, reader.uint32());
           continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.unnestColumns.push(reader.string());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1005,6 +1064,7 @@ export const EventHubGroupConfig = {
         }, {})
         : {},
       metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
+      unnestColumns: Array.isArray(object?.unnestColumns) ? object.unnestColumns.map((e: any) => String(e)) : [],
     };
   },
 
@@ -1021,6 +1081,9 @@ export const EventHubGroupConfig = {
     }
     if (message.metadataDb !== undefined) {
       obj.metadataDb = PostgresConfig.toJSON(message.metadataDb);
+    }
+    if (message.unnestColumns?.length) {
+      obj.unnestColumns = message.unnestColumns;
     }
     return obj;
   },
@@ -1042,6 +1105,7 @@ export const EventHubGroupConfig = {
     message.metadataDb = (object.metadataDb !== undefined && object.metadataDb !== null)
       ? PostgresConfig.fromPartial(object.metadataDb)
       : undefined;
+    message.unnestColumns = object.unnestColumns?.map((e) => e) || [];
     return message;
   },
 };
@@ -1127,13 +1191,39 @@ export const EventHubGroupConfig_EventhubsEntry = {
 };
 
 function createBaseS3Config(): S3Config {
-  return { url: "" };
+  return {
+    url: "",
+    accessKeyId: undefined,
+    secretAccessKey: undefined,
+    roleArn: undefined,
+    region: undefined,
+    endpoint: undefined,
+    metadataDb: undefined,
+  };
 }
 
 export const S3Config = {
   encode(message: S3Config, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
     if (message.url !== "") {
       writer.uint32(10).string(message.url);
+    }
+    if (message.accessKeyId !== undefined) {
+      writer.uint32(18).string(message.accessKeyId);
+    }
+    if (message.secretAccessKey !== undefined) {
+      writer.uint32(26).string(message.secretAccessKey);
+    }
+    if (message.roleArn !== undefined) {
+      writer.uint32(34).string(message.roleArn);
+    }
+    if (message.region !== undefined) {
+      writer.uint32(42).string(message.region);
+    }
+    if (message.endpoint !== undefined) {
+      writer.uint32(50).string(message.endpoint);
+    }
+    if (message.metadataDb !== undefined) {
+      PostgresConfig.encode(message.metadataDb, writer.uint32(58).fork()).ldelim();
     }
     return writer;
   },
@@ -1152,6 +1242,48 @@ export const S3Config = {
 
           message.url = reader.string();
           continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.accessKeyId = reader.string();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.secretAccessKey = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.roleArn = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.region = reader.string();
+          continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.endpoint = reader.string();
+          continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.metadataDb = PostgresConfig.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1162,13 +1294,39 @@ export const S3Config = {
   },
 
   fromJSON(object: any): S3Config {
-    return { url: isSet(object.url) ? String(object.url) : "" };
+    return {
+      url: isSet(object.url) ? String(object.url) : "",
+      accessKeyId: isSet(object.accessKeyId) ? String(object.accessKeyId) : undefined,
+      secretAccessKey: isSet(object.secretAccessKey) ? String(object.secretAccessKey) : undefined,
+      roleArn: isSet(object.roleArn) ? String(object.roleArn) : undefined,
+      region: isSet(object.region) ? String(object.region) : undefined,
+      endpoint: isSet(object.endpoint) ? String(object.endpoint) : undefined,
+      metadataDb: isSet(object.metadataDb) ? PostgresConfig.fromJSON(object.metadataDb) : undefined,
+    };
   },
 
   toJSON(message: S3Config): unknown {
     const obj: any = {};
     if (message.url !== "") {
       obj.url = message.url;
+    }
+    if (message.accessKeyId !== undefined) {
+      obj.accessKeyId = message.accessKeyId;
+    }
+    if (message.secretAccessKey !== undefined) {
+      obj.secretAccessKey = message.secretAccessKey;
+    }
+    if (message.roleArn !== undefined) {
+      obj.roleArn = message.roleArn;
+    }
+    if (message.region !== undefined) {
+      obj.region = message.region;
+    }
+    if (message.endpoint !== undefined) {
+      obj.endpoint = message.endpoint;
+    }
+    if (message.metadataDb !== undefined) {
+      obj.metadataDb = PostgresConfig.toJSON(message.metadataDb);
     }
     return obj;
   },
@@ -1179,6 +1337,14 @@ export const S3Config = {
   fromPartial<I extends Exact<DeepPartial<S3Config>, I>>(object: I): S3Config {
     const message = createBaseS3Config();
     message.url = object.url ?? "";
+    message.accessKeyId = object.accessKeyId ?? undefined;
+    message.secretAccessKey = object.secretAccessKey ?? undefined;
+    message.roleArn = object.roleArn ?? undefined;
+    message.region = object.region ?? undefined;
+    message.endpoint = object.endpoint ?? undefined;
+    message.metadataDb = (object.metadataDb !== undefined && object.metadataDb !== null)
+      ? PostgresConfig.fromPartial(object.metadataDb)
+      : undefined;
     return message;
   },
 };

@@ -1,9 +1,14 @@
+#![allow(clippy::all)]
+
 use peerdb_peers::DbType;
 use sqlparser::ast::PeerType;
 
 pub mod flow_model;
+#[rustfmt::skip]
 pub mod peerdb_flow;
+#[rustfmt::skip]
 pub mod peerdb_peers;
+#[rustfmt::skip]
 pub mod peerdb_route;
 
 impl From<PeerType> for DbType {

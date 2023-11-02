@@ -36,15 +36,3 @@ yarn storybook
 Open [http://localhost:6000](http://localhost:6000) with your browser to see the result.
 
 The stories and their corresponding components resides inside the `lib` folder.
-
-## Storybook Github pages
-
-The Storybook in this repositories Github pages at [Storybook](https://peerdb-io.github.io/peerdb-cloud-template).
-
-To deploy a new version of Storybook to Github pages run the script
-
-```bash
-yarn storybook:deploy
-```
-
-It will automatically run the storybook build, push the content to the branch `gh-pages` to automatically deply the newly built Storybook to Github pages.

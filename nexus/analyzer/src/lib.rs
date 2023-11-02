@@ -104,6 +104,10 @@ pub enum PeerDDL {
         peer: Box<pt::peerdb_peers::Peer>,
         if_not_exists: bool,
     },
+    DropPeer {
+        peer_name: String,
+        if_exists: bool,
+    },
     CreateMirrorForCDC {
         if_not_exists: bool,
         flow_job: FlowJob,
@@ -152,16 +156,14 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 match create_mirror {
                     CDC(cdc) => {
                         let mut flow_job_table_mappings = vec![];
-                        for table_mapping in &cdc.table_mappings {
+                        for table_mapping in &cdc.mapping_options {
                             flow_job_table_mappings.push(FlowJobTableMapping {
-                                source_table_identifier: table_mapping
-                                    .source_table_identifier
-                                    .to_string()
-                                    .to_lowercase(),
-                                target_table_identifier: table_mapping
-                                    .target_table_identifier
-                                    .to_string()
-                                    .to_lowercase(),
+                                source_table_identifier: table_mapping.source.to_string(),
+                                destination_table_identifier: table_mapping.destination.to_string(),
+                                partition_key: table_mapping
+                                    .partition_key
+                                    .clone()
+                                    .map(|s| s.to_string()),
                             });
                         }
 
@@ -172,6 +174,32 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         }
                         let do_initial_copy = match raw_options.remove("do_initial_copy") {
                             Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            // also support "true" and "false" as strings
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                match s.as_ref() {
+                                    "true" => true,
+                                    "false" => false,
+                                    _ => {
+                                        return Err(anyhow::anyhow!(
+                                            "do_initial_copy must be a boolean"
+                                        ))
+                                    }
+                                }
+                            }
+                            _ => return Err(anyhow::anyhow!("do_initial_copy must be a boolean")),
+                        };
+
+                        // bool resync true or false, default to false if not in opts
+                        let resync = match raw_options.remove("resync") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            // also support "true" and "false" as strings
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                match s.as_ref() {
+                                    "true" => true,
+                                    "false" => false,
+                                    _ => return Err(anyhow::anyhow!("resync must be a boolean")),
+                                }
+                            }
                             _ => false,
                         };
 
@@ -282,6 +310,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             push_batch_size,
                             push_parallelism,
                             max_batch_size,
+                            resync,
                         };
 
                         // Error reporting
@@ -341,6 +370,13 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
             } => Ok(Some(PeerDDL::DropMirror {
                 if_exists: *if_exists,
                 flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
+            Statement::DropPeer {
+                if_exists,
+                peer_name,
+            } => Ok(Some(PeerDDL::DropPeer {
+                if_exists: *if_exists,
+                peer_name: peer_name.to_string().to_lowercase(),
             })),
             _ => Ok(None),
         }
@@ -411,6 +447,8 @@ fn parse_db_options(
         let key = opt.name.value;
         let val = match opt.value {
             sqlparser::ast::Value::SingleQuotedString(str) => str,
+            sqlparser::ast::Value::Number(v, _) => v,
+            sqlparser::ast::Value::Boolean(v) => v.to_string(),
             _ => panic!("invalid option type for peer"),
         };
         opts.insert(key, val);
@@ -563,6 +601,22 @@ fn parse_db_options(
                 .map(|s| s.to_string())
                 .unwrap_or_default();
 
+            // partition_count default to 3 if not set, parse as int
+            let partition_count = opts
+                .get("partition_count")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "3".to_string())
+                .parse::<u32>()
+                .context("unable to parse partition_count as valid int")?;
+
+            // message_retention_in_days default to 7 if not set, parse as int
+            let message_retention_in_days = opts
+                .get("message_retention_in_days")
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "7".to_string())
+                .parse::<u32>()
+                .context("unable to parse message_retention_in_days as valid int")?;
+
             let eventhub_config = EventHubConfig {
                 namespace: opts
                     .get("namespace")
@@ -578,16 +632,29 @@ fn parse_db_options(
                     .to_string(),
                 metadata_db,
                 subscription_id,
+                partition_count,
+                message_retention_in_days,
             };
             let config = Config::EventhubConfig(eventhub_config);
             Some(config)
         }
         DbType::S3 => {
+            let s3_conn_str: String = opts
+                .get("metadata_db")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
                     .context("S3 bucket url not specified")?
                     .to_string(),
+                access_key_id: opts.get("access_key_id").map(|s| s.to_string()),
+                secret_access_key: opts.get("secret_access_key").map(|s| s.to_string()),
+                region: opts.get("region").map(|s| s.to_string()),
+                role_arn: opts.get("role_arn").map(|s| s.to_string()),
+                endpoint: opts.get("endpoint").map(|s| s.to_string()),
+                metadata_db,
             };
             let config = Config::S3Config(s3_config);
             Some(config)
@@ -625,9 +692,25 @@ fn parse_db_options(
                 anyhow::bail!("metadata_db is required for eventhub group");
             }
 
+            // split comma separated list of columns and trim
+            let unnest_columns = opts
+                .get("unnest_columns")
+                .map(|columns| {
+                    columns
+                        .split(',')
+                        .map(|column| column.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let keys_to_ignore: HashSet<String> = vec!["metadata_db", "unnest_columns"]
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect();
+
             let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
             for (key, _) in opts {
-                if key == "metadata_db" {
+                if keys_to_ignore.contains(&key) {
                     continue;
                 }
 
@@ -648,6 +731,7 @@ fn parse_db_options(
             let eventhub_group_config = pt::peerdb_peers::EventHubGroupConfig {
                 eventhubs,
                 metadata_db,
+                unnest_columns,
             };
             let config = Config::EventhubGroupConfig(eventhub_group_config);
             Some(config)

@@ -19,7 +19,9 @@ export const StyledTable = styled.table`
 
 export const StyledTableBody = styled.tbody``;
 
-export const StyledTableHeader = styled.thead``;
+export const StyledTableHeader = styled.thead`
+  text-align: left;
+`;
 
 export const ToolbarWrapper = styled.div`
   display: flex;

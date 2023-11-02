@@ -86,32 +86,6 @@ pub mod flow_service_client {
             self
         }
         ///
-        pub async fn list_peers(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ListPeersRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListPeersResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/peerdb_route.FlowService/ListPeers",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("peerdb_route.FlowService", "ListPeers"));
-            self.inner.unary(req, path, codec).await
-        }
-        ///
         pub async fn validate_peer(
             &mut self,
             request: impl tonic::IntoRequest<super::ValidatePeerRequest>,
@@ -161,6 +135,32 @@ pub mod flow_service_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("peerdb_route.FlowService", "CreatePeer"));
+            self.inner.unary(req, path, codec).await
+        }
+        ///
+        pub async fn drop_peer(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DropPeerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::DropPeerResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/DropPeer",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "DropPeer"));
             self.inner.unary(req, path, codec).await
         }
         ///
@@ -216,6 +216,138 @@ pub mod flow_service_client {
             self.inner.unary(req, path, codec).await
         }
         ///
+        pub async fn get_schemas(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PostgresPeerActivityInfoRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PeerSchemasResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/GetSchemas",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "GetSchemas"));
+            self.inner.unary(req, path, codec).await
+        }
+        ///
+        pub async fn get_tables_in_schema(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SchemaTablesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SchemaTablesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/GetTablesInSchema",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("peerdb_route.FlowService", "GetTablesInSchema"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        ///
+        pub async fn get_columns(
+            &mut self,
+            request: impl tonic::IntoRequest<super::TableColumnsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::TableColumnsResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/GetColumns",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "GetColumns"));
+            self.inner.unary(req, path, codec).await
+        }
+        ///
+        pub async fn get_slot_info(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PostgresPeerActivityInfoRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PeerSlotResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/GetSlotInfo",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "GetSlotInfo"));
+            self.inner.unary(req, path, codec).await
+        }
+        ///
+        pub async fn get_stat_info(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PostgresPeerActivityInfoRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PeerStatResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/GetStatInfo",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "GetStatInfo"));
+            self.inner.unary(req, path, codec).await
+        }
+        ///
         pub async fn shutdown_flow(
             &mut self,
             request: impl tonic::IntoRequest<super::ShutdownRequest>,
@@ -241,6 +373,32 @@ pub mod flow_service_client {
                 .insert(GrpcMethod::new("peerdb_route.FlowService", "ShutdownFlow"));
             self.inner.unary(req, path, codec).await
         }
+        ///
+        pub async fn mirror_status(
+            &mut self,
+            request: impl tonic::IntoRequest<super::MirrorStatusRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::MirrorStatusResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/MirrorStatus",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "MirrorStatus"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -250,14 +408,6 @@ pub mod flow_service_server {
     /// Generated trait containing gRPC methods that should be implemented for use with FlowServiceServer.
     #[async_trait]
     pub trait FlowService: Send + Sync + 'static {
-        ///
-        async fn list_peers(
-            &self,
-            request: tonic::Request<super::ListPeersRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListPeersResponse>,
-            tonic::Status,
-        >;
         ///
         async fn validate_peer(
             &self,
@@ -272,6 +422,14 @@ pub mod flow_service_server {
             request: tonic::Request<super::CreatePeerRequest>,
         ) -> std::result::Result<
             tonic::Response<super::CreatePeerResponse>,
+            tonic::Status,
+        >;
+        ///
+        async fn drop_peer(
+            &self,
+            request: tonic::Request<super::DropPeerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::DropPeerResponse>,
             tonic::Status,
         >;
         ///
@@ -291,11 +449,59 @@ pub mod flow_service_server {
             tonic::Status,
         >;
         ///
+        async fn get_schemas(
+            &self,
+            request: tonic::Request<super::PostgresPeerActivityInfoRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PeerSchemasResponse>,
+            tonic::Status,
+        >;
+        ///
+        async fn get_tables_in_schema(
+            &self,
+            request: tonic::Request<super::SchemaTablesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SchemaTablesResponse>,
+            tonic::Status,
+        >;
+        ///
+        async fn get_columns(
+            &self,
+            request: tonic::Request<super::TableColumnsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::TableColumnsResponse>,
+            tonic::Status,
+        >;
+        ///
+        async fn get_slot_info(
+            &self,
+            request: tonic::Request<super::PostgresPeerActivityInfoRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PeerSlotResponse>,
+            tonic::Status,
+        >;
+        ///
+        async fn get_stat_info(
+            &self,
+            request: tonic::Request<super::PostgresPeerActivityInfoRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PeerStatResponse>,
+            tonic::Status,
+        >;
+        ///
         async fn shutdown_flow(
             &self,
             request: tonic::Request<super::ShutdownRequest>,
         ) -> std::result::Result<
             tonic::Response<super::ShutdownResponse>,
+            tonic::Status,
+        >;
+        ///
+        async fn mirror_status(
+            &self,
+            request: tonic::Request<super::MirrorStatusRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::MirrorStatusResponse>,
             tonic::Status,
         >;
     }
@@ -379,50 +585,6 @@ pub mod flow_service_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/peerdb_route.FlowService/ListPeers" => {
-                    #[allow(non_camel_case_types)]
-                    struct ListPeersSvc<T: FlowService>(pub Arc<T>);
-                    impl<
-                        T: FlowService,
-                    > tonic::server::UnaryService<super::ListPeersRequest>
-                    for ListPeersSvc<T> {
-                        type Response = super::ListPeersResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ListPeersRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).list_peers(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = ListPeersSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/peerdb_route.FlowService/ValidatePeer" => {
                     #[allow(non_camel_case_types)]
                     struct ValidatePeerSvc<T: FlowService>(pub Arc<T>);
@@ -498,6 +660,50 @@ pub mod flow_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = CreatePeerSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/DropPeer" => {
+                    #[allow(non_camel_case_types)]
+                    struct DropPeerSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::DropPeerRequest>
+                    for DropPeerSvc<T> {
+                        type Response = super::DropPeerResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DropPeerRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { (*inner).drop_peer(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = DropPeerSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -605,6 +811,238 @@ pub mod flow_service_server {
                     };
                     Box::pin(fut)
                 }
+                "/peerdb_route.FlowService/GetSchemas" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetSchemasSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::PostgresPeerActivityInfoRequest>
+                    for GetSchemasSvc<T> {
+                        type Response = super::PeerSchemasResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::PostgresPeerActivityInfoRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { (*inner).get_schemas(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetSchemasSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/GetTablesInSchema" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetTablesInSchemaSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::SchemaTablesRequest>
+                    for GetTablesInSchemaSvc<T> {
+                        type Response = super::SchemaTablesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SchemaTablesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).get_tables_in_schema(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetTablesInSchemaSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/GetColumns" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetColumnsSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::TableColumnsRequest>
+                    for GetColumnsSvc<T> {
+                        type Response = super::TableColumnsResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TableColumnsRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { (*inner).get_columns(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetColumnsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/GetSlotInfo" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetSlotInfoSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::PostgresPeerActivityInfoRequest>
+                    for GetSlotInfoSvc<T> {
+                        type Response = super::PeerSlotResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::PostgresPeerActivityInfoRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).get_slot_info(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetSlotInfoSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/GetStatInfo" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetStatInfoSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::PostgresPeerActivityInfoRequest>
+                    for GetStatInfoSvc<T> {
+                        type Response = super::PeerStatResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::PostgresPeerActivityInfoRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).get_stat_info(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetStatInfoSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/peerdb_route.FlowService/ShutdownFlow" => {
                     #[allow(non_camel_case_types)]
                     struct ShutdownFlowSvc<T: FlowService>(pub Arc<T>);
@@ -636,6 +1074,52 @@ pub mod flow_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = ShutdownFlowSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/MirrorStatus" => {
+                    #[allow(non_camel_case_types)]
+                    struct MirrorStatusSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::MirrorStatusRequest>
+                    for MirrorStatusSvc<T> {
+                        type Response = super::MirrorStatusResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::MirrorStatusRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).mirror_status(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = MirrorStatusSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

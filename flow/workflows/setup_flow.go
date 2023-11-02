@@ -30,8 +30,9 @@ import (
 //     - creating the normalized table on the destination peer
 
 type SetupFlowState struct {
-	CDCFlowName string
-	Progress    []string
+	tableNameMapping map[string]string
+	CDCFlowName      string
+	Progress         []string
 }
 
 type SetupFlowExecution struct {
@@ -102,7 +103,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	})
 	tmpMap := make(map[uint32]string)
 
-	srcTblIdentifiers := maps.Keys(config.TableNameMapping)
+	srcTblIdentifiers := maps.Keys(s.tableNameMapping)
 	sort.Strings(srcTblIdentifiers)
 
 	// create EnsurePullabilityInput for the srcTableName
@@ -148,7 +149,7 @@ func (s *SetupFlowExecution) createRawTable(
 	createRawTblInput := &protos.CreateRawTableInput{
 		PeerConnectionConfig: config.Destination,
 		FlowJobName:          s.CDCFlowName,
-		TableNameMapping:     config.TableNameMapping,
+		TableNameMapping:     s.tableNameMapping,
 		CdcSyncMode:          config.CdcSyncMode,
 	}
 
@@ -171,7 +172,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		HeartbeatTimeout:    5 * time.Minute,
 	})
 
-	sourceTables := maps.Keys(flowConnectionConfigs.TableNameMapping)
+	sourceTables := maps.Keys(s.tableNameMapping)
 	sort.Strings(sourceTables)
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
@@ -195,7 +196,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	normalizedTableMapping := make(map[string]*protos.TableSchema)
 	for _, srcTableName := range sortedSourceTables {
 		tableSchema := tableNameSchemaMapping[srcTableName]
-		normalizedTableName := flowConnectionConfigs.TableNameMapping[srcTableName]
+		normalizedTableName := s.tableNameMapping[srcTableName]
 		normalizedTableMapping[normalizedTableName] = tableSchema
 		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)
 	}
@@ -251,9 +252,15 @@ func (s *SetupFlowExecution) executeSetupFlow(
 // SetupFlowWorkflow is the workflow that sets up the flow.
 func SetupFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs) (*protos.FlowConnectionConfigs, error) {
+	tblNameMapping := make(map[string]string)
+	for _, v := range config.TableMappings {
+		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
+	}
+
 	setupFlowState := &SetupFlowState{
-		CDCFlowName: config.FlowJobName,
-		Progress:    []string{},
+		tableNameMapping: tblNameMapping,
+		CDCFlowName:      config.FlowJobName,
+		Progress:         []string{},
 	}
 
 	// create the setup flow execution

@@ -2,7 +2,8 @@ name: Flow build and test
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - "main"
   push:
     branches: [main]
 
@@ -15,7 +16,7 @@ jobs:
     timeout-minutes: 30
     services:
       pg_cdc:
-        image: postgres:15.4-alpine
+        image: postgis/postgis:15-3.4-alpine
         ports:
           - 7132:5432
         env:
@@ -34,12 +35,17 @@ jobs:
 
       - uses: actions/setup-go@v3
         with:
-          go-version: '>=1.19.0'
+          go-version: ">=1.19.0"
 
       - name: install gotestsum
         run: |
           go install gotest.tools/gotestsum@latest
-
+      
+      - name: install lib-geos
+        run: |
+          sudo apt-get update
+          sudo apt-get install libgeos-dev
+      
       - name: download go modules
         run: |
           go mod download
@@ -58,6 +64,20 @@ jobs:
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
+      
+      - name: setup S3 credentials
+        id: s3-credentials
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "s3_creds.json"
+          json: ${{ secrets.S3_CREDS }}
+      
+      - name: setup GCS credentials
+        id: gcs-credentials
+        uses: jsdaniell/create-json@v1.2.2
+        with:
+          name: "gcs_creds.json"
+          json: ${{ secrets.GCS_CREDS }}
 
       - name: create hstore extension and increase logical replication limits
         run: |
@@ -73,7 +93,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 4 ./... -timeout 1200s
+          gotestsum --format testname -- -p 4 ./... -timeout 2400s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -81,6 +101,8 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
+          TEST_S3_CREDS: ${{ github.workspace }}/s3_creds.json
+          TEST_GCS_CREDS: ${{ github.workspace }}/gcs_creds.json
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}

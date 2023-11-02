@@ -37,8 +37,12 @@ func (s *PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int
 	s.NoError(err)
 }
 
-func (s *PeerFlowE2ETestSuiteS3) setupS3() error {
-	helper, err := NewS3TestHelper()
+func (s *PeerFlowE2ETestSuiteS3) setupS3(mode string) error {
+	switchToGCS := false
+	if mode == "gcs" {
+		switchToGCS = true
+	}
+	helper, err := NewS3TestHelper(switchToGCS)
 	if err != nil {
 		return err
 	}
@@ -63,7 +67,7 @@ func (s *PeerFlowE2ETestSuiteS3) SetupSuite() {
 	}
 	s.pool = pool
 
-	err = s.setupS3()
+	err = s.setupS3("s3")
 	if err != nil {
 		s.Fail("failed to setup S3", err)
 	}

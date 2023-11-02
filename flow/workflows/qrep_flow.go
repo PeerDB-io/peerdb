@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
@@ -43,6 +44,46 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 	}
 
 	q.logger.Info("metadata tables setup for qrep flow - ", q.config.FlowJobName)
+	return nil
+}
+
+func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Context) error {
+	if q.config.SetupWatermarkTableOnDestination {
+		q.logger.Info("setting up watermark table on destination for qrep flow: ", q.config.FlowJobName)
+
+		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+
+		tableSchemaInput := &protos.GetTableSchemaBatchInput{
+			PeerConnectionConfig: q.config.SourcePeer,
+			TableIdentifiers:     []string{q.config.WatermarkTable},
+		}
+
+		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
+
+		var tblSchemaOutput *protos.GetTableSchemaBatchOutput
+		if err := future.Get(ctx, &tblSchemaOutput); err != nil {
+			q.logger.Error("failed to fetch schema for watermark table: ", err)
+			return fmt.Errorf("failed to fetch schema for watermark table %s: %w", q.config.WatermarkTable, err)
+		}
+
+		// now setup the normalized tables on the destination peer
+		setupConfig := &protos.SetupNormalizedTableBatchInput{
+			PeerConnectionConfig: q.config.DestinationPeer,
+			TableNameSchemaMapping: map[string]*protos.TableSchema{
+				q.config.DestinationTableIdentifier: tblSchemaOutput.TableNameSchemaMapping[q.config.WatermarkTable],
+			},
+		}
+
+		future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
+		var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
+		if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
+			q.logger.Error("failed to create watermark table: ", err)
+			return fmt.Errorf("failed to create watermark table: %w", err)
+		}
+		q.logger.Info("finished setting up watermark table for qrep flow: ", q.config.FlowJobName)
+	}
 	return nil
 }
 
@@ -197,6 +238,22 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	return nil
 }
 
+func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) error {
+	q.logger.Info("idling until new rows are detected")
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		HeartbeatTimeout:    5 * time.Minute,
+	})
+
+	if err := workflow.ExecuteActivity(ctx, flowable.QRepWaitUntilNewRows, q.config,
+		lastPartition).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed while idling for new rows: %w", err)
+	}
+
+	return nil
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
@@ -216,29 +273,19 @@ func QRepFlowWorkflow(
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
 
-	waitBetweenBatches := 5 * time.Second
-	if config.WaitBetweenBatchesSeconds > 0 {
-		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
-	}
-
-	if config.BatchDurationSeconds == 0 {
-		config.BatchDurationSeconds = 60
-	}
-
-	if config.BatchSizeInt == 0 {
-		config.BatchSizeInt = 10000
-	}
-
 	// register a signal handler to terminate the workflow
 	terminateWorkflow := false
-	signalChan := workflow.GetSignalChannel(ctx, "terminate")
+	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
 
 	s := workflow.NewSelector(ctx)
 	s.AddReceive(signalChan, func(c workflow.ReceiveChannel, _ bool) {
-		var signal string
-		c.Receive(ctx, &signal)
-		logger.Info("Received signal to terminate workflow", "Signal", signal)
-		terminateWorkflow = true
+		var signalVal shared.CDCFlowSignal
+		c.Receive(ctx, &signalVal)
+		logger.Info("received signal", "signal", signalVal)
+		if signalVal == shared.ShutdownSignal {
+			logger.Info("received shutdown signal")
+			terminateWorkflow = true
+		}
 	})
 
 	// register a query to get the number of partitions processed
@@ -266,6 +313,11 @@ func QRepFlowWorkflow(
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 	q.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+
+	err = q.SetupWatermarkTableOnDestination(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup watermark table: %w", err)
+	}
 
 	logger.Info("fetching partitions to replicate for peer flow - ", config.FlowJobName)
 	partitions, err := q.GetPartitions(ctx, lastPartition)
@@ -304,9 +356,9 @@ func QRepFlowWorkflow(
 	}
 
 	// sleep for a while and continue the workflow
-	err = workflow.Sleep(ctx, waitBetweenBatches)
+	err = q.waitForNewRows(ctx, lastPartition)
 	if err != nil {
-		return fmt.Errorf("failed to sleep: %w", err)
+		return err
 	}
 
 	workflow.GetLogger(ctx).Info("Continuing as new workflow",

@@ -1,10 +1,13 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
@@ -19,4 +22,52 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 		pgConfig.Database,
 	)
 	return connString
+}
+
+func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]string, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT t.oid, t.typname as type
+		FROM pg_type t
+		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+		WHERE (t.typrelid = 0 OR (SELECT c.relkind = 'c' FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid))
+		AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type el WHERE el.oid = t.typelem AND el.typarray = t.oid)
+		AND n.nspname NOT IN ('pg_catalog', 'information_schema');
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get custom types: %w", err)
+	}
+
+	customTypeMap := map[uint32]string{}
+	for rows.Next() {
+		var typeID uint32
+		var typeName string
+		if err := rows.Scan(&typeID, &typeName); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		customTypeMap[typeID] = typeName
+	}
+	return customTypeMap, nil
+}
+
+// SchemaTable is a table in a schema.
+type SchemaTable struct {
+	Schema string
+	Table  string
+}
+
+func (t *SchemaTable) String() string {
+	return fmt.Sprintf(`"%s"."%s"`, t.Schema, t.Table)
+}
+
+// ParseSchemaTable parses a table name into schema and table name.
+func ParseSchemaTable(tableName string) (*SchemaTable, error) {
+	parts := strings.Split(tableName, ".")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	return &SchemaTable{
+		Schema: parts[0],
+		Table:  parts[1],
+	}, nil
 }

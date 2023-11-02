@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
@@ -30,43 +30,15 @@ type QRepStagingTableSync struct {
 
 func (s *QRepStagingTableSync) SyncQRepRecords(
 	flowJobName string,
-	dstTableName *SchemaTable,
+	dstTableName *utils.SchemaTable,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
+	writeMode *protos.QRepWriteMode,
 ) (int, error) {
 	partitionID := partition.PartitionId
-	runID, err := util.RandomUInt64()
-	if err != nil {
-		return -1, fmt.Errorf("failed to generate random runID: %v", err)
-	}
-
 	startTime := time.Now()
+
 	pool := s.connector.pool
-
-	// create a staging temporary table with the same schema as the destination table
-	stagingTable := fmt.Sprintf("_%d_staging", runID)
-
-	// create the staging temporary table if not exists
-	tmpTableStmt := fmt.Sprintf(
-		`CREATE TEMP TABLE %s AS SELECT * FROM %s LIMIT 0;`,
-		stagingTable,
-		dstTableName.String(),
-	)
-	_, err = pool.Exec(context.Background(), tmpTableStmt)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName":         flowJobName,
-			"partitionID":      partitionID,
-			"destinationTable": dstTableName,
-		}).Errorf(
-			"failed to create staging temporary table %s, statement: '%s'. Error: %v",
-			stagingTable,
-			tmpTableStmt,
-			err,
-		)
-		return 0, fmt.Errorf("failed to create staging temporary table %s: %w", stagingTable, err)
-	}
-
 	schema, err := stream.Schema()
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -77,30 +49,13 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	// Step 2: Insert records into the staging table.
-	copySource := model.NewQRecordBatchCopyFromSource(stream)
-
-	// Perform the COPY FROM operation
-	syncRecordsStartTime := time.Now()
-	syncedRows, err := pool.CopyFrom(
-		context.Background(),
-		pgx.Identifier{stagingTable},
-		schema.GetColumnNames(),
-		copySource,
-	)
-
-	if err != nil {
-		return -1, fmt.Errorf("failed to copy records into staging temporary table: %v", err)
-	}
-	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName, syncedRows, time.Since(syncRecordsStartTime))
-
 	// Second transaction - to handle rest of the processing
-	tx2, err := pool.Begin(context.Background())
+	tx, err := pool.Begin(context.Background())
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %v", err)
 	}
 	defer func() {
-		if err := tx2.Rollback(context.Background()); err != nil {
+		if err := tx.Rollback(context.Background()); err != nil {
 			if err != pgx.ErrTxClosed {
 				log.WithFields(log.Fields{
 					"flowName":         flowJobName,
@@ -111,33 +66,106 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		}
 	}()
 
-	colNames := schema.GetColumnNames()
-	// wrap the column names in double quotes to handle reserved keywords
-	for i, colName := range colNames {
-		colNames[i] = fmt.Sprintf("\"%s\"", colName)
-	}
-	colNamesStr := strings.Join(colNames, ", ")
-	log.WithFields(log.Fields{
-		"flowName":    flowJobName,
-		"partitionID": partitionID,
-	}).Infof("Obtained column names and quoted them in QRep sync")
-	insertFromStagingStmt := fmt.Sprintf(
-		"INSERT INTO %s (%s) SELECT %s FROM %s",
-		dstTableName.String(),
-		colNamesStr,
-		colNamesStr,
-		stagingTable,
-	)
+	// Step 2: Insert records into the destination table.
+	copySource := model.NewQRecordBatchCopyFromSource(stream)
 
-	_, err = tx2.Exec(context.Background(), insertFromStagingStmt)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName":         flowJobName,
-			"partitionID":      partitionID,
-			"destinationTable": dstTableName,
-		}).Errorf("failed to execute statement '%s': %v", insertFromStagingStmt, err)
-		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
+	var numRowsSynced int64
+
+	if writeMode == nil ||
+		writeMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_APPEND {
+		// Perform the COPY FROM operation
+		numRowsSynced, err = tx.CopyFrom(
+			context.Background(),
+			pgx.Identifier{dstTableName.Schema, dstTableName.Table},
+			schema.GetColumnNames(),
+			copySource,
+		)
+		if err != nil {
+			return -1, fmt.Errorf("failed to copy records into destination table: %v", err)
+		}
+	} else {
+		// Step 2.1: Create a temp staging table
+		stagingTableName := fmt.Sprintf("_peerdb_staging_%s", util.RandomString(8))
+		stagingTableIdentifier := pgx.Identifier{dstTableName.Schema, stagingTableName}
+		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
+
+		createStagingTableStmt := fmt.Sprintf(
+			"CREATE UNLOGGED TABLE %s (LIKE %s);",
+			stagingTableIdentifier.Sanitize(),
+			dstTableIdentifier.Sanitize(),
+		)
+
+		log.Infof("Creating staging table %s - '%s'", stagingTableName, createStagingTableStmt)
+		_, err = tx.Exec(context.Background(), createStagingTableStmt)
+
+		if err != nil {
+			return -1, fmt.Errorf("failed to create staging table: %v", err)
+		}
+
+		// Step 2.2: Insert records into the staging table
+		numRowsSynced, err = tx.CopyFrom(
+			context.Background(),
+			stagingTableIdentifier,
+			schema.GetColumnNames(),
+			copySource,
+		)
+		if err != nil {
+			return -1, fmt.Errorf("failed to copy records into staging table: %v", err)
+		}
+
+		// construct the SET clause for the upsert operation
+		upsertMatchColsList := writeMode.UpsertKeyColumns
+		upsertMatchCols := make(map[string]bool)
+		for _, col := range upsertMatchColsList {
+			upsertMatchCols[col] = true
+		}
+
+		setClause := ""
+		for _, col := range schema.GetColumnNames() {
+			_, ok := upsertMatchCols[col]
+			if !ok {
+				setClause += fmt.Sprintf("%s = EXCLUDED.%s,", col, col)
+			}
+		}
+
+		setClause = strings.TrimSuffix(setClause, ",")
+		selectStr := strings.Join(schema.GetColumnNames(), ", ")
+
+		// Step 2.3: Perform the upsert operation, ON CONFLICT UPDATE
+		upsertStmt := fmt.Sprintf(
+			"INSERT INTO %s (%s) SELECT %s FROM %s ON CONFLICT (%s) DO UPDATE SET %s;",
+			dstTableIdentifier.Sanitize(),
+			selectStr,
+			selectStr,
+			stagingTableIdentifier.Sanitize(),
+			strings.Join(writeMode.UpsertKeyColumns, ", "),
+			setClause,
+		)
+		log.Infof("Performing upsert operation: %s", upsertStmt)
+		res, err := tx.Exec(context.Background(), upsertStmt)
+		if err != nil {
+			return -1, fmt.Errorf("failed to perform upsert operation: %v", err)
+		}
+
+		numRowsSynced = res.RowsAffected()
+
+		// Step 2.4: Drop the staging table
+		dropStagingTableStmt := fmt.Sprintf(
+			"DROP TABLE %s;",
+			stagingTableIdentifier.Sanitize(),
+		)
+		log.Infof("Dropping staging table %s", stagingTableName)
+		_, err = tx.Exec(context.Background(), dropStagingTableStmt)
+		if err != nil {
+			return -1, fmt.Errorf("failed to drop staging table: %v", err)
+		}
 	}
+
+	log.WithFields(log.Fields{
+		"flowName":         flowJobName,
+		"partitionID":      partitionID,
+		"destinationTable": dstTableName,
+	}).Infof("pushed %d records to %s", numRowsSynced, dstTableName)
 
 	// marshal the partition to json using protojson
 	pbytes, err := protojson.Marshal(partition)
@@ -145,7 +173,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return -1, fmt.Errorf("failed to marshal partition to json: %v", err)
 	}
 
-	normalizeRecordsStartTime := time.Now()
 	insertMetadataStmt := fmt.Sprintf(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
 		qRepMetadataTableName,
@@ -155,7 +182,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		"partitionID":      partitionID,
 		"destinationTable": dstTableName,
 	}).Infof("Executing transaction inside Qrep sync")
-	rows, err := tx2.Exec(
+	_, err = tx.Exec(
 		context.Background(),
 		insertMetadataStmt,
 		flowJobName,
@@ -167,14 +194,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
-	totalRecordsAtTarget, err := s.connector.getApproxTableCounts([]string{dstTableName.String()})
-	if err != nil {
-		return -1, fmt.Errorf("failed to get total records at target: %v", err)
-	}
-	metrics.LogQRepNormalizeMetrics(s.connector.ctx, flowJobName, rows.RowsAffected(),
-		time.Since(normalizeRecordsStartTime), totalRecordsAtTarget)
 
-	err = tx2.Commit(context.Background())
+	err = tx.Commit(context.Background())
 	if err != nil {
 		return -1, fmt.Errorf("failed to commit transaction: %v", err)
 	}

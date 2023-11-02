@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,8 +22,9 @@ type PeerFlowE2ETestSuitePG struct {
 	suite.Suite
 	testsuite.WorkflowTestSuite
 
-	pool *pgxpool.Pool
-	peer *protos.Peer
+	pool      *pgxpool.Pool
+	peer      *protos.Peer
+	connector *connpostgres.PostgresConnector
 }
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
@@ -46,6 +48,16 @@ func (s *PeerFlowE2ETestSuitePG) SetupSuite() {
 	}
 	s.pool = pool
 	s.peer = generatePGPeer(e2e.GetTestPostgresConf())
+
+	s.connector, err = connpostgres.NewPostgresConnector(context.Background(),
+		&protos.PostgresConfig{
+			Host:     "localhost",
+			Port:     7132,
+			User:     "postgres",
+			Password: "postgres",
+			Database: "postgres",
+		})
+	s.NoError(err)
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
@@ -130,11 +142,15 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	numRows := 10
 
+	//nolint:gosec
 	srcTable := "test_qrep_flow_avro_pg_1"
 	s.setupSourceTable(srcTable, numRows)
 
+	//nolint:gosec
 	dstTable := "test_qrep_flow_avro_pg_2"
-	e2e.CreateSourceTableQRep(s.pool, postgresSuffix, dstTable) // the name is misleading, but this is the destination table
+	// the name is misleading, but this is the destination table
+	err := e2e.CreateSourceTableQRep(s.pool, postgresSuffix, dstTable)
+	s.NoError(err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, srcTable)
 	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, dstTable)

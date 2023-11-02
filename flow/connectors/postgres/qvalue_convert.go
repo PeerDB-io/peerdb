@@ -1,6 +1,7 @@
 package connpostgres
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 	log "github.com/sirupsen/logrus"
+
+	//nolint:all
+	geom "github.com/twpayne/go-geos"
 )
 
 func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
@@ -55,6 +59,8 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 		return qvalue.QValueKindArrayInt32
 	case pgtype.Int8ArrayOID:
 		return qvalue.QValueKindArrayInt64
+	case pgtype.PointOID:
+		return qvalue.QValueKindPoint
 	case pgtype.Float4ArrayOID:
 		return qvalue.QValueKindArrayFloat32
 	case pgtype.Float8ArrayOID:
@@ -77,8 +83,10 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 				return qvalue.QValueKindString
 			} else if recvOID == uint32(oid.T_tsquery) { // TSQUERY
 				return qvalue.QValueKindString
+			} else if recvOID == uint32(oid.T_point) { // POINT
+				return qvalue.QValueKindPoint
 			}
-			// log.Warnf("failed to get type name for oid: %v", recvOID)
+
 			return qvalue.QValueKindInvalid
 		} else {
 			log.Warnf("unsupported field type: %v - type name - %s; returning as string", recvOID, typeName.Name)
@@ -337,6 +345,11 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 			return nil, fmt.Errorf("failed to parse hstore: %w", err)
 		}
 		val = &qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: hstoreVal}
+	case qvalue.QValueKindPoint:
+		xCoord := value.(pgtype.Point).P.X
+		yCoord := value.(pgtype.Point).P.Y
+		val = &qvalue.QValue{Kind: qvalue.QValueKindPoint,
+			Value: fmt.Sprintf("POINT(%f %f)", xCoord, yCoord)}
 	default:
 		// log.Warnf("unhandled QValueKind => %v, parsing as string", qvalueKind)
 		textVal, ok := value.(string)
@@ -379,4 +392,43 @@ func numericToRat(numVal *pgtype.Numeric) (*big.Rat, error) {
 
 	// handle invalid numeric
 	return nil, errors.New("invalid numeric")
+}
+
+func customTypeToQKind(typeName string) qvalue.QValueKind {
+	var qValueKind qvalue.QValueKind
+	switch typeName {
+	case "geometry":
+		qValueKind = qvalue.QValueKindGeometry
+	case "geography":
+		qValueKind = qvalue.QValueKindGeography
+	default:
+		qValueKind = qvalue.QValueKindString
+	}
+	return qValueKind
+}
+
+// returns the WKT representation of the geometry object if it is valid
+func GeoValidate(hexWkb string) (string, error) {
+	// Decode the WKB hex string into binary
+	wkb, hexErr := hex.DecodeString(hexWkb)
+	if hexErr != nil {
+		log.Warnf("Ignoring invalid WKB: %s", hexWkb)
+		return "", hexErr
+	}
+
+	// UnmarshalWKB performs geometry validation along with WKB parsing
+	geometryObject, geoErr := geom.NewGeomFromWKB(wkb)
+	if geoErr != nil {
+		log.Warnf("Ignoring invalid geometry WKB %s: %v", hexWkb, geoErr)
+		return "", geoErr
+	}
+
+	invalidReason := geometryObject.IsValidReason()
+	if invalidReason != "Valid Geometry" {
+		log.Warnf("Ignoring invalid geometry shape %s: %s", hexWkb, invalidReason)
+		return "", errors.New(invalidReason)
+	}
+
+	wkt := geometryObject.ToWKT()
+	return wkt, nil
 }
