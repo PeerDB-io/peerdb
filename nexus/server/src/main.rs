@@ -505,7 +505,7 @@ impl NexusBackend {
                     let catalog = self.catalog.lock().await;
                     tracing::info!("drop peer_name: {}, if_exists: {}", peer_name, if_exists);
                     let peer_exists =
-                        catalog.check_peer_entry(&peer_name).await.map_err(|err| {
+                        catalog.check_peer_entry(peer_name).await.map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
                                 err_msg: format!(
                                     "unable to query catalog for peer metadata: {:?}",
@@ -516,7 +516,7 @@ impl NexusBackend {
                     tracing::info!("peer exist count: {}", peer_exists);
                     if peer_exists != 0 {
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-                        flow_handler.drop_peer(&peer_name).await.map_err(|err| {
+                        flow_handler.drop_peer(peer_name).await.map_err(|err| {
                             PgWireError::ApiError(Box::new(PgError::Internal {
                                 err_msg: format!("unable to drop peer: {:?}", err),
                             }))
