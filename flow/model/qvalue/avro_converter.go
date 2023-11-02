@@ -1,7 +1,6 @@
 package qvalue
 
 import (
-	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -123,7 +122,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 			AvroLogicalSchema: "string",
 		}, nil
 	default:
-		return nil, errors.New("unsupported QValueKind type")
+		return nil, fmt.Errorf("unsupported QValueKind type: %s", kind)
 	}
 }
 

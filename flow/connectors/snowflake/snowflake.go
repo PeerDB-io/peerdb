@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -19,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/snowflakedb/gosnowflake"
+	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
 )
 
@@ -451,9 +451,13 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
-				schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName),
-				qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
+			sfColtype, err := qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))
+			if err != nil {
+				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
+					addedColumn.ColumnType, err)
+			}
+			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
+				schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 					schemaDelta.DstTableName, err)
@@ -477,16 +481,8 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 }
 
 func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	if len(req.Records.Records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	log.Printf("pushing %d records to Snowflake table %s", len(req.Records.Records), rawTableIdentifier)
+	log.Infof("pushing records to Snowflake table %s", rawTableIdentifier)
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -496,6 +492,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 	var res *model.SyncResponse
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
+		log.Infof("sync mode is for flow %s is AVRO", req.FlowJobName)
 		res, err = c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
 		if err != nil {
 			return nil, err
@@ -519,6 +516,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	}()
 
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
+		log.Infof("sync mode is for flow %s is MULTI_INSERT", req.FlowJobName)
 		res, err = c.syncRecordsViaSQL(req, rawTableIdentifier, syncBatchID, syncRecordsTx)
 		if err != nil {
 			return nil, err
@@ -546,9 +544,8 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
 
-	for _, record := range req.Records.Records {
+	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
 			// json.Marshal converts bytes in Hex automatically to BASE64 string.
@@ -621,10 +618,8 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 
 	// inserting records into raw table.
 	numRecords := len(records)
-	startTime := time.Now()
 	for begin := 0; begin < numRecords; begin += syncRecordsChunkSize {
 		end := begin + syncRecordsChunkSize
-
 		if end > numRecords {
 			end = numRecords
 		}
@@ -633,33 +628,33 @@ func (c *SnowflakeConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest, ra
 			return nil, err
 		}
 	}
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
+
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, err
+	}
 
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
+		LastSyncedCheckPointID:  lastCheckpoint,
 		NumRecordsSynced:        int64(len(records)),
 		CurrentSyncBatchID:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
 }
 
-func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, rawTableIdentifier string,
-	syncBatchID int64) (*model.SyncResponse, error) {
-
-	lastCP := req.Records.LastCheckPointID
+func (c *SnowflakeConnector) syncRecordsViaAvro(
+	req *model.SyncRecordsRequest,
+	rawTableIdentifier string,
+	syncBatchID int64,
+) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
-	streamRes, err := utils.RecordsToRawTableStream(model.RecordsToStreamRequest{
-		Records:      req.Records.Records,
-		TableMapping: tableNameRowsMapping,
-		CP:           0,
-		BatchID:      syncBatchID,
-	})
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
+	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
-	firstCP := streamRes.CP
-	recordStream := streamRes.Stream
+
 	qrepConfig := &protos.QRepConfig{
 		StagingPath: "",
 		FlowJobName: req.FlowJobName,
@@ -672,17 +667,20 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest, r
 		return nil, err
 	}
 
-	startTime := time.Now()
-	close(recordStream.Records)
-	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, recordStream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(destinationTableSchema, streamRes.Stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
+
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, err
+	}
+
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
-		NumRecordsSynced:        int64(len(req.Records.Records)),
+		FirstSyncedCheckPointID: req.Records.GetFirstCheckpoint(),
+		LastSyncedCheckPointID:  lastCheckpoint,
+		NumRecordsSynced:        int64(numRecords),
 		CurrentSyncBatchID:      syncBatchID,
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil
@@ -743,7 +741,6 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}()
 
 	var totalRowsAffected int64 = 0
-	startTime := time.Now()
 	// execute merge statements per table that uses CTEs to merge data into the normalized table
 	for _, destinationTableName := range destinationTableNames {
 		rowsAffected, err := c.generateAndExecuteMergeStatement(
@@ -758,14 +755,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		}
 		totalRowsAffected += rowsAffected
 	}
-	if totalRowsAffected > 0 {
-		totalRowsAtTarget, err := c.getTableCounts(destinationTableNames)
-		if err != nil {
-			return nil, err
-		}
-		metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, totalRowsAffected, time.Since(startTime),
-			totalRowsAtTarget)
-	}
+
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)
 	if err != nil {
@@ -890,8 +880,12 @@ func generateCreateTableSQLForNormalizedTable(
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		columnNameUpper := strings.ToUpper(columnName)
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper,
-			qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
+		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		if err != nil {
+			log.Warnf("failed to convert column type %s to snowflake type: %v", genericColumnType, err)
+			continue
+		}
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper, sfColType))
 	}
 
 	// add a _peerdb_is_deleted column to the normalized table
@@ -956,7 +950,12 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		sfType := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		sfType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		if err != nil {
+			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
+				genericColumnType, err)
+		}
+
 		targetColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
@@ -1148,4 +1147,49 @@ func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchanged
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return updateStmts
+}
+
+func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+	renameTablesTx, err := c.database.BeginTx(c.ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
+	}
+
+	for _, renameRequest := range req.RenameTableOptions {
+		src := renameRequest.CurrentName
+		dst := renameRequest.NewName
+
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Infof("renaming table '%s' to '%s'...", src, dst)
+
+		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
+
+		// drop the dst table if exists
+		_, err = renameTablesTx.ExecContext(c.ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", dst))
+		if err != nil {
+			return nil, fmt.Errorf("unable to drop table %s: %w", dst, err)
+		}
+
+		// rename the src table to dst
+		_, err = renameTablesTx.ExecContext(c.ctx, fmt.Sprintf("ALTER TABLE %s RENAME TO %s", src, dst))
+		if err != nil {
+			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
+		}
+
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Infof("successfully renamed table '%s' to '%s'", src, dst)
+
+		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
+	}
+
+	err = renameTablesTx.Commit()
+	if err != nil {
+		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
+	}
+
+	return &protos.RenameTablesOutput{
+		FlowJobName: req.FlowJobName,
+	}, nil
 }

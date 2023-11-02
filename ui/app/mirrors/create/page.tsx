@@ -4,15 +4,15 @@ import { Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
-import { LayoutMain, RowWithSelect, RowWithTextField } from '@/lib/Layout';
+import { RowWithRadiobutton, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
-import { Select, SelectItem } from '@/lib/Select';
+import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
 import { TextField } from '@/lib/TextField';
 import { Divider } from '@tremor/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { CDCConfig, TableMapRow } from '../types';
+import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc';
 import { handleCreateCDC, handleCreateQRep } from './handlers';
 import { cdcSettings } from './helpers/cdc';
@@ -20,9 +20,6 @@ import { blankCDCSetting, blankQRepSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import QRepConfigForm from './qrep';
 import QRepQuery from './query';
-import TableMapping from './tablemapping';
-
-export const dynamic = 'force-dynamic';
 
 export default function CreateMirrors() {
   const router = useRouter();
@@ -37,9 +34,8 @@ export default function CreateMirrors() {
   const [loading, setLoading] = useState<boolean>(false);
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
-  const [rows, setRows] = useState<TableMapRow[]>([
-    { source: '', destination: '' },
-  ]);
+  const [rows, setRows] = useState<TableMapRow[]>([]);
+  const [sourceSchema, setSourceSchema] = useState('public');
   const [qrepQuery, setQrepQuery] = useState<string>('');
 
   useEffect(() => {
@@ -67,7 +63,7 @@ export default function CreateMirrors() {
   };
 
   return (
-    <LayoutMain width='xxLarge' alignSelf='center' justifySelf='center'>
+    <div style={{ width: '60%', alignSelf: 'center', justifySelf: 'center' }}>
       <Panel>
         <Label variant='title3' as={'h2'}>
           Create a new mirror
@@ -77,30 +73,157 @@ export default function CreateMirrors() {
         </Label>
       </Panel>
       <Panel>
-        <RowWithSelect
-          label={
-            <Label as='label' htmlFor='mirror'>
-              Mirror type
-            </Label>
-          }
-          action={
-            <Select
-              placeholder='Select mirror type'
-              onValueChange={(value) =>
-                setMirrorType(value as 'CDC' | 'Query Replication')
-              }
-              defaultValue={mirrorType}
+        <Label
+          as='label'
+          htmlFor='mirror'
+          style={{ fontWeight: 'bold', fontSize: 16, marginBottom: '0.5rem' }}
+        >
+          Mirror type
+        </Label>
+        <RadioButtonGroup>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'start',
+              marginBottom: '1rem',
+            }}
+          >
+            <div
+              style={{
+                padding: '0.5rem',
+                width: '35%',
+                height: '20vh',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.1)',
+                backgroundColor: 'ghostwhite',
+                borderRadius: '1rem',
+              }}
             >
-              <SelectItem value='CDC'>CDC</SelectItem>
-              <SelectItem value='Query Replication'>
-                Query Replication
-              </SelectItem>
-              <SelectItem value='XMIN'>XMIN</SelectItem>
-            </Select>
-          }
-        />
+              <div>
+                <RowWithRadiobutton
+                  label={
+                    <Label>
+                      <div style={{ fontWeight: 'bold' }}>CDC</div>
+                    </Label>
+                  }
+                  action={
+                    <RadioButton
+                      checked={mirrorType === 'CDC'}
+                      onClick={() => setMirrorType('CDC')}
+                    />
+                  }
+                />
+                <Label>
+                  <div style={{ fontSize: 14 }}>
+                    Change-data Capture or CDC refers to replication of changes
+                    on the source table to the destination table, including
+                    initial load.{' '}
+                  </div>
+                </Label>
+              </div>
+              <Label
+                as={Link}
+                style={{ color: 'teal', cursor: 'pointer' }}
+                href='https://docs.peerdb.io/usecases/Real-time%20CDC/overview'
+              >
+                Learn more
+              </Label>
+            </div>
+
+            <div
+              style={{
+                padding: '1rem',
+                width: '35%',
+                marginLeft: '0.5rem',
+                marginRight: '0.5rem',
+                height: '20vh',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.1)',
+                backgroundColor: 'ghostwhite',
+                borderRadius: '1rem',
+              }}
+            >
+              <div>
+                <RowWithRadiobutton
+                  label={
+                    <Label>
+                      <div style={{ fontWeight: 'bold' }}>
+                        Query Replication
+                      </div>
+                    </Label>
+                  }
+                  action={
+                    <RadioButton
+                      checked={mirrorType === 'Query Replication'}
+                      onClick={() => setMirrorType('Query Replication')}
+                    />
+                  }
+                />
+                <Label>
+                  <div style={{ fontSize: 14 }}>
+                    Query Replication or QRep allows you to specify a set of
+                    rows to be synced via a SELECT query.
+                  </div>
+                </Label>
+              </div>
+              <Label
+                as={Link}
+                style={{ color: 'teal', cursor: 'pointer' }}
+                href='https://docs.peerdb.io/usecases/Streaming%20Query%20Replication/overview'
+              >
+                Learn more
+              </Label>
+            </div>
+
+            <div
+              style={{
+                padding: '1rem',
+                width: '35%',
+                height: '20vh',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.1)',
+                backgroundColor: 'ghostwhite',
+                borderRadius: '1rem',
+              }}
+            >
+              <RowWithRadiobutton
+                label={
+                  <Label>
+                    <div style={{ fontWeight: 'bold' }}>XMIN</div>
+                  </Label>
+                }
+                action={
+                  <RadioButton
+                    checked={mirrorType === 'XMIN'}
+                    onClick={() => setMirrorType('XMIN')}
+                  />
+                }
+              />
+              <Label>
+                <div style={{ fontSize: 14 }}>
+                  XMIN mode uses the xmin system column of PostgreSQL as a
+                  watermark column for replication.
+                </div>
+              </Label>
+              <Label
+                as={Link}
+                style={{ color: 'teal', cursor: 'pointer' }}
+                href='https://docs.peerdb.io/sql/commands/create-mirror#xmin-query-replication'
+              >
+                Learn more
+              </Label>
+            </div>
+          </div>
+        </RadioButtonGroup>
+
         <RowWithTextField
-          label={<Label>Name</Label>}
+          label={<Label>Mirror Name</Label>}
           action={
             <TextField
               variant='simple'
@@ -113,12 +236,8 @@ export default function CreateMirrors() {
         />
         <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
 
-        {mirrorType === 'CDC' ? (
-          <TableMapping rows={rows} setRows={setRows} />
-        ) : (
-          mirrorType != 'XMIN' && (
-            <QRepQuery query={qrepQuery} setter={setQrepQuery} />
-          )
+        {mirrorType === 'Query Replication' && (
+          <QRepQuery query={qrepQuery} setter={setQrepQuery} />
         )}
 
         <Label colorName='lowContrast'>Configuration</Label>
@@ -137,6 +256,10 @@ export default function CreateMirrors() {
             mirrorConfig={config as CDCConfig}
             peers={peers}
             setter={setConfig}
+            rows={rows}
+            setRows={setRows}
+            setSchema={setSourceSchema}
+            schema={sourceSchema}
           />
         ) : (
           <QRepConfigForm
@@ -180,6 +303,6 @@ export default function CreateMirrors() {
           </Button>
         </ButtonGroup>
       </Panel>
-    </LayoutMain>
+    </div>
   );
 }

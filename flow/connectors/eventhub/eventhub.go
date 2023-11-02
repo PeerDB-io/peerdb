@@ -12,7 +12,6 @@ import (
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	cmap "github.com/orcaman/concurrent-map/v2"
@@ -121,25 +120,28 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 	return nil
 }
 
+// returns the number of records synced
 func (c *EventHubConnector) processBatch(
 	flowJobName string,
-	batch *model.RecordBatch,
+	batch *model.CDCRecordStream,
 	eventsPerBatch int,
 	maxParallelism int64,
-) error {
+) (uint32, error) {
 	ctx := context.Background()
 
 	tableNameRowsMapping := cmap.New[uint32]()
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
-	for i, record := range batch.Records {
+	numRecords := 0
+	for record := range batch.GetRecords() {
+		numRecords++
 		json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"flowName": flowJobName,
 			}).Infof("failed to convert record to json: %v", err)
-			return err
+			return 0, err
 		}
 
 		flushBatch := func() error {
@@ -159,7 +161,7 @@ func (c *EventHubConnector) processBatch(
 			log.WithFields(log.Fields{
 				"flowName": flowJobName,
 			}).Infof("failed to get topic name: %v", err)
-			return err
+			return 0, err
 		}
 
 		err = batchPerTopic.AddEvent(ctx, topicName, json)
@@ -167,13 +169,13 @@ func (c *EventHubConnector) processBatch(
 			log.WithFields(log.Fields{
 				"flowName": flowJobName,
 			}).Infof("failed to add event to batch: %v", err)
-			return err
+			return 0, err
 		}
 
-		if (i+1)%eventsPerBatch == 0 {
+		if (numRecords)%eventsPerBatch == 0 {
 			err := flushBatch()
 			if err != nil {
-				return err
+				return 0, err
 			}
 		}
 	}
@@ -181,15 +183,14 @@ func (c *EventHubConnector) processBatch(
 	if batchPerTopic.Len() > 0 {
 		err := c.sendEventBatch(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	rowsSynced := len(batch.Records)
 	log.WithFields(log.Fields{
 		"flowName": flowJobName,
-	}).Infof("[total] successfully sent %d records to event hub", rowsSynced)
-	return nil
+	}).Infof("[total] successfully sent %d records to event hub", numRecords)
+	return uint32(numRecords), nil
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
@@ -212,29 +213,34 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	var err error
-	startTime := time.Now()
-
 	batch := req.Records
+	var numRecords uint32
 
 	// if env var PEERDB_BETA_EVENTHUB_PUSH_ASYNC=true
 	// we kick off processBatch in a goroutine and return immediately.
 	// otherwise, we block until processBatch is done.
 	if utils.GetEnvBool("PEERDB_BETA_EVENTHUB_PUSH_ASYNC", false) {
 		go func() {
-			err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
+			numRecords, err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
 			if err != nil {
 				log.Errorf("[async] failed to process batch: %v", err)
 			}
 		}()
 	} else {
-		err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
+		numRecords, err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
 		if err != nil {
 			log.Errorf("failed to process batch: %v", err)
 			return nil, err
 		}
 	}
 
-	err = c.updateLastOffset(req.FlowJobName, batch.LastCheckPointID)
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		log.Errorf("failed to get last checkpoint: %v", err)
+		return nil, err
+	}
+
+	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
 		log.Errorf("failed to update last offset: %v", err)
 		return nil, err
@@ -245,12 +251,10 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	rowsSynced := int64(len(batch.Records))
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, rowsSynced, time.Since(startTime))
-	metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, rowsSynced, time.Since(startTime), rowsSynced)
+	rowsSynced := int64(numRecords)
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: batch.FirstCheckPointID,
-		LastSyncedCheckPointID:  batch.LastCheckPointID,
+		FirstSyncedCheckPointID: batch.GetFirstCheckpoint(),
+		LastSyncedCheckPointID:  lastCheckpoint,
 		NumRecordsSynced:        rowsSynced,
 		TableNameRowsMapping:    make(map[string]uint32),
 	}, nil

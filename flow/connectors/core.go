@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -36,7 +38,7 @@ type CDCPullConnector interface {
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(req *model.PullRecordsRequest) (*model.RecordsWithTableSchemaDelta, error)
+	PullRecords(req *model.PullRecordsRequest) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
@@ -254,5 +256,8 @@ func CloseConnector(conn Connector) {
 		return
 	}
 
-	conn.Close()
+	err := conn.Close()
+	if err != nil {
+		log.Errorf("error closing connector: %v", err)
+	}
 }

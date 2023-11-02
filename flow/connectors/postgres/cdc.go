@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -32,6 +33,9 @@ type PostgresCDCSource struct {
 	startLSN               pglogrepl.LSN
 	commitLock             bool
 	customTypeMapping      map[uint32]string
+
+	// for partitioned tables, maps child relid to parent relid
+	chIdToParRelId map[uint32]uint32
 }
 
 type PostgresCDCConfig struct {
@@ -46,6 +50,11 @@ type PostgresCDCConfig struct {
 
 // Create a new PostgresCDCSource
 func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32]string) (*PostgresCDCSource, error) {
+	childToParentRelIdMap, err := getChildToParentRelIdMap(cdcConfig.AppContext, cdcConfig.Connection)
+	if err != nil {
+		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
+	}
+
 	return &PostgresCDCSource{
 		ctx:                    cdcConfig.AppContext,
 		replPool:               cdcConfig.Connection,
@@ -55,14 +64,46 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		publication:            cdcConfig.Publication,
 		relationMessageMapping: cdcConfig.RelationMessageMapping,
 		typeMap:                pgtype.NewMap(),
+		chIdToParRelId:         childToParentRelIdMap,
 		commitLock:             false,
 		customTypeMapping:      customTypeMap,
 	}, nil
 }
 
+func getChildToParentRelIdMap(ctx context.Context, pool *pgxpool.Pool) (map[uint32]uint32, error) {
+	query := `
+		SELECT
+				parent.oid AS parentrelid,
+				child.oid AS childrelid
+		FROM pg_inherits
+				JOIN pg_class parent            ON pg_inherits.inhparent = parent.oid
+				JOIN pg_class child             ON pg_inherits.inhrelid   = child.oid
+		WHERE parent.relkind='p';
+	`
+
+	rows, err := pool.Query(ctx, query, pgx.QueryExecModeSimpleProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
+	}
+
+	defer rows.Close()
+
+	childToParentRelIdMap := make(map[uint32]uint32)
+	for rows.Next() {
+		var parentRelId uint32
+		var childRelId uint32
+		err := rows.Scan(&parentRelId, &childRelId)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning child to parent relid map: %w", err)
+		}
+		childToParentRelIdMap[childRelId] = parentRelId
+	}
+
+	return childToParentRelIdMap, nil
+}
+
 // PullRecords pulls records from the cdc stream
-func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
-	*model.RecordsWithTableSchemaDelta, error) {
+func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 	// setup options
 	pluginArguments := []string{
 		"proto_version '1'",
@@ -72,7 +113,7 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
 		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
 		pluginArguments = append(pluginArguments, pubOpt)
 	} else {
-		return nil, fmt.Errorf("publication name is not set")
+		return fmt.Errorf("publication name is not set")
 	}
 
 	replicationOpts := pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}
@@ -81,7 +122,7 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
 	// create replication connection
 	replicationConn, err := p.replPool.Acquire(p.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error acquiring connection for replication: %w", err)
+		return fmt.Errorf("error acquiring connection for replication: %w", err)
 	}
 
 	defer replicationConn.Release()
@@ -93,7 +134,7 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
 
 	sysident, err := pglogrepl.IdentifySystem(p.ctx, pgConn)
 	if err != nil {
-		return nil, fmt.Errorf("IdentifySystem failed: %w", err)
+		return fmt.Errorf("IdentifySystem failed: %w", err)
 	}
 	log.Debugf("SystemID: %s, Timeline: %d, XLogPos: %d, DBName: %s",
 		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName)
@@ -107,13 +148,13 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) (
 
 	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, p.startLSN, replicationOpts)
 	if err != nil {
-		return nil, fmt.Errorf("error starting replication at startLsn - %d: %w", p.startLSN, err)
+		return fmt.Errorf("error starting replication at startLsn - %d: %w", p.startLSN, err)
 	}
 	log.WithFields(log.Fields{
 		"flowName": req.FlowJobName,
 	}).Infof("started replication on slot %s at startLSN: %d", p.slot, p.startLSN)
 
-	return p.consumeStream(pgConn, req, p.startLSN)
+	return p.consumeStream(pgConn, req, p.startLSN, req.RecordStream)
 }
 
 // start consuming the cdc stream
@@ -121,19 +162,8 @@ func (p *PostgresCDCSource) consumeStream(
 	conn *pgconn.PgConn,
 	req *model.PullRecordsRequest,
 	clientXLogPos pglogrepl.LSN,
-) (*model.RecordsWithTableSchemaDelta, error) {
-	// TODO (kaushik): take into consideration the MaxBatchSize
-	// parameters in the original request.
-	records := &model.RecordBatch{
-		Records:           make([]model.Record, 0),
-		TablePKeyLastSeen: make(map[model.TableWithPkey]int),
-	}
-	result := &model.RecordsWithTableSchemaDelta{
-		RecordBatch:            records,
-		TableSchemaDeltas:      nil,
-		RelationMessageMapping: p.relationMessageMapping,
-	}
-
+	records *model.CDCRecordStream,
+) error {
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
@@ -155,20 +185,47 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 
 	var standByLastLogged time.Time
+	localRecords := make([]model.Record, 0)
+	defer func() {
+		if len(localRecords) == 0 {
+			records.SignalAsEmpty()
+		}
+		records.RelationMessageMapping <- &p.relationMessageMapping
+	}()
+
+	shutdown := utils.HeartbeatRoutine(p.ctx, 10*time.Second, func() string {
+		jobName := req.FlowJobName
+		currRecords := len(localRecords)
+		return fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
+	})
+
+	defer func() {
+		shutdown <- true
+	}()
+
+	tablePKeyLastSeen := make(map[model.TableWithPkey]int)
+
+	addRecord := func(rec model.Record) {
+		records.AddRecord(rec)
+		localRecords = append(localRecords, rec)
+
+		if len(localRecords) == 1 {
+			records.SignalAsNotEmpty()
+		}
+	}
 
 	for {
 		if time.Now().After(nextStandbyMessageDeadline) ||
-			(len(records.Records) >= int(req.MaxBatchSize)) {
+			(len(localRecords) >= int(req.MaxBatchSize)) {
 			// Update XLogPos to the last processed position, we can only confirm
 			// that this is the last row committed on the destination.
 			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
 				pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
 			if err != nil {
-				return nil, fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
+				return fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
 			}
 
-			numRowsProcessedMessage := fmt.Sprintf("processed %d rows", len(records.Records))
-			utils.RecordHeartbeatWithRecover(p.ctx, numRowsProcessedMessage)
+			numRowsProcessedMessage := fmt.Sprintf("processed %d rows", len(localRecords))
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
@@ -177,8 +234,8 @@ func (p *PostgresCDCSource) consumeStream(
 
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 
-			if !p.commitLock && (len(records.Records) >= int(req.MaxBatchSize)) {
-				return result, nil
+			if !p.commitLock && (len(localRecords) >= int(req.MaxBatchSize)) {
+				return nil
 			}
 		}
 
@@ -187,15 +244,15 @@ func (p *PostgresCDCSource) consumeStream(
 		cancel()
 		if err != nil && !p.commitLock {
 			if pgconn.Timeout(err) {
-				log.Infof("Idle timeout reached, returning currently accumulated records")
-				return result, nil
+				log.Infof("Idle timeout reached, returning currently accumulated records - %d", len(localRecords))
+				return nil
 			} else {
-				return nil, fmt.Errorf("ReceiveMessage failed: %w", err)
+				return fmt.Errorf("ReceiveMessage failed: %w", err)
 			}
 		}
 
 		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
-			return nil, fmt.Errorf("received Postgres WAL error: %+v", errMsg)
+			return fmt.Errorf("received Postgres WAL error: %+v", errMsg)
 		}
 
 		msg, ok := rawMsg.(*pgproto3.CopyData)
@@ -204,13 +261,11 @@ func (p *PostgresCDCSource) consumeStream(
 			continue
 		}
 
-		firstProcessed := false
-
 		switch msg.Data[0] {
 		case pglogrepl.PrimaryKeepaliveMessageByteID:
 			pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
 			if err != nil {
-				return nil, fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
+				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
 			log.Debugf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
@@ -226,7 +281,7 @@ func (p *PostgresCDCSource) consumeStream(
 		case pglogrepl.XLogDataByteID:
 			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
 			if err != nil {
-				return nil, fmt.Errorf("ParseXLogData failed: %w", err)
+				return fmt.Errorf("ParseXLogData failed: %w", err)
 			}
 
 			log.Debugf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
@@ -234,13 +289,9 @@ func (p *PostgresCDCSource) consumeStream(
 			rec, err := p.processMessage(records, xld)
 
 			if err != nil {
-				return nil, fmt.Errorf("error processing message: %w", err)
+				return fmt.Errorf("error processing message: %w", err)
 			}
 
-			if !firstProcessed {
-				firstProcessed = true
-				records.FirstCheckPointID = int64(xld.WALStart)
-			}
 			if rec != nil {
 				tableName := rec.GetTableName()
 				switch r := rec.(type) {
@@ -250,71 +301,77 @@ func (p *PostgresCDCSource) consumeStream(
 					// will change in future
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						records.Records = append(records.Records, rec)
+						addRecord(rec)
 					} else {
 						compositePKeyString, err := p.compositePKeyToString(req, rec)
 						if err != nil {
-							return nil, err
+							return err
 						}
 
 						tablePkeyVal := model.TableWithPkey{
 							TableName:  tableName,
 							PkeyColVal: compositePKeyString,
 						}
-						_, ok := records.TablePKeyLastSeen[tablePkeyVal]
+						_, ok := tablePKeyLastSeen[tablePkeyVal]
 						if !ok {
-							records.Records = append(records.Records, rec)
-							records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+							addRecord(rec)
+							tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
 						} else {
-							oldRec := records.Records[records.TablePKeyLastSeen[tablePkeyVal]]
+							oldRec := localRecords[tablePKeyLastSeen[tablePkeyVal]]
 							// iterate through unchanged toast cols and set them in new record
 							updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
 							for _, col := range updatedCols {
 								delete(r.UnchangedToastColumns, col)
 							}
-							records.Records = append(records.Records, rec)
-							records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+							addRecord(rec)
+							tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
 						}
 					}
 				case *model.InsertRecord:
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						records.Records = append(records.Records, rec)
+						addRecord(rec)
 					} else {
 						compositePKeyString, err := p.compositePKeyToString(req, rec)
 						if err != nil {
-							return nil, err
+							return err
 						}
 
 						tablePkeyVal := model.TableWithPkey{
 							TableName:  tableName,
 							PkeyColVal: compositePKeyString,
 						}
-						records.Records = append(records.Records, rec)
+						addRecord(rec)
 						// all columns will be set in insert record, so add it to the map
-						records.TablePKeyLastSeen[tablePkeyVal] = len(records.Records) - 1
+						tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
 					}
 				case *model.DeleteRecord:
-					records.Records = append(records.Records, rec)
+					addRecord(rec)
 				case *model.RelationRecord:
 					tableSchemaDelta := r.TableSchemaDelta
 					if len(tableSchemaDelta.AddedColumns) > 0 {
 						log.Infof("Detected schema change for table %s, addedColumns: %v",
 							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns)
-						result.TableSchemaDeltas = append(result.TableSchemaDeltas, tableSchemaDelta)
+						records.SchemaDeltas <- tableSchemaDelta
 					}
 				}
 			}
 
 			if xld.WALStart > clientXLogPos {
 				clientXLogPos = xld.WALStart
-				records.LastCheckPointID = int64(clientXLogPos)
+			}
+
+			if len(localRecords) == 0 {
+				// given that we have no records it is safe to update the flush wal position
+				// to the clientXLogPos. clientXLogPos can be moved forward due to PKM messages.
+				consumedXLogPos = clientXLogPos
+				records.UpdateLatestCheckpoint(int64(clientXLogPos))
 			}
 		}
 	}
 }
 
-func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogrepl.XLogData) (model.Record, error) {
+func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pglogrepl.XLogData) (model.Record, error) {
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
@@ -335,9 +392,12 @@ func (p *PostgresCDCSource) processMessage(batch *model.RecordBatch, xld pglogre
 		// for a commit message, update the last checkpoint id for the record batch.
 		log.Debugf("CommitMessage => CommitLSN: %v, TransactionEndLSN: %v",
 			msg.CommitLSN, msg.TransactionEndLSN)
-		batch.LastCheckPointID = int64(xld.WALStart)
+		batch.UpdateLatestCheckpoint(int64(msg.CommitLSN))
 		p.commitLock = false
 	case *pglogrepl.RelationMessage:
+		// treat all relation messages as correponding to parent if partitioned.
+		msg.RelationID = p.getParentRelIdIfPartitioned(msg.RelationID)
+
 		// TODO (kaushik): consider persistent state for a mirror job
 		// to be stored somewhere in temporal state. We might need to persist
 		// the state of the relation message somewhere
@@ -363,17 +423,19 @@ func (p *PostgresCDCSource) processInsertMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 ) (model.Record, error) {
-	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
+	relId := p.getParentRelIdIfPartitioned(msg.RelationID)
+
+	tableName, exists := p.SrcTableIDNameMapping[relId]
 	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
+	log.Debugf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, relId, tableName)
 
-	rel, ok := p.relationMessageMapping[msg.RelationID]
+	rel, ok := p.relationMessageMapping[relId]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", msg.RelationID)
+		return nil, fmt.Errorf("unknown relation id: %d", relId)
 	}
 
 	// create empty map of string to interface{}
@@ -395,17 +457,19 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 ) (model.Record, error) {
-	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
+	relID := p.getParentRelIdIfPartitioned(msg.RelationID)
+
+	tableName, exists := p.SrcTableIDNameMapping[relID]
 	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
+	log.Debugf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, relID, tableName)
 
-	rel, ok := p.relationMessageMapping[msg.RelationID]
+	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", msg.RelationID)
+		return nil, fmt.Errorf("unknown relation id: %d", relID)
 	}
 
 	// create empty map of string to interface{}
@@ -434,17 +498,19 @@ func (p *PostgresCDCSource) processDeleteMessage(
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 ) (model.Record, error) {
-	tableName, exists := p.SrcTableIDNameMapping[msg.RelationID]
+	relID := p.getParentRelIdIfPartitioned(msg.RelationID)
+
+	tableName, exists := p.SrcTableIDNameMapping[relID]
 	if !exists {
 		return nil, nil
 	}
 
 	// log lsn and relation id for debugging
-	log.Debugf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, msg.RelationID, tableName)
+	log.Debugf("DeleteMessage => LSN: %d, RelationID: %d, Relation Name: %s", lsn, relID, tableName)
 
-	rel, ok := p.relationMessageMapping[msg.RelationID]
+	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
-		return nil, fmt.Errorf("unknown relation id: %d", msg.RelationID)
+		return nil, fmt.Errorf("unknown relation id: %d", relID)
 	}
 
 	// create empty map of string to interface{}
@@ -539,14 +605,24 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 	if ok {
 		customQKind := customTypeToQKind(typeName)
 		if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
-			err := GeoValidate(string(data))
+			wkt, err := GeoValidate(string(data))
 			if err != nil {
-				return &qvalue.QValue{Kind: customQKind,
-					Value: nil}, nil
+				return &qvalue.QValue{
+					Kind:  customQKind,
+					Value: nil,
+				}, nil
+			} else {
+				return &qvalue.QValue{
+					Kind:  customQKind,
+					Value: wkt,
+				}, nil
 			}
+		} else {
+			return &qvalue.QValue{
+				Kind:  customQKind,
+				Value: string(data),
+			}, nil
 		}
-		return &qvalue.QValue{Kind: customQKind,
-			Value: string(data)}, nil
 	}
 
 	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
@@ -647,4 +723,13 @@ func (p *PostgresCDCSource) compositePKeyToString(req *model.PullRecordsRequest,
 	hasher := sha256.New()
 	hasher.Write(pkeyColsMerged)
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+}
+
+func (p *PostgresCDCSource) getParentRelIdIfPartitioned(relId uint32) uint32 {
+	parentRelId, ok := p.chIdToParRelId[relId]
+	if ok {
+		return parentRelId
+	}
+
+	return relId
 }

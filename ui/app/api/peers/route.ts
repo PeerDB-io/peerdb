@@ -1,4 +1,5 @@
 import {
+  CatalogPeer,
   PeerConfig,
   UCreatePeerResponse,
   UValidatePeerResponse,
@@ -22,6 +23,8 @@ import {
   ValidatePeerRequest,
   ValidatePeerResponse,
   ValidatePeerStatus,
+  createPeerStatusFromJSON,
+  validatePeerStatusFromJSON,
 } from '@/grpc_generated/route';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
@@ -65,7 +68,9 @@ export async function POST(request: Request) {
       return res.json();
     });
     let response: UValidatePeerResponse = {
-      valid: validateStatus.status === ValidatePeerStatus.VALID,
+      valid:
+        validatePeerStatusFromJSON(validateStatus.status) ===
+        ValidatePeerStatus.VALID,
       message: validateStatus.message,
     };
     return new Response(JSON.stringify(response));
@@ -81,63 +86,67 @@ export async function POST(request: Request) {
       return res.json();
     });
     let response: UCreatePeerResponse = {
-      created: createStatus.status === CreatePeerStatus.CREATED,
+      created:
+        createPeerStatusFromJSON(createStatus.status) ===
+        CreatePeerStatus.CREATED,
       message: createStatus.message,
     };
     return new Response(JSON.stringify(response));
   }
 }
 
+export const getTruePeer = (peer: CatalogPeer) => {
+  const newPeer: Peer = {
+    name: peer.name,
+    type: peer.type,
+  };
+  const options = peer.options;
+  let config:
+    | BigqueryConfig
+    | SnowflakeConfig
+    | PostgresConfig
+    | EventHubConfig
+    | S3Config
+    | SqlServerConfig
+    | EventHubGroupConfig;
+  switch (peer.type) {
+    case 0:
+      config = BigqueryConfig.decode(options);
+      newPeer.bigqueryConfig = config;
+      break;
+    case 1:
+      config = SnowflakeConfig.decode(options);
+      newPeer.snowflakeConfig = config;
+      break;
+    case 3:
+      config = PostgresConfig.decode(options);
+      newPeer.postgresConfig = config;
+      break;
+    case 4:
+      config = EventHubConfig.decode(options);
+      newPeer.eventhubConfig = config;
+      break;
+    case 5:
+      config = S3Config.decode(options);
+      newPeer.s3Config = config;
+      break;
+    case 6:
+      config = SqlServerConfig.decode(options);
+      newPeer.sqlserverConfig = config;
+      break;
+    case 7:
+      config = EventHubGroupConfig.decode(options);
+      newPeer.eventhubGroupConfig = config;
+      break;
+    default:
+      return newPeer;
+  }
+  return newPeer;
+};
+
 // GET all the peers from the database
 export async function GET(request: Request) {
   const peers = await prisma.peers.findMany();
-  const truePeers: Peer[] = peers.map((peer) => {
-    const newPeer: Peer = {
-      name: peer.name,
-      type: peer.type,
-    };
-    const options = peer.options;
-    let config:
-      | BigqueryConfig
-      | SnowflakeConfig
-      | PostgresConfig
-      | EventHubConfig
-      | S3Config
-      | SqlServerConfig
-      | EventHubGroupConfig;
-    switch (peer.type) {
-      case 0:
-        config = BigqueryConfig.decode(options);
-        newPeer.bigqueryConfig = config;
-        break;
-      case 1:
-        config = SnowflakeConfig.decode(options);
-        newPeer.snowflakeConfig = config;
-        break;
-      case 3:
-        config = PostgresConfig.decode(options);
-        newPeer.postgresConfig = config;
-        break;
-      case 4:
-        config = EventHubConfig.decode(options);
-        newPeer.eventhubConfig = config;
-        break;
-      case 5:
-        config = S3Config.decode(options);
-        newPeer.s3Config = config;
-        break;
-      case 6:
-        config = SqlServerConfig.decode(options);
-        newPeer.sqlserverConfig = config;
-        break;
-      case 7:
-        config = EventHubGroupConfig.decode(options);
-        newPeer.eventhubGroupConfig = config;
-        break;
-      default:
-        return newPeer;
-    }
-    return newPeer;
-  });
+  const truePeers: Peer[] = peers.map((peer) => getTruePeer(peer));
   return new Response(JSON.stringify(truePeers));
 }

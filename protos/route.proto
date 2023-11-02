@@ -46,6 +46,15 @@ message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
 }
 
+message DropPeerRequest {
+  string peer_name = 1;
+}
+
+message DropPeerResponse {
+  bool ok = 1;
+  string error_message = 2;
+}
+
 enum ValidatePeerStatus {
   CREATION_UNKNOWN = 0;
   VALID = 1;
@@ -94,6 +103,58 @@ message CDCSyncStatus {
   google.protobuf.Timestamp end_time = 5;
 }
 
+message PeerSchemasResponse {
+  repeated string schemas = 1;
+}
+
+message SchemaTablesRequest {
+  string peer_name = 1;
+  string schema_name = 2;
+}
+
+message SchemaTablesResponse {
+  repeated string tables = 1;
+}
+
+message TableColumnsRequest {
+  string peer_name = 1;
+  string schema_name = 2;
+  string table_name = 3;
+}
+
+message TableColumnsResponse {
+  repeated string columns = 1;
+}
+
+message PostgresPeerActivityInfoRequest {
+  string peer_name = 1;
+}
+
+message SlotInfo {
+  string slot_name = 1;
+  string redo_lSN = 2;
+  string restart_lSN = 3;
+  bool active = 4;
+  float lag_in_mb = 5;
+}
+
+message StatInfo {
+  int64 pid = 1;
+  string wait_event = 2;
+  string wait_event_type = 3;
+  string query_start = 4;
+  string query = 5;
+  float duration = 6;
+}
+
+message PeerSlotResponse {
+  repeated SlotInfo slot_data = 1;
+}
+
+message PeerStatResponse {
+  repeated StatInfo stat_data = 1;
+}
+
 message SnapshotStatus {
   repeated QRepMirrorStatus clones = 1;
 }
@@ -126,6 +187,12 @@ service FlowService {
       body: "*"
      };
   }
+  rpc DropPeer(DropPeerRequest) returns (DropPeerResponse) {
+    option (google.api.http) = {
+      post: "/v1/peers/drop",
+      body: "*"
+    };
+  }
   rpc CreateCDCFlow(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {
     option (google.api.http) = {
       post: "/v1/flows/cdc/create",
@@ -138,7 +205,28 @@ service FlowService {
       body: "*"
      };
   }
-  rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {}
+
+  rpc GetSchemas(PostgresPeerActivityInfoRequest) returns (PeerSchemasResponse) {
+    option (google.api.http) = { get: "/v1/peers/schemas" };
+  }
+
+  rpc GetTablesInSchema(SchemaTablesRequest) returns (SchemaTablesResponse) {
+    option (google.api.http) = { get: "/v1/peers/tables" };
+  }
+
+  rpc GetColumns(TableColumnsRequest) returns (TableColumnsResponse) {
+    option (google.api.http) = { get: "/v1/peers/columns" };
+  }
+
+  rpc GetSlotInfo(PostgresPeerActivityInfoRequest) returns (PeerSlotResponse) {
+    option (google.api.http) = { get: "/v1/peers/slots/{peer_name}" };
+  }
+  rpc GetStatInfo(PostgresPeerActivityInfoRequest) returns (PeerStatResponse) {
+    option (google.api.http) = { get: "/v1/peers/stats/{peer_name}" };
+  }
+  rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
+    option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
+  }
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
   }

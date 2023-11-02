@@ -8,6 +8,7 @@ import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 export async function POST(request: Request) {
   const body = await request.json();
   const { config } = body;
+  console.log('/mirrors/cdc config: ', config);
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const req: CreateCDCFlowRequest = {
     connectionConfigs: config,

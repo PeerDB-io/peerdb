@@ -1,18 +1,8 @@
 import { QRepSyncMode } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
-import { CDCConfig } from '../../types';
+import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
-  {
-    label: 'Source Peer',
-    stateHandler: (value, setter) =>
-      setter((curr: CDCConfig) => ({ ...curr, source: value as Peer })),
-    tips: 'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.',
-    helpfulLink:
-      'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites',
-    type: 'select',
-    required: true,
-  },
   {
     label: 'Destination Peer',
     stateHandler: (value, setter) =>

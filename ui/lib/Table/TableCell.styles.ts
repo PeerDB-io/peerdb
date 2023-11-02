@@ -20,7 +20,5 @@ type BaseTableCellProps = {
 export const BaseTableCell = styled.td<BaseTableCellProps>`
   border-collapse: collapse;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
   ${({ $variant }) => variants[$variant]}
 `;

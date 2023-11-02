@@ -195,6 +195,7 @@ export function CDCMirror({ cdc, syncStatusChild }: CDCMirrorStatusProps) {
       className='flex flex-col w-full'
       defaultValue={selectedTab}
       onValueChange={setSelectedTab}
+      style={{ marginTop: '2rem' }}
     >
       <Tabs.List className='flex border-b' aria-label='Details'>
         <Trigger

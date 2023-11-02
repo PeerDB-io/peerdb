@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -432,17 +431,9 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 // currently only supports inserts,updates and deletes
 // more record types will be added in the future.
 func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	if len(req.Records.Records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	log.Printf("pushing %d records to %s.%s", len(req.Records.Records), c.datasetID, rawTableName)
+	log.Printf("pushing records to %s.%s...", c.datasetID, rawTableName)
 
 	// generate a sequential number for the last synced batch
 	// this sequence will be used to keep track of records that are normalized
@@ -486,9 +477,9 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
+
 	// loop over req.Records
-	for _, record := range req.Records.Records {
+	for record := range req.Records.GetRecords() {
 		switch r := record.(type) {
 		case *model.InsertRecord:
 			// create the 3 required fields
@@ -586,14 +577,6 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	}
 
 	numRecords := len(records)
-	if numRecords == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
 	// insert the records into the staging table
 	stagingInserter := stagingTable.Inserter()
 	stagingInserter.IgnoreUnknownValues = true
@@ -613,6 +596,11 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 		}
 	}
 
+	lastCP, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
+	}
+
 	// we have to do the following things in a transaction
 	// 1. append the records in the staging table to the raw table.
 	// 2. execute the update metadata query to store the last committed watermark.
@@ -629,13 +617,11 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	stmts = append(stmts, appendStmt)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
-	startTime := time.Now()
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
 	return &model.SyncResponse{
@@ -647,13 +633,15 @@ func (c *BigQueryConnector) syncRecordsViaSQL(req *model.SyncRecordsRequest,
 	}, nil
 }
 
-func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
-	rawTableName string, syncBatchID int64) (*model.SyncResponse, error) {
+func (c *BigQueryConnector) syncRecordsViaAvro(
+	req *model.SyncRecordsRequest,
+	rawTableName string,
+	syncBatchID int64,
+) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
 	first := true
 	var firstCP int64 = 0
-	lastCP := req.Records.LastCheckPointID
-	recordStream := model.NewQRecordStream(len(req.Records.Records))
+	recordStream := model.NewQRecordStream(1 << 20)
 	err := recordStream.SetSchema(&model.QRecordSchema{
 		Fields: []*model.QField{
 			{
@@ -713,7 +701,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 	}
 
 	// loop over req.Records
-	for _, record := range req.Records.Records {
+	for record := range req.Records.GetRecords() {
 		var entries [10]qvalue.QValue
 		switch r := record.(type) {
 		case *model.InsertRecord:
@@ -843,12 +831,16 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 		}
 	}
 
-	startTime := time.Now()
 	close(recordStream.Records)
 	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath)
 	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
+	}
+
+	lastCP, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
 	}
 
 	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName,
@@ -857,7 +849,6 @@ func (c *BigQueryConnector) syncRecordsViaAvro(req *model.SyncRecordsRequest,
 		return nil, fmt.Errorf("failed to sync records via avro : %v", err)
 	}
 
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
 	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
 
 	return &model.SyncResponse{

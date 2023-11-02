@@ -3,11 +3,9 @@ package conns3
 import (
 	"context"
 	"fmt"
-	"time"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -136,32 +134,18 @@ func (c *S3Connector) updateLastOffset(jobName string, offset int64) error {
 }
 
 func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	if len(req.Records.Records) == 0 {
-		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
-		}, nil
-	}
-
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
 	syncBatchID = syncBatchID + 1
-	lastCP := req.Records.LastCheckPointID
 
 	tableNameRowsMapping := make(map[string]uint32)
-	streamRes, err := utils.RecordsToRawTableStream(model.RecordsToStreamRequest{
-		Records:      req.Records.Records,
-		TableMapping: tableNameRowsMapping,
-		CP:           0,
-		BatchID:      syncBatchID,
-	})
+	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
+	streamRes, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
-	firstCP := streamRes.CP
 	recordStream := streamRes.Stream
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                req.FlowJobName,
@@ -170,14 +154,18 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	partition := &protos.QRepPartition{
 		PartitionId: fmt.Sprint(syncBatchID),
 	}
-	startTime := time.Now()
-	close(recordStream.Records)
 	numRecords, err := c.SyncQRepRecords(qrepConfig, partition, recordStream)
 	if err != nil {
 		return nil, err
 	}
+	log.Infof("Synced %d records", numRecords)
 
-	err = c.updateLastOffset(req.FlowJobName, lastCP)
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
+	}
+
+	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
 		log.Errorf("failed to update last offset for s3 cdc: %v", err)
 		return nil, err
@@ -187,10 +175,10 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		log.Errorf("%v", err)
 		return nil, err
 	}
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(numRecords), time.Since(startTime))
+
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
+		FirstSyncedCheckPointID: req.Records.GetFirstCheckpoint(),
+		LastSyncedCheckPointID:  lastCheckpoint,
 		NumRecordsSynced:        int64(numRecords),
 		TableNameRowsMapping:    tableNameRowsMapping,
 	}, nil

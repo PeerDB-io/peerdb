@@ -103,12 +103,12 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		ctype := postgresOIDToQValueKind(fd.DataTypeOID)
 		if ctype == qvalue.QValueKindInvalid {
 			var err error
-			ctype = qvalue.QValueKind(qe.customTypeMap[fd.DataTypeOID])
 			if err != nil {
-				ctype = qvalue.QValueKindInvalid
 				typeName, ok := qe.customTypeMap[fd.DataTypeOID]
 				if ok {
 					ctype = customTypeToQKind(typeName)
+				} else {
+					ctype = qvalue.QValueKindString
 				}
 			}
 		}
@@ -436,9 +436,11 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 			customQKind := customTypeToQKind(typeName)
 			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
 				wkbString, ok := values[i].(string)
-				err := GeoValidate(wkbString)
+				wkt, err := GeoValidate(wkbString)
 				if err != nil || !ok {
 					values[i] = nil
+				} else {
+					values[i] = wkt
 				}
 			}
 			customTypeVal := qvalue.QValue{
