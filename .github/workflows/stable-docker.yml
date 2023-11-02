@@ -34,7 +34,7 @@ jobs:
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
           files: ./docker-bake.hcl
-          push: ${{ github.ref == 'refs/heads/stable' }}
+          push: true
         env:
           SHA_SHORT: stable-${{ github.ref_name }}
           TAG: latest-stable
