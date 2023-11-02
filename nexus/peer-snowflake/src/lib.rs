@@ -131,10 +131,10 @@ impl SnowflakeQueryExecutor {
                 SNOWFLAKE_URL_PREFIX, config.account_id, SNOWFLAKE_URL_SUFFIX
             ),
             auth: SnowflakeAuth::new(
-                config.clone().account_id,
-                config.clone().username,
-                config.clone().private_key,
-                config.clone().password,
+                config.account_id.clone(),
+                config.username.clone(),
+                config.private_key.clone(),
+                config.password.clone(),
                 DEFAULT_REFRESH_THRESHOLD,
                 DEFAULT_EXPIRY_THRESHOLD,
             )?,

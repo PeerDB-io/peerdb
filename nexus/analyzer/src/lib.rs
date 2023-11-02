@@ -162,7 +162,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                 destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
                                     .partition_key
-                                    .clone()
+                                    .as_ref()
                                     .map(|s| s.to_string()),
                             });
                         }
@@ -717,9 +717,9 @@ fn parse_db_options(
                 // check if peers contains key and if it does
                 // then add it to the eventhubs hashmap, if not error
                 if let Some(peer) = peers.get(&key) {
-                    let eventhub_config = peer.config.clone().unwrap();
+                    let eventhub_config = peer.config.as_ref().unwrap();
                     if let Config::EventhubConfig(eventhub_config) = eventhub_config {
-                        eventhubs.insert(key.to_string(), eventhub_config);
+                        eventhubs.insert(key.to_string(), eventhub_config.clone());
                     } else {
                         anyhow::bail!("Peer '{}' is not an eventhub", key);
                     }

@@ -10,10 +10,11 @@ pub struct PostgresAst {
 impl PostgresAst {
     pub fn rewrite_query(&self, query: &mut Query) {
         visit_relations_mut(query, |table| {
-            // if the peer name is the first part of the table name,
-            // remove it.
-            if Some(table.0[0].value.clone().to_lowercase()) == self.peername {
-                table.0.remove(0);
+            // if peer name is first part of table name, remove first part
+            if let Some(ref peername) = self.peername {
+                if peername.eq_ignore_ascii_case(&table.0[0].value) {
+                    table.0.remove(0);
+                }
             }
             ControlFlow::<()>::Continue(())
         });
@@ -29,9 +30,12 @@ impl PostgresAst {
             } = stmnt
             {
                 if object_type == &ObjectType::Table {
-                    let table = names.get_mut(0).unwrap();
-                    if Some(table.0[0].value.clone().to_lowercase()) == self.peername {
-                        table.0.remove(0);
+                    if let Some(ref peername) = self.peername {
+                        if let Some(table) = names.first_mut() {
+                            if peername.eq_ignore_ascii_case(&table.0[0].value) {
+                                table.0.remove(0);
+                            }
+                        }
                     }
                 }
             }
@@ -39,10 +43,11 @@ impl PostgresAst {
         });
 
         visit_relations_mut(stmt, |table| {
-            // if the peer name is the first part of the table name,
-            // remove it.
-            if Some(table.0[0].value.clone().to_lowercase()) == self.peername {
-                table.0.remove(0);
+            // if peer name is first part of table name, remove first part
+            if let Some(ref peername) = self.peername {
+                if peername.eq_ignore_ascii_case(&table.0[0].value) {
+                    table.0.remove(0);
+                }
             }
             ControlFlow::<()>::Continue(())
         });
