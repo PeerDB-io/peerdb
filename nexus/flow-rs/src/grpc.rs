@@ -129,6 +129,7 @@ impl FlowGrpcClient {
             workflow_id: workflow_details.workflow_id,
             source_peer: Some(workflow_details.source_peer),
             destination_peer: Some(workflow_details.destination_peer),
+            remove_flow_entry:false
         };
         let response = self.client.shutdown_flow(shutdown_flow_req).await?;
         let shutdown_response = response.into_inner();

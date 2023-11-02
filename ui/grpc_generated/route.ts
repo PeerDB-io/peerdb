@@ -120,6 +120,7 @@ export interface ShutdownRequest {
   flowJobName: string;
   sourcePeer: Peer | undefined;
   destinationPeer: Peer | undefined;
+  removeFlowEntry: boolean;
 }
 
 export interface ShutdownResponse {
@@ -522,7 +523,7 @@ export const CreateQRepFlowResponse = {
 };
 
 function createBaseShutdownRequest(): ShutdownRequest {
-  return { workflowId: "", flowJobName: "", sourcePeer: undefined, destinationPeer: undefined };
+  return { workflowId: "", flowJobName: "", sourcePeer: undefined, destinationPeer: undefined, removeFlowEntry: false };
 }
 
 export const ShutdownRequest = {
@@ -538,6 +539,9 @@ export const ShutdownRequest = {
     }
     if (message.destinationPeer !== undefined) {
       Peer.encode(message.destinationPeer, writer.uint32(34).fork()).ldelim();
+    }
+    if (message.removeFlowEntry === true) {
+      writer.uint32(40).bool(message.removeFlowEntry);
     }
     return writer;
   },
@@ -577,6 +581,13 @@ export const ShutdownRequest = {
 
           message.destinationPeer = Peer.decode(reader, reader.uint32());
           continue;
+        case 5:
+          if (tag !== 40) {
+            break;
+          }
+
+          message.removeFlowEntry = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -592,6 +603,7 @@ export const ShutdownRequest = {
       flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
       sourcePeer: isSet(object.sourcePeer) ? Peer.fromJSON(object.sourcePeer) : undefined,
       destinationPeer: isSet(object.destinationPeer) ? Peer.fromJSON(object.destinationPeer) : undefined,
+      removeFlowEntry: isSet(object.removeFlowEntry) ? Boolean(object.removeFlowEntry) : false,
     };
   },
 
@@ -609,6 +621,9 @@ export const ShutdownRequest = {
     if (message.destinationPeer !== undefined) {
       obj.destinationPeer = Peer.toJSON(message.destinationPeer);
     }
+    if (message.removeFlowEntry === true) {
+      obj.removeFlowEntry = message.removeFlowEntry;
+    }
     return obj;
   },
 
@@ -625,6 +640,7 @@ export const ShutdownRequest = {
     message.destinationPeer = (object.destinationPeer !== undefined && object.destinationPeer !== null)
       ? Peer.fromPartial(object.destinationPeer)
       : undefined;
+    message.removeFlowEntry = object.removeFlowEntry ?? false;
     return message;
   },
 };
