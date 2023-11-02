@@ -44,13 +44,6 @@ func main() {
 		EnvVars: []string{"ENABLE_METRICS"},
 	}
 
-	monitoringFlag := &cli.BoolFlag{
-		Name:    "enable-monitoring",
-		Value:   false, // Default is off
-		Usage:   "Enable mirror monitoring for the application",
-		EnvVars: []string{"ENABLE_STATS"},
-	}
-
 	pyroscopeServerFlag := &cli.StringFlag{
 		Name:    "pyroscope-server-address",
 		Value:   "http://pyroscope:4040",
@@ -65,6 +58,13 @@ func main() {
 		EnvVars: []string{"METRICS_SERVER"},
 	}
 
+	temporalNamespaceFlag := &cli.StringFlag{
+		Name:    "temporal-namespace",
+		Value:   "default",
+		Usage:   "Temporal namespace to use for workflow orchestration",
+		EnvVars: []string{"PEERDB_TEMPORAL_NAMESPACE"},
+	}
+
 	app := &cli.App{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
@@ -73,21 +73,21 @@ func main() {
 				Action: func(ctx *cli.Context) error {
 					temporalHostPort := ctx.String("temporal-host-port")
 					return WorkerMain(&WorkerOptions{
-						TemporalHostPort: temporalHostPort,
-						EnableProfiling:  ctx.Bool("enable-profiling"),
-						EnableMetrics:    ctx.Bool("enable-metrics"),
-						EnableMonitoring: ctx.Bool("enable-monitoring"),
-						PyroscopeServer:  ctx.String("pyroscope-server-address"),
-						MetricsServer:    ctx.String("metrics-server"),
+						TemporalHostPort:  temporalHostPort,
+						EnableProfiling:   ctx.Bool("enable-profiling"),
+						EnableMetrics:     ctx.Bool("enable-metrics"),
+						PyroscopeServer:   ctx.String("pyroscope-server-address"),
+						MetricsServer:     ctx.String("metrics-server"),
+						TemporalNamespace: ctx.String("temporal-namespace"),
 					})
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					profilingFlag,
 					metricsFlag,
-					monitoringFlag,
 					pyroscopeServerFlag,
 					metricsServerFlag,
+					temporalNamespaceFlag,
 				},
 			},
 			{
@@ -95,11 +95,13 @@ func main() {
 				Action: func(ctx *cli.Context) error {
 					temporalHostPort := ctx.String("temporal-host-port")
 					return SnapshotWorkerMain(&SnapshotWorkerOptions{
-						TemporalHostPort: temporalHostPort,
+						TemporalHostPort:  temporalHostPort,
+						TemporalNamespace: ctx.String("temporal-namespace"),
 					})
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
+					temporalNamespaceFlag,
 				},
 			},
 			{
@@ -116,15 +118,17 @@ func main() {
 						Value: 8111,
 					},
 					temporalHostPortFlag,
+					temporalNamespaceFlag,
 				},
 				Action: func(ctx *cli.Context) error {
 					temporalHostPort := ctx.String("temporal-host-port")
 
 					return APIMain(&APIServerParams{
-						ctx:              appCtx,
-						Port:             ctx.Uint("port"),
-						TemporalHostPort: temporalHostPort,
-						GatewayPort:      ctx.Uint("gateway-port"),
+						ctx:               appCtx,
+						Port:              ctx.Uint("port"),
+						TemporalHostPort:  temporalHostPort,
+						GatewayPort:       ctx.Uint("gateway-port"),
+						TemporalNamespace: ctx.String("temporal-namespace"),
 					})
 				},
 			},

@@ -133,6 +133,8 @@ export interface FlowConnectionConfigs {
   /** the below two are for eventhub only */
   pushBatchSize: number;
   pushParallelism: number;
+  /** if true, then the flow will be resynced */
+  resync: boolean;
 }
 
 export interface FlowConnectionConfigs_SrcTableIdNameMappingEntry {
@@ -143,6 +145,21 @@ export interface FlowConnectionConfigs_SrcTableIdNameMappingEntry {
 export interface FlowConnectionConfigs_TableNameSchemaMappingEntry {
   key: string;
   value: TableSchema | undefined;
+}
+
+export interface RenameTableOption {
+  currentName: string;
+  newName: string;
+}
+
+export interface RenameTablesInput {
+  flowJobName: string;
+  peer: Peer | undefined;
+  renameTableOptions: RenameTableOption[];
+}
+
+export interface RenameTablesOutput {
+  flowJobName: string;
 }
 
 export interface SyncFlowOptions {
@@ -262,7 +279,7 @@ export interface TableSchema {
    * "string", "int", "float", "bool", "timestamp".
    */
   columns: { [key: string]: string };
-  primaryKeyColumn: string;
+  primaryKeyColumns: string[];
   isReplicaIdentityFull: boolean;
 }
 
@@ -336,16 +353,10 @@ export interface TIDPartitionRange {
   end: TID | undefined;
 }
 
-export interface XMINPartitionRange {
-  start: number;
-  end: number;
-}
-
 export interface PartitionRange {
   intRange?: IntPartitionRange | undefined;
   timestampRange?: TimestampPartitionRange | undefined;
   tidRange?: TIDPartitionRange | undefined;
-  xminRange?: XMINPartitionRange | undefined;
 }
 
 export interface QRepWriteMode {
@@ -363,7 +374,9 @@ export interface QRepConfig {
   watermarkColumn: string;
   initialCopyOnly: boolean;
   syncMode: QRepSyncMode;
+  /** DEPRECATED: eliminate when breaking changes are allowed. */
   batchSizeInt: number;
+  /** DEPRECATED: eliminate when breaking changes are allowed. */
   batchDurationSeconds: number;
   maxParallelWorkers: number;
   /** time to wait between getting partitions to process */
@@ -386,6 +399,8 @@ export interface QRepConfig {
    * how many rows to process per batch.
    */
   numRowsPerPartition: number;
+  /** Creates the watermark table on the destination as-is, can be used for some queries. */
+  setupWatermarkTableOnDestination: boolean;
 }
 
 export interface QRepPartition {
@@ -790,6 +805,7 @@ function createBaseFlowConnectionConfigs(): FlowConnectionConfigs {
     replicationSlotName: "",
     pushBatchSize: 0,
     pushParallelism: 0,
+    resync: false,
   };
 }
 
@@ -862,6 +878,9 @@ export const FlowConnectionConfigs = {
     }
     if (message.pushParallelism !== 0) {
       writer.uint32(176).int64(message.pushParallelism);
+    }
+    if (message.resync === true) {
+      writer.uint32(184).bool(message.resync);
     }
     return writer;
   },
@@ -1033,6 +1052,13 @@ export const FlowConnectionConfigs = {
 
           message.pushParallelism = longToNumber(reader.int64() as Long);
           continue;
+        case 23:
+          if (tag !== 184) {
+            break;
+          }
+
+          message.resync = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1084,6 +1110,7 @@ export const FlowConnectionConfigs = {
       replicationSlotName: isSet(object.replicationSlotName) ? String(object.replicationSlotName) : "",
       pushBatchSize: isSet(object.pushBatchSize) ? Number(object.pushBatchSize) : 0,
       pushParallelism: isSet(object.pushParallelism) ? Number(object.pushParallelism) : 0,
+      resync: isSet(object.resync) ? Boolean(object.resync) : false,
     };
   },
 
@@ -1167,6 +1194,9 @@ export const FlowConnectionConfigs = {
     if (message.pushParallelism !== 0) {
       obj.pushParallelism = Math.round(message.pushParallelism);
     }
+    if (message.resync === true) {
+      obj.resync = message.resync;
+    }
     return obj;
   },
 
@@ -1219,6 +1249,7 @@ export const FlowConnectionConfigs = {
     message.replicationSlotName = object.replicationSlotName ?? "";
     message.pushBatchSize = object.pushBatchSize ?? 0;
     message.pushParallelism = object.pushParallelism ?? 0;
+    message.resync = object.resync ?? false;
     return message;
   },
 };
@@ -1380,6 +1411,228 @@ export const FlowConnectionConfigs_TableNameSchemaMappingEntry = {
     message.value = (object.value !== undefined && object.value !== null)
       ? TableSchema.fromPartial(object.value)
       : undefined;
+    return message;
+  },
+};
+
+function createBaseRenameTableOption(): RenameTableOption {
+  return { currentName: "", newName: "" };
+}
+
+export const RenameTableOption = {
+  encode(message: RenameTableOption, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.currentName !== "") {
+      writer.uint32(10).string(message.currentName);
+    }
+    if (message.newName !== "") {
+      writer.uint32(18).string(message.newName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RenameTableOption {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRenameTableOption();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.currentName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.newName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RenameTableOption {
+    return {
+      currentName: isSet(object.currentName) ? String(object.currentName) : "",
+      newName: isSet(object.newName) ? String(object.newName) : "",
+    };
+  },
+
+  toJSON(message: RenameTableOption): unknown {
+    const obj: any = {};
+    if (message.currentName !== "") {
+      obj.currentName = message.currentName;
+    }
+    if (message.newName !== "") {
+      obj.newName = message.newName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RenameTableOption>, I>>(base?: I): RenameTableOption {
+    return RenameTableOption.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RenameTableOption>, I>>(object: I): RenameTableOption {
+    const message = createBaseRenameTableOption();
+    message.currentName = object.currentName ?? "";
+    message.newName = object.newName ?? "";
+    return message;
+  },
+};
+
+function createBaseRenameTablesInput(): RenameTablesInput {
+  return { flowJobName: "", peer: undefined, renameTableOptions: [] };
+}
+
+export const RenameTablesInput = {
+  encode(message: RenameTablesInput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowJobName !== "") {
+      writer.uint32(10).string(message.flowJobName);
+    }
+    if (message.peer !== undefined) {
+      Peer.encode(message.peer, writer.uint32(18).fork()).ldelim();
+    }
+    for (const v of message.renameTableOptions) {
+      RenameTableOption.encode(v!, writer.uint32(26).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RenameTablesInput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRenameTablesInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.peer = Peer.decode(reader, reader.uint32());
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.renameTableOptions.push(RenameTableOption.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RenameTablesInput {
+    return {
+      flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
+      peer: isSet(object.peer) ? Peer.fromJSON(object.peer) : undefined,
+      renameTableOptions: Array.isArray(object?.renameTableOptions)
+        ? object.renameTableOptions.map((e: any) => RenameTableOption.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: RenameTablesInput): unknown {
+    const obj: any = {};
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    if (message.peer !== undefined) {
+      obj.peer = Peer.toJSON(message.peer);
+    }
+    if (message.renameTableOptions?.length) {
+      obj.renameTableOptions = message.renameTableOptions.map((e) => RenameTableOption.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RenameTablesInput>, I>>(base?: I): RenameTablesInput {
+    return RenameTablesInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RenameTablesInput>, I>>(object: I): RenameTablesInput {
+    const message = createBaseRenameTablesInput();
+    message.flowJobName = object.flowJobName ?? "";
+    message.peer = (object.peer !== undefined && object.peer !== null) ? Peer.fromPartial(object.peer) : undefined;
+    message.renameTableOptions = object.renameTableOptions?.map((e) => RenameTableOption.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseRenameTablesOutput(): RenameTablesOutput {
+  return { flowJobName: "" };
+}
+
+export const RenameTablesOutput = {
+  encode(message: RenameTablesOutput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowJobName !== "") {
+      writer.uint32(10).string(message.flowJobName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): RenameTablesOutput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRenameTablesOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RenameTablesOutput {
+    return { flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "" };
+  },
+
+  toJSON(message: RenameTablesOutput): unknown {
+    const obj: any = {};
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RenameTablesOutput>, I>>(base?: I): RenameTablesOutput {
+    return RenameTablesOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RenameTablesOutput>, I>>(object: I): RenameTablesOutput {
+    const message = createBaseRenameTablesOutput();
+    message.flowJobName = object.flowJobName ?? "";
     return message;
   },
 };
@@ -3185,7 +3438,7 @@ export const CreateRawTableOutput = {
 };
 
 function createBaseTableSchema(): TableSchema {
-  return { tableIdentifier: "", columns: {}, primaryKeyColumn: "", isReplicaIdentityFull: false };
+  return { tableIdentifier: "", columns: {}, primaryKeyColumns: [], isReplicaIdentityFull: false };
 }
 
 export const TableSchema = {
@@ -3196,8 +3449,8 @@ export const TableSchema = {
     Object.entries(message.columns).forEach(([key, value]) => {
       TableSchema_ColumnsEntry.encode({ key: key as any, value }, writer.uint32(18).fork()).ldelim();
     });
-    if (message.primaryKeyColumn !== "") {
-      writer.uint32(26).string(message.primaryKeyColumn);
+    for (const v of message.primaryKeyColumns) {
+      writer.uint32(26).string(v!);
     }
     if (message.isReplicaIdentityFull === true) {
       writer.uint32(32).bool(message.isReplicaIdentityFull);
@@ -3234,7 +3487,7 @@ export const TableSchema = {
             break;
           }
 
-          message.primaryKeyColumn = reader.string();
+          message.primaryKeyColumns.push(reader.string());
           continue;
         case 4:
           if (tag !== 32) {
@@ -3261,7 +3514,9 @@ export const TableSchema = {
           return acc;
         }, {})
         : {},
-      primaryKeyColumn: isSet(object.primaryKeyColumn) ? String(object.primaryKeyColumn) : "",
+      primaryKeyColumns: Array.isArray(object?.primaryKeyColumns)
+        ? object.primaryKeyColumns.map((e: any) => String(e))
+        : [],
       isReplicaIdentityFull: isSet(object.isReplicaIdentityFull) ? Boolean(object.isReplicaIdentityFull) : false,
     };
   },
@@ -3280,8 +3535,8 @@ export const TableSchema = {
         });
       }
     }
-    if (message.primaryKeyColumn !== "") {
-      obj.primaryKeyColumn = message.primaryKeyColumn;
+    if (message.primaryKeyColumns?.length) {
+      obj.primaryKeyColumns = message.primaryKeyColumns;
     }
     if (message.isReplicaIdentityFull === true) {
       obj.isReplicaIdentityFull = message.isReplicaIdentityFull;
@@ -3301,7 +3556,7 @@ export const TableSchema = {
       }
       return acc;
     }, {});
-    message.primaryKeyColumn = object.primaryKeyColumn ?? "";
+    message.primaryKeyColumns = object.primaryKeyColumns?.map((e) => e) || [];
     message.isReplicaIdentityFull = object.isReplicaIdentityFull ?? false;
     return message;
   },
@@ -4432,79 +4687,8 @@ export const TIDPartitionRange = {
   },
 };
 
-function createBaseXMINPartitionRange(): XMINPartitionRange {
-  return { start: 0, end: 0 };
-}
-
-export const XMINPartitionRange = {
-  encode(message: XMINPartitionRange, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.start !== 0) {
-      writer.uint32(8).uint32(message.start);
-    }
-    if (message.end !== 0) {
-      writer.uint32(16).uint32(message.end);
-    }
-    return writer;
-  },
-
-  decode(input: _m0.Reader | Uint8Array, length?: number): XMINPartitionRange {
-    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseXMINPartitionRange();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1:
-          if (tag !== 8) {
-            break;
-          }
-
-          message.start = reader.uint32();
-          continue;
-        case 2:
-          if (tag !== 16) {
-            break;
-          }
-
-          message.end = reader.uint32();
-          continue;
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skipType(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): XMINPartitionRange {
-    return { start: isSet(object.start) ? Number(object.start) : 0, end: isSet(object.end) ? Number(object.end) : 0 };
-  },
-
-  toJSON(message: XMINPartitionRange): unknown {
-    const obj: any = {};
-    if (message.start !== 0) {
-      obj.start = Math.round(message.start);
-    }
-    if (message.end !== 0) {
-      obj.end = Math.round(message.end);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<XMINPartitionRange>, I>>(base?: I): XMINPartitionRange {
-    return XMINPartitionRange.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<XMINPartitionRange>, I>>(object: I): XMINPartitionRange {
-    const message = createBaseXMINPartitionRange();
-    message.start = object.start ?? 0;
-    message.end = object.end ?? 0;
-    return message;
-  },
-};
-
 function createBasePartitionRange(): PartitionRange {
-  return { intRange: undefined, timestampRange: undefined, tidRange: undefined, xminRange: undefined };
+  return { intRange: undefined, timestampRange: undefined, tidRange: undefined };
 }
 
 export const PartitionRange = {
@@ -4517,9 +4701,6 @@ export const PartitionRange = {
     }
     if (message.tidRange !== undefined) {
       TIDPartitionRange.encode(message.tidRange, writer.uint32(26).fork()).ldelim();
-    }
-    if (message.xminRange !== undefined) {
-      XMINPartitionRange.encode(message.xminRange, writer.uint32(34).fork()).ldelim();
     }
     return writer;
   },
@@ -4552,13 +4733,6 @@ export const PartitionRange = {
 
           message.tidRange = TIDPartitionRange.decode(reader, reader.uint32());
           continue;
-        case 4:
-          if (tag !== 34) {
-            break;
-          }
-
-          message.xminRange = XMINPartitionRange.decode(reader, reader.uint32());
-          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4575,7 +4749,6 @@ export const PartitionRange = {
         ? TimestampPartitionRange.fromJSON(object.timestampRange)
         : undefined,
       tidRange: isSet(object.tidRange) ? TIDPartitionRange.fromJSON(object.tidRange) : undefined,
-      xminRange: isSet(object.xminRange) ? XMINPartitionRange.fromJSON(object.xminRange) : undefined,
     };
   },
 
@@ -4589,9 +4762,6 @@ export const PartitionRange = {
     }
     if (message.tidRange !== undefined) {
       obj.tidRange = TIDPartitionRange.toJSON(message.tidRange);
-    }
-    if (message.xminRange !== undefined) {
-      obj.xminRange = XMINPartitionRange.toJSON(message.xminRange);
     }
     return obj;
   },
@@ -4609,9 +4779,6 @@ export const PartitionRange = {
       : undefined;
     message.tidRange = (object.tidRange !== undefined && object.tidRange !== null)
       ? TIDPartitionRange.fromPartial(object.tidRange)
-      : undefined;
-    message.xminRange = (object.xminRange !== undefined && object.xminRange !== null)
-      ? XMINPartitionRange.fromPartial(object.xminRange)
       : undefined;
     return message;
   },
@@ -4711,6 +4878,7 @@ function createBaseQRepConfig(): QRepConfig {
     writeMode: undefined,
     stagingPath: "",
     numRowsPerPartition: 0,
+    setupWatermarkTableOnDestination: false,
   };
 }
 
@@ -4763,6 +4931,9 @@ export const QRepConfig = {
     }
     if (message.numRowsPerPartition !== 0) {
       writer.uint32(128).uint32(message.numRowsPerPartition);
+    }
+    if (message.setupWatermarkTableOnDestination === true) {
+      writer.uint32(136).bool(message.setupWatermarkTableOnDestination);
     }
     return writer;
   },
@@ -4886,6 +5057,13 @@ export const QRepConfig = {
 
           message.numRowsPerPartition = reader.uint32();
           continue;
+        case 17:
+          if (tag !== 136) {
+            break;
+          }
+
+          message.setupWatermarkTableOnDestination = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4915,6 +5093,9 @@ export const QRepConfig = {
       writeMode: isSet(object.writeMode) ? QRepWriteMode.fromJSON(object.writeMode) : undefined,
       stagingPath: isSet(object.stagingPath) ? String(object.stagingPath) : "",
       numRowsPerPartition: isSet(object.numRowsPerPartition) ? Number(object.numRowsPerPartition) : 0,
+      setupWatermarkTableOnDestination: isSet(object.setupWatermarkTableOnDestination)
+        ? Boolean(object.setupWatermarkTableOnDestination)
+        : false,
     };
   },
 
@@ -4968,6 +5149,9 @@ export const QRepConfig = {
     if (message.numRowsPerPartition !== 0) {
       obj.numRowsPerPartition = Math.round(message.numRowsPerPartition);
     }
+    if (message.setupWatermarkTableOnDestination === true) {
+      obj.setupWatermarkTableOnDestination = message.setupWatermarkTableOnDestination;
+    }
     return obj;
   },
 
@@ -4998,6 +5182,7 @@ export const QRepConfig = {
       : undefined;
     message.stagingPath = object.stagingPath ?? "";
     message.numRowsPerPartition = object.numRowsPerPartition ?? 0;
+    message.setupWatermarkTableOnDestination = object.setupWatermarkTableOnDestination ?? false;
     return message;
   },
 };

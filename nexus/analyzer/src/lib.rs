@@ -104,6 +104,10 @@ pub enum PeerDDL {
         peer: Box<pt::peerdb_peers::Peer>,
         if_not_exists: bool,
     },
+    DropPeer {
+        peer_name: String,
+        if_exists: bool,
+    },
     CreateMirrorForCDC {
         if_not_exists: bool,
         flow_job: FlowJob,
@@ -154,14 +158,8 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         let mut flow_job_table_mappings = vec![];
                         for table_mapping in &cdc.mapping_options {
                             flow_job_table_mappings.push(FlowJobTableMapping {
-                                source_table_identifier: table_mapping
-                                    .source
-                                    .to_string()
-                                    .to_lowercase(),
-                                destination_table_identifier: table_mapping
-                                    .destination
-                                    .to_string()
-                                    .to_lowercase(),
+                                source_table_identifier: table_mapping.source.to_string(),
+                                destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
                                     .partition_key
                                     .clone()
@@ -189,6 +187,20 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                 }
                             }
                             _ => return Err(anyhow::anyhow!("do_initial_copy must be a boolean")),
+                        };
+
+                        // bool resync true or false, default to false if not in opts
+                        let resync = match raw_options.remove("resync") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            // also support "true" and "false" as strings
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
+                                match s.as_ref() {
+                                    "true" => true,
+                                    "false" => false,
+                                    _ => return Err(anyhow::anyhow!("resync must be a boolean")),
+                                }
+                            }
+                            _ => false,
                         };
 
                         let publication_name: Option<String> = match raw_options
@@ -298,6 +310,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             push_batch_size,
                             push_parallelism,
                             max_batch_size,
+                            resync,
                         };
 
                         // Error reporting
@@ -357,6 +370,13 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
             } => Ok(Some(PeerDDL::DropMirror {
                 if_exists: *if_exists,
                 flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
+            Statement::DropPeer {
+                if_exists,
+                peer_name,
+            } => Ok(Some(PeerDDL::DropPeer {
+                if_exists: *if_exists,
+                peer_name: peer_name.to_string().to_lowercase(),
             })),
             _ => Ok(None),
         }
@@ -620,9 +640,9 @@ fn parse_db_options(
         }
         DbType::S3 => {
             let s3_conn_str: String = opts
-                    .get("metadata_db")
-                    .map(|s| s.to_string())
-                    .unwrap_or_default();
+                .get("metadata_db")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
             let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
             let s3_config = S3Config {
                 url: opts

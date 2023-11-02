@@ -99,7 +99,7 @@ func (suite *PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 			"id": string(qvalue.QValueKindInt32),
 			"hi": string(qvalue.QValueKindInt64),
 		},
-		PrimaryKeyColumn: "id",
+		PrimaryKeyColumns: []string{"id"},
 	}, output.TableNameSchemaMapping[tableName])
 }
 
@@ -131,7 +131,7 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 			"c15": string(qvalue.QValueKindTimestampTZ),
 			"c16": string(qvalue.QValueKindUUID),
 		},
-		PrimaryKeyColumn: "id",
+		PrimaryKeyColumns: []string{"id"},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
 	for columnName, columnType := range expectedTableSchema.Columns {
@@ -177,7 +177,7 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 			"±ªþ³§":  string(qvalue.QValueKindString),
 			"カラム":    string(qvalue.QValueKindString),
 		},
-		PrimaryKeyColumn: "id",
+		PrimaryKeyColumns: []string{"id"},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
 	for columnName, columnType := range expectedTableSchema.Columns {
@@ -217,7 +217,7 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 			"   ": string(qvalue.QValueKindInt64),
 			"	":   string(qvalue.QValueKindDate),
 		},
-		PrimaryKeyColumn: " ",
+		PrimaryKeyColumns: []string{" "},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
 	for columnName, columnType := range expectedTableSchema.Columns {

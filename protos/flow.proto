@@ -62,6 +62,24 @@ message FlowConnectionConfigs {
   // the below two are for eventhub only
   int64 push_batch_size = 21;
   int64 push_parallelism = 22;
+
+  // if true, then the flow will be resynced
+  bool resync = 23;
+}
+
+message RenameTableOption {
+  string current_name = 1;
+  string new_name = 2;
+}
+
+message RenameTablesInput {
+  string flow_job_name = 1;
+  peerdb_peers.Peer peer = 2;
+  repeated RenameTableOption rename_table_options = 3;
+}
+
+message RenameTablesOutput {
+  string flow_job_name = 1;
 }
 
 message SyncFlowOptions {
@@ -154,7 +172,7 @@ message TableSchema {
   // list of column names and types, types can be one of the following:
   // "string", "int", "float", "bool", "timestamp".
   map<string, string> columns = 2;
-  string primary_key_column = 3;
+  repeated string primary_key_columns = 3;
   bool is_replica_identity_full = 4;
 }
 
@@ -208,18 +226,12 @@ message TIDPartitionRange {
   TID end = 2;
 }
 
-message XMINPartitionRange {
-  uint32 start = 1;
-  uint32 end = 2;
-}
-
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
     IntPartitionRange int_range = 1;
     TimestampPartitionRange timestamp_range = 2;
     TIDPartitionRange tid_range = 3;
-    XMINPartitionRange xmin_range = 4;
   }
 }
 
@@ -257,7 +269,9 @@ message QRepConfig {
   bool initial_copy_only = 8;
   QRepSyncMode sync_mode = 9;
 
+  // DEPRECATED: eliminate when breaking changes are allowed.
   uint32 batch_size_int = 10;
+  // DEPRECATED: eliminate when breaking changes are allowed.
   uint32 batch_duration_seconds = 11;
 
   uint32 max_parallel_workers = 12;
@@ -279,6 +293,9 @@ message QRepConfig {
   // and instead uses the number of rows per partition to determine
   // how many rows to process per batch.
   uint32 num_rows_per_partition = 16;
+
+  // Creates the watermark table on the destination as-is, can be used for some queries.
+  bool setup_watermark_table_on_destination = 17;
 }
 
 message QRepPartition {

@@ -21,10 +21,11 @@ import (
 )
 
 type APIServerParams struct {
-	ctx              context.Context
-	Port             uint
-	GatewayPort      uint
-	TemporalHostPort string
+	ctx               context.Context
+	Port              uint
+	GatewayPort       uint
+	TemporalHostPort  string
+	TemporalNamespace string
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
@@ -58,7 +59,8 @@ func APIMain(args *APIServerParams) error {
 	ctx := args.ctx
 
 	tc, err := client.Dial(client.Options{
-		HostPort: args.TemporalHostPort,
+		HostPort:  args.TemporalHostPort,
+		Namespace: args.TemporalNamespace,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)

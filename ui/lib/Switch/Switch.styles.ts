@@ -6,8 +6,8 @@ export const SwitchRoot = styled(RadixSwitch.Root)`
 
   all: unset;
 
-  width: 40px;
-  height: 24px;
+  width: 30px;
+  height: 14px;
 
   position: relative;
   background-color: var(--background-color);
@@ -41,8 +41,8 @@ export const SwitchRoot = styled(RadixSwitch.Root)`
 
 export const SwitchThumb = styled(RadixSwitch.Thumb)`
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
 
   background-color: ${({ theme }) => theme.colors.base.surface.normal};

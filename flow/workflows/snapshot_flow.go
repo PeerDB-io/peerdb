@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/concurrency"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
@@ -130,7 +131,16 @@ func (s *SnapshotFlowExecution) cloneTable(
 		partitionCol = mapping.PartitionKey
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}", srcName, partitionCol)
+	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"flowName":     flowName,
+			"snapshotName": snapshotName,
+		}).Errorf("unable to parse source table")
+		return fmt.Errorf("unable to parse source table: %w", err)
+	}
+	query := fmt.Sprintf("SELECT * FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+		parsedSrcTable.String(), partitionCol)
 
 	numWorkers := uint32(8)
 	if s.config.SnapshotMaxParallelWorkers > 0 {

@@ -1,20 +1,32 @@
-import { PeerConfig } from '@/app/peers/create/configuration/types';
 import {
+  CatalogPeer,
+  PeerConfig,
+  UCreatePeerResponse,
+  UValidatePeerResponse,
+} from '@/app/dto/PeersDTO';
+import prisma from '@/app/utils/prisma';
+import {
+  BigqueryConfig,
   DBType,
+  EventHubConfig,
+  EventHubGroupConfig,
   Peer,
   PostgresConfig,
+  S3Config,
   SnowflakeConfig,
+  SqlServerConfig,
 } from '@/grpc_generated/peers';
 import {
   CreatePeerRequest,
   CreatePeerResponse,
   CreatePeerStatus,
-  ListPeersRequest,
   ValidatePeerRequest,
   ValidatePeerResponse,
   ValidatePeerStatus,
+  createPeerStatusFromJSON,
+  validatePeerStatusFromJSON,
 } from '@/grpc_generated/route';
-import { GetFlowServiceClientFromEnv } from '@/rpc/rpc';
+import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
 const constructPeer = (
   name: string,
@@ -42,32 +54,99 @@ const constructPeer = (
 export async function POST(request: Request) {
   const body = await request.json();
   const { name, type, config, mode } = body;
-  const flowServiceClient = GetFlowServiceClientFromEnv();
+  const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const peer = constructPeer(name, type, config);
   if (mode === 'validate') {
     const validateReq: ValidatePeerRequest = { peer };
-    const validateStatus: ValidatePeerResponse =
-      await flowServiceClient.validatePeer(validateReq);
-    if (validateStatus.status === ValidatePeerStatus.INVALID) {
-      return new Response(validateStatus.message);
-    } else if (validateStatus.status === ValidatePeerStatus.VALID) {
-      return new Response('valid');
-    }
+    const validateStatus: ValidatePeerResponse = await fetch(
+      `${flowServiceAddr}/v1/peers/validate`,
+      {
+        method: 'POST',
+        body: JSON.stringify(validateReq),
+      }
+    ).then((res) => {
+      return res.json();
+    });
+    let response: UValidatePeerResponse = {
+      valid:
+        validatePeerStatusFromJSON(validateStatus.status) ===
+        ValidatePeerStatus.VALID,
+      message: validateStatus.message,
+    };
+    return new Response(JSON.stringify(response));
   } else if (mode === 'create') {
     const req: CreatePeerRequest = { peer };
-    const createStatus: CreatePeerResponse =
-      await flowServiceClient.createPeer(req);
-    if (createStatus.status === CreatePeerStatus.FAILED) {
-      return new Response(createStatus.message);
-    } else if (createStatus.status === CreatePeerStatus.CREATED) {
-      return new Response('created');
-    } else return new Response('status of peer creation is unknown');
-  } else return new Response('mode of peer creation is unknown');
+    const createStatus: CreatePeerResponse = await fetch(
+      `${flowServiceAddr}/v1/peers/create`,
+      {
+        method: 'POST',
+        body: JSON.stringify(req),
+      }
+    ).then((res) => {
+      return res.json();
+    });
+    let response: UCreatePeerResponse = {
+      created:
+        createPeerStatusFromJSON(createStatus.status) ===
+        CreatePeerStatus.CREATED,
+      message: createStatus.message,
+    };
+    return new Response(JSON.stringify(response));
+  }
 }
 
+export const getTruePeer = (peer: CatalogPeer) => {
+  const newPeer: Peer = {
+    name: peer.name,
+    type: peer.type,
+  };
+  const options = peer.options;
+  let config:
+    | BigqueryConfig
+    | SnowflakeConfig
+    | PostgresConfig
+    | EventHubConfig
+    | S3Config
+    | SqlServerConfig
+    | EventHubGroupConfig;
+  switch (peer.type) {
+    case 0:
+      config = BigqueryConfig.decode(options);
+      newPeer.bigqueryConfig = config;
+      break;
+    case 1:
+      config = SnowflakeConfig.decode(options);
+      newPeer.snowflakeConfig = config;
+      break;
+    case 3:
+      config = PostgresConfig.decode(options);
+      newPeer.postgresConfig = config;
+      break;
+    case 4:
+      config = EventHubConfig.decode(options);
+      newPeer.eventhubConfig = config;
+      break;
+    case 5:
+      config = S3Config.decode(options);
+      newPeer.s3Config = config;
+      break;
+    case 6:
+      config = SqlServerConfig.decode(options);
+      newPeer.sqlserverConfig = config;
+      break;
+    case 7:
+      config = EventHubGroupConfig.decode(options);
+      newPeer.eventhubGroupConfig = config;
+      break;
+    default:
+      return newPeer;
+  }
+  return newPeer;
+};
+
+// GET all the peers from the database
 export async function GET(request: Request) {
-  let flowServiceClient = GetFlowServiceClientFromEnv();
-  let req: ListPeersRequest = {};
-  let peers = await flowServiceClient.listPeers(req);
-  return new Response(JSON.stringify(peers));
+  const peers = await prisma.peers.findMany();
+  const truePeers: Peer[] = peers.map((peer) => getTruePeer(peer));
+  return new Response(JSON.stringify(truePeers));
 }

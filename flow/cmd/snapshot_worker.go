@@ -12,12 +12,14 @@ import (
 )
 
 type SnapshotWorkerOptions struct {
-	TemporalHostPort string
+	TemporalHostPort  string
+	TemporalNamespace string
 }
 
 func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	clientOptions := client.Options{
-		HostPort: opts.TemporalHostPort,
+		HostPort:  opts.TemporalHostPort,
+		Namespace: opts.TemporalNamespace,
 	}
 
 	c, err := client.Dial(clientOptions)

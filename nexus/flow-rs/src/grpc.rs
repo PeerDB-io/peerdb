@@ -81,6 +81,7 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_qrep_flow_req = pt::peerdb_route::CreateQRepFlowRequest {
             qrep_config: Some(qrep_config.clone()),
+            create_catalog_entry: false,
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
         let workflow_id = response.into_inner().worflow_id;
@@ -141,6 +142,22 @@ impl FlowGrpcClient {
         }
     }
 
+    pub async fn drop_peer(&mut self, peer_name: &str) -> anyhow::Result<()> {
+        let drop_peer_req = pt::peerdb_route::DropPeerRequest {
+            peer_name: String::from(peer_name),
+        };
+        let response = self.client.drop_peer(drop_peer_req).await?;
+        let drop_response = response.into_inner();
+        if drop_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to drop peer: {:?}",
+                drop_response.error_message
+            )))
+        }
+    }
+
     pub async fn start_peer_flow_job(
         &mut self,
         job: &FlowJob,
@@ -190,6 +207,7 @@ impl FlowGrpcClient {
             push_batch_size: job.push_batch_size.unwrap_or_default(),
             push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
+            resync: job.resync,
             ..Default::default()
         };
 
@@ -263,16 +281,6 @@ impl FlowGrpcClient {
                             cfg.wait_between_batches_seconds = n as u32;
                         }
                     }
-                    "batch_size_int" => {
-                        if let Some(n) = n.as_i64() {
-                            cfg.batch_size_int = n as u32;
-                        }
-                    }
-                    "batch_duration_timestamp" => {
-                        if let Some(n) = n.as_i64() {
-                            cfg.batch_duration_seconds = n as u32;
-                        }
-                    }
                     "num_rows_per_partition" => {
                         if let Some(n) = n.as_i64() {
                             cfg.num_rows_per_partition = n as u32;
@@ -283,6 +291,8 @@ impl FlowGrpcClient {
                 Value::Bool(v) => {
                     if key == "initial_copy_only" {
                         cfg.initial_copy_only = *v;
+                    } else if key == "setup_watermark_table_on_destination" {
+                        cfg.setup_watermark_table_on_destination = *v;
                     } else {
                         return anyhow::Result::Err(anyhow::anyhow!("invalid bool option {}", key));
                     }

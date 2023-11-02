@@ -9,21 +9,28 @@ export const tableMappingSchema = z
       destination: z
         .string()
         .min(1, 'destination table names, if added, must be non-empty'),
+      partitionKey: z.string().optional(),
     })
   )
   .nonempty('At least one table mapping is required');
 
 export const cdcSchema = z.object({
-  source: z.object({
-    name: z.string().nonempty(),
-    type: z.any(),
-    config: z.any(),
-  }),
-  destination: z.object({
-    name: z.string().nonempty(),
-    type: z.any(),
-    config: z.any(),
-  }),
+  source: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Source peer is required' }
+  ),
+  destination: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Destination peer is required' }
+  ),
   doInitialCopy: z.boolean().optional(),
   publicationName: z
     .string({
@@ -71,4 +78,81 @@ export const cdcSchema = z.object({
     .max(255, 'CDC staging path must be less than 255 characters')
     .optional(),
   softDelete: z.boolean().optional(),
+});
+
+export const qrepSchema = z.object({
+  sourcePeer: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Source peer is required' }
+  ),
+  destinationPeer: z.object(
+    {
+      name: z.string().min(1),
+      type: z.any(),
+      config: z.any(),
+    },
+    { required_error: 'Destination peer is required' }
+  ),
+  initialCopyOnly: z.boolean().optional(),
+  setupWatermarkTableOnDestination: z.boolean().optional(),
+  destinationTableIdentifier: z
+    .string({
+      invalid_type_error: 'Destination table name must be a string',
+      required_error: 'Destination table name is required',
+    })
+    .min(1, 'Destination table name must be non-empty')
+    .max(255, 'Destination table name must be less than 255 characters'),
+  watermarkTable: z
+    .string({
+      invalid_type_error: 'Watermark table must be a string',
+      required_error: 'Watermark table is required',
+    })
+    .min(1, 'Watermark table must be non-empty')
+    .max(255, 'Watermark table must be less than 255 characters'),
+  watermarkColumn: z
+    .string({
+      invalid_type_error: 'Watermark column must be a string',
+      required_error: 'Watermark column is required',
+    })
+    .min(1, 'Watermark column must be non-empty')
+    .max(255, 'Watermark column must be less than 255 characters'),
+  numRowsPerPartition: z
+    .number({
+      invalid_type_error: 'Rows per partition must be a number',
+      required_error: 'Rows per partition is required',
+    })
+    .int()
+    .min(1, 'Rows per partition must be a positive integer'),
+  maxParallelWorkers: z
+    .number({
+      invalid_type_error: 'max workers must be a number',
+    })
+    .int()
+    .min(1, 'max workers must be a positive integer')
+    .optional(),
+  stagingPath: z
+    .string({
+      invalid_type_error: 'Staging path must be a string',
+    })
+    .max(255, 'Staging path must be less than 255 characters')
+    .optional(),
+  writeMode: z.object({
+    writeType: z
+      .number({ required_error: 'Write type is required' })
+      .int()
+      .min(0)
+      .max(2),
+    upsert_key_columns: z.array(z.string()).optional(),
+  }),
+  waitBetweenBatchesSeconds: z
+    .number({
+      invalid_type_error: 'Batch wait must be a number',
+    })
+    .int()
+    .min(1, 'Batch wait must be a non-negative integer')
+    .optional(),
 });

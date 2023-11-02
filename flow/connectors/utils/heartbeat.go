@@ -19,7 +19,7 @@ func HeartbeatRoutine(
 	go func() {
 		for {
 			msg := fmt.Sprintf("heartbeat #%d: %s", counter, message())
-			activity.RecordHeartbeat(ctx, msg)
+			RecordHeartbeatWithRecover(ctx, msg)
 			counter += 1
 			to := time.After(interval)
 			select {

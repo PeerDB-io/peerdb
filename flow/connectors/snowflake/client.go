@@ -10,6 +10,7 @@ import (
 
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 )
 
@@ -55,7 +56,7 @@ func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*S
 	}
 
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
-		ctx, database, snowflakeTypeToQValueKindMap, qValueKindToSnowflakeTypeMap)
+		ctx, database, snowflakeTypeToQValueKindMap, qvalue.QValueKindToSnowflakeTypeMap)
 
 	return &SnowflakeClient{
 		GenericSQLQueryExecutor: genericExecutor,

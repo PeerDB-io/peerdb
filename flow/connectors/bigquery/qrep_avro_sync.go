@@ -10,7 +10,6 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -92,8 +91,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		}).Errorf("failed to delete staging table %s: %v", stagingTable, err)
 	}
 
-	log.Printf("loaded stage into %s.%s",
-		datasetID, dstTableName)
+	log.Printf("loaded stage into %s.%s", datasetID, dstTableName)
 
 	return numRecords, nil
 }
@@ -150,13 +148,10 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	stmts = append(stmts, insertMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 	// Execute the statements in a transaction
-	syncRecordsStartTime := time.Now()
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
-	metrics.LogQRepSyncMetrics(s.connector.ctx, flowJobName,
-		int64(numRecords), time.Since(syncRecordsStartTime))
 
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {
@@ -387,7 +382,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			return 0, fmt.Errorf("failed to write record to OCF file: %w", err)
 		}
 		numRecords++
-
 	}
 	activity.RecordHeartbeat(s.connector.ctx, fmt.Sprintf(
 		"Writing OCF contents to BigQuery for partition/batch ID %s",

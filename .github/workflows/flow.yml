@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     services:
       pg_cdc:
-        image: postgres:15.4-alpine
+        image: postgis/postgis:15-3.4-alpine
         ports:
           - 7132:5432
         env:
@@ -40,7 +40,12 @@ jobs:
       - name: install gotestsum
         run: |
           go install gotest.tools/gotestsum@latest
-
+      
+      - name: install lib-geos
+        run: |
+          sudo apt-get update
+          sudo apt-get install libgeos-dev
+      
       - name: download go modules
         run: |
           go mod download

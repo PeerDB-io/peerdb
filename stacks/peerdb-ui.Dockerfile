@@ -2,6 +2,7 @@
 
 # Base stage
 FROM node:18-bookworm-slim AS base
+RUN apt-get update && apt-get install -y openssl
 WORKDIR /app
 
 # Dependencies stage
@@ -41,7 +42,7 @@ RUN chown nextjs:nodejs .next
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY stacks/ui-entrypoint.sh /app/entrypoint.sh
+COPY stacks/ui/ui-entrypoint.sh /app/entrypoint.sh
 
 # allow permissions for nextjs user to do anything in /app
 RUN chown -R nextjs:nodejs /app

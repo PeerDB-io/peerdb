@@ -1,21 +1,12 @@
 import { QRepSyncMode } from '@/grpc_generated/flow';
 import { Peer } from '@/grpc_generated/peers';
+import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
   {
-    label: 'Source Peer',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, source: value as Peer })),
-    tips: 'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.',
-    helpfulLink:
-      'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites',
-    type: 'select',
-    required: true,
-  },
-  {
     label: 'Destination Peer',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, destination: value as Peer })),
+      setter((curr: CDCConfig) => ({ ...curr, destination: value as Peer })),
     tips: 'The peer to which data will be replicated.',
     type: 'select',
     required: true,
@@ -23,24 +14,26 @@ export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Initial Copy',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
+      setter((curr: CDCConfig) => ({
         ...curr,
         doInitialCopy: (value as boolean) || false,
       })),
     tips: 'Specify if you want initial load to happen for your tables.',
-    helpfulLink: 'https://www.postgresql.org/docs/8.0/user-manag.html',
     type: 'switch',
   },
   {
     label: 'Publication Name',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, publicationName: (value as string) || '' })),
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        publicationName: (value as string) || '',
+      })),
     tips: 'If set, PeerDB will use this publication for the mirror.',
   },
   {
     label: 'Replication Slot Name',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
+      setter((curr: CDCConfig) => ({
         ...curr,
         replicationSlotName: (value as string) || '',
       })),
@@ -49,7 +42,7 @@ export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Snapshot Number of Rows Per Partition',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
+      setter((curr: CDCConfig) => ({
         ...curr,
         snapshotNumRowsPerPartition: parseInt(value as string, 10) || 500000,
       })),
@@ -60,7 +53,7 @@ export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Snapshot Maximum Parallel Workers',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
+      setter((curr: CDCConfig) => ({
         ...curr,
         snapshotMaxParallelWorkers: parseInt(value as string, 10) || 8,
       })),
@@ -71,7 +64,7 @@ export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Snapshot Number of Tables In Parallel',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
+      setter((curr: CDCConfig) => ({
         ...curr,
         snapshotNumTablesInParallel: parseInt(value as string, 10) || 1,
       })),
@@ -82,7 +75,7 @@ export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Snapshot Sync Mode',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
+      setter((curr: CDCConfig) => ({
         ...curr,
         snapshotSyncMode:
           (value as QRepSyncMode) || QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
@@ -94,7 +87,7 @@ export const cdcSettings: MirrorSetting[] = [
   {
     label: 'CDC Sync Mode',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
+      setter((curr: CDCConfig) => ({
         ...curr,
         cdcSyncMode:
           (value as QRepSyncMode) || QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
@@ -106,7 +99,7 @@ export const cdcSettings: MirrorSetting[] = [
   {
     label: 'Snapshot Staging Path',
     stateHandler: (value, setter) =>
-      setter((curr) => ({
+      setter((curr: CDCConfig) => ({
         ...curr,
         snapshotStagingPath: value as string | '',
       })),
@@ -115,13 +108,19 @@ export const cdcSettings: MirrorSetting[] = [
   {
     label: 'CDC Staging Path',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, cdcStagingPath: (value as string) || '' })),
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        cdcStagingPath: (value as string) || '',
+      })),
     tips: 'You can specify staging path if you have set the CDC sync mode as AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket url',
   },
   {
     label: 'Soft Delete',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, softDelete: (value as boolean) || false })),
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        softDelete: (value as boolean) || false,
+      })),
     tips: 'Allows you to mark some records as deleted without actual erasure from the database',
     default: 'SQL',
     type: 'switch',

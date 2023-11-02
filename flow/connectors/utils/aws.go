@@ -102,12 +102,16 @@ func CreateS3Client(s3Creds S3PeerCredentials) (*s3.S3, error) {
 		return nil, fmt.Errorf("failed to get AWS secrets: %w", err)
 	}
 
-	sess := session.Must(session.NewSession(&aws.Config{
+	config := &aws.Config{
 		Region:   aws.String(awsSecrets.Region),
 		Endpoint: aws.String(awsSecrets.Endpoint),
-		Credentials: credentials.NewStaticCredentials(
-			awsSecrets.AccessKeyID, awsSecrets.SecretAccessKey, ""),
-	}))
+	}
+
+	if s3Creds.AccessKeyID != "" && s3Creds.SecretAccessKey != "" {
+		config.Credentials = credentials.NewStaticCredentials(s3Creds.AccessKeyID, s3Creds.SecretAccessKey, "")
+	}
+
+	sess := session.Must(session.NewSession(config))
 
 	s3svc := s3.New(sess)
 	return s3svc, nil

@@ -12,12 +12,10 @@ import (
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/metrics"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	log "github.com/sirupsen/logrus"
-	"go.temporal.io/sdk/activity"
 )
 
 type EventHubConnector struct {
@@ -61,15 +59,8 @@ func NewEventHubConnector(
 func (c *EventHubConnector) Close() error {
 	var allErrors error
 
-	// close all the eventhub connections.
-	err := c.hubManager.Close()
-	if err != nil {
-		log.Errorf("failed to close eventhub connections: %v", err)
-		allErrors = errors.Join(allErrors, err)
-	}
-
 	// close the postgres metadata store.
-	err = c.pgMetadata.Close()
+	err := c.pgMetadata.Close()
 	if err != nil {
 		log.Errorf("failed to close postgres metadata store: %v", err)
 		allErrors = errors.Join(allErrors, err)
@@ -129,46 +120,35 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 	return nil
 }
 
-func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf("syncing records to eventhub with"+
-			" push parallelism %d and push batch size %d",
-			req.PushParallelism, req.PushBatchSize)
-	})
-	defer func() {
-		shutdown <- true
-	}()
-	tableNameRowsMapping := cmap.New[uint32]()
-	batch := req.Records
-	eventsPerHeartBeat := 1000
-	eventsPerBatch := int(req.PushBatchSize)
-	if eventsPerBatch <= 0 {
-		eventsPerBatch = 10000
-	}
-	maxParallelism := req.PushParallelism
-	if maxParallelism <= 0 {
-		maxParallelism = 10
-	}
+// returns the number of records synced
+func (c *EventHubConnector) processBatch(
+	flowJobName string,
+	batch *model.CDCRecordStream,
+	eventsPerBatch int,
+	maxParallelism int64,
+) (uint32, error) {
+	ctx := context.Background()
 
+	tableNameRowsMapping := cmap.New[uint32]()
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
-	startTime := time.Now()
-	for i, record := range batch.Records {
+	numRecords := 0
+	for record := range batch.GetRecords() {
+		numRecords++
 		json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
 		if err != nil {
 			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
+				"flowName": flowJobName,
 			}).Infof("failed to convert record to json: %v", err)
-			return nil, err
+			return 0, err
 		}
 
 		flushBatch := func() error {
-			err := c.sendEventBatch(batchPerTopic, maxParallelism,
-				req.FlowJobName, tableNameRowsMapping)
+			err := c.sendEventBatch(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
 			if err != nil {
 				log.WithFields(log.Fields{
-					"flowName": req.FlowJobName,
+					"flowName": flowJobName,
 				}).Infof("failed to send event batch: %v", err)
 				return err
 			}
@@ -179,45 +159,88 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		topicName, err := NewScopedEventhub(record.GetTableName())
 		if err != nil {
 			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
+				"flowName": flowJobName,
 			}).Infof("failed to get topic name: %v", err)
-			return nil, err
+			return 0, err
 		}
 
-		err = batchPerTopic.AddEvent(topicName, json)
+		err = batchPerTopic.AddEvent(ctx, topicName, json)
 		if err != nil {
 			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
+				"flowName": flowJobName,
 			}).Infof("failed to add event to batch: %v", err)
-			return nil, err
+			return 0, err
 		}
 
-		if i%eventsPerHeartBeat == 0 {
-			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("sent %d records to hub: %s", i, topicName.ToString()))
-		}
-
-		if (i+1)%eventsPerBatch == 0 {
+		if (numRecords)%eventsPerBatch == 0 {
 			err := flushBatch()
 			if err != nil {
-				return nil, err
+				return 0, err
 			}
 		}
 	}
 
-	// send the remaining events.
 	if batchPerTopic.Len() > 0 {
-		err := c.sendEventBatch(batchPerTopic, maxParallelism,
-			req.FlowJobName, tableNameRowsMapping)
+		err := c.sendEventBatch(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
 		if err != nil {
+			return 0, err
+		}
+	}
+
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("[total] successfully sent %d records to event hub", numRecords)
+	return uint32(numRecords), nil
+}
+
+func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
+		return fmt.Sprintf("syncing records to eventhub with"+
+			" push parallelism %d and push batch size %d",
+			req.PushParallelism, req.PushBatchSize)
+	})
+	defer func() {
+		shutdown <- true
+	}()
+
+	eventsPerBatch := int(req.PushBatchSize)
+	if eventsPerBatch <= 0 {
+		eventsPerBatch = 10000
+	}
+	maxParallelism := req.PushParallelism
+	if maxParallelism <= 0 {
+		maxParallelism = 10
+	}
+
+	var err error
+	batch := req.Records
+	var numRecords uint32
+
+	// if env var PEERDB_BETA_EVENTHUB_PUSH_ASYNC=true
+	// we kick off processBatch in a goroutine and return immediately.
+	// otherwise, we block until processBatch is done.
+	if utils.GetEnvBool("PEERDB_BETA_EVENTHUB_PUSH_ASYNC", false) {
+		go func() {
+			numRecords, err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
+			if err != nil {
+				log.Errorf("[async] failed to process batch: %v", err)
+			}
+		}()
+	} else {
+		numRecords, err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
+		if err != nil {
+			log.Errorf("failed to process batch: %v", err)
 			return nil, err
 		}
 	}
-	rowsSynced := len(batch.Records)
-	log.WithFields(log.Fields{
-		"flowName": req.FlowJobName,
-	}).Infof("[total] successfully sent %d records to event hub", rowsSynced)
 
-	err := c.updateLastOffset(req.FlowJobName, batch.LastCheckPointID)
+	lastCheckpoint, err := req.Records.GetLastCheckpoint()
+	if err != nil {
+		log.Errorf("failed to get last checkpoint: %v", err)
+		return nil, err
+	}
+
+	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
 		log.Errorf("failed to update last offset: %v", err)
 		return nil, err
@@ -228,18 +251,17 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	metrics.LogSyncMetrics(c.ctx, req.FlowJobName, int64(rowsSynced), time.Since(startTime))
-	metrics.LogNormalizeMetrics(c.ctx, req.FlowJobName, int64(rowsSynced),
-		time.Since(startTime), int64(rowsSynced))
+	rowsSynced := int64(numRecords)
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: batch.FirstCheckPointID,
-		LastSyncedCheckPointID:  batch.LastCheckPointID,
-		NumRecordsSynced:        int64(len(batch.Records)),
-		TableNameRowsMapping:    tableNameRowsMapping.Items(),
+		FirstSyncedCheckPointID: batch.GetFirstCheckpoint(),
+		LastSyncedCheckPointID:  lastCheckpoint,
+		NumRecordsSynced:        rowsSynced,
+		TableNameRowsMapping:    make(map[string]uint32),
 	}, nil
 }
 
 func (c *EventHubConnector) sendEventBatch(
+	ctx context.Context,
 	events *HubBatches,
 	maxParallelism int64,
 	flowName string,
@@ -268,7 +290,7 @@ func (c *EventHubConnector) sendEventBatch(
 			}()
 
 			numEvents := eventBatch.NumEvents()
-			err := c.sendBatch(tblName, eventBatch)
+			err := c.sendBatch(ctx, tblName, eventBatch)
 			if err != nil {
 				once.Do(func() { firstErr = err })
 				return
@@ -298,8 +320,12 @@ func (c *EventHubConnector) sendEventBatch(
 	return nil
 }
 
-func (c *EventHubConnector) sendBatch(tblName ScopedEventhub, events *azeventhubs.EventDataBatch) error {
-	subCtx, cancel := context.WithTimeout(c.ctx, 5*time.Minute)
+func (c *EventHubConnector) sendBatch(
+	ctx context.Context,
+	tblName ScopedEventhub,
+	events *azeventhubs.EventDataBatch,
+) error {
+	subCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	hub, err := c.hubManager.GetOrCreateHubClient(tblName)

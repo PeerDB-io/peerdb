@@ -231,6 +231,93 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF_Avro_CDC() {
 	env.AssertExpectations(s.T())
 }
 
+func (s *PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env)
+
+	srcTableName := s.attachSchemaSuffix("test_invalid_geo_sf_avro_cdc")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_invalid_geo_sf_avro_cdc")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE %s (
+			id SERIAL PRIMARY KEY,
+			line GEOMETRY(LINESTRING) NOT NULL,
+			poly GEOGRAPHY(POLYGON) NOT NULL
+		);
+	`, srcTableName))
+	s.NoError(err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_invalid_geo_sf_avro_cdc"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.sfHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	limits := peerflow.CDCFlowLimits{
+		TotalSyncFlows: 2,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert 10 rows into the source table
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		// insert 10 rows into the source table
+		for i := 0; i < 4; i++ {
+			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s (line,poly) VALUES ($1,$2)
+		`, srcTableName), "010200000001000000000000000000F03F0000000000000040",
+				"0103000020e6100000010000000c0000001a8361d35dc64140afdb8d2b1bc3c9bf1b8ed4685fc641405ba64c"+
+					"579dc2c9bf6a6ad95a5fc64140cd82767449c2c9bf9570fbf85ec641408a07944db9c2c9bf729a18a55ec6414021b8b748c7c2c9bfba46de4c"+
+					"5fc64140f2567052abc2c9bf2df9c5925fc641409394e16573c2c9bf2df9c5925fc6414049eceda9afc1c9bfdd1cc1a05fc64140fe43faedebc0"+
+					"c9bf4694f6065fc64140fe43faedebc0c9bfffe7305f5ec641406693d6f2ddc0c9bf1a8361d35dc64140afdb8d2b1bc3c9bf",
+			)
+			s.NoError(err)
+		}
+		fmt.Println("Inserted 4 invalid geography rows into the source table")
+		for i := 4; i < 10; i++ {
+			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s (line,poly) VALUES ($1,$2)
+		`, srcTableName), "010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
+				"010300000001000000050000000000000000000000000000000000000000000000"+
+					"00000000000000000000f03f000000000000f03f000000000000f03f0000000000"+
+					"00f03f000000000000000000000000000000000000000000000000")
+			s.NoError(err)
+		}
+		fmt.Println("Inserted 6 valid geography rows and 10 total rows into source")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
+
+	// We inserted 4 invalid shapes in each.
+	// They should have filtered out as null on destination
+	lineCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "line")
+	s.NoError(err)
+	s.Equal(6, lineCount)
+
+	polyCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "poly")
+	s.NoError(err)
+	s.Equal(6, polyCount)
+
+	// TODO: verify that the data is correctly synced to the destination table
+	// on the bigquery side
+
+	env.AssertExpectations(s.T())
+}
+
 func (s *PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
@@ -596,7 +683,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
-		c39 TXID_SNAPSHOT,c40 UUID,c41 XML);
+		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 GEOMETRY(POINT), c43 GEOGRAPHY(POINT),
+		c44 GEOGRAPHY(POLYGON), c45 GEOGRAPHY(LINESTRING), c46 GEOMETRY(LINESTRING), c47 GEOMETRY(POLYGON));
 	CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
 		RETURNS bytea AS $body$
 			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
@@ -637,7 +725,10 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		1.2,1.23,4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
 		txid_current_snapshot(),
-		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello');
+		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello'),
+		'POINT(1 2)','POINT(40.7128 -74.0060)','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
+		'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)','LINESTRING(0 0, 1 1, 2 2)',
+		'POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))';
 		`, srcTableName))
 		s.NoError(err)
 		fmt.Println("Executed an insert with all types")
@@ -656,7 +747,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32"})
+		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46"})
 	if err != nil {
 		fmt.Println("error  %w", err)
 	}
@@ -679,7 +770,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF_Avro_CDC() {
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
-		c39 TXID_SNAPSHOT,c40 UUID,c41 XML);
+		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 GEOMETRY(POINT), c43 GEOGRAPHY(POINT),
+		c44 GEOGRAPHY(POLYGON), c45 GEOGRAPHY(LINESTRING), c46 GEOMETRY(LINESTRING), c47 GEOMETRY(POLYGON));
 	CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
 		RETURNS bytea AS $body$
 			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
@@ -721,7 +813,10 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF_Avro_CDC() {
 		1.2,1.23,4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
 		txid_current_snapshot(),
-		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello');
+		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello'),
+		'POINT(1 2)','POINT(40.7128 -74.0060)','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
+		'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)','LINESTRING(0 0, 1 1, 2 2)',
+		'POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))';
 		`, srcTableName))
 		s.NoError(err)
 		fmt.Println("Executed an insert with all types")
@@ -740,7 +835,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF_Avro_CDC() {
 	noNulls, err := s.sfHelper.CheckNull("test_types_sf_avro_cdc", []string{"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32"})
+		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46"})
 	if err != nil {
 		fmt.Println("error  %w", err)
 	}
@@ -963,6 +1058,236 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	// allow only continue as new error
 	s.Error(err)
 	s.Contains(err.Error(), "continue as new")
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env)
+
+	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_cpkey")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT GENERATED ALWAYS AS IDENTITY,
+			c1 INT GENERATED BY DEFAULT AS IDENTITY,
+			c2 INT,
+			t TEXT,
+			PRIMARY KEY(id,t)
+		);
+	`, srcTableName))
+	s.NoError(err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.sfHelper.Peer,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	limits := peerflow.CDCFlowLimits{
+		TotalSyncFlows: 5,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		// insert 10 rows into the source table
+		for i := 0; i < 10; i++ {
+			testValue := fmt.Sprintf("test_value_%d", i)
+			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(c2,t) VALUES ($1,$2)
+		`, srcTableName), i, testValue)
+			s.NoError(err)
+		}
+		fmt.Println("Inserted 10 rows into the source table")
+
+		// verify we got our 10 rows
+		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
+		s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t", false)
+
+		_, err := s.pool.Exec(context.Background(),
+			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
+		s.NoError(err)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
+		s.NoError(err)
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
+
+	// verify our updates and delete happened
+	s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t", false)
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env)
+
+	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_cpkey_toast1")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT GENERATED ALWAYS AS IDENTITY,
+			c1 INT GENERATED BY DEFAULT AS IDENTITY,
+			c2 INT,
+			t TEXT,
+			t2 TEXT,
+			PRIMARY KEY(id,t)
+		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
+		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
+		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
+		$$ language sql;
+	`, srcTableName))
+	s.NoError(err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.sfHelper.Peer,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	limits := peerflow.CDCFlowLimits{
+		TotalSyncFlows: 2,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		rowsTx, err := s.pool.Begin(context.Background())
+		s.NoError(err)
+
+		// insert 10 rows into the source table
+		for i := 0; i < 10; i++ {
+			testValue := fmt.Sprintf("test_value_%d", i)
+			_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
+		`, srcTableName), i, testValue)
+			s.NoError(err)
+		}
+		fmt.Println("Inserted 10 rows into the source table")
+
+		_, err = rowsTx.Exec(context.Background(),
+			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
+		s.NoError(err)
+		_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
+		s.NoError(err)
+
+		err = rowsTx.Commit(context.Background())
+		s.NoError(err)
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
+
+	// verify our updates and delete happened
+	s.compareTableContentsSF("test_cpkey_toast1", "id,c1,c2,t,t2", false)
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env)
+
+	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_cpkey_toast2")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT GENERATED ALWAYS AS IDENTITY,
+			c1 INT GENERATED BY DEFAULT AS IDENTITY,
+			c2 INT,
+			t TEXT,
+			t2 TEXT,
+			PRIMARY KEY(id,t)
+		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
+		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
+		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
+		$$ language sql;
+	`, srcTableName))
+	s.NoError(err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_cpkey_toast2_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.sfHelper.Peer,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	limits := peerflow.CDCFlowLimits{
+		TotalSyncFlows: 4,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+
+		// insert 10 rows into the source table
+		for i := 0; i < 10; i++ {
+			testValue := fmt.Sprintf("test_value_%d", i)
+			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
+		`, srcTableName), i, testValue)
+			s.NoError(err)
+		}
+		fmt.Println("Inserted 10 rows into the source table")
+
+		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
+		_, err = s.pool.Exec(context.Background(),
+			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
+		s.NoError(err)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
+		s.NoError(err)
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
+
+	// verify our updates and delete happened
+	s.compareTableContentsSF("test_cpkey_toast2", "id,c1,c2,t,t2", false)
 
 	env.AssertExpectations(s.T())
 }

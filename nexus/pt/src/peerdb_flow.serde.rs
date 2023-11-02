@@ -991,6 +991,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.push_parallelism != 0 {
             len += 1;
         }
+        if self.resync {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.FlowConnectionConfigs", len)?;
         if let Some(v) = self.source.as_ref() {
             struct_ser.serialize_field("source", v)?;
@@ -1062,6 +1065,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.push_parallelism != 0 {
             struct_ser.serialize_field("pushParallelism", ToString::to_string(&self.push_parallelism).as_str())?;
         }
+        if self.resync {
+            struct_ser.serialize_field("resync", &self.resync)?;
+        }
         struct_ser.end()
     }
 }
@@ -1114,6 +1120,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             "pushBatchSize",
             "push_parallelism",
             "pushParallelism",
+            "resync",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1140,6 +1147,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             ReplicationSlotName,
             PushBatchSize,
             PushParallelism,
+            Resync,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1184,6 +1192,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             "replicationSlotName" | "replication_slot_name" => Ok(GeneratedField::ReplicationSlotName),
                             "pushBatchSize" | "push_batch_size" => Ok(GeneratedField::PushBatchSize),
                             "pushParallelism" | "push_parallelism" => Ok(GeneratedField::PushParallelism),
+                            "resync" => Ok(GeneratedField::Resync),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1225,6 +1234,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                 let mut replication_slot_name__ = None;
                 let mut push_batch_size__ = None;
                 let mut push_parallelism__ = None;
+                let mut resync__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -1376,6 +1386,12 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Resync => {
+                            if resync__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resync"));
+                            }
+                            resync__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1404,6 +1420,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                     replication_slot_name: replication_slot_name__.unwrap_or_default(),
                     push_batch_size: push_batch_size__.unwrap_or_default(),
                     push_parallelism: push_parallelism__.unwrap_or_default(),
+                    resync: resync__.unwrap_or_default(),
                 })
             }
         }
@@ -2088,9 +2105,6 @@ impl serde::Serialize for PartitionRange {
                 partition_range::Range::TidRange(v) => {
                     struct_ser.serialize_field("tidRange", v)?;
                 }
-                partition_range::Range::XminRange(v) => {
-                    struct_ser.serialize_field("xminRange", v)?;
-                }
             }
         }
         struct_ser.end()
@@ -2109,8 +2123,6 @@ impl<'de> serde::Deserialize<'de> for PartitionRange {
             "timestampRange",
             "tid_range",
             "tidRange",
-            "xmin_range",
-            "xminRange",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2118,7 +2130,6 @@ impl<'de> serde::Deserialize<'de> for PartitionRange {
             IntRange,
             TimestampRange,
             TidRange,
-            XminRange,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2144,7 +2155,6 @@ impl<'de> serde::Deserialize<'de> for PartitionRange {
                             "intRange" | "int_range" => Ok(GeneratedField::IntRange),
                             "timestampRange" | "timestamp_range" => Ok(GeneratedField::TimestampRange),
                             "tidRange" | "tid_range" => Ok(GeneratedField::TidRange),
-                            "xminRange" | "xmin_range" => Ok(GeneratedField::XminRange),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2186,13 +2196,6 @@ impl<'de> serde::Deserialize<'de> for PartitionRange {
                                 return Err(serde::de::Error::duplicate_field("tidRange"));
                             }
                             range__ = map.next_value::<::std::option::Option<_>>()?.map(partition_range::Range::TidRange)
-;
-                        }
-                        GeneratedField::XminRange => {
-                            if range__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("xminRange"));
-                            }
-                            range__ = map.next_value::<::std::option::Option<_>>()?.map(partition_range::Range::XminRange)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -2362,6 +2365,9 @@ impl serde::Serialize for QRepConfig {
         if self.num_rows_per_partition != 0 {
             len += 1;
         }
+        if self.setup_watermark_table_on_destination {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.QRepConfig", len)?;
         if !self.flow_job_name.is_empty() {
             struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
@@ -2413,6 +2419,9 @@ impl serde::Serialize for QRepConfig {
         if self.num_rows_per_partition != 0 {
             struct_ser.serialize_field("numRowsPerPartition", &self.num_rows_per_partition)?;
         }
+        if self.setup_watermark_table_on_destination {
+            struct_ser.serialize_field("setupWatermarkTableOnDestination", &self.setup_watermark_table_on_destination)?;
+        }
         struct_ser.end()
     }
 }
@@ -2454,6 +2463,8 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
             "stagingPath",
             "num_rows_per_partition",
             "numRowsPerPartition",
+            "setup_watermark_table_on_destination",
+            "setupWatermarkTableOnDestination",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2474,6 +2485,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
             WriteMode,
             StagingPath,
             NumRowsPerPartition,
+            SetupWatermarkTableOnDestination,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2512,6 +2524,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                             "writeMode" | "write_mode" => Ok(GeneratedField::WriteMode),
                             "stagingPath" | "staging_path" => Ok(GeneratedField::StagingPath),
                             "numRowsPerPartition" | "num_rows_per_partition" => Ok(GeneratedField::NumRowsPerPartition),
+                            "setupWatermarkTableOnDestination" | "setup_watermark_table_on_destination" => Ok(GeneratedField::SetupWatermarkTableOnDestination),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2547,6 +2560,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                 let mut write_mode__ = None;
                 let mut staging_path__ = None;
                 let mut num_rows_per_partition__ = None;
+                let mut setup_watermark_table_on_destination__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::FlowJobName => {
@@ -2655,6 +2669,12 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::SetupWatermarkTableOnDestination => {
+                            if setup_watermark_table_on_destination__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("setupWatermarkTableOnDestination"));
+                            }
+                            setup_watermark_table_on_destination__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2677,6 +2697,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                     write_mode: write_mode__,
                     staging_path: staging_path__.unwrap_or_default(),
                     num_rows_per_partition: num_rows_per_partition__.unwrap_or_default(),
+                    setup_watermark_table_on_destination: setup_watermark_table_on_destination__.unwrap_or_default(),
                 })
             }
         }
@@ -3554,6 +3575,347 @@ impl<'de> serde::Deserialize<'de> for RelationMessageColumn {
             }
         }
         deserializer.deserialize_struct("peerdb_flow.RelationMessageColumn", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for RenameTableOption {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.current_name.is_empty() {
+            len += 1;
+        }
+        if !self.new_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.RenameTableOption", len)?;
+        if !self.current_name.is_empty() {
+            struct_ser.serialize_field("currentName", &self.current_name)?;
+        }
+        if !self.new_name.is_empty() {
+            struct_ser.serialize_field("newName", &self.new_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for RenameTableOption {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "current_name",
+            "currentName",
+            "new_name",
+            "newName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            CurrentName,
+            NewName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "currentName" | "current_name" => Ok(GeneratedField::CurrentName),
+                            "newName" | "new_name" => Ok(GeneratedField::NewName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = RenameTableOption;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.RenameTableOption")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<RenameTableOption, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut current_name__ = None;
+                let mut new_name__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::CurrentName => {
+                            if current_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("currentName"));
+                            }
+                            current_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::NewName => {
+                            if new_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("newName"));
+                            }
+                            new_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(RenameTableOption {
+                    current_name: current_name__.unwrap_or_default(),
+                    new_name: new_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.RenameTableOption", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for RenameTablesInput {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.flow_job_name.is_empty() {
+            len += 1;
+        }
+        if self.peer.is_some() {
+            len += 1;
+        }
+        if !self.rename_table_options.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.RenameTablesInput", len)?;
+        if !self.flow_job_name.is_empty() {
+            struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
+        }
+        if let Some(v) = self.peer.as_ref() {
+            struct_ser.serialize_field("peer", v)?;
+        }
+        if !self.rename_table_options.is_empty() {
+            struct_ser.serialize_field("renameTableOptions", &self.rename_table_options)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for RenameTablesInput {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "flow_job_name",
+            "flowJobName",
+            "peer",
+            "rename_table_options",
+            "renameTableOptions",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            FlowJobName,
+            Peer,
+            RenameTableOptions,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
+                            "peer" => Ok(GeneratedField::Peer),
+                            "renameTableOptions" | "rename_table_options" => Ok(GeneratedField::RenameTableOptions),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = RenameTablesInput;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.RenameTablesInput")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<RenameTablesInput, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut flow_job_name__ = None;
+                let mut peer__ = None;
+                let mut rename_table_options__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::FlowJobName => {
+                            if flow_job_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowJobName"));
+                            }
+                            flow_job_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::Peer => {
+                            if peer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peer"));
+                            }
+                            peer__ = map.next_value()?;
+                        }
+                        GeneratedField::RenameTableOptions => {
+                            if rename_table_options__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("renameTableOptions"));
+                            }
+                            rename_table_options__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(RenameTablesInput {
+                    flow_job_name: flow_job_name__.unwrap_or_default(),
+                    peer: peer__,
+                    rename_table_options: rename_table_options__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.RenameTablesInput", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for RenameTablesOutput {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.flow_job_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.RenameTablesOutput", len)?;
+        if !self.flow_job_name.is_empty() {
+            struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for RenameTablesOutput {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "flow_job_name",
+            "flowJobName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            FlowJobName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = RenameTablesOutput;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.RenameTablesOutput")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<RenameTablesOutput, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut flow_job_name__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::FlowJobName => {
+                            if flow_job_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowJobName"));
+                            }
+                            flow_job_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(RenameTablesOutput {
+                    flow_job_name: flow_job_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.RenameTablesOutput", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ReplayTableSchemaDeltaInput {
@@ -5409,7 +5771,7 @@ impl serde::Serialize for TableSchema {
         if !self.columns.is_empty() {
             len += 1;
         }
-        if !self.primary_key_column.is_empty() {
+        if !self.primary_key_columns.is_empty() {
             len += 1;
         }
         if self.is_replica_identity_full {
@@ -5422,8 +5784,8 @@ impl serde::Serialize for TableSchema {
         if !self.columns.is_empty() {
             struct_ser.serialize_field("columns", &self.columns)?;
         }
-        if !self.primary_key_column.is_empty() {
-            struct_ser.serialize_field("primaryKeyColumn", &self.primary_key_column)?;
+        if !self.primary_key_columns.is_empty() {
+            struct_ser.serialize_field("primaryKeyColumns", &self.primary_key_columns)?;
         }
         if self.is_replica_identity_full {
             struct_ser.serialize_field("isReplicaIdentityFull", &self.is_replica_identity_full)?;
@@ -5441,8 +5803,8 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             "table_identifier",
             "tableIdentifier",
             "columns",
-            "primary_key_column",
-            "primaryKeyColumn",
+            "primary_key_columns",
+            "primaryKeyColumns",
             "is_replica_identity_full",
             "isReplicaIdentityFull",
         ];
@@ -5451,7 +5813,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
         enum GeneratedField {
             TableIdentifier,
             Columns,
-            PrimaryKeyColumn,
+            PrimaryKeyColumns,
             IsReplicaIdentityFull,
             __SkipField__,
         }
@@ -5477,7 +5839,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                         match value {
                             "tableIdentifier" | "table_identifier" => Ok(GeneratedField::TableIdentifier),
                             "columns" => Ok(GeneratedField::Columns),
-                            "primaryKeyColumn" | "primary_key_column" => Ok(GeneratedField::PrimaryKeyColumn),
+                            "primaryKeyColumns" | "primary_key_columns" => Ok(GeneratedField::PrimaryKeyColumns),
                             "isReplicaIdentityFull" | "is_replica_identity_full" => Ok(GeneratedField::IsReplicaIdentityFull),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -5500,7 +5862,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             {
                 let mut table_identifier__ = None;
                 let mut columns__ = None;
-                let mut primary_key_column__ = None;
+                let mut primary_key_columns__ = None;
                 let mut is_replica_identity_full__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -5518,11 +5880,11 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                                 map.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
-                        GeneratedField::PrimaryKeyColumn => {
-                            if primary_key_column__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("primaryKeyColumn"));
+                        GeneratedField::PrimaryKeyColumns => {
+                            if primary_key_columns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("primaryKeyColumns"));
                             }
-                            primary_key_column__ = Some(map.next_value()?);
+                            primary_key_columns__ = Some(map.next_value()?);
                         }
                         GeneratedField::IsReplicaIdentityFull => {
                             if is_replica_identity_full__.is_some() {
@@ -5538,7 +5900,7 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                 Ok(TableSchema {
                     table_identifier: table_identifier__.unwrap_or_default(),
                     columns: columns__.unwrap_or_default(),
-                    primary_key_column: primary_key_column__.unwrap_or_default(),
+                    primary_key_columns: primary_key_columns__.unwrap_or_default(),
                     is_replica_identity_full: is_replica_identity_full__.unwrap_or_default(),
                 })
             }
@@ -5788,121 +6150,5 @@ impl<'de> serde::Deserialize<'de> for TimestampPartitionRange {
             }
         }
         deserializer.deserialize_struct("peerdb_flow.TimestampPartitionRange", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for XminPartitionRange {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.start != 0 {
-            len += 1;
-        }
-        if self.end != 0 {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("peerdb_flow.XMINPartitionRange", len)?;
-        if self.start != 0 {
-            struct_ser.serialize_field("start", &self.start)?;
-        }
-        if self.end != 0 {
-            struct_ser.serialize_field("end", &self.end)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for XminPartitionRange {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "start",
-            "end",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Start,
-            End,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "start" => Ok(GeneratedField::Start),
-                            "end" => Ok(GeneratedField::End),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = XminPartitionRange;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct peerdb_flow.XMINPartitionRange")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<XminPartitionRange, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut start__ = None;
-                let mut end__ = None;
-                while let Some(k) = map.next_key()? {
-                    match k {
-                        GeneratedField::Start => {
-                            if start__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("start"));
-                            }
-                            start__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::End => {
-                            if end__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("end"));
-                            }
-                            end__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(XminPartitionRange {
-                    start: start__.unwrap_or_default(),
-                    end: end__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("peerdb_flow.XMINPartitionRange", FIELDS, GeneratedVisitor)
     }
 }

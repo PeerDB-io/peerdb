@@ -1,36 +1,51 @@
-import { Peer } from '@/grpc_generated/peers';
+import { DropDialog } from '@/components/DropDialog';
+import { DBType, Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
-import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
-import { Select } from '@/lib/Select';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { fetchPeers } from './handler';
-
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { Header } from '../../lib/Header';
+import prisma from '../utils/prisma';
 export const dynamic = 'force-dynamic';
 
 function PeerRow({ peer }: { peer: Peer }) {
+  const peerType = DBType[peer.type];
   return (
     <TableRow key={peer.name}>
-      <TableCell variant='button'>
-        <Checkbox />
-      </TableCell>
-      <TableCell variant='extended'>
-        <Label as={Link} href='/peers/edit/TestPeer'>
+      <TableCell variant='normal'>
+        <Label
+          as={Link}
+          style={{ cursor: 'pointer' }}
+          href={`/peers/${peer.name}`}
+        >
           {peer.name}
         </Label>
       </TableCell>
       <TableCell>
-        <Label>{peer.type}</Label>
+        <Label>{peerType}</Label>
+      </TableCell>
+      <TableCell></TableCell>
+      <TableCell>
+        <DropDialog
+          mode='PEER'
+          dropArgs={{
+            peerName: peer.name,
+          }}
+        />
       </TableCell>
     </TableRow>
   );
+}
+
+async function fetchPeers() {
+  const peers = await prisma.peers.findMany({});
+  return peers;
 }
 
 async function PeersTable({ title }: { title: string }) {
@@ -62,18 +77,22 @@ async function PeersTable({ title }: { title: string }) {
       }}
       header={
         <TableRow>
-          <TableCell as='th' variant='button'>
-            <Checkbox variant='mixed' defaultChecked />
+          <TableCell as='th'>
+            <Label as='label' style={{ fontWeight: 'bold' }}>
+              Peer Name
+            </Label>
           </TableCell>
           <TableCell as='th'>
-            <Select placeholder='Select' />
+            <Label as='label' style={{ fontWeight: 'bold' }}>
+              Peer Type
+            </Label>
           </TableCell>
           <TableCell as='th'>
-            <Select placeholder='Select' />
+            <Label as='label' style={{ fontWeight: 'bold' }}>
+              Status
+            </Label>
           </TableCell>
-          <TableCell as='th'>
-            <Select placeholder='Select' />
-          </TableCell>
+          <TableCell as='th'></TableCell>
         </TableRow>
       }
     >
@@ -85,7 +104,11 @@ async function PeersTable({ title }: { title: string }) {
 }
 
 function Loading() {
-  return <h2>🌀 Loading...</h2>;
+  return (
+    <h2>
+      <ProgressCircle variant='determinate_progress_circle' /> Loading...
+    </h2>
+  );
 }
 
 export default async function Peers() {

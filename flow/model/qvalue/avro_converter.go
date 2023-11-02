@@ -1,7 +1,6 @@
 package qvalue
 
 import (
-	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -33,6 +32,10 @@ type QValueKindAvroSchema struct {
 func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvroSchema, error) {
 	switch kind {
 	case QValueKindString, QValueKindUUID:
+		return &QValueKindAvroSchema{
+			AvroLogicalSchema: "string",
+		}, nil
+	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
 		return &QValueKindAvroSchema{
 			AvroLogicalSchema: "string",
 		}, nil
@@ -119,7 +122,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 			AvroLogicalSchema: "string",
 		}, nil
 	default:
-		return nil, errors.New("unsupported QValueKind type")
+		return nil, fmt.Errorf("unsupported QValueKind type: %s", kind)
 	}
 }
 
@@ -202,6 +205,8 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		return c.processArrayString()
 	case QValueKindUUID:
 		return c.processUUID()
+	case QValueKindGeography, QValueKindGeometry, QValueKindPoint:
+		return c.processGeospatial()
 	default:
 		return nil, fmt.Errorf("[toavro] unsupported QValueKind: %s", c.Value.Kind)
 	}
@@ -328,6 +333,22 @@ func (c *QValueAvroConverter) processUUID() (interface{}, error) {
 	}
 
 	return uuidString, nil
+}
+
+func (c *QValueAvroConverter) processGeospatial() (interface{}, error) {
+	if c.Value.Value == nil {
+		return nil, nil
+	}
+
+	geoString, ok := c.Value.Value.(string)
+	if !ok {
+		return nil, fmt.Errorf("[conversion] invalid geospatial value %v", c.Value.Value)
+	}
+
+	if c.Nullable {
+		return goavro.Union("string", geoString), nil
+	}
+	return geoString, nil
 }
 
 func (c *QValueAvroConverter) processArrayInt32() (interface{}, error) {
