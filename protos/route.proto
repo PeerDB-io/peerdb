@@ -175,6 +175,16 @@ message MirrorStatusResponse {
   string error_message = 4;
 }
 
+message PauseRequest {
+  string workflow_id = 1;
+  string flow_job_name = 2;
+}
+
+message PauseResponse {
+  bool ok = 1;
+  string error_message = 2;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
@@ -228,6 +238,7 @@ service FlowService {
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
     option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
   }
+  rpc PauseFlow(PauseRequest) returns (PauseResponse) {}
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
   }

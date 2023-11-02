@@ -254,6 +254,16 @@ export interface MirrorStatusResponse {
   errorMessage: string;
 }
 
+export interface PauseRequest {
+  workflowId: string;
+  flowJobName: string;
+}
+
+export interface PauseResponse {
+  ok: boolean;
+  errorMessage: string;
+}
+
 function createBaseCreateCDCFlowRequest(): CreateCDCFlowRequest {
   return { connectionConfigs: undefined, createCatalogEntry: false };
 }
@@ -2488,6 +2498,154 @@ export const MirrorStatusResponse = {
   },
 };
 
+function createBasePauseRequest(): PauseRequest {
+  return { workflowId: "", flowJobName: "" };
+}
+
+export const PauseRequest = {
+  encode(message: PauseRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.workflowId !== "") {
+      writer.uint32(10).string(message.workflowId);
+    }
+    if (message.flowJobName !== "") {
+      writer.uint32(18).string(message.flowJobName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PauseRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePauseRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.workflowId = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PauseRequest {
+    return {
+      workflowId: isSet(object.workflowId) ? String(object.workflowId) : "",
+      flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
+    };
+  },
+
+  toJSON(message: PauseRequest): unknown {
+    const obj: any = {};
+    if (message.workflowId !== "") {
+      obj.workflowId = message.workflowId;
+    }
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PauseRequest>, I>>(base?: I): PauseRequest {
+    return PauseRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PauseRequest>, I>>(object: I): PauseRequest {
+    const message = createBasePauseRequest();
+    message.workflowId = object.workflowId ?? "";
+    message.flowJobName = object.flowJobName ?? "";
+    return message;
+  },
+};
+
+function createBasePauseResponse(): PauseResponse {
+  return { ok: false, errorMessage: "" };
+}
+
+export const PauseResponse = {
+  encode(message: PauseResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.ok === true) {
+      writer.uint32(8).bool(message.ok);
+    }
+    if (message.errorMessage !== "") {
+      writer.uint32(18).string(message.errorMessage);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PauseResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePauseResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.ok = reader.bool();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.errorMessage = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PauseResponse {
+    return {
+      ok: isSet(object.ok) ? Boolean(object.ok) : false,
+      errorMessage: isSet(object.errorMessage) ? String(object.errorMessage) : "",
+    };
+  },
+
+  toJSON(message: PauseResponse): unknown {
+    const obj: any = {};
+    if (message.ok === true) {
+      obj.ok = message.ok;
+    }
+    if (message.errorMessage !== "") {
+      obj.errorMessage = message.errorMessage;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PauseResponse>, I>>(base?: I): PauseResponse {
+    return PauseResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PauseResponse>, I>>(object: I): PauseResponse {
+    const message = createBasePauseResponse();
+    message.ok = object.ok ?? false;
+    message.errorMessage = object.errorMessage ?? "";
+    return message;
+  },
+};
+
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
   validatePeer: {
@@ -2592,6 +2750,15 @@ export const FlowServiceService = {
     responseSerialize: (value: ShutdownResponse) => Buffer.from(ShutdownResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => ShutdownResponse.decode(value),
   },
+  pauseFlow: {
+    path: "/peerdb_route.FlowService/PauseFlow",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: PauseRequest) => Buffer.from(PauseRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PauseRequest.decode(value),
+    responseSerialize: (value: PauseResponse) => Buffer.from(PauseResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => PauseResponse.decode(value),
+  },
   mirrorStatus: {
     path: "/peerdb_route.FlowService/MirrorStatus",
     requestStream: false,
@@ -2615,6 +2782,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   getSlotInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSlotResponse>;
   getStatInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerStatResponse>;
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
+  pauseFlow: handleUnaryCall<PauseRequest, PauseResponse>;
   mirrorStatus: handleUnaryCall<MirrorStatusRequest, MirrorStatusResponse>;
 }
 
@@ -2783,6 +2951,21 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ShutdownResponse) => void,
+  ): ClientUnaryCall;
+  pauseFlow(
+    request: PauseRequest,
+    callback: (error: ServiceError | null, response: PauseResponse) => void,
+  ): ClientUnaryCall;
+  pauseFlow(
+    request: PauseRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: PauseResponse) => void,
+  ): ClientUnaryCall;
+  pauseFlow(
+    request: PauseRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: PauseResponse) => void,
   ): ClientUnaryCall;
   mirrorStatus(
     request: MirrorStatusRequest,

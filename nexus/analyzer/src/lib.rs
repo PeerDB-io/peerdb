@@ -128,6 +128,10 @@ pub enum PeerDDL {
         mirror_name: String,
         query_string: Option<String>,
     },
+    PauseMirror {
+        if_exists: bool,
+        flow_job_name: String,
+    }
 }
 
 impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
@@ -404,6 +408,13 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                     query_string,
                 }))
             }
+            Statement::PauseMirror {
+                if_exists,
+                mirror_name,
+            } => Ok(Some(PeerDDL::PauseMirror {
+                if_exists: *if_exists,
+                flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
             _ => Ok(None),
         }
     }

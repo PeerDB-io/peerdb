@@ -268,11 +268,7 @@ impl NexusBackend {
                     }
 
                     let catalog = self.catalog.lock().await;
-                    tracing::info!(
-                        "DROP MIRROR: mirror_name: {}, if_exists: {}",
-                        flow_job_name,
-                        if_exists
-                    );
+                    tracing::info!("DROP MIRROR: mirror_name: {}, if_exists: {}", flow_job_name, if_exists);
                     let workflow_details = catalog
                         .get_workflow_details_for_flow_job(flow_job_name)
                         .await
@@ -644,6 +640,64 @@ impl NexusBackend {
                                 None,
                             ))])
                         }
+                    }
+                }
+                PeerDDL::PauseMirror {
+                    if_exists,
+                    flow_job_name,
+                } => {
+                    if self.flow_handler.is_none() {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: "flow service is not configured".to_owned(),
+                        })));
+                    }
+    
+                    let catalog = self.catalog.lock().await;
+                    tracing::info!("[PAUSE MIRROR] mirror_name: {}, if_exists: {}", flow_job_name, if_exists);
+                    let workflow_details = catalog
+                    .get_workflow_details_for_flow_job(flow_job_name)
+                    .await
+                    .map_err(|err| {
+                        PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: format!(
+                                "unable to query catalog for job metadata: {:?}",
+                                err
+                            ),
+                        }))
+                    })?;
+                    tracing::info!(
+                        "[PAUSE MIRROR] got workflow id: {:?}",
+                        workflow_details.as_ref().map(|w| &w.workflow_id)
+                    );
+    
+    
+                    if let Some(workflow_details) = workflow_details {
+                        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                        flow_handler
+                            .pause_flow_job(flow_job_name, &workflow_details.workflow_id)
+                            .await
+                            .map_err(|err| {
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!("unable to shutdown flow job: {:?}", err),
+                                }))
+                            })?;
+                        let drop_mirror_success = format!("PAUSE MIRROR {}", flow_job_name);
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            &drop_mirror_success,
+                            None,
+                        ))])
+                    } else if *if_exists {
+                        let no_mirror_success = "NO SUCH MIRROR";
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            no_mirror_success,
+                            None,
+                        ))])
+                    } else {
+                        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "error".to_owned(),
+                            format!("no such mirror: {:?}", flow_job_name),
+                        ))))
                     }
                 }
             },

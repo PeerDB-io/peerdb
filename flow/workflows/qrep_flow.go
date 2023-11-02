@@ -16,6 +16,16 @@ import (
 )
 
 type QRepFlowExecution struct {
+	config                  *protos.QRepConfig
+	flowExecutionID         string
+	logger                  log.Logger
+	runUUID                 string
+	childPartitionWorkflows []workflow.ChildWorkflowFuture
+	// Current signalled state of the peer flow.
+	activeSignal shared.CDCFlowSignal
+}
+
+type QRepPartitionFlowExecution struct {
 	config          *protos.QRepConfig
 	flowExecutionID string
 	logger          log.Logger
@@ -37,6 +47,19 @@ func NewQRepFlowState() *protos.QRepFlowState {
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
 func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *QRepFlowExecution {
 	return &QRepFlowExecution{
+		config:                  config,
+		flowExecutionID:         workflow.GetInfo(ctx).WorkflowExecution.ID,
+		logger:                  workflow.GetLogger(ctx),
+		runUUID:                 runUUID,
+		childPartitionWorkflows: nil,
+		activeSignal:            shared.NoopSignal,
+	}
+}
+
+// NewQRepFlowExecution creates a new instance of QRepFlowExecution.
+func NewQRepPartitionFlowExecution(ctx workflow.Context,
+	config *protos.QRepConfig, runUUID string) *QRepPartitionFlowExecution {
+	return &QRepPartitionFlowExecution{
 		config:          config,
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
 		logger:          workflow.GetLogger(ctx),
@@ -123,7 +146,8 @@ func (q *QRepFlowExecution) GetPartitions(
 }
 
 // ReplicatePartitions replicates the partition batch.
-func (q *QRepFlowExecution) ReplicatePartitions(ctx workflow.Context, partitions *protos.QRepPartitionBatch) error {
+func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
+	partitions *protos.QRepPartitionBatch) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    5 * time.Minute,
@@ -156,7 +180,7 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
 	ctx workflow.Context,
-	partitions *protos.QRepPartitionBatch) (workflow.Future, error) {
+	partitions *protos.QRepPartitionBatch) (workflow.ChildWorkflowFuture, error) {
 	wid, err := q.getPartitionWorkflowID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)
@@ -198,7 +222,6 @@ func (q *QRepFlowExecution) processPartitions(
 
 	q.logger.Info("processing partitions in batches", "num batches", len(batches))
 
-	futures := make([]workflow.Future, 0)
 	for i, parts := range batches {
 		batch := &protos.QRepPartitionBatch{
 			Partitions: parts,
@@ -209,16 +232,18 @@ func (q *QRepFlowExecution) processPartitions(
 			return fmt.Errorf("failed to start child workflow: %w", err)
 		}
 
-		futures = append(futures, future)
+		q.childPartitionWorkflows = append(q.childPartitionWorkflows, future)
 	}
 
 	// wait for all the child workflows to complete
-	for _, future := range futures {
+	for _, future := range q.childPartitionWorkflows {
 		if err := future.Get(ctx, nil); err != nil {
 			return fmt.Errorf("failed to wait for child workflow: %w", err)
 		}
 	}
 
+	// clear function requires go 1.21. why did this function not exist before go 1.21?
+	q.childPartitionWorkflows = nil
 	q.logger.Info("all partitions in batch processed")
 	return nil
 }
@@ -317,6 +342,33 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 	return nil
 }
 
+func (q *QRepFlowExecution) signalHandler(v shared.CDCFlowSignal) {
+	q.logger.Info("received signal - ", v)
+	if v == shared.ShutdownSignal {
+		q.logger.Info("received shutdown signal")
+		q.activeSignal = v
+	} else if v == shared.PauseSignal {
+		q.logger.Info("received pause signal")
+		if q.activeSignal == shared.NoopSignal {
+			q.logger.Info("workflow was running, pausing it")
+			q.activeSignal = shared.PauseSignal
+		} else if q.activeSignal == shared.PauseSignal {
+			q.logger.Info("workflow was paused, resuming it")
+			q.activeSignal = shared.NoopSignal
+		}
+	}
+}
+
+func (q *QRepFlowExecution) receiveAndHandleSignal(ctx workflow.Context) {
+	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+
+	var signalVal shared.CDCFlowSignal
+	ok := signalChan.ReceiveAsync(&signalVal)
+	if ok {
+		q.signalHandler(signalVal)
+	}
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
@@ -334,21 +386,6 @@ func QRepFlowWorkflow(
 	if config.MaxParallelWorkers > 0 {
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
-
-	// register a signal handler to terminate the workflow
-	terminateWorkflow := false
-	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
-
-	s := workflow.NewSelector(ctx)
-	s.AddReceive(signalChan, func(c workflow.ReceiveChannel, _ bool) {
-		var signalVal shared.CDCFlowSignal
-		c.Receive(ctx, &signalVal)
-		logger.Info("received signal", "signal", signalVal)
-		if signalVal == shared.ShutdownSignal {
-			logger.Info("received shutdown signal")
-			terminateWorkflow = true
-		}
-	})
 
 	// register a query to get the number of partitions processed
 	err := workflow.SetQueryHandler(ctx, "num-partitions-processed", func() (uint64, error) {
@@ -416,15 +453,7 @@ func QRepFlowWorkflow(
 	state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
 	if len(partitions.Partitions) > 0 {
-		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
-	}
-
-	s.AddDefault(func() {})
-
-	s.Select(ctx)
-	if terminateWorkflow {
-		q.logger.Info("terminating workflow - ", config.FlowJobName)
-		return nil
+		lastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
 	// sleep for a while and continue the workflow
@@ -437,6 +466,54 @@ func QRepFlowWorkflow(
 		"Last Partition", state.LastPartition,
 		"Number of Partitions Processed", state.NumPartitionsProcessed)
 
+	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
+	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
+	q.receiveAndHandleSignal(ctx)
+	if q.activeSignal == shared.ShutdownSignal {
+		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		return nil
+	}
+	if q.activeSignal == shared.PauseSignal {
+		startTime := time.Now()
+		for q.activeSignal == shared.PauseSignal {
+			err = workflow.Sleep(ctx, 1*time.Minute)
+			if err != nil {
+				return err
+			}
+			q.logger.Info("mirror has been paused for ", time.Since(startTime))
+			q.receiveAndHandleSignal(ctx)
+		}
+		if q.activeSignal == shared.ShutdownSignal {
+			// handling going from paused to shutdown
+			q.logger.Info("terminating workflow - ", config.FlowJobName)
+			return nil
+		}
+	}
+
+	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
+	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
+	q.receiveAndHandleSignal(ctx)
+	if q.activeSignal == shared.ShutdownSignal {
+		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		return nil
+	}
+	if q.activeSignal == shared.PauseSignal {
+		startTime := time.Now()
+		for q.activeSignal == shared.PauseSignal {
+			err = workflow.Sleep(ctx, 1*time.Minute)
+			if err != nil {
+				return err
+			}
+			q.logger.Info("mirror has been paused for ", time.Since(startTime))
+			q.receiveAndHandleSignal(ctx)
+		}
+		if q.activeSignal == shared.ShutdownSignal {
+			// handling going from paused to shutdown
+			q.logger.Info("terminating workflow - ", config.FlowJobName)
+			return nil
+		}
+	}
+
 	// Continue the workflow with new state
 	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }
@@ -448,6 +525,6 @@ func QRepPartitionWorkflow(
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-	q := NewQRepFlowExecution(ctx, config, runUUID)
+	q := NewQRepPartitionFlowExecution(ctx, config, runUUID)
 	return q.ReplicatePartitions(ctx, partitions)
 }

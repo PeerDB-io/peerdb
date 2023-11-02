@@ -154,7 +154,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	state := peerflow.NewCDCFlowState()
+	state := peerflow.NewCDCFlowWorkflowState()
 	_, err = h.temporalClient.ExecuteWorkflow(
 		ctx,                                // context
 		workflowOptions,                    // workflow start options
@@ -346,6 +346,26 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}
 
 	return &protos.ShutdownResponse{
+		Ok: true,
+	}, nil
+}
+
+func (h *FlowRequestHandler) PauseFlow(
+	ctx context.Context,
+	req *protos.PauseRequest,
+) (*protos.PauseResponse, error) {
+	err := h.temporalClient.SignalWorkflow(
+		ctx,
+		req.WorkflowId,
+		"",
+		shared.CDCFlowSignalName,
+		shared.PauseSignal,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
+	}
+
+	return &protos.PauseResponse{
 		Ok: true,
 	}, nil
 }

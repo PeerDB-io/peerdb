@@ -374,6 +374,29 @@ pub mod flow_service_client {
             self.inner.unary(req, path, codec).await
         }
         ///
+        pub async fn pause_flow(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PauseRequest>,
+        ) -> std::result::Result<tonic::Response<super::PauseResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/PauseFlow",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "PauseFlow"));
+            self.inner.unary(req, path, codec).await
+        }
+        ///
         pub async fn mirror_status(
             &mut self,
             request: impl tonic::IntoRequest<super::MirrorStatusRequest>,
@@ -496,6 +519,11 @@ pub mod flow_service_server {
             tonic::Response<super::ShutdownResponse>,
             tonic::Status,
         >;
+        ///
+        async fn pause_flow(
+            &self,
+            request: tonic::Request<super::PauseRequest>,
+        ) -> std::result::Result<tonic::Response<super::PauseResponse>, tonic::Status>;
         ///
         async fn mirror_status(
             &self,
@@ -1074,6 +1102,48 @@ pub mod flow_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = ShutdownFlowSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/PauseFlow" => {
+                    #[allow(non_camel_case_types)]
+                    struct PauseFlowSvc<T: FlowService>(pub Arc<T>);
+                    impl<T: FlowService> tonic::server::UnaryService<super::PauseRequest>
+                    for PauseFlowSvc<T> {
+                        type Response = super::PauseResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PauseRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move { (*inner).pause_flow(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = PauseFlowSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

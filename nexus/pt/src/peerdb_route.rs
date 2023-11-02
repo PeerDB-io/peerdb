@@ -254,6 +254,22 @@ pub mod mirror_status_response {
         CdcStatus(super::CdcMirrorStatus),
     }
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PauseRequest {
+    #[prost(string, tag="1")]
+    pub workflow_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub flow_job_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PauseResponse {
+    #[prost(bool, tag="1")]
+    pub ok: bool,
+    #[prost(string, tag="2")]
+    pub error_message: ::prost::alloc::string::String,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ValidatePeerStatus {

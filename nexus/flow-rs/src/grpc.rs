@@ -159,6 +159,27 @@ impl FlowGrpcClient {
         }
     }
 
+    pub async fn pause_flow_job(
+        &mut self,
+        flow_job_name: &str,
+        workflow_id: &str,
+    ) -> anyhow::Result<()> {
+        let pause_flow_req = pt::peerdb_route::PauseRequest{
+            flow_job_name: flow_job_name.to_owned(),
+            workflow_id: workflow_id.to_owned()
+        };
+        let response = self.client.pause_flow(pause_flow_req).await?;
+        let pause_response = response.into_inner();
+        if pause_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to pause/unpause flow job: {:?}",
+                pause_response.error_message
+            )))
+        }
+    }
+
     pub async fn start_peer_flow_job(
         &mut self,
         job: &FlowJob,
