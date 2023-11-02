@@ -25,7 +25,7 @@ jobs:
 
       - name: Install Node.js dependencies
         working-directory: ui
-        run: yarn install --frozen-lockfile
+        run: npm ci
 
       - name: lint
         uses: wearerequired/lint-action@v2

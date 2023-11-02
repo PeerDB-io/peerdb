@@ -1,16 +1,16 @@
 # syntax=docker/dockerfile:1.2
 
 # Base stage
-FROM node:18-bookworm-slim AS base
+FROM node:20-bookworm-slim AS base
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 RUN apt-get update && apt-get install -y openssl
 WORKDIR /app
 
 # Dependencies stage
 FROM base AS deps
 WORKDIR /app
-# Copy package.json and yarn.lock from ui folder to current directory in image
-COPY ui/package.json ui/yarn.lock* ui/.yarnrc.yml ./
-RUN yarn --frozen-lockfile
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
 
 FROM base AS builder
 WORKDIR /app
@@ -19,10 +19,10 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY ui/ ./
 
 # Prisma
-RUN yarn prisma generate
+RUN npx prisma generate
 
 ENV NEXT_TELEMETRY_DISABLED 1
-RUN yarn build
+RUN npm run build
 
 # Builder stage
 FROM base AS runner

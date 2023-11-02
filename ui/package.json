@@ -11,7 +11,7 @@
     "storybook": "storybook dev -p 6006",
     "storybook:clean": "rm -rf ./storybook-static",
     "storybook:build": "storybook build",
-    "storybook:deploy": "yarn storybook:build && touch storybook-static/.nojekyll && rm storybook-static/.gitignore && yarn gh-pages -t -d storybook-static && yarn storybook:clean"
+    "storybook:deploy": "storybook build && touch storybook-static/.nojekyll && rm storybook-static/.gitignore && gh-pages -t -d storybook-static && rm -rf ./storybook-static"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.9.2",
@@ -81,6 +81,5 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.2.2",
     "webpack": "^5.76.0"
-  },
-  "packageManager": "yarn@3.6.3"
+  }
 }

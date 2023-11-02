@@ -21,8 +21,8 @@ jobs:
 
       - name: Install Node.js dependencies
         working-directory: ui
-        run: yarn install --frozen-lockfile
+        run: npm ci
 
       - name: Build
         working-directory: ui
-        run: yarn build
+        run: npm run build
