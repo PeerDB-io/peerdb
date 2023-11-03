@@ -3,6 +3,8 @@ package peerflow
 import (
 	"fmt"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/concurrency"
@@ -134,8 +136,25 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}).Errorf("unable to parse source table")
 		return fmt.Errorf("unable to parse source table: %w", err)
 	}
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-		parsedSrcTable.String(), partitionCol)
+	from := "*"
+	if len(mapping.Exclude) != 0 {
+		var sb strings.Builder
+		// TODO what's the correct key?
+		for _, col := range s.config.TableNameSchemaMapping[srcName].Columns {
+			// TODO optimize lookup
+			if !slices.Contains(mapping.Exclude, col) {
+				if sb.Len() != 0 {
+					sb.WriteString(", ")
+				}
+				// TODO escape
+				sb.WriteString(col)
+			}
+		}
+		from = sb.String()
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+		from, parsedSrcTable.String(), partitionCol)
 
 	numWorkers := uint32(8)
 	if s.config.SnapshotMaxParallelWorkers > 0 {

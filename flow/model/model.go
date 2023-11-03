@@ -12,6 +12,11 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
+type NameAndExclude struct {
+	Name string
+	Exclude []string
+}
+
 type PullRecordsRequest struct {
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
@@ -24,7 +29,7 @@ type PullRecordsRequest struct {
 	//relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
-	TableNameMapping map[string]string
+	TableNameMapping map[string]NameAndExclude
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// override publication name

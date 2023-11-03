@@ -185,9 +185,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
 	}).Info("pulling records...")
 
-	tblNameMapping := make(map[string]string)
+	tblNameMapping := make(map[string]model.NameAndExclude)
 	for _, v := range input.FlowConnectionConfigs.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
+		tblNameMapping[v.SourceTableIdentifier] = model.NameAndExclude {
+			Name: v.DestinationTableIdentifier,
+			Exclude: v.Exclude,
+		}
 	}
 
 	idleTimeout := utils.GetEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 10)
