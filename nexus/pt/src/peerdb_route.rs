@@ -38,6 +38,8 @@ pub struct ShutdownRequest {
     pub source_peer: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(message, optional, tag="4")]
     pub destination_peer: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(bool, tag="5")]
+    pub remove_flow_entry: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -58,6 +60,20 @@ pub struct ValidatePeerRequest {
 pub struct CreatePeerRequest {
     #[prost(message, optional, tag="1")]
     pub peer: ::core::option::Option<super::peerdb_peers::Peer>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DropPeerRequest {
+    #[prost(string, tag="1")]
+    pub peer_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DropPeerResponse {
+    #[prost(bool, tag="1")]
+    pub ok: bool,
+    #[prost(string, tag="2")]
+    pub error_message: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

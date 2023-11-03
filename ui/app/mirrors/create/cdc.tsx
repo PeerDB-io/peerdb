@@ -24,21 +24,18 @@ interface MirrorConfigProps {
   setSchema: Dispatch<SetStateAction<string>>;
 }
 
-export default function CDCConfigForm(props: MirrorConfigProps) {
-  const defaultSyncMode = (
-    dtype: DBType | undefined,
-    setting: MirrorSetting
-  ) => {
-    switch (dtype) {
-      case DBType.POSTGRES:
-        return 'Copy with Binary';
-      case DBType.SNOWFLAKE:
-        return 'AVRO';
-      default:
-        return 'Copy with Binary';
-    }
-  };
+export const defaultSyncMode = (dtype: DBType | undefined) => {
+  switch (dtype) {
+    case DBType.POSTGRES:
+      return 'Copy with Binary';
+    case DBType.SNOWFLAKE:
+      return 'AVRO';
+    default:
+      return 'Copy with Binary';
+  }
+};
 
+export default function CDCConfigForm(props: MirrorConfigProps) {
   const setToDefault = (setting: MirrorSetting) => {
     const destinationPeerType = props.mirrorConfig.destination?.type;
     return (
@@ -47,7 +44,6 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
         destinationPeerType === DBType.SNOWFLAKE)
     );
   };
-
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean | Peer | QRepSyncMode = val;
     if (setting.label.includes('Peer')) {
@@ -210,10 +206,7 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
                     disabled={setToDefault(setting)}
                     value={
                       setToDefault(setting)
-                        ? defaultSyncMode(
-                            props.mirrorConfig.destination?.type,
-                            setting
-                          )
+                        ? defaultSyncMode(props.mirrorConfig.destination?.type)
                         : undefined
                     }
                   >

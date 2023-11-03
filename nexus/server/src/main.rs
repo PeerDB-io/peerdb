@@ -76,7 +76,7 @@ pub struct NexusBackend {
     portal_store: Arc<MemPortalStore<NexusParsedStatement>>,
     query_parser: Arc<NexusQueryParser>,
     peer_cursors: Arc<Mutex<PeerCursors>>,
-    executors: Arc<DashMap<String, Arc<Box<dyn QueryExecutor>>>>,
+    executors: Arc<DashMap<String, Arc<dyn QueryExecutor>>>,
     flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
     peerdb_fdw_mode: bool,
 }
@@ -104,7 +104,7 @@ impl NexusBackend {
     // execute a statement on a peer
     async fn execute_statement<'a>(
         &self,
-        executor: Arc<Box<dyn QueryExecutor>>,
+        executor: Arc<dyn QueryExecutor>,
         stmt: &sqlparser::ast::Statement,
         peer_holder: Option<Box<Peer>>,
     ) -> PgWireResult<Vec<Response<'a>>> {
@@ -492,6 +492,54 @@ impl NexusBackend {
                         ))))
                     }
                 }
+                PeerDDL::DropPeer {
+                    if_exists,
+                    peer_name,
+                } => {
+                    if self.flow_handler.is_none() {
+                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
+                            err_msg: "flow service is not configured".to_owned(),
+                        })));
+                    }
+
+                    let catalog = self.catalog.lock().await;
+                    tracing::info!("drop peer_name: {}, if_exists: {}", peer_name, if_exists);
+                    let peer_exists =
+                        catalog.check_peer_entry(peer_name).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!(
+                                    "unable to query catalog for peer metadata: {:?}",
+                                    err
+                                ),
+                            }))
+                        })?;
+                    tracing::info!("peer exist count: {}", peer_exists);
+                    if peer_exists != 0 {
+                        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+                        flow_handler.drop_peer(peer_name).await.map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!("unable to drop peer: {:?}", err),
+                            }))
+                        })?;
+                        let drop_peer_success = format!("DROP PEER {}", peer_name);
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            &drop_peer_success,
+                            None,
+                        ))])
+                    } else if *if_exists {
+                        let no_peer_success = "NO SUCH PEER";
+                        Ok(vec![Response::Execution(Tag::new_for_execution(
+                            no_peer_success,
+                            None,
+                        ))])
+                    } else {
+                        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                            "ERROR".to_owned(),
+                            "error".to_owned(),
+                            format!("no such peer: {:?}", peer_name),
+                        ))))
+                    }
+                }
             },
             NexusStatement::PeerQuery { stmt, assoc } => {
                 // get the query executor
@@ -593,26 +641,26 @@ impl NexusBackend {
         Ok(workflow_id)
     }
 
-    async fn get_peer_executor(&self, peer: &Peer) -> anyhow::Result<Arc<Box<dyn QueryExecutor>>> {
+    async fn get_peer_executor(&self, peer: &Peer) -> anyhow::Result<Arc<dyn QueryExecutor>> {
         if let Some(executor) = self.executors.get(&peer.name) {
             return Ok(Arc::clone(executor.value()));
         }
 
-        let executor = match &peer.config {
+        let executor: Arc<dyn QueryExecutor> = match &peer.config {
             Some(Config::BigqueryConfig(ref c)) => {
                 let peer_name = peer.name.clone();
                 let executor =
                     BigQueryQueryExecutor::new(peer_name, c, self.peer_connections.clone()).await?;
-                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+                Arc::new(executor)
             }
             Some(Config::PostgresConfig(ref c)) => {
                 let peername = Some(peer.name.clone());
                 let executor = peer_postgres::PostgresQueryExecutor::new(peername, c).await?;
-                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+                Arc::new(executor)
             }
             Some(Config::SnowflakeConfig(ref c)) => {
                 let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
-                Arc::new(Box::new(executor) as Box<dyn QueryExecutor>)
+                Arc::new(executor)
             }
             _ => {
                 panic!("peer type not supported: {:?}", peer)

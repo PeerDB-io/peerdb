@@ -60,9 +60,9 @@ impl BqSchema {
         let bq_schema = result_set
             .query_response()
             .schema
-            .clone()
+            .as_ref()
             .expect("Schema is not present");
-        let fields = bq_schema.fields.expect("Schema fields are not present");
+        let fields = bq_schema.fields.as_ref().expect("Schema fields are not present");
 
         let schema = SchemaRef::new(Schema {
             fields: fields
@@ -74,7 +74,7 @@ impl BqSchema {
                 .collect(),
         });
 
-        Self { schema, fields }
+        Self { schema, fields: fields.clone() }
     }
 
     pub fn schema(&self) -> SchemaRef {

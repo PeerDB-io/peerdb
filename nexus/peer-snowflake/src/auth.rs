@@ -86,8 +86,8 @@ impl SnowflakeAuth {
                 .get_or_insert(raw_account.chars().count())
         };
         raw_account
-            .to_uppercase()
             .chars()
+            .flat_map(char::to_uppercase)
             .take(split_index)
             .collect()
     }

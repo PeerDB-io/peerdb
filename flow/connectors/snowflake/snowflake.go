@@ -451,9 +451,13 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"%s\" %s",
-				schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName),
-				qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))))
+			sfColtype, err := qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))
+			if err != nil {
+				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
+					addedColumn.ColumnType, err)
+			}
+			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
+				schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 					schemaDelta.DstTableName, err)
@@ -876,8 +880,12 @@ func generateCreateTableSQLForNormalizedTable(
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		columnNameUpper := strings.ToUpper(columnName)
-		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper,
-			qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))))
+		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		if err != nil {
+			log.Warnf("failed to convert column type %s to snowflake type: %v", genericColumnType, err)
+			continue
+		}
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper, sfColType))
 	}
 
 	// add a _peerdb_is_deleted column to the normalized table
@@ -942,7 +950,12 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		sfType := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		sfType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		if err != nil {
+			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
+				genericColumnType, err)
+		}
+
 		targetColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
 		switch qvalue.QValueKind(genericColumnType) {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:

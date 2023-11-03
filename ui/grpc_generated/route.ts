@@ -120,6 +120,7 @@ export interface ShutdownRequest {
   flowJobName: string;
   sourcePeer: Peer | undefined;
   destinationPeer: Peer | undefined;
+  removeFlowEntry: boolean;
 }
 
 export interface ShutdownResponse {
@@ -133,6 +134,15 @@ export interface ValidatePeerRequest {
 
 export interface CreatePeerRequest {
   peer: Peer | undefined;
+}
+
+export interface DropPeerRequest {
+  peerName: string;
+}
+
+export interface DropPeerResponse {
+  ok: boolean;
+  errorMessage: string;
 }
 
 export interface ValidatePeerResponse {
@@ -513,7 +523,7 @@ export const CreateQRepFlowResponse = {
 };
 
 function createBaseShutdownRequest(): ShutdownRequest {
-  return { workflowId: "", flowJobName: "", sourcePeer: undefined, destinationPeer: undefined };
+  return { workflowId: "", flowJobName: "", sourcePeer: undefined, destinationPeer: undefined, removeFlowEntry: false };
 }
 
 export const ShutdownRequest = {
@@ -529,6 +539,9 @@ export const ShutdownRequest = {
     }
     if (message.destinationPeer !== undefined) {
       Peer.encode(message.destinationPeer, writer.uint32(34).fork()).ldelim();
+    }
+    if (message.removeFlowEntry === true) {
+      writer.uint32(40).bool(message.removeFlowEntry);
     }
     return writer;
   },
@@ -568,6 +581,13 @@ export const ShutdownRequest = {
 
           message.destinationPeer = Peer.decode(reader, reader.uint32());
           continue;
+        case 5:
+          if (tag !== 40) {
+            break;
+          }
+
+          message.removeFlowEntry = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -583,6 +603,7 @@ export const ShutdownRequest = {
       flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
       sourcePeer: isSet(object.sourcePeer) ? Peer.fromJSON(object.sourcePeer) : undefined,
       destinationPeer: isSet(object.destinationPeer) ? Peer.fromJSON(object.destinationPeer) : undefined,
+      removeFlowEntry: isSet(object.removeFlowEntry) ? Boolean(object.removeFlowEntry) : false,
     };
   },
 
@@ -600,6 +621,9 @@ export const ShutdownRequest = {
     if (message.destinationPeer !== undefined) {
       obj.destinationPeer = Peer.toJSON(message.destinationPeer);
     }
+    if (message.removeFlowEntry === true) {
+      obj.removeFlowEntry = message.removeFlowEntry;
+    }
     return obj;
   },
 
@@ -616,6 +640,7 @@ export const ShutdownRequest = {
     message.destinationPeer = (object.destinationPeer !== undefined && object.destinationPeer !== null)
       ? Peer.fromPartial(object.destinationPeer)
       : undefined;
+    message.removeFlowEntry = object.removeFlowEntry ?? false;
     return message;
   },
 };
@@ -804,6 +829,137 @@ export const CreatePeerRequest = {
   fromPartial<I extends Exact<DeepPartial<CreatePeerRequest>, I>>(object: I): CreatePeerRequest {
     const message = createBaseCreatePeerRequest();
     message.peer = (object.peer !== undefined && object.peer !== null) ? Peer.fromPartial(object.peer) : undefined;
+    return message;
+  },
+};
+
+function createBaseDropPeerRequest(): DropPeerRequest {
+  return { peerName: "" };
+}
+
+export const DropPeerRequest = {
+  encode(message: DropPeerRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.peerName !== "") {
+      writer.uint32(10).string(message.peerName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DropPeerRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDropPeerRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.peerName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DropPeerRequest {
+    return { peerName: isSet(object.peerName) ? String(object.peerName) : "" };
+  },
+
+  toJSON(message: DropPeerRequest): unknown {
+    const obj: any = {};
+    if (message.peerName !== "") {
+      obj.peerName = message.peerName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DropPeerRequest>, I>>(base?: I): DropPeerRequest {
+    return DropPeerRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DropPeerRequest>, I>>(object: I): DropPeerRequest {
+    const message = createBaseDropPeerRequest();
+    message.peerName = object.peerName ?? "";
+    return message;
+  },
+};
+
+function createBaseDropPeerResponse(): DropPeerResponse {
+  return { ok: false, errorMessage: "" };
+}
+
+export const DropPeerResponse = {
+  encode(message: DropPeerResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.ok === true) {
+      writer.uint32(8).bool(message.ok);
+    }
+    if (message.errorMessage !== "") {
+      writer.uint32(18).string(message.errorMessage);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): DropPeerResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDropPeerResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.ok = reader.bool();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.errorMessage = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DropPeerResponse {
+    return {
+      ok: isSet(object.ok) ? Boolean(object.ok) : false,
+      errorMessage: isSet(object.errorMessage) ? String(object.errorMessage) : "",
+    };
+  },
+
+  toJSON(message: DropPeerResponse): unknown {
+    const obj: any = {};
+    if (message.ok === true) {
+      obj.ok = message.ok;
+    }
+    if (message.errorMessage !== "") {
+      obj.errorMessage = message.errorMessage;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DropPeerResponse>, I>>(base?: I): DropPeerResponse {
+    return DropPeerResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DropPeerResponse>, I>>(object: I): DropPeerResponse {
+    const message = createBaseDropPeerResponse();
+    message.ok = object.ok ?? false;
+    message.errorMessage = object.errorMessage ?? "";
     return message;
   },
 };
@@ -2352,6 +2508,15 @@ export const FlowServiceService = {
     responseSerialize: (value: CreatePeerResponse) => Buffer.from(CreatePeerResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => CreatePeerResponse.decode(value),
   },
+  dropPeer: {
+    path: "/peerdb_route.FlowService/DropPeer",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: DropPeerRequest) => Buffer.from(DropPeerRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => DropPeerRequest.decode(value),
+    responseSerialize: (value: DropPeerResponse) => Buffer.from(DropPeerResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => DropPeerResponse.decode(value),
+  },
   createCdcFlow: {
     path: "/peerdb_route.FlowService/CreateCDCFlow",
     requestStream: false,
@@ -2441,6 +2606,7 @@ export const FlowServiceService = {
 export interface FlowServiceServer extends UntypedServiceImplementation {
   validatePeer: handleUnaryCall<ValidatePeerRequest, ValidatePeerResponse>;
   createPeer: handleUnaryCall<CreatePeerRequest, CreatePeerResponse>;
+  dropPeer: handleUnaryCall<DropPeerRequest, DropPeerResponse>;
   createCdcFlow: handleUnaryCall<CreateCDCFlowRequest, CreateCDCFlowResponse>;
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
   getSchemas: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSchemasResponse>;
@@ -2482,6 +2648,21 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: CreatePeerResponse) => void,
+  ): ClientUnaryCall;
+  dropPeer(
+    request: DropPeerRequest,
+    callback: (error: ServiceError | null, response: DropPeerResponse) => void,
+  ): ClientUnaryCall;
+  dropPeer(
+    request: DropPeerRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: DropPeerResponse) => void,
+  ): ClientUnaryCall;
+  dropPeer(
+    request: DropPeerRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: DropPeerResponse) => void,
   ): ClientUnaryCall;
   createCdcFlow(
     request: CreateCDCFlowRequest,

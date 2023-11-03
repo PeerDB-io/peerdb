@@ -14,7 +14,6 @@ export const SlotNameDisplay = ({ slotName }: { slotName: string }) => {
     <Label
       as={Link}
       style={{
-        color: 'darkblue',
         cursor: 'pointer',
         textDecoration: 'underline',
       }}

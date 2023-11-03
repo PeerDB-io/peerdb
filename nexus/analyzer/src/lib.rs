@@ -104,6 +104,10 @@ pub enum PeerDDL {
         peer: Box<pt::peerdb_peers::Peer>,
         if_not_exists: bool,
     },
+    DropPeer {
+        peer_name: String,
+        if_exists: bool,
+    },
     CreateMirrorForCDC {
         if_not_exists: bool,
         flow_job: FlowJob,
@@ -154,15 +158,11 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         let mut flow_job_table_mappings = vec![];
                         for table_mapping in &cdc.mapping_options {
                             flow_job_table_mappings.push(FlowJobTableMapping {
-                                source_table_identifier: table_mapping
-                                    .source
-                                    .to_string(),
-                                destination_table_identifier: table_mapping
-                                    .destination
-                                    .to_string(),
+                                source_table_identifier: table_mapping.source.to_string(),
+                                destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
                                     .partition_key
-                                    .clone()
+                                    .as_ref()
                                     .map(|s| s.to_string()),
                             });
                         }
@@ -370,6 +370,13 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
             } => Ok(Some(PeerDDL::DropMirror {
                 if_exists: *if_exists,
                 flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
+            Statement::DropPeer {
+                if_exists,
+                peer_name,
+            } => Ok(Some(PeerDDL::DropPeer {
+                if_exists: *if_exists,
+                peer_name: peer_name.to_string().to_lowercase(),
             })),
             _ => Ok(None),
         }
@@ -710,9 +717,9 @@ fn parse_db_options(
                 // check if peers contains key and if it does
                 // then add it to the eventhubs hashmap, if not error
                 if let Some(peer) = peers.get(&key) {
-                    let eventhub_config = peer.config.clone().unwrap();
+                    let eventhub_config = peer.config.as_ref().unwrap();
                     if let Config::EventhubConfig(eventhub_config) = eventhub_config {
-                        eventhubs.insert(key.to_string(), eventhub_config);
+                        eventhubs.insert(key.to_string(), eventhub_config.clone());
                     } else {
                         anyhow::bail!("Peer '{}' is not an eventhub", key);
                     }

@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion7
 const (
 	FlowService_ValidatePeer_FullMethodName      = "/peerdb_route.FlowService/ValidatePeer"
 	FlowService_CreatePeer_FullMethodName        = "/peerdb_route.FlowService/CreatePeer"
+	FlowService_DropPeer_FullMethodName          = "/peerdb_route.FlowService/DropPeer"
 	FlowService_CreateCDCFlow_FullMethodName     = "/peerdb_route.FlowService/CreateCDCFlow"
 	FlowService_CreateQRepFlow_FullMethodName    = "/peerdb_route.FlowService/CreateQRepFlow"
 	FlowService_GetSchemas_FullMethodName        = "/peerdb_route.FlowService/GetSchemas"
@@ -38,6 +39,7 @@ const (
 type FlowServiceClient interface {
 	ValidatePeer(ctx context.Context, in *ValidatePeerRequest, opts ...grpc.CallOption) (*ValidatePeerResponse, error)
 	CreatePeer(ctx context.Context, in *CreatePeerRequest, opts ...grpc.CallOption) (*CreatePeerResponse, error)
+	DropPeer(ctx context.Context, in *DropPeerRequest, opts ...grpc.CallOption) (*DropPeerResponse, error)
 	CreateCDCFlow(ctx context.Context, in *CreateCDCFlowRequest, opts ...grpc.CallOption) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error)
 	GetSchemas(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSchemasResponse, error)
@@ -69,6 +71,15 @@ func (c *flowServiceClient) ValidatePeer(ctx context.Context, in *ValidatePeerRe
 func (c *flowServiceClient) CreatePeer(ctx context.Context, in *CreatePeerRequest, opts ...grpc.CallOption) (*CreatePeerResponse, error) {
 	out := new(CreatePeerResponse)
 	err := c.cc.Invoke(ctx, FlowService_CreatePeer_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) DropPeer(ctx context.Context, in *DropPeerRequest, opts ...grpc.CallOption) (*DropPeerResponse, error) {
+	out := new(DropPeerResponse)
+	err := c.cc.Invoke(ctx, FlowService_DropPeer_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +173,7 @@ func (c *flowServiceClient) MirrorStatus(ctx context.Context, in *MirrorStatusRe
 type FlowServiceServer interface {
 	ValidatePeer(context.Context, *ValidatePeerRequest) (*ValidatePeerResponse, error)
 	CreatePeer(context.Context, *CreatePeerRequest) (*CreatePeerResponse, error)
+	DropPeer(context.Context, *DropPeerRequest) (*DropPeerResponse, error)
 	CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error)
 	GetSchemas(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSchemasResponse, error)
@@ -183,6 +195,9 @@ func (UnimplementedFlowServiceServer) ValidatePeer(context.Context, *ValidatePee
 }
 func (UnimplementedFlowServiceServer) CreatePeer(context.Context, *CreatePeerRequest) (*CreatePeerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreatePeer not implemented")
+}
+func (UnimplementedFlowServiceServer) DropPeer(context.Context, *DropPeerRequest) (*DropPeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DropPeer not implemented")
 }
 func (UnimplementedFlowServiceServer) CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateCDCFlow not implemented")
@@ -256,6 +271,24 @@ func _FlowService_CreatePeer_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).CreatePeer(ctx, req.(*CreatePeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_DropPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DropPeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).DropPeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_DropPeer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).DropPeer(ctx, req.(*DropPeerRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -436,6 +469,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreatePeer",
 			Handler:    _FlowService_CreatePeer_Handler,
+		},
+		{
+			MethodName: "DropPeer",
+			Handler:    _FlowService_DropPeer_Handler,
 		},
 		{
 			MethodName: "CreateCDCFlow",
