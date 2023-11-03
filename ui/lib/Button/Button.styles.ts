@@ -54,6 +54,16 @@ const normalStyle = css<BaseStyleProps>`
   --background-color-focus: ${({ theme }) => theme.colors.base.surface.normal};
 `;
 
+const dropStyle = css<BaseStyleProps>`
+  --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
+  --text-color: ${({ theme }) => theme.colors.base.text.highContrast};
+  --background-color-default: ${({ theme, $loading }) =>
+    $loading ? theme.colors.base.surface.selected : 'transparent'};
+  --background-color-hover: ${({ theme }) =>
+    theme.colors.destructive.surface.hovered};
+  --background-color-focus: transparent;
+`;
+
 const destructiveStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.destructive.text.lowContrast};
@@ -115,6 +125,7 @@ const variants = {
   destructive: destructiveStyle,
   normalSolid: normalSolidStyle,
   destructiveSolid: destructiveSolidStyle,
+  drop: dropStyle,
   normalBorderless: normalBorderlessStyle,
   destructiveBorderless: destructiveBorderlessStyle,
 } as const;

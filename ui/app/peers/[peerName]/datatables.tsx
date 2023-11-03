@@ -7,15 +7,18 @@ import { DurationDisplay, SlotNameDisplay } from './helpers';
 export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
   return (
     <div style={{ height: '30%', marginTop: '2rem', marginBottom: '1rem' }}>
-      <Label as='label' variant='headline' style={{ marginBottom: '1rem' }}>
+      <Label
+        as='label'
+        variant='subheadline'
+        style={{ marginBottom: '1rem', fontWeight: 'bold' }}
+      >
         Replication Slot Information
       </Label>
       <div
         style={{
           maxHeight: '100%',
           overflow: 'scroll',
-          background: 'linear-gradient(ghostwhite,#f5f7ff)',
-          padding: '1rem',
+          padding: '0.5rem',
           borderRadius: '1rem',
           boxShadow: '2px 2px 4px 2px rgba(0,0,0,0.1)',
         }}
@@ -23,11 +26,22 @@ export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
         <Table
           header={
             <TableRow>
-              <TableCell as='th'>Slot Name</TableCell>
-              <TableCell as='th'>Active</TableCell>
-              <TableCell as='th'>Redo LSN</TableCell>
-              <TableCell as='th'>Restart LSN</TableCell>
-              <TableCell as='th'>Lag (In MB)</TableCell>
+              {[
+                'Slot Name',
+                'Active',
+                'Redo LSN',
+                'Restart LSN',
+                'Lag (In MB)',
+              ].map((heading, index) => (
+                <TableCell as='th' key={index}>
+                  <Label
+                    as='label'
+                    style={{ fontWeight: 'bold', fontSize: 14 }}
+                  >
+                    {heading}
+                  </Label>
+                </TableCell>
+              ))}
             </TableRow>
           }
         >
@@ -37,10 +51,26 @@ export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
                 <TableCell>
                   <SlotNameDisplay slotName={slotName} />
                 </TableCell>
-                <TableCell>{active ? 'Yes' : 'No'}</TableCell>
-                <TableCell>{redoLSN}</TableCell>
-                <TableCell>{restartLSN}</TableCell>
-                <TableCell>{lagInMb}</TableCell>
+                <TableCell>
+                  <Label as='label' style={{ fontSize: 14 }}>
+                    {active ? 'Yes' : 'No'}
+                  </Label>
+                </TableCell>
+                <TableCell>
+                  <Label as='label' style={{ fontSize: 14 }}>
+                    {redoLSN}
+                  </Label>
+                </TableCell>
+                <TableCell>
+                  <Label as='label' style={{ fontSize: 14 }}>
+                    {restartLSN}
+                  </Label>
+                </TableCell>
+                <TableCell>
+                  <Label as='label' style={{ fontSize: 14 }}>
+                    {lagInMb}
+                  </Label>
+                </TableCell>
               </TableRow>
             );
           })}
@@ -53,15 +83,18 @@ export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
 export const StatTable = ({ data }: { data: StatInfo[] }) => {
   return (
     <div style={{ height: '50%' }}>
-      <Label as='label' variant='headline' style={{ marginBottom: '1rem' }}>
+      <Label
+        as='label'
+        variant='subheadline'
+        style={{ marginBottom: '1rem', fontWeight: 'bold' }}
+      >
         Stat Activity Information
       </Label>
       <div
         style={{
           maxHeight: '100%',
           overflow: 'scroll',
-          background: 'linear-gradient(ghostwhite,#f5f7ff)',
-          padding: '1rem',
+          padding: '0.5rem',
           borderRadius: '1rem',
           boxShadow: '2px 2px 4px 2px rgba(0,0,0,0.1)',
         }}
@@ -69,31 +102,60 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
         <Table
           header={
             <TableRow>
-              <TableCell as='th'>PID</TableCell>
-              <TableCell as='th'>Duration</TableCell>
-              <TableCell as='th'>Wait Event</TableCell>
-              <TableCell as='th'>Wait Event Type</TableCell>
-              <TableCell as='th'>Query Start Time</TableCell>
-              <TableCell as='th'>Query</TableCell>
+              {[
+                'PID',
+                'Duration',
+                'Wait Event',
+                'Wait Event Type',
+                'Start Time',
+                'Query',
+              ].map((heading, id) => (
+                <TableCell as='th' key={id}>
+                  <Label
+                    as='label'
+                    style={{ fontWeight: 'bold', fontSize: 14 }}
+                  >
+                    {heading}
+                  </Label>
+                </TableCell>
+              ))}
             </TableRow>
           }
         >
           {data.map((stat) => (
             <TableRow key={stat.pid}>
-              <TableCell>{stat.pid}</TableCell>
               <TableCell>
-                <DurationDisplay duration={stat.duration} />
+                <Label as='label' style={{ fontSize: 14 }}>
+                  {stat.pid}
+                </Label>
               </TableCell>
-              <TableCell>{stat.waitEvent || 'N/A'}</TableCell>
-              <TableCell>{stat.waitEventType || 'N/A'}</TableCell>
-              <TableCell>{stat.queryStart || 'N/A'}</TableCell>
               <TableCell>
+                <Label as='label' style={{ fontSize: 14 }}>
+                  <DurationDisplay duration={stat.duration} />
+                </Label>
+              </TableCell>
+              <TableCell>
+                <Label as='label' style={{ fontSize: 14 }}>
+                  {stat.waitEvent || 'N/A'}
+                </Label>
+              </TableCell>
+              <TableCell>
+                <Label as='label' style={{ fontSize: 14 }}>
+                  {stat.waitEventType || 'N/A'}
+                </Label>
+              </TableCell>
+              <TableCell>
+                <Label as='label' style={{ fontSize: 14 }}>
+                  {stat.queryStart || 'N/A'}
+                </Label>
+              </TableCell>
+              <TableCell variant='extended'>
                 <div
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
                     fontFamily: 'monospace',
-                    fontSize: 15,
+                    fontSize: 13,
                   }}
                 >
                   {stat.query}

@@ -35,7 +35,6 @@ export const DropDialog = ({
       setMsg('Workflow ID not found for this mirror.');
       return;
     }
-
     setLoading(true);
     const dropRes: UDropMirrorResponse = await fetch('api/mirrors/drop', {
       method: 'POST',
@@ -44,11 +43,14 @@ export const DropDialog = ({
     setLoading(false);
     if (dropRes.dropped !== true)
       setMsg(
-        `Unable to drop peer ${dropArgs.flowJobName}. ${
+        `Unable to drop mirror ${dropArgs.flowJobName}. ${
           dropRes.errorMessage ?? ''
         }`
       );
-    else setMsg('Mirror dropped successfully.');
+    else {
+      setMsg('Mirror dropped successfully.');
+      window.location.reload();
+    }
   };
 
   const handleDropPeer = async (dropArgs: dropPeerArgs) => {
@@ -69,7 +71,10 @@ export const DropDialog = ({
           dropRes.errorMessage ?? ''
         }`
       );
-    else setMsg('Peer dropped successfully.');
+    else {
+      setMsg('Peer dropped successfully.');
+      window.location.reload();
+    }
   };
 
   return (
@@ -77,7 +82,7 @@ export const DropDialog = ({
       modal={true}
       size='large'
       triggerButton={
-        <Button style={{ color: 'white', backgroundColor: '#dc3545' }}>
+        <Button variant='drop' style={{ color: 'black' }}>
           <Icon name='delete' />
         </Button>
       }

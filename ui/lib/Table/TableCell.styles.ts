@@ -3,7 +3,7 @@ import styled, { css } from 'styled-components';
 const variants = {
   button: css``,
   extended: css`
-    width: 100%;
+    width: 50%;
     min-width: ${({ theme }) => theme.size.xxSmall};
     max-width: ${({ theme }) => theme.size.medium};
   `,

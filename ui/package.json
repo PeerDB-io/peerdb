@@ -42,6 +42,7 @@
     "lucide-react": "^0.287.0",
     "material-symbols": "0.11.0",
     "moment": "^2.29.4",
+    "moment-timezone": "^0.5.43",
     "next": "13.5.5",
     "next-usequerystate": "^1.8.4",
     "prop-types": "^15.8.1",
@@ -51,7 +52,8 @@
     "react-spinners": "^0.13.8",
     "styled-components": "^6.1.0",
     "swr": "^2.2.4",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "zustand": "^4.4.6"
   },
   "devDependencies": {
     "@storybook/addon-essentials": "^7.3.0",
