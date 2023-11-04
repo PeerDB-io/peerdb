@@ -1,6 +1,7 @@
 'use client';
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
+import Image from 'next/image';
 import { DBTypeToImageMapping } from './PeerComponent';
 
 const DBTypeToGoodText = (ptype: DBType) => {
@@ -37,7 +38,11 @@ const PeerTypeLabel = ({ ptype }: { ptype: DBType }) => {
         alignItems: 'center',
       }}
     >
-      <img src={DBTypeToImageMapping(ptype)} style={{ height: '1.5rem' }}></img>
+      <Image
+        src={DBTypeToImageMapping(ptype)}
+        style={{ height: '1.5rem' }}
+        alt=''
+      ></Image>
       <Label>{DBTypeToGoodText(ptype)}</Label>
     </div>
   );

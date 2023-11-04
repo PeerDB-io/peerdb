@@ -2,8 +2,8 @@
 import { DBType } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-
 export const DBTypeToImageMapping = (peerType: DBType) => {
   switch (peerType) {
     case DBType.POSTGRES:
@@ -41,10 +41,11 @@ const PeerButton = ({
       }}
       onClick={() => router.push(`/peers/${peerName}`)}
     >
-      <img
+      <Image
         src={DBTypeToImageMapping(peerType)}
         style={{ height: '1.5rem' }}
-      ></img>
+        alt={''}
+      />
       <Label>{peerName}</Label>
     </Button>
   );
