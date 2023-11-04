@@ -17,7 +17,7 @@ reqwest = { version = "0.11", features = [
 ] }
 anyhow = "1.0"
 tracing = "0.1"
-tonic = "0.9"
-tonic-health = "0.9"
+tonic = "0.10"
+tonic-health = "0.10"
 pt = { path = "../pt" }
 catalog = { path = "../catalog" }

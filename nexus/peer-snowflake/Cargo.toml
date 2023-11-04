@@ -14,7 +14,7 @@ tracing = "0.1"
 pgerror = { path = "../pgerror" }
 secrecy = { version = "0.8.0" }
 async-trait = "0.1.57"
-jsonwebtoken = { version = "8.0", features = ["use_pem"] }
+jsonwebtoken = { version = "9.0", features = ["use_pem"] }
 base64 = "0.21"
 dashmap = "5.0"
 pgwire = "0.15"
