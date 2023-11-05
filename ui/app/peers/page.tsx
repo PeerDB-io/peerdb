@@ -1,4 +1,6 @@
 import { Button } from '@/lib/Button';
+import { Icon } from '@/lib/Icon';
+import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import Link from 'next/link';

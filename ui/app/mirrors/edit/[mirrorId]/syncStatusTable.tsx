@@ -8,7 +8,7 @@ import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 type SyncStatusRow = {
   batchId: number;
