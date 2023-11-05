@@ -31,8 +31,6 @@ const PeerTypeLabel = ({ ptype }: { ptype: DBType }) => {
   return (
     <div
       style={{
-        backgroundColor: 'white',
-        color: 'white',
         fontSize: 13,
         display: 'flex',
         alignItems: 'center',
@@ -40,8 +38,9 @@ const PeerTypeLabel = ({ ptype }: { ptype: DBType }) => {
     >
       <Image
         src={DBTypeToImageMapping(ptype)}
-        style={{ height: '1.5rem' }}
-        alt=''
+        height={15}
+        alt={''}
+        width={20}
       ></Image>
       <Label>{DBTypeToGoodText(ptype)}</Label>
     </div>

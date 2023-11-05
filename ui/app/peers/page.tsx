@@ -1,7 +1,6 @@
 import { Button } from '@/lib/Button';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
-import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
 import { Header } from '../../lib/Header';
 import { getTruePeer } from '../api/peers/route';
@@ -12,14 +11,6 @@ export const dynamic = 'force-dynamic';
 async function fetchPeers() {
   const peers = await prisma.peers.findMany({});
   return peers;
-}
-
-function Loading() {
-  return (
-    <h2>
-      <ProgressCircle variant='determinate_progress_circle' /> Loading...
-    </h2>
-  );
 }
 
 export default async function Peers() {

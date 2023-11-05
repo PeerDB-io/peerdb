@@ -1,4 +1,5 @@
 import { CopyButton } from '@/components/CopyButton';
+import TimeLabel from '@/components/TimeComponent';
 import { SlotInfo, StatInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
@@ -146,7 +147,7 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
               </TableCell>
               <TableCell>
                 <Label as='label' style={{ fontSize: 14 }}>
-                  {stat.queryStart || 'N/A'}
+                  {<TimeLabel timeVal={stat.queryStart} /> || 'N/A'}
                 </Label>
               </TableCell>
               <TableCell variant='extended'>

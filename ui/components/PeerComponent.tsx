@@ -43,8 +43,9 @@ const PeerButton = ({
     >
       <Image
         src={DBTypeToImageMapping(peerType)}
-        style={{ height: '1.5rem' }}
+        height={15}
         alt={''}
+        width={20}
       />
       <Label>{peerName}</Label>
     </Button>

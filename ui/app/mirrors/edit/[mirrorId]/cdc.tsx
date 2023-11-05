@@ -1,12 +1,12 @@
 'use client';
 
+import TimeLabel from '@/components/TimeComponent';
 import {
   CDCMirrorStatus,
   QRepMirrorStatus,
   SnapshotStatus,
 } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
-import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
@@ -16,6 +16,7 @@ import * as Tabs from '@radix-ui/react-tabs';
 import moment, { Duration, Moment } from 'moment';
 import { useQueryState } from 'next-usequerystate';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import CDCDetails from './cdcDetails';
 
@@ -94,73 +95,103 @@ function summarizeTableClone(clone: QRepMirrorStatus): TableCloneSummary {
 type SnapshotStatusProps = {
   status: SnapshotStatus;
 };
-const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
-  <Table
-    title={<Label variant='headline'>Initial Copy</Label>}
-    toolbar={{
-      left: (
-        <>
-          <Button variant='normalBorderless'>
-            <Icon name='chevron_left' />
-          </Button>
-          <Button variant='normalBorderless'>
-            <Icon name='chevron_right' />
-          </Button>
-          <Button
-            variant='normalBorderless'
-            onClick={() => window.location.reload()}
-          >
-            <Icon name='refresh' />
-          </Button>
-        </>
-      ),
-      right: <SearchField placeholder='Search' />,
-    }}
-    header={
-      <TableRow>
-        <TableCell as='th' variant='button'>
-          <Checkbox variant='mixed' defaultChecked />
-        </TableCell>
-        <TableCell as='th'>Table Identifier</TableCell>
-        <TableCell as='th'>Start Time</TableCell>
-        <TableCell as='th'>Progress Partitions</TableCell>
-        <TableCell as='th'>Num Rows Synced</TableCell>
-        <TableCell as='th'>Avg Time Per Partition</TableCell>
-      </TableRow>
+const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [snapshotRows, setSnapshotRows] = useState(
+    status.clones.map(summarizeTableClone)
+  );
+  useEffect(() => {
+    if (searchQuery.length > 0) {
+      setSnapshotRows(
+        status.clones.map(summarizeTableClone).filter((row: any) => {
+          return row.tableName
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase());
+        })
+      );
     }
-  >
-    {status.clones.map(summarizeTableClone).map((clone, index) => (
-      <TableRow key={index}>
-        <TableCell variant='button'>
-          <Checkbox />
-        </TableCell>
-        <TableCell>
-          <Label>
-            <Link
-              href={`/mirrors/status/qrep/${clone.flowJobName}`}
-              className='underline cursor-pointer'
+    if (searchQuery.length == 0) {
+      setSnapshotRows(status.clones.map(summarizeTableClone));
+    }
+  }, [searchQuery]);
+  return (
+    <Table
+      title={<Label variant='headline'>Initial Copy</Label>}
+      toolbar={{
+        left: (
+          <>
+            <Button variant='normalBorderless'>
+              <Icon name='chevron_left' />
+            </Button>
+            <Button variant='normalBorderless'>
+              <Icon name='chevron_right' />
+            </Button>
+            <Button
+              variant='normalBorderless'
+              onClick={() => window.location.reload()}
             >
-              {clone.tableName}
-            </Link>
-          </Label>
-        </TableCell>
-        <TableCell>
-          <Label>{clone.cloneStartTime?.format('YYYY-MM-DD HH:mm:ss')}</Label>
-        </TableCell>
-        <TableCell>
-          <ProgressBar progress={clone.getPartitionProgressPercentage()} />
-          {clone.completedNumPartitions} / {clone.totalNumPartitions}
-        </TableCell>
-        <TableCell>{clone.completedNumRows}</TableCell>
-        <TableCell>
-          <Label>
-            {clone.avgTimePerPartition?.humanize({ ss: 1 }) || 'N/A'}
-          </Label>
-        </TableCell>
-      </TableRow>
-    ))}
-  </Table>
-);
+              <Icon name='refresh' />
+            </Button>
+          </>
+        ),
+        right: (
+          <SearchField
+            placeholder='Search by table'
+            value={searchQuery}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setSearchQuery(e.target.value)
+            }
+          />
+        ),
+      }}
+      header={
+        <TableRow>
+          <TableCell as='th'>Table Identifier</TableCell>
+          <TableCell as='th'>Start Time</TableCell>
+          <TableCell as='th'>Progress Partitions</TableCell>
+          <TableCell as='th'>Num Rows Synced</TableCell>
+          <TableCell as='th'>Avg Time Per Partition</TableCell>
+        </TableRow>
+      }
+    >
+      {snapshotRows.map((clone, index) => (
+        <TableRow key={index}>
+          <TableCell>
+            <Label>
+              <Link
+                href={`/mirrors/status/qrep/${clone.flowJobName}`}
+                className='underline cursor-pointer'
+              >
+                {clone.tableName}
+              </Link>
+            </Label>
+          </TableCell>
+          <TableCell>
+            <Label>
+              {
+                <TimeLabel
+                  timeVal={
+                    clone.cloneStartTime?.format('YYYY-MM-DD HH:mm:ss') || 'N/A'
+                  }
+                />
+              }
+            </Label>
+          </TableCell>
+          <TableCell>
+            <ProgressBar progress={clone.getPartitionProgressPercentage()} />
+            {clone.completedNumPartitions} / {clone.totalNumPartitions}
+          </TableCell>
+          <TableCell>{clone.completedNumRows}</TableCell>
+          <TableCell>
+            <Label>
+              {clone.avgTimePerPartition?.humanize({ ss: 1 }) || 'N/A'}
+            </Label>
+          </TableCell>
+        </TableRow>
+      ))}
+    </Table>
+  );
+};
 
 const Trigger = styled(
   ({ isActive, ...props }: { isActive?: boolean } & Tabs.TabsTriggerProps) => (

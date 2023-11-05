@@ -3,7 +3,7 @@ import useTZStore from '@/app/globalstate/time';
 import { Label } from '@/lib/Label';
 import moment from 'moment-timezone';
 
-const TimeLabel = ({ timeVal }: { timeVal: Date }) => {
+const TimeLabel = ({ timeVal }: { timeVal: Date | string }) => {
   const timezone = useTZStore((state) => state.timezone);
   const formattedTimestamp = (zone: string) => {
     switch (zone) {
