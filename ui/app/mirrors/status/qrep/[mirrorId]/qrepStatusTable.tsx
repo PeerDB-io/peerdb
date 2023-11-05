@@ -1,11 +1,11 @@
 'use client';
 
+import SearchBar from '@/components/Search';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useState } from 'react';
@@ -88,6 +88,8 @@ export default function QRepStatusTable({
     (currentPage - 1) * ROWS_PER_PAGE,
     currentPage * ROWS_PER_PAGE
   );
+  const [displayedPartitions, setDisplayedPartitions] =
+    useState(visiblePartitions);
 
   const handleNext = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -136,7 +138,19 @@ export default function QRepStatusTable({
             </div>
           </>
         ),
-        right: <SearchField placeholder='Search' />,
+        right: (
+          <SearchBar
+            allItems={visiblePartitions}
+            setItems={setDisplayedPartitions}
+            filterFunction={(query: string) =>
+              visiblePartitions.filter((partition: QRepPartitionStatus) => {
+                return partition.partitionId
+                  .toLowerCase()
+                  .includes(query.toLowerCase());
+              })
+            }
+          />
+        ),
       }}
       header={
         <TableRow>
@@ -152,7 +166,7 @@ export default function QRepStatusTable({
         </TableRow>
       }
     >
-      {visiblePartitions.map((partition, index) => (
+      {displayedPartitions.map((partition, index) => (
         <RowPerPartition key={index} {...partition} />
       ))}
     </Table>

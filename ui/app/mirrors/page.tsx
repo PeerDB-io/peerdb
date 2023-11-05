@@ -1,12 +1,15 @@
 import { QRepConfig } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Header } from '@/lib/Header';
+import { Icon } from '@/lib/Icon';
+import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import Link from 'next/link';
 import { getTruePeer } from '../api/peers/route';
 import prisma from '../utils/prisma';
 import { CDCFlows, QRepFlows } from './tables';
+export const dynamic = 'force-dynamic';
 
 const stringifyConfig = (flowArray: any[]) => {
   flowArray.forEach((flow) => {
@@ -73,8 +76,20 @@ export default async function Mirrors() {
         <Header
           variant='title2'
           slot={
-            <Button variant='normalSolid' as={Link} href={'/mirrors/create'}>
-              New mirror
+            <Button
+              as={Link}
+              style={{
+                width: '10%',
+                height: '2rem',
+                fontSize: 17,
+                boxShadow: '0px 2px 4px rgba(0,0,0,0.2)',
+              }}
+              href={'/mirrors/create'}
+              variant='normalSolid'
+            >
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <Icon name='add' /> <Label>New mirror</Label>
+              </div>
             </Button>
           }
         >

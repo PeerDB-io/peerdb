@@ -1,29 +1,15 @@
 'use client';
 import { DropDialog } from '@/components/DropDialog';
 import PeerButton from '@/components/PeerComponent';
+import SearchBar from '@/components/Search';
 import TimeLabel from '@/components/TimeComponent';
 import { Label } from '@/lib/Label';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
   const [mirrors, setMirrors] = useState(cdcFlows);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  useEffect(() => {
-    if (searchQuery.length > 0) {
-      setMirrors(
-        cdcFlows.filter((flow: any) => {
-          return flow.name.toLowerCase().includes(searchQuery.toLowerCase());
-        })
-      );
-    }
-    if (searchQuery.length == 0) {
-      setMirrors(cdcFlows);
-    }
-  }, [searchQuery]);
 
   return (
     <>
@@ -40,11 +26,15 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
           toolbar={{
             left: <></>,
             right: (
-              <SearchField
-                placeholder='Search'
-                value={searchQuery}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSearchQuery(e.target.value)
+              <SearchBar
+                allItems={cdcFlows}
+                setItems={setMirrors}
+                filterFunction={(query: string) =>
+                  cdcFlows.filter((flow: any) => {
+                    return flow.name
+                      .toLowerCase()
+                      .includes(query.toLowerCase());
+                  })
                 }
               />
             ),
@@ -113,20 +103,6 @@ export function QRepFlows({
   title: string;
 }) {
   const [mirrors, setMirrors] = useState(qrepFlows);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  useEffect(() => {
-    if (searchQuery.length > 0) {
-      setMirrors(
-        qrepFlows.filter((flow: any) => {
-          return flow.name.toLowerCase().includes(searchQuery.toLowerCase());
-        })
-      );
-    }
-    if (searchQuery.length == 0) {
-      setMirrors(qrepFlows);
-    }
-  }, [searchQuery]);
 
   return (
     <>
@@ -143,11 +119,15 @@ export function QRepFlows({
           toolbar={{
             left: <></>,
             right: (
-              <SearchField
-                placeholder='Search'
-                value={searchQuery}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSearchQuery(e.target.value)
+              <SearchBar
+                allItems={qrepFlows}
+                setItems={setMirrors}
+                filterFunction={(query: string) =>
+                  qrepFlows.filter((flow: any) => {
+                    return flow.name
+                      .toLowerCase()
+                      .includes(query.toLowerCase());
+                  })
                 }
               />
             ),

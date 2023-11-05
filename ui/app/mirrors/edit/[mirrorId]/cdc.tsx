@@ -1,5 +1,6 @@
 'use client';
 
+import SearchBar from '@/components/Search';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CDCMirrorStatus,
@@ -10,7 +11,6 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import * as Tabs from '@radix-ui/react-tabs';
 import moment, { Duration, Moment } from 'moment';
@@ -135,11 +135,15 @@ const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
           </>
         ),
         right: (
-          <SearchField
-            placeholder='Search by table'
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(e.target.value)
+          <SearchBar
+            allItems={status.clones.map(summarizeTableClone)}
+            setItems={setSnapshotRows}
+            filterFunction={(query: string) =>
+              status.clones.map(summarizeTableClone).filter((row: any) => {
+                return row.tableName
+                  .toLowerCase()
+                  .includes(query.toLowerCase());
+              })
             }
           />
         ),

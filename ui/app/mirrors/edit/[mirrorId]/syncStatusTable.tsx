@@ -1,14 +1,14 @@
 'use client';
 
+import SearchBar from '@/components/Search';
 import TimeLabel from '@/components/TimeComponent';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 type SyncStatusRow = {
   batchId: number;
@@ -60,21 +60,6 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [displayedRows, setDisplayedRows] = useState(
     rows.slice(startRow, endRow)
   );
-  const [searchQuery, setSearchQuery] = useState('');
-
-  useEffect(() => {
-    if (searchQuery.length > 0) {
-      setDisplayedRows(
-        allRows.filter((row: any) => {
-          return row.batchId == parseInt(searchQuery, 10);
-        })
-      );
-    }
-    if (searchQuery.length == 0) {
-      setDisplayedRows(allRows);
-    }
-  }, [searchQuery]);
-
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
@@ -105,11 +90,13 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
           </>
         ),
         right: (
-          <SearchField
-            placeholder='Search by Batch ID'
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(e.target.value)
+          <SearchBar
+            allItems={allRows}
+            setItems={setDisplayedRows}
+            filterFunction={(query: string) =>
+              allRows.filter((row: any) => {
+                return row.batchId == parseInt(query, 10);
+              })
             }
           />
         ),
