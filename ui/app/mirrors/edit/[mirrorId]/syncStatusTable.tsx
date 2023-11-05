@@ -103,26 +103,15 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
       }}
       header={
         <TableRow>
-          <TableCell as='th'>
-            <Label as='label' style={{ fontWeight: 'bold' }}>
-              Batch ID
-            </Label>
-          </TableCell>
-          <TableCell as='th'>
-            <Label as='label' style={{ fontWeight: 'bold' }}>
-              Start Time
-            </Label>
-          </TableCell>
-          <TableCell as='th'>
-            <Label as='label' style={{ fontWeight: 'bold' }}>
-              End Time (Duration)
-            </Label>
-          </TableCell>
-          <TableCell as='th'>
-            <Label as='label' style={{ fontWeight: 'bold' }}>
-              Num Rows Synced
-            </Label>
-          </TableCell>
+          {['Batch ID', 'Start Time', 'End Time (Duration)', 'Rows Synced'].map(
+            (heading, index) => (
+              <TableCell as='th' key={index}>
+                <Label as='label' style={{ fontWeight: 'bold' }}>
+                  {heading}
+                </Label>
+              </TableCell>
+            )
+          )}
         </TableRow>
       }
     >
