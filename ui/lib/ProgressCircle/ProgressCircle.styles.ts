@@ -1,8 +1,4 @@
-import styled, {
-  FlattenSimpleInterpolation,
-  css,
-  keyframes,
-} from 'styled-components';
+import styled, { css, keyframes } from 'styled-components';
 import { Icon, IconProps } from '../Icon';
 
 const spin = keyframes`
@@ -38,7 +34,7 @@ export type ProgressCircleVariant = Extract<
 const variants = {
   determinate_progress_circle: spinLinear,
   intermediate_progress_circle: spin45degIncrements,
-} satisfies Record<ProgressCircleVariant, FlattenSimpleInterpolation>;
+};
 
 type BaseIconProps = {
   $variant: ProgressCircleVariant;
