@@ -301,12 +301,8 @@ func CreateQRepWorkflowConfig(
 }
 
 func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
-	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-applicable-partition",
-		Range:       nil,
-	}
-	numPartitionsProcessed := 0
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+	state := peerflow.NewQRepFlowState()
+	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
 }
 
 func GetOwnersSchema() *model.QRecordSchema {

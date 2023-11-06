@@ -3,6 +3,7 @@ package peerflow
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -19,6 +20,18 @@ type QRepFlowExecution struct {
 	flowExecutionID string
 	logger          log.Logger
 	runUUID         string
+}
+
+// returns a new empty PeerFlowState
+func NewQRepFlowState() *protos.QRepFlowState {
+	return &protos.QRepFlowState{
+		LastPartition: &protos.QRepPartition{
+			PartitionId: "not-applicable-partition",
+			Range:       nil,
+		},
+		NumPartitionsProcessed: 0,
+		HandledResync:          false,
+	}
 }
 
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
@@ -254,11 +267,60 @@ func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *
 	return nil
 }
 
+func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
+	if !state.HandledResync && q.config.DstTableFullResync {
+		renamedTableIdentifier := fmt.Sprintf("%s_peerdb_resync", q.config.DestinationTableIdentifier)
+		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 10 * time.Minute,
+			HeartbeatTimeout:    2 * time.Minute,
+		})
+		createTablesFromExistingFuture := workflow.ExecuteActivity(
+			createTablesFromExistingCtx, flowable.CreateTablesFromExisting, &protos.CreateTablesFromExistingInput{
+				FlowJobName: q.config.FlowJobName,
+				Peer:        q.config.DestinationPeer,
+				NewToExistingTableMapping: map[string]string{
+					renamedTableIdentifier: q.config.DestinationTableIdentifier,
+				},
+			})
+		if err := createTablesFromExistingFuture.Get(createTablesFromExistingCtx, nil); err != nil {
+			return fmt.Errorf("failed to create table for mirror resync: %w", err)
+		}
+		q.config.DestinationTableIdentifier = renamedTableIdentifier
+	}
+	return nil
+}
+
+func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
+	if !state.HandledResync && q.config.DstTableFullResync {
+		oldTableIdentifier := strings.TrimSuffix(q.config.DestinationTableIdentifier, "_peerdb_resync")
+		renameOpts := &protos.RenameTablesInput{}
+		renameOpts.FlowJobName = q.config.FlowJobName
+		renameOpts.Peer = q.config.DestinationPeer
+		renameOpts.RenameTableOptions = []*protos.RenameTableOption{
+			{
+				CurrentName: q.config.DestinationTableIdentifier,
+				NewName:     oldTableIdentifier,
+			},
+		}
+
+		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Minute,
+			HeartbeatTimeout:    5 * time.Minute,
+		})
+		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
+		if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
+			return fmt.Errorf("failed to execute rename tables activity: %w", err)
+		}
+		q.config.DestinationTableIdentifier = oldTableIdentifier
+	}
+	state.HandledResync = true
+	return nil
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
-	lastPartition *protos.QRepPartition,
-	numPartitionsProcessed int,
+	state *protos.QRepFlowState,
 ) error {
 	// The structure of this workflow is as follows:
 	//   1. Start the loop to continuously run the replication flow.
@@ -289,8 +351,8 @@ func QRepFlowWorkflow(
 	})
 
 	// register a query to get the number of partitions processed
-	err := workflow.SetQueryHandler(ctx, "num-partitions-processed", func() (int, error) {
-		return numPartitionsProcessed, nil
+	err := workflow.SetQueryHandler(ctx, "num-partitions-processed", func() (uint64, error) {
+		return state.NumPartitionsProcessed, nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to register query handler: %w", err)
@@ -314,13 +376,18 @@ func QRepFlowWorkflow(
 	}
 	q.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
 
+	err = q.handleTableCreationForResync(ctx, state)
+	if err != nil {
+		return err
+	}
+
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup watermark table: %w", err)
 	}
 
 	logger.Info("fetching partitions to replicate for peer flow - ", config.FlowJobName)
-	partitions, err := q.GetPartitions(ctx, lastPartition)
+	partitions, err := q.GetPartitions(ctx, state.LastPartition)
 	if err != nil {
 		return fmt.Errorf("failed to get partitions: %w", err)
 	}
@@ -340,11 +407,16 @@ func QRepFlowWorkflow(
 		return nil
 	}
 
+	err = q.handleTableRenameForResync(ctx, state)
+	if err != nil {
+		return err
+	}
+
 	q.logger.Info("partitions processed - ", len(partitions.Partitions))
-	numPartitionsProcessed += len(partitions.Partitions)
+	state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
 	if len(partitions.Partitions) > 0 {
-		lastPartition = partitions.Partitions[len(partitions.Partitions)-1]
+		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
 	s.AddDefault(func() {})
@@ -356,17 +428,17 @@ func QRepFlowWorkflow(
 	}
 
 	// sleep for a while and continue the workflow
-	err = q.waitForNewRows(ctx, lastPartition)
+	err = q.waitForNewRows(ctx, state.LastPartition)
 	if err != nil {
 		return err
 	}
 
 	workflow.GetLogger(ctx).Info("Continuing as new workflow",
-		"Last Partition", lastPartition,
-		"Number of Partitions Processed", numPartitionsProcessed)
+		"Last Partition", state.LastPartition,
+		"Number of Partitions Processed", state.NumPartitionsProcessed)
 
 	// Continue the workflow with new state
-	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }
 
 // QRepPartitionWorkflow replicate a partition batch

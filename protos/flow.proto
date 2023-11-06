@@ -64,6 +64,8 @@ message FlowConnectionConfigs {
   int64 push_parallelism = 22;
 
   // if true, then the flow will be resynced
+  // create new tables with "_resync" suffix, perform initial load and then swap the new tables with the old ones
+  // to be used after the old mirror is dropped
   bool resync = 23;
 }
 
@@ -80,6 +82,16 @@ message RenameTablesInput {
 
 message RenameTablesOutput {
   string flow_job_name = 1;
+}
+
+message CreateTablesFromExistingInput {
+  string flow_job_name = 1;
+  peerdb_peers.Peer peer = 2;
+  map<string, string> new_to_existing_table_mapping = 3;
+}
+
+message CreateTablesFromExistingOutput {
+  string flow_job_name = 2;
 }
 
 message SyncFlowOptions {
@@ -296,6 +308,10 @@ message QRepConfig {
 
   // Creates the watermark table on the destination as-is, can be used for some queries.
   bool setup_watermark_table_on_destination = 17;
+
+  // create new tables with "_peerdb_resync" suffix, perform initial load and then swap the new table with the old ones
+  // to be used after the old mirror is dropped
+  bool dst_table_full_resync = 18;
 }
 
 message QRepPartition {
@@ -331,4 +347,10 @@ message TableSchemaDelta {
 message ReplayTableSchemaDeltaInput {
   FlowConnectionConfigs flow_connection_configs = 1;
   repeated TableSchemaDelta table_schema_deltas = 2;
+}
+
+message QRepFlowState {
+  QRepPartition last_partition = 1;
+  uint64 num_partitions_processed = 2;
+  bool handled_resync = 3;
 }

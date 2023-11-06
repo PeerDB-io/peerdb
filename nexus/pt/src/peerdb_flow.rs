@@ -90,6 +90,8 @@ pub struct FlowConnectionConfigs {
     #[prost(int64, tag="22")]
     pub push_parallelism: i64,
     /// if true, then the flow will be resynced
+    /// create new tables with "_resync" suffix, perform initial load and then swap the new tables with the old ones
+    /// to be used after the old mirror is dropped
     #[prost(bool, tag="23")]
     pub resync: bool,
 }
@@ -115,6 +117,22 @@ pub struct RenameTablesInput {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RenameTablesOutput {
     #[prost(string, tag="1")]
+    pub flow_job_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateTablesFromExistingInput {
+    #[prost(string, tag="1")]
+    pub flow_job_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub peer: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(map="string, string", tag="3")]
+    pub new_to_existing_table_mapping: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateTablesFromExistingOutput {
+    #[prost(string, tag="2")]
     pub flow_job_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -435,6 +453,10 @@ pub struct QRepConfig {
     /// Creates the watermark table on the destination as-is, can be used for some queries.
     #[prost(bool, tag="17")]
     pub setup_watermark_table_on_destination: bool,
+    /// create new tables with "_peerdb_resync" suffix, perform initial load and then swap the new table with the old ones
+    /// to be used after the old mirror is dropped
+    #[prost(bool, tag="18")]
+    pub dst_table_full_resync: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -491,6 +513,16 @@ pub struct ReplayTableSchemaDeltaInput {
     pub flow_connection_configs: ::core::option::Option<FlowConnectionConfigs>,
     #[prost(message, repeated, tag="2")]
     pub table_schema_deltas: ::prost::alloc::vec::Vec<TableSchemaDelta>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QRepFlowState {
+    #[prost(message, optional, tag="1")]
+    pub last_partition: ::core::option::Option<QRepPartition>,
+    #[prost(uint64, tag="2")]
+    pub num_partitions_processed: u64,
+    #[prost(bool, tag="3")]
+    pub handled_resync: bool,
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
