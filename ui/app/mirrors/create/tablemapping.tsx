@@ -5,7 +5,13 @@ import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import {
+  Dispatch,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
 import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../dto/MirrorsDTO';
 import ColumnsDisplay from './columns';
@@ -65,17 +71,20 @@ const TableMapping = ({
     return newRows;
   };
 
-  const getTablesOfSchema = (schemaName: string) => {
-    fetchTables(sourcePeerName, schemaName, setLoading).then((res) =>
-      setAllTables(res)
-    );
-  };
+  const getTablesOfSchema = useCallback(
+    (schemaName: string) => {
+      fetchTables(sourcePeerName, schemaName, setLoading).then((res) =>
+        setAllTables(res)
+      );
+    },
+    [sourcePeerName]
+  );
 
   useEffect(() => {
     fetchSchemas(sourcePeerName, setLoading).then((res) => setAllSchemas(res));
     setSchema('public');
     getTablesOfSchema('public');
-  }, [sourcePeerName]);
+  }, [sourcePeerName, setSchema, getTablesOfSchema]);
 
   return (
     <div style={{ marginTop: '1rem' }}>

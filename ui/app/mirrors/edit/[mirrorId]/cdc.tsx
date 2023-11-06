@@ -162,9 +162,11 @@ const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
   </Table>
 );
 
-const Trigger = styled(({ isActive, ...props }) => (
-  <Tabs.Trigger {...props} />
-))<{ isActive?: boolean }>`
+const Trigger = styled(
+  ({ isActive, ...props }: { isActive?: boolean } & Tabs.TabsTriggerProps) => (
+    <Tabs.Trigger {...props} />
+  )
+)<{ isActive?: boolean }>`
   background-color: ${({ theme, isActive }) =>
     isActive ? theme.colors.accent.surface.selected : 'white'};
 

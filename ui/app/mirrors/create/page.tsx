@@ -24,9 +24,7 @@ import QRepQuery from './query';
 export default function CreateMirrors() {
   const router = useRouter();
   const [mirrorName, setMirrorName] = useState<string>('');
-  const [mirrorType, setMirrorType] = useState<
-    'CDC' | 'Query Replication' | 'XMIN'
-  >('CDC');
+  const [mirrorType, setMirrorType] = useState<string>('CDC');
   const [formMessage, setFormMessage] = useState<{ ok: boolean; msg: string }>({
     ok: true,
     msg: '',
@@ -80,7 +78,7 @@ export default function CreateMirrors() {
         >
           Mirror type
         </Label>
-        <RadioButtonGroup>
+        <RadioButtonGroup onValueChange={(value) => setMirrorType(value)}>
           <div
             style={{
               display: 'flex',
@@ -108,12 +106,7 @@ export default function CreateMirrors() {
                       <div style={{ fontWeight: 'bold' }}>CDC</div>
                     </Label>
                   }
-                  action={
-                    <RadioButton
-                      checked={mirrorType === 'CDC'}
-                      onClick={() => setMirrorType('CDC')}
-                    />
-                  }
+                  action={<RadioButton value='CDC' />}
                 />
                 <Label>
                   <div style={{ fontSize: 14 }}>
@@ -156,12 +149,7 @@ export default function CreateMirrors() {
                       </div>
                     </Label>
                   }
-                  action={
-                    <RadioButton
-                      checked={mirrorType === 'Query Replication'}
-                      onClick={() => setMirrorType('Query Replication')}
-                    />
-                  }
+                  action={<RadioButton value='Query Replication' />}
                 />
                 <Label>
                   <div style={{ fontSize: 14 }}>
@@ -198,12 +186,7 @@ export default function CreateMirrors() {
                     <div style={{ fontWeight: 'bold' }}>XMIN</div>
                   </Label>
                 }
-                action={
-                  <RadioButton
-                    checked={mirrorType === 'XMIN'}
-                    onClick={() => setMirrorType('XMIN')}
-                  />
-                }
+                action={<RadioButton value='XMIN' />}
               />
               <Label>
                 <div style={{ fontSize: 14 }}>
