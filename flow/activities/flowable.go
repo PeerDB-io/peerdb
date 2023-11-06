@@ -723,7 +723,8 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	return nil
 }
 
-func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
+func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (
+	*protos.RenameTablesOutput, error) {
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -741,4 +742,25 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	}
 
 	return sfConn.RenameTables(config)
+}
+
+func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
+	*protos.CreateTablesFromExistingOutput, error) {
+	dstConn, err := connectors.GetCDCSyncConnector(ctx, req.Peer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(dstConn)
+
+	// check if destination is snowflake, if not error out
+	if req.Peer.Type != protos.DBType_SNOWFLAKE {
+		return nil, fmt.Errorf("create tables from existing is only supported on snowflake")
+	}
+
+	sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast connector to snowflake connector")
+	}
+
+	return sfConn.CreateTablesFromExisting(req)
 }

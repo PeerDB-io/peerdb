@@ -133,7 +133,11 @@ export interface FlowConnectionConfigs {
   /** the below two are for eventhub only */
   pushBatchSize: number;
   pushParallelism: number;
-  /** if true, then the flow will be resynced */
+  /**
+   * if true, then the flow will be resynced
+   * create new tables with "_resync" suffix, perform initial load and then swap the new tables with the old ones
+   * to be used after the old mirror is dropped
+   */
   resync: boolean;
 }
 
@@ -159,6 +163,21 @@ export interface RenameTablesInput {
 }
 
 export interface RenameTablesOutput {
+  flowJobName: string;
+}
+
+export interface CreateTablesFromExistingInput {
+  flowJobName: string;
+  peer: Peer | undefined;
+  newToExistingTableMapping: { [key: string]: string };
+}
+
+export interface CreateTablesFromExistingInput_NewToExistingTableMappingEntry {
+  key: string;
+  value: string;
+}
+
+export interface CreateTablesFromExistingOutput {
   flowJobName: string;
 }
 
@@ -401,6 +420,11 @@ export interface QRepConfig {
   numRowsPerPartition: number;
   /** Creates the watermark table on the destination as-is, can be used for some queries. */
   setupWatermarkTableOnDestination: boolean;
+  /**
+   * create new tables with "_peerdb_resync" suffix, perform initial load and then swap the new table with the old ones
+   * to be used after the old mirror is dropped
+   */
+  dstTableFullResync: boolean;
 }
 
 export interface QRepPartition {
@@ -436,6 +460,12 @@ export interface TableSchemaDelta {
 export interface ReplayTableSchemaDeltaInput {
   flowConnectionConfigs: FlowConnectionConfigs | undefined;
   tableSchemaDeltas: TableSchemaDelta[];
+}
+
+export interface QRepFlowState {
+  lastPartition: QRepPartition | undefined;
+  numPartitionsProcessed: number;
+  needsResync: boolean;
 }
 
 function createBaseTableNameMapping(): TableNameMapping {
@@ -1632,6 +1662,261 @@ export const RenameTablesOutput = {
   },
   fromPartial<I extends Exact<DeepPartial<RenameTablesOutput>, I>>(object: I): RenameTablesOutput {
     const message = createBaseRenameTablesOutput();
+    message.flowJobName = object.flowJobName ?? "";
+    return message;
+  },
+};
+
+function createBaseCreateTablesFromExistingInput(): CreateTablesFromExistingInput {
+  return { flowJobName: "", peer: undefined, newToExistingTableMapping: {} };
+}
+
+export const CreateTablesFromExistingInput = {
+  encode(message: CreateTablesFromExistingInput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowJobName !== "") {
+      writer.uint32(10).string(message.flowJobName);
+    }
+    if (message.peer !== undefined) {
+      Peer.encode(message.peer, writer.uint32(18).fork()).ldelim();
+    }
+    Object.entries(message.newToExistingTableMapping).forEach(([key, value]) => {
+      CreateTablesFromExistingInput_NewToExistingTableMappingEntry.encode(
+        { key: key as any, value },
+        writer.uint32(26).fork(),
+      ).ldelim();
+    });
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreateTablesFromExistingInput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateTablesFromExistingInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.peer = Peer.decode(reader, reader.uint32());
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          const entry3 = CreateTablesFromExistingInput_NewToExistingTableMappingEntry.decode(reader, reader.uint32());
+          if (entry3.value !== undefined) {
+            message.newToExistingTableMapping[entry3.key] = entry3.value;
+          }
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateTablesFromExistingInput {
+    return {
+      flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
+      peer: isSet(object.peer) ? Peer.fromJSON(object.peer) : undefined,
+      newToExistingTableMapping: isObject(object.newToExistingTableMapping)
+        ? Object.entries(object.newToExistingTableMapping).reduce<{ [key: string]: string }>((acc, [key, value]) => {
+          acc[key] = String(value);
+          return acc;
+        }, {})
+        : {},
+    };
+  },
+
+  toJSON(message: CreateTablesFromExistingInput): unknown {
+    const obj: any = {};
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    if (message.peer !== undefined) {
+      obj.peer = Peer.toJSON(message.peer);
+    }
+    if (message.newToExistingTableMapping) {
+      const entries = Object.entries(message.newToExistingTableMapping);
+      if (entries.length > 0) {
+        obj.newToExistingTableMapping = {};
+        entries.forEach(([k, v]) => {
+          obj.newToExistingTableMapping[k] = v;
+        });
+      }
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CreateTablesFromExistingInput>, I>>(base?: I): CreateTablesFromExistingInput {
+    return CreateTablesFromExistingInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CreateTablesFromExistingInput>, I>>(
+    object: I,
+  ): CreateTablesFromExistingInput {
+    const message = createBaseCreateTablesFromExistingInput();
+    message.flowJobName = object.flowJobName ?? "";
+    message.peer = (object.peer !== undefined && object.peer !== null) ? Peer.fromPartial(object.peer) : undefined;
+    message.newToExistingTableMapping = Object.entries(object.newToExistingTableMapping ?? {}).reduce<
+      { [key: string]: string }
+    >((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = String(value);
+      }
+      return acc;
+    }, {});
+    return message;
+  },
+};
+
+function createBaseCreateTablesFromExistingInput_NewToExistingTableMappingEntry(): CreateTablesFromExistingInput_NewToExistingTableMappingEntry {
+  return { key: "", value: "" };
+}
+
+export const CreateTablesFromExistingInput_NewToExistingTableMappingEntry = {
+  encode(
+    message: CreateTablesFromExistingInput_NewToExistingTableMappingEntry,
+    writer: _m0.Writer = _m0.Writer.create(),
+  ): _m0.Writer {
+    if (message.key !== "") {
+      writer.uint32(10).string(message.key);
+    }
+    if (message.value !== "") {
+      writer.uint32(18).string(message.value);
+    }
+    return writer;
+  },
+
+  decode(
+    input: _m0.Reader | Uint8Array,
+    length?: number,
+  ): CreateTablesFromExistingInput_NewToExistingTableMappingEntry {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateTablesFromExistingInput_NewToExistingTableMappingEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.key = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateTablesFromExistingInput_NewToExistingTableMappingEntry {
+    return { key: isSet(object.key) ? String(object.key) : "", value: isSet(object.value) ? String(object.value) : "" };
+  },
+
+  toJSON(message: CreateTablesFromExistingInput_NewToExistingTableMappingEntry): unknown {
+    const obj: any = {};
+    if (message.key !== "") {
+      obj.key = message.key;
+    }
+    if (message.value !== "") {
+      obj.value = message.value;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CreateTablesFromExistingInput_NewToExistingTableMappingEntry>, I>>(
+    base?: I,
+  ): CreateTablesFromExistingInput_NewToExistingTableMappingEntry {
+    return CreateTablesFromExistingInput_NewToExistingTableMappingEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CreateTablesFromExistingInput_NewToExistingTableMappingEntry>, I>>(
+    object: I,
+  ): CreateTablesFromExistingInput_NewToExistingTableMappingEntry {
+    const message = createBaseCreateTablesFromExistingInput_NewToExistingTableMappingEntry();
+    message.key = object.key ?? "";
+    message.value = object.value ?? "";
+    return message;
+  },
+};
+
+function createBaseCreateTablesFromExistingOutput(): CreateTablesFromExistingOutput {
+  return { flowJobName: "" };
+}
+
+export const CreateTablesFromExistingOutput = {
+  encode(message: CreateTablesFromExistingOutput, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.flowJobName !== "") {
+      writer.uint32(18).string(message.flowJobName);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): CreateTablesFromExistingOutput {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCreateTablesFromExistingOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): CreateTablesFromExistingOutput {
+    return { flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "" };
+  },
+
+  toJSON(message: CreateTablesFromExistingOutput): unknown {
+    const obj: any = {};
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<CreateTablesFromExistingOutput>, I>>(base?: I): CreateTablesFromExistingOutput {
+    return CreateTablesFromExistingOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<CreateTablesFromExistingOutput>, I>>(
+    object: I,
+  ): CreateTablesFromExistingOutput {
+    const message = createBaseCreateTablesFromExistingOutput();
     message.flowJobName = object.flowJobName ?? "";
     return message;
   },
@@ -4879,6 +5164,7 @@ function createBaseQRepConfig(): QRepConfig {
     stagingPath: "",
     numRowsPerPartition: 0,
     setupWatermarkTableOnDestination: false,
+    dstTableFullResync: false,
   };
 }
 
@@ -4934,6 +5220,9 @@ export const QRepConfig = {
     }
     if (message.setupWatermarkTableOnDestination === true) {
       writer.uint32(136).bool(message.setupWatermarkTableOnDestination);
+    }
+    if (message.dstTableFullResync === true) {
+      writer.uint32(144).bool(message.dstTableFullResync);
     }
     return writer;
   },
@@ -5064,6 +5353,13 @@ export const QRepConfig = {
 
           message.setupWatermarkTableOnDestination = reader.bool();
           continue;
+        case 18:
+          if (tag !== 144) {
+            break;
+          }
+
+          message.dstTableFullResync = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5096,6 +5392,7 @@ export const QRepConfig = {
       setupWatermarkTableOnDestination: isSet(object.setupWatermarkTableOnDestination)
         ? Boolean(object.setupWatermarkTableOnDestination)
         : false,
+      dstTableFullResync: isSet(object.dstTableFullResync) ? Boolean(object.dstTableFullResync) : false,
     };
   },
 
@@ -5152,6 +5449,9 @@ export const QRepConfig = {
     if (message.setupWatermarkTableOnDestination === true) {
       obj.setupWatermarkTableOnDestination = message.setupWatermarkTableOnDestination;
     }
+    if (message.dstTableFullResync === true) {
+      obj.dstTableFullResync = message.dstTableFullResync;
+    }
     return obj;
   },
 
@@ -5183,6 +5483,7 @@ export const QRepConfig = {
     message.stagingPath = object.stagingPath ?? "";
     message.numRowsPerPartition = object.numRowsPerPartition ?? 0;
     message.setupWatermarkTableOnDestination = object.setupWatermarkTableOnDestination ?? false;
+    message.dstTableFullResync = object.dstTableFullResync ?? false;
     return message;
   },
 };
@@ -5710,6 +6011,97 @@ export const ReplayTableSchemaDeltaInput = {
         ? FlowConnectionConfigs.fromPartial(object.flowConnectionConfigs)
         : undefined;
     message.tableSchemaDeltas = object.tableSchemaDeltas?.map((e) => TableSchemaDelta.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseQRepFlowState(): QRepFlowState {
+  return { lastPartition: undefined, numPartitionsProcessed: 0, needsResync: false };
+}
+
+export const QRepFlowState = {
+  encode(message: QRepFlowState, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.lastPartition !== undefined) {
+      QRepPartition.encode(message.lastPartition, writer.uint32(10).fork()).ldelim();
+    }
+    if (message.numPartitionsProcessed !== 0) {
+      writer.uint32(16).uint64(message.numPartitionsProcessed);
+    }
+    if (message.needsResync === true) {
+      writer.uint32(24).bool(message.needsResync);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): QRepFlowState {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQRepFlowState();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.lastPartition = QRepPartition.decode(reader, reader.uint32());
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.numPartitionsProcessed = longToNumber(reader.uint64() as Long);
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.needsResync = reader.bool();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QRepFlowState {
+    return {
+      lastPartition: isSet(object.lastPartition) ? QRepPartition.fromJSON(object.lastPartition) : undefined,
+      numPartitionsProcessed: isSet(object.numPartitionsProcessed) ? Number(object.numPartitionsProcessed) : 0,
+      needsResync: isSet(object.needsResync) ? Boolean(object.needsResync) : false,
+    };
+  },
+
+  toJSON(message: QRepFlowState): unknown {
+    const obj: any = {};
+    if (message.lastPartition !== undefined) {
+      obj.lastPartition = QRepPartition.toJSON(message.lastPartition);
+    }
+    if (message.numPartitionsProcessed !== 0) {
+      obj.numPartitionsProcessed = Math.round(message.numPartitionsProcessed);
+    }
+    if (message.needsResync === true) {
+      obj.needsResync = message.needsResync;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QRepFlowState>, I>>(base?: I): QRepFlowState {
+    return QRepFlowState.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QRepFlowState>, I>>(object: I): QRepFlowState {
+    const message = createBaseQRepFlowState();
+    message.lastPartition = (object.lastPartition !== undefined && object.lastPartition !== null)
+      ? QRepPartition.fromPartial(object.lastPartition)
+      : undefined;
+    message.numPartitionsProcessed = object.numPartitionsProcessed ?? 0;
+    message.needsResync = object.needsResync ?? false;
     return message;
   },
 };

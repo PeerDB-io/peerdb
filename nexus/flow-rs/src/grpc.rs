@@ -294,6 +294,8 @@ impl FlowGrpcClient {
                         cfg.initial_copy_only = *v;
                     } else if key == "setup_watermark_table_on_destination" {
                         cfg.setup_watermark_table_on_destination = *v;
+                    } else if key == "dst_table_full_resync" {
+                        cfg.dst_table_full_resync = *v;
                     } else {
                         return anyhow::Result::Err(anyhow::anyhow!("invalid bool option {}", key));
                     }
