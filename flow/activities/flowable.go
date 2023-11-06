@@ -754,7 +754,7 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 
 	// check if destination is snowflake, if not error out
 	if req.Peer.Type != protos.DBType_SNOWFLAKE {
-		return nil, fmt.Errorf("rename tables is only supported for snowflake")
+		return nil, fmt.Errorf("create tables from existing is only supported on snowflake")
 	}
 
 	sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)

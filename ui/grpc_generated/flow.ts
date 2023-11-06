@@ -465,7 +465,7 @@ export interface ReplayTableSchemaDeltaInput {
 export interface QRepFlowState {
   lastPartition: QRepPartition | undefined;
   numPartitionsProcessed: number;
-  handledResync: boolean;
+  needsResync: boolean;
 }
 
 function createBaseTableNameMapping(): TableNameMapping {
@@ -6016,7 +6016,7 @@ export const ReplayTableSchemaDeltaInput = {
 };
 
 function createBaseQRepFlowState(): QRepFlowState {
-  return { lastPartition: undefined, numPartitionsProcessed: 0, handledResync: false };
+  return { lastPartition: undefined, numPartitionsProcessed: 0, needsResync: false };
 }
 
 export const QRepFlowState = {
@@ -6027,8 +6027,8 @@ export const QRepFlowState = {
     if (message.numPartitionsProcessed !== 0) {
       writer.uint32(16).uint64(message.numPartitionsProcessed);
     }
-    if (message.handledResync === true) {
-      writer.uint32(24).bool(message.handledResync);
+    if (message.needsResync === true) {
+      writer.uint32(24).bool(message.needsResync);
     }
     return writer;
   },
@@ -6059,7 +6059,7 @@ export const QRepFlowState = {
             break;
           }
 
-          message.handledResync = reader.bool();
+          message.needsResync = reader.bool();
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -6074,7 +6074,7 @@ export const QRepFlowState = {
     return {
       lastPartition: isSet(object.lastPartition) ? QRepPartition.fromJSON(object.lastPartition) : undefined,
       numPartitionsProcessed: isSet(object.numPartitionsProcessed) ? Number(object.numPartitionsProcessed) : 0,
-      handledResync: isSet(object.handledResync) ? Boolean(object.handledResync) : false,
+      needsResync: isSet(object.needsResync) ? Boolean(object.needsResync) : false,
     };
   },
 
@@ -6086,8 +6086,8 @@ export const QRepFlowState = {
     if (message.numPartitionsProcessed !== 0) {
       obj.numPartitionsProcessed = Math.round(message.numPartitionsProcessed);
     }
-    if (message.handledResync === true) {
-      obj.handledResync = message.handledResync;
+    if (message.needsResync === true) {
+      obj.needsResync = message.needsResync;
     }
     return obj;
   },
@@ -6101,7 +6101,7 @@ export const QRepFlowState = {
       ? QRepPartition.fromPartial(object.lastPartition)
       : undefined;
     message.numPartitionsProcessed = object.numPartitionsProcessed ?? 0;
-    message.handledResync = object.handledResync ?? false;
+    message.needsResync = object.needsResync ?? false;
     return message;
   },
 };

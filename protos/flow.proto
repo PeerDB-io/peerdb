@@ -352,5 +352,5 @@ message ReplayTableSchemaDeltaInput {
 message QRepFlowState {
   QRepPartition last_partition = 1;
   uint64 num_partitions_processed = 2;
-  bool handled_resync = 3;
+  bool needs_resync = 3;
 }

@@ -522,7 +522,7 @@ pub struct QRepFlowState {
     #[prost(uint64, tag="2")]
     pub num_partitions_processed: u64,
     #[prost(bool, tag="3")]
-    pub handled_resync: bool,
+    pub needs_resync: bool,
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

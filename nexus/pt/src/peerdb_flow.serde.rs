@@ -2965,7 +2965,7 @@ impl serde::Serialize for QRepFlowState {
         if self.num_partitions_processed != 0 {
             len += 1;
         }
-        if self.handled_resync {
+        if self.needs_resync {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.QRepFlowState", len)?;
@@ -2975,8 +2975,8 @@ impl serde::Serialize for QRepFlowState {
         if self.num_partitions_processed != 0 {
             struct_ser.serialize_field("numPartitionsProcessed", ToString::to_string(&self.num_partitions_processed).as_str())?;
         }
-        if self.handled_resync {
-            struct_ser.serialize_field("handledResync", &self.handled_resync)?;
+        if self.needs_resync {
+            struct_ser.serialize_field("needsResync", &self.needs_resync)?;
         }
         struct_ser.end()
     }
@@ -2992,15 +2992,15 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
             "lastPartition",
             "num_partitions_processed",
             "numPartitionsProcessed",
-            "handled_resync",
-            "handledResync",
+            "needs_resync",
+            "needsResync",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             LastPartition,
             NumPartitionsProcessed,
-            HandledResync,
+            NeedsResync,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3025,7 +3025,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                         match value {
                             "lastPartition" | "last_partition" => Ok(GeneratedField::LastPartition),
                             "numPartitionsProcessed" | "num_partitions_processed" => Ok(GeneratedField::NumPartitionsProcessed),
-                            "handledResync" | "handled_resync" => Ok(GeneratedField::HandledResync),
+                            "needsResync" | "needs_resync" => Ok(GeneratedField::NeedsResync),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3047,7 +3047,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
             {
                 let mut last_partition__ = None;
                 let mut num_partitions_processed__ = None;
-                let mut handled_resync__ = None;
+                let mut needs_resync__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::LastPartition => {
@@ -3064,11 +3064,11 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::HandledResync => {
-                            if handled_resync__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("handledResync"));
+                        GeneratedField::NeedsResync => {
+                            if needs_resync__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("needsResync"));
                             }
-                            handled_resync__ = Some(map.next_value()?);
+                            needs_resync__ = Some(map.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
@@ -3078,7 +3078,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                 Ok(QRepFlowState {
                     last_partition: last_partition__,
                     num_partitions_processed: num_partitions_processed__.unwrap_or_default(),
-                    handled_resync: handled_resync__.unwrap_or_default(),
+                    needs_resync: needs_resync__.unwrap_or_default(),
                 })
             }
         }

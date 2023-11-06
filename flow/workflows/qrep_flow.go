@@ -30,7 +30,7 @@ func NewQRepFlowState() *protos.QRepFlowState {
 			Range:       nil,
 		},
 		NumPartitionsProcessed: 0,
-		HandledResync:          false,
+		NeedsResync:            true,
 	}
 }
 
@@ -268,7 +268,7 @@ func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *
 }
 
 func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
-	if !state.HandledResync && q.config.DstTableFullResync {
+	if state.NeedsResync && q.config.DstTableFullResync {
 		renamedTableIdentifier := fmt.Sprintf("%s_peerdb_resync", q.config.DestinationTableIdentifier)
 		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
@@ -291,7 +291,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 }
 
 func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
-	if !state.HandledResync && q.config.DstTableFullResync {
+	if state.NeedsResync && q.config.DstTableFullResync {
 		oldTableIdentifier := strings.TrimSuffix(q.config.DestinationTableIdentifier, "_peerdb_resync")
 		renameOpts := &protos.RenameTablesInput{}
 		renameOpts.FlowJobName = q.config.FlowJobName
@@ -313,7 +313,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 		}
 		q.config.DestinationTableIdentifier = oldTableIdentifier
 	}
-	state.HandledResync = true
+	state.NeedsResync = true
 	return nil
 }
 
