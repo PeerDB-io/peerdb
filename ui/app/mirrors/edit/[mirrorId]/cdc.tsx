@@ -113,7 +113,7 @@ const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
     if (searchQuery.length == 0) {
       setSnapshotRows(status.clones.map(summarizeTableClone));
     }
-  }, [searchQuery]);
+  }, [searchQuery, status.clones]);
   return (
     <Table
       title={<Label variant='headline'>Initial Copy</Label>}
