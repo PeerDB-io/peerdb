@@ -123,6 +123,11 @@ pub enum PeerDDL {
         if_exists: bool,
         flow_job_name: String,
     },
+    ResyncMirror {
+        if_exists: bool,
+        mirror_name: String,
+        query_string: Option<String>,
+    },
 }
 
 impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
@@ -378,6 +383,27 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 if_exists: *if_exists,
                 peer_name: peer_name.to_string().to_lowercase(),
             })),
+            Statement::ResyncMirror {
+                if_exists,
+                mirror_name,
+                with_options,
+            } => {
+                let mut raw_options = HashMap::new();
+                for option in with_options {
+                    raw_options.insert(&option.name.value as &str, &option.value);
+                }
+
+                let query_string = match raw_options.remove("query_string") {
+                    Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                    _ => None,
+                };
+
+                Ok(Some(PeerDDL::ResyncMirror {
+                    if_exists: *if_exists,
+                    mirror_name: mirror_name.to_string().to_lowercase(),
+                    query_string,
+                }))
+            }
             _ => Ok(None),
         }
     }
