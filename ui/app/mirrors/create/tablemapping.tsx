@@ -2,6 +2,7 @@
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
+import { SearchField } from '@/lib/SearchField';
 import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
@@ -16,6 +17,7 @@ import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../dto/MirrorsDTO';
 import ColumnsDisplay from './columns';
 import { fetchSchemas, fetchTables } from './handlers';
+
 interface TableMappingProps {
   sourcePeerName: string;
   rows: TableMapRow[];
@@ -23,6 +25,7 @@ interface TableMappingProps {
   schema: string;
   setSchema: Dispatch<SetStateAction<string>>;
 }
+
 const TableMapping = ({
   sourcePeerName,
   rows,
@@ -44,8 +47,31 @@ const TableMapping = ({
   const handleRemoveRow = (source: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows.splice(index, 1);
+    if (index >= 0) newRows.splice(index, 1);
     setRows(newRows);
+  };
+
+  const getRow = (source: string) => {
+    const newRows = [...rows];
+    const row = newRows.find((row) => row.source === `${schema}.${source}`);
+    return row;
+  };
+
+  const handleSelectAll = (
+    e: React.MouseEvent<HTMLInputElement, MouseEvent>
+  ) => {
+    if (e.currentTarget.checked) {
+      const tableNames: TableMapRow[] | undefined = allTables?.map(
+        (tableName) => {
+          return {
+            source: `${schema}.${tableName}`,
+            destination: `${schema}.${tableName}`,
+            partitionKey: '',
+          };
+        }
+      );
+      setRows(tableNames ?? []);
+    } else setRows([]);
   };
 
   const handleSwitch = (on: boolean, source: string) => {
@@ -79,6 +105,22 @@ const TableMapping = ({
     },
     [sourcePeerName]
   );
+
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (searchQuery.length > 0) {
+      setAllTables(
+        (curr) =>
+          curr?.filter((table) => {
+            return table.toLowerCase().includes(searchQuery.toLowerCase());
+          })
+      );
+    }
+    if (searchQuery.length == 0) {
+      getTablesOfSchema(schema);
+    }
+  }, [searchQuery, getTablesOfSchema]);
 
   useEffect(() => {
     fetchSchemas(sourcePeerName, setLoading).then((res) => setAllSchemas(res));
@@ -114,8 +156,29 @@ const TableMapping = ({
           </Select>
         }
       />
-
-      <div style={{ maxHeight: '30vh', overflow: 'scroll' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginTop: '0.5rem',
+          padding: '0.5rem',
+        }}
+      >
+        <div style={{ display: 'flex' }}>
+          <input type='checkbox' onClick={(e) => handleSelectAll(e)} />
+          <Label>Select All</Label>
+        </div>
+        <div style={{ width: '30%' }}>
+          <SearchField
+            placeholder='Search'
+            value={searchQuery}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setSearchQuery(e.target.value)
+            }
+          />
+        </div>
+      </div>
+      <div style={{ maxHeight: '40vh', overflow: 'scroll' }}>
         {allTables ? (
           allTables.map((sourceTableName, index) => (
             <div
@@ -142,6 +205,7 @@ const TableMapping = ({
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     <Switch
+                      checked={!!getRow(sourceTableName)}
                       onCheckedChange={(state: boolean) =>
                         handleSwitch(state, sourceTableName)
                       }

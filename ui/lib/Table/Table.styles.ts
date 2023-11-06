@@ -15,6 +15,7 @@ export const StyledTable = styled.table`
   width: 100%;
   border-spacing: 0;
   border-collapse: collapse;
+  cell-spacing: 0;
 `;
 
 export const StyledTableBody = styled.tbody``;

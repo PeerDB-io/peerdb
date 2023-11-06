@@ -1,11 +1,11 @@
 'use client';
 
+import SearchBar from '@/components/Search';
+import TimeLabel from '@/components/TimeComponent';
 import { Button } from '@/lib/Button';
-import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useState } from 'react';
@@ -23,7 +23,7 @@ function TimeOrProgressBar({ time }: { time: Date | null }) {
   if (time === null) {
     return <ProgressCircle variant='determinate_progress_circle' />;
   } else {
-    return <Label>{moment(time)?.format('YYYY-MM-DD HH:mm:ss')}</Label>;
+    return <TimeLabel timeVal={moment(time)?.format('YYYY-MM-DD HH:mm:ss')} />;
   }
 }
 
@@ -44,9 +44,6 @@ function RowPerPartition({
 
   return (
     <TableRow key={partitionId}>
-      <TableCell variant='button'>
-        <Checkbox />
-      </TableCell>
       <TableCell>
         <Label>{partitionId}</Label>
       </TableCell>
@@ -57,7 +54,7 @@ function RowPerPartition({
         <Label>{duration}</Label>
       </TableCell>
       <TableCell>
-        <Label>{moment(startTime)?.format('YYYY-MM-DD HH:mm:ss')}</Label>
+        <TimeLabel timeVal={moment(startTime)?.format('YYYY-MM-DD HH:mm:ss')} />
       </TableCell>
       <TableCell>
         <Label>
@@ -88,6 +85,8 @@ export default function QRepStatusTable({
     (currentPage - 1) * ROWS_PER_PAGE,
     currentPage * ROWS_PER_PAGE
   );
+  const [displayedPartitions, setDisplayedPartitions] =
+    useState(visiblePartitions);
 
   const handleNext = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -136,23 +135,40 @@ export default function QRepStatusTable({
             </div>
           </>
         ),
-        right: <SearchField placeholder='Search' />,
+        right: (
+          <SearchBar
+            allItems={visiblePartitions}
+            setItems={setDisplayedPartitions}
+            filterFunction={(query: string) =>
+              visiblePartitions.filter((partition: QRepPartitionStatus) => {
+                return partition.partitionId
+                  .toLowerCase()
+                  .includes(query.toLowerCase());
+              })
+            }
+          />
+        ),
       }}
       header={
         <TableRow>
-          <TableCell as='th' variant='button'>
-            <Checkbox variant='mixed' defaultChecked />
-          </TableCell>
-          <TableCell as='th'>Partition UUID</TableCell>
-          <TableCell as='th'>Run UUID</TableCell>
-          <TableCell as='th'>Duration</TableCell>
-          <TableCell as='th'>Start Time</TableCell>
-          <TableCell as='th'>End Time</TableCell>
-          <TableCell as='th'>Num Rows Synced</TableCell>
+          {[
+            'Partition UUID',
+            'Run UUID',
+            'Duration',
+            'Start Time',
+            'End Time',
+            'Num Rows Synced',
+          ].map((heading, index) => (
+            <TableCell as='th' key={index}>
+              <Label as='label' style={{ fontWeight: 'bold' }}>
+                {heading}
+              </Label>
+            </TableCell>
+          ))}
         </TableRow>
       }
     >
-      {visiblePartitions.map((partition, index) => (
+      {displayedPartitions.map((partition, index) => (
         <RowPerPartition key={index} {...partition} />
       ))}
     </Table>

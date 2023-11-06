@@ -1,16 +1,7 @@
 import { QRepSyncMode } from '@/grpc_generated/flow';
-import { Peer } from '@/grpc_generated/peers';
 import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
-  {
-    label: 'Destination Peer',
-    stateHandler: (value, setter) =>
-      setter((curr: CDCConfig) => ({ ...curr, destination: value as Peer })),
-    tips: 'The peer to which data will be replicated.',
-    type: 'select',
-    required: true,
-  },
   {
     label: 'Initial Copy',
     stateHandler: (value, setter) =>
@@ -55,10 +46,10 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        snapshotMaxParallelWorkers: parseInt(value as string, 10) || 8,
+        snapshotMaxParallelWorkers: parseInt(value as string, 10) || 1,
       })),
     tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 8.',
-    default: '8',
+    default: '1',
     type: 'number',
   },
   {

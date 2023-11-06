@@ -4,30 +4,8 @@ import {
   QRepWriteMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
-import { Peer } from '@/grpc_generated/peers';
 import { MirrorSetting } from './common';
 export const qrepSettings: MirrorSetting[] = [
-  {
-    label: 'Source Peer',
-    stateHandler: (value, setter) =>
-      setter((curr: QRepConfig) => ({ ...curr, sourcePeer: value as Peer })),
-    tips: 'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.',
-    helpfulLink:
-      'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites',
-    type: 'select',
-    required: true,
-  },
-  {
-    label: 'Destination Peer',
-    stateHandler: (value, setter) =>
-      setter((curr: QRepConfig) => ({
-        ...curr,
-        destinationPeer: value as Peer,
-      })),
-    tips: 'The peer to which data will be replicated.',
-    type: 'select',
-    required: true,
-  },
   {
     label: 'Table',
     stateHandler: (value, setter) =>
@@ -84,10 +62,10 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        maxParallelWorkers: parseInt(value as string, 10) || 8,
+        maxParallelWorkers: parseInt(value as string, 10) || 1,
       })),
     tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 8.',
-    default: '8',
+    default: '1',
     type: 'number',
   },
   {
