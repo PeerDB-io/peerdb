@@ -196,8 +196,8 @@ impl Catalog {
         self.pg
             .query_opt(&stmt, &[&peer_id])
             .await?
-            .map(|row| row.get(0))
-            .map(|r#type| DbType::from_i32(r#type).unwrap()) // if row was inserted properly, this should never fail
+            .map(|row| row.get::<usize, i32>(0))
+            .and_then(|r#type| DbType::try_from(r#type).ok()) // if row was inserted properly, this should never fail
             .context("Failed to get peer type")
     }
 
@@ -215,7 +215,7 @@ impl Catalog {
             let name: &str = row.get(1);
             let peer_type: i32 = row.get(2);
             let options: &[u8] = row.get(3);
-            let db_type = DbType::from_i32(peer_type);
+            let db_type = DbType::try_from(peer_type).ok();
             let config = self.get_config(db_type, name, options).await?;
 
             let peer = Peer {
@@ -244,7 +244,7 @@ impl Catalog {
             let name: &str = row.get(1);
             let peer_type: i32 = row.get(2);
             let options: &[u8] = row.get(3);
-            let db_type = DbType::from_i32(peer_type);
+            let db_type = DbType::try_from(peer_type).ok();
             let config = self.get_config(db_type, name, options).await?;
 
             let peer = Peer {
@@ -271,7 +271,7 @@ impl Catalog {
             let name: &str = row.get(0);
             let peer_type: i32 = row.get(1);
             let options: &[u8] = row.get(2);
-            let db_type = DbType::from_i32(peer_type);
+            let db_type = DbType::try_from(peer_type).ok();
             let config = self.get_config(db_type, name, options).await?;
 
             let peer = Peer {

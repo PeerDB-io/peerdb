@@ -17,4 +17,4 @@ hex = "0.4"
 pgwire = "0.15"
 postgres = { version = "0.19", features = ["with-chrono-0_4"] }
 postgres-types = { version = "0.2.5", features = ["array-impls"] }
-uuid = { version = "0.8", features = ["serde", "v4"] }
+uuid = { version = "1.0", features = ["serde", "v4"] }
