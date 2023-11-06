@@ -239,6 +239,26 @@ impl BigqueryAst {
             ControlFlow::<()>::Continue(())
         });
 
+        // flatten ANY to IN operation overall.
+        visit_expressions_mut(query, |node| {
+            if let Expr::AnyOp { left, compare_op, right } = node {
+                if matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq) {
+                    let list = self
+                        .flatten_expr_to_in_list(right)
+                        .expect("failed to flatten");
+                    *node = Expr::InList {
+                        expr: left.clone(),
+                        list,
+                        negated: matches!(compare_op, BinaryOperator::NotEq),
+                    };
+                }
+            }
+
+            ControlFlow::<()>::Continue(())
+        });
+
+
+
         Ok(())
     }
 
