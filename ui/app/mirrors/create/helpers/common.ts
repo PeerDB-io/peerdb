@@ -63,5 +63,5 @@ export const blankQRepSetting: QRepConfig = {
   stagingPath: '',
   numRowsPerPartition: 0,
   setupWatermarkTableOnDestination: false,
-  dstTableFullResync: false
+  dstTableFullResync: false,
 };
