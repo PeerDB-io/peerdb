@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import ConfigForm from '../../../../components/ConfigForm';
 import { handleCreate, handleValidate } from './handlers';
+import { bigquerySetting } from './helpers/bq';
 import { PeerSetting, getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
@@ -42,6 +43,8 @@ export default function CreateConfig({
         return configForm(postgresSetting);
       case 'SNOWFLAKE':
         return configForm(snowflakeSetting);
+      case 'BIGQUERY':
+        return configForm(bigquerySetting);
       default:
         return <></>;
     }
