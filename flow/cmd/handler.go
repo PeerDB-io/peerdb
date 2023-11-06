@@ -208,11 +208,6 @@ func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 
 func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest) (*protos.CreateQRepFlowResponse, error) {
-	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-applicable-partition",
-		Range:       nil,
-	}
-
 	cfg := req.QrepConfig
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
@@ -225,14 +220,14 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
-	numPartitionsProcessed := 0
+
+	state := peerflow.NewQRepFlowState()
 	_, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context
 		workflowOptions,           // workflow start options
 		peerflow.QRepFlowWorkflow, // workflow function
 		cfg,                       // workflow input
-		lastPartition,             // last partition
-		numPartitionsProcessed,    // number of partitions processed
+		state,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)

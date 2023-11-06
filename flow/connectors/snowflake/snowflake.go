@@ -505,7 +505,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 
 	var res *model.SyncResponse
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO {
-		log.Infof("sync mode is for flow %s is AVRO", req.FlowJobName)
+		log.Infof("sync mode for flow %s is AVRO", req.FlowJobName)
 		res, err = c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
 		if err != nil {
 			return nil, err
@@ -529,7 +529,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	}()
 
 	if req.SyncMode == protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT {
-		log.Infof("sync mode is for flow %s is MULTI_INSERT", req.FlowJobName)
+		log.Infof("sync mode for flow %s is MULTI_INSERT", req.FlowJobName)
 		res, err = c.syncRecordsViaSQL(req, rawTableIdentifier, syncBatchID, syncRecordsTx)
 		if err != nil {
 			return nil, err
@@ -1167,6 +1167,14 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
 	}
+	defer func() {
+		deferErr := renameTablesTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for renaming tables: %v", err)
+		}
+	}()
 
 	for _, renameRequest := range req.RenameTableOptions {
 		src := renameRequest.CurrentName
@@ -1203,6 +1211,50 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 	}
 
 	return &protos.RenameTablesOutput{
+		FlowJobName: req.FlowJobName,
+	}, nil
+}
+
+func (c *SnowflakeConnector) CreateTablesFromExisting(req *protos.CreateTablesFromExistingInput) (
+	*protos.CreateTablesFromExistingOutput, error) {
+	createTablesFromExistingTx, err := c.database.BeginTx(c.ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
+	}
+	defer func() {
+		deferErr := createTablesFromExistingTx.Rollback()
+		if deferErr != sql.ErrTxDone && deferErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Errorf("unexpected error rolling back transaction for creating tables: %v", err)
+		}
+	}()
+
+	for newTable, existingTable := range req.NewToExistingTableMapping {
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Infof("creating table '%s' similar to '%s'", newTable, existingTable)
+
+		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
+
+		// rename the src table to dst
+		_, err = createTablesFromExistingTx.ExecContext(c.ctx,
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable))
+		if err != nil {
+			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
+		}
+
+		log.WithFields(log.Fields{
+			"flowName": req.FlowJobName,
+		}).Infof("successfully created table '%s'", newTable)
+	}
+
+	err = createTablesFromExistingTx.Commit()
+	if err != nil {
+		return nil, fmt.Errorf("unable to commit transaction for creating tables: %w", err)
+	}
+
+	return &protos.CreateTablesFromExistingOutput{
 		FlowJobName: req.FlowJobName,
 	}, nil
 }

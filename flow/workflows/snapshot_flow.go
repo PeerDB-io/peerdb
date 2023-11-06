@@ -116,11 +116,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		TaskQueue:           shared.PeerFlowTaskQueue,
 	})
 
-	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-applicable-partition",
-		Range:       nil,
-	}
-
 	// we know that the source is postgres as setup replication output is non-nil
 	// only for postgres
 	sourcePostgres := s.config.Source
@@ -170,9 +165,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 		},
 	}
 
-	numPartitionsProcessed := 0
-
-	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+	state := NewQRepFlowState()
+	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, config, state)
 	return nil
 }
 
