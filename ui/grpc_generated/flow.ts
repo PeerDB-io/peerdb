@@ -101,6 +101,7 @@ export interface TableMapping {
   sourceTableIdentifier: string;
   destinationTableIdentifier: string;
   partitionKey: string;
+  exclude: string[];
 }
 
 export interface FlowConnectionConfigs {
@@ -728,7 +729,7 @@ export const RelationMessage = {
 };
 
 function createBaseTableMapping(): TableMapping {
-  return { sourceTableIdentifier: "", destinationTableIdentifier: "", partitionKey: "" };
+  return { sourceTableIdentifier: "", destinationTableIdentifier: "", partitionKey: "", exclude: [] };
 }
 
 export const TableMapping = {
@@ -741,6 +742,9 @@ export const TableMapping = {
     }
     if (message.partitionKey !== "") {
       writer.uint32(26).string(message.partitionKey);
+    }
+    for (const v of message.exclude) {
+      writer.uint32(34).string(v!);
     }
     return writer;
   },
@@ -773,6 +777,13 @@ export const TableMapping = {
 
           message.partitionKey = reader.string();
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.exclude.push(reader.string());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -789,6 +800,7 @@ export const TableMapping = {
         ? String(object.destinationTableIdentifier)
         : "",
       partitionKey: isSet(object.partitionKey) ? String(object.partitionKey) : "",
+      exclude: Array.isArray(object?.exclude) ? object.exclude.map((e: any) => String(e)) : [],
     };
   },
 
@@ -803,6 +815,9 @@ export const TableMapping = {
     if (message.partitionKey !== "") {
       obj.partitionKey = message.partitionKey;
     }
+    if (message.exclude?.length) {
+      obj.exclude = message.exclude;
+    }
     return obj;
   },
 
@@ -814,6 +829,7 @@ export const TableMapping = {
     message.sourceTableIdentifier = object.sourceTableIdentifier ?? "";
     message.destinationTableIdentifier = object.destinationTableIdentifier ?? "";
     message.partitionKey = object.partitionKey ?? "";
+    message.exclude = object.exclude?.map((e) => e) || [];
     return message;
   },
 };

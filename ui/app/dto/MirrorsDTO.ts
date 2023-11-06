@@ -16,6 +16,7 @@ export type MirrorSetter = Dispatch<SetStateAction<CDCConfig | QRepConfig>>;
 export type TableMapRow = {
   source: string;
   destination: string;
+  exclude: string[];
   partitionKey: string;
   selected: boolean;
 };

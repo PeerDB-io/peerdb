@@ -70,6 +70,7 @@ const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
           sourceTableIdentifier: row.source,
           destinationTableIdentifier: row.destination,
           partitionKey: row.partitionKey,
+          exclude: row.exclude,
         };
       }
     })

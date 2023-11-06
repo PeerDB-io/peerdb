@@ -6017,6 +6017,9 @@ impl serde::Serialize for TableMapping {
         if !self.partition_key.is_empty() {
             len += 1;
         }
+        if !self.exclude.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.TableMapping", len)?;
         if !self.source_table_identifier.is_empty() {
             struct_ser.serialize_field("sourceTableIdentifier", &self.source_table_identifier)?;
@@ -6026,6 +6029,9 @@ impl serde::Serialize for TableMapping {
         }
         if !self.partition_key.is_empty() {
             struct_ser.serialize_field("partitionKey", &self.partition_key)?;
+        }
+        if !self.exclude.is_empty() {
+            struct_ser.serialize_field("exclude", &self.exclude)?;
         }
         struct_ser.end()
     }
@@ -6043,6 +6049,7 @@ impl<'de> serde::Deserialize<'de> for TableMapping {
             "destinationTableIdentifier",
             "partition_key",
             "partitionKey",
+            "exclude",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -6050,6 +6057,7 @@ impl<'de> serde::Deserialize<'de> for TableMapping {
             SourceTableIdentifier,
             DestinationTableIdentifier,
             PartitionKey,
+            Exclude,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -6075,6 +6083,7 @@ impl<'de> serde::Deserialize<'de> for TableMapping {
                             "sourceTableIdentifier" | "source_table_identifier" => Ok(GeneratedField::SourceTableIdentifier),
                             "destinationTableIdentifier" | "destination_table_identifier" => Ok(GeneratedField::DestinationTableIdentifier),
                             "partitionKey" | "partition_key" => Ok(GeneratedField::PartitionKey),
+                            "exclude" => Ok(GeneratedField::Exclude),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -6097,6 +6106,7 @@ impl<'de> serde::Deserialize<'de> for TableMapping {
                 let mut source_table_identifier__ = None;
                 let mut destination_table_identifier__ = None;
                 let mut partition_key__ = None;
+                let mut exclude__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::SourceTableIdentifier => {
@@ -6117,6 +6127,12 @@ impl<'de> serde::Deserialize<'de> for TableMapping {
                             }
                             partition_key__ = Some(map.next_value()?);
                         }
+                        GeneratedField::Exclude => {
+                            if exclude__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("exclude"));
+                            }
+                            exclude__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -6126,6 +6142,7 @@ impl<'de> serde::Deserialize<'de> for TableMapping {
                     source_table_identifier: source_table_identifier__.unwrap_or_default(),
                     destination_table_identifier: destination_table_identifier__.unwrap_or_default(),
                     partition_key: partition_key__.unwrap_or_default(),
+                    exclude: exclude__.unwrap_or_default(),
                 })
             }
         }

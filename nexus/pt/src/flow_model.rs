@@ -9,6 +9,7 @@ use crate::peerdb_flow;
 pub struct FlowJobTableMapping {
     pub source_table_identifier: String,
     pub destination_table_identifier: String,
+    pub exclude: Vec<String>,
     pub partition_key: Option<String>,
 }
 
