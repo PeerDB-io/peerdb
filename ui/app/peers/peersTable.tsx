@@ -17,7 +17,6 @@ function PeerRow({ peer }: { peer: Peer }) {
       <TableCell>
         <PeerTypeLabel ptype={peer.type} />
       </TableCell>
-      <TableCell></TableCell>
       <TableCell>
         <DropDialog
           mode='PEER'
@@ -60,11 +59,6 @@ function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
           <TableCell as='th'>
             <Label as='label' style={{ fontWeight: 'bold' }}>
               Peer Type
-            </Label>
-          </TableCell>
-          <TableCell as='th'>
-            <Label as='label' style={{ fontWeight: 'bold' }}>
-              Status
             </Label>
           </TableCell>
           <TableCell as='th'></TableCell>

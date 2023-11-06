@@ -45,29 +45,8 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
     );
   };
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal: string | boolean | Peer | QRepSyncMode = val;
-    if (setting.label.includes('Peer')) {
-      stateVal = props.peers.find((peer) => peer.name === val)!;
-      if (setting.label === 'Destination Peer') {
-        if (stateVal.type === DBType.POSTGRES) {
-          props.setter((curr) => {
-            return {
-              ...curr,
-              cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-              snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-            };
-          });
-        } else if (stateVal.type === DBType.SNOWFLAKE) {
-          props.setter((curr) => {
-            return {
-              ...curr,
-              cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-              snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-            };
-          });
-        }
-      }
-    } else if (setting.label.includes('Sync Mode')) {
+    let stateVal: string | boolean | QRepSyncMode = val;
+    if (setting.label.includes('Sync Mode')) {
       stateVal =
         val === 'AVRO'
           ? QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO
@@ -92,55 +71,6 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
 
   return (
     <>
-      <RowWithSelect
-        label={
-          <Label>
-            Source Peer
-            {RequiredIndicator(true)}
-          </Label>
-        }
-        action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            <Select
-              placeholder='Select the source peer'
-              onValueChange={(val) =>
-                handleChange(val, {
-                  label: 'Source Peer',
-                  stateHandler: (value, setter) =>
-                    setter((curr: CDCConfig) => ({
-                      ...curr,
-                      source: value as Peer,
-                    })),
-                })
-              }
-            >
-              {(props.peers ?? [])
-                .map((peer) => peer.name)
-                .map((peerName, id) => {
-                  return (
-                    <SelectItem key={id} value={peerName}>
-                      {peerName}
-                    </SelectItem>
-                  );
-                })}
-            </Select>
-            <InfoPopover
-              tips={
-                'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
-              }
-              link={
-                'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'
-              }
-            />
-          </div>
-        }
-      />
       {props.mirrorConfig.source && (
         <TableMapping
           sourcePeerName={props.mirrorConfig.source.name}
@@ -210,10 +140,7 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
                         : undefined
                     }
                   >
-                    {(setting.label.includes('Peer')
-                      ? (props.peers ?? []).map((peer) => peer.name)
-                      : ['AVRO', 'Copy with Binary']
-                    ).map((item, id) => {
+                    {['AVRO', 'Copy with Binary'].map((item, id) => {
                       return (
                         <SelectItem key={id} value={item.toString()}>
                           {item.toString()}

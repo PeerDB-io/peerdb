@@ -111,15 +111,16 @@ const TableMapping = ({
   useEffect(() => {
     if (searchQuery.length > 0) {
       setAllTables(
-        allTables?.filter((table) => {
-          return table.toLowerCase().includes(searchQuery.toLowerCase());
-        })
+        (curr) =>
+          curr?.filter((table) => {
+            return table.toLowerCase().includes(searchQuery.toLowerCase());
+          })
       );
     }
     if (searchQuery.length == 0) {
       getTablesOfSchema(schema);
     }
-  }, [searchQuery]);
+  }, [searchQuery, getTablesOfSchema]);
 
   useEffect(() => {
     fetchSchemas(sourcePeerName, setLoading).then((res) => setAllSchemas(res));
@@ -204,7 +205,7 @@ const TableMapping = ({
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     <Switch
-                      checked={getRow(sourceTableName)}
+                      checked={!!getRow(sourceTableName)}
                       onCheckedChange={(state: boolean) =>
                         handleSwitch(state, sourceTableName)
                       }

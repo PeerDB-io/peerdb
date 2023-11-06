@@ -88,6 +88,15 @@ const normalSolidStyle = css<BaseStyleProps>`
   --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
 `;
 
+const peerSolidStyle = css<BaseStyleProps>`
+  --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
+  --text-color: ${({ theme }) => theme.colors.special.fixed.black};
+  --background-color-default: ${({ theme, $loading }) =>
+    $loading ? 'rgba(0,0,0,0.07)' : 'rgba(0,0,0,0.03)'};
+  --background-color-hover: ${({ theme }) => 'rgba(0,0,0,0.07)'};
+  --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
+`;
+
 const destructiveSolidStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.special.fixed.white};
@@ -126,6 +135,7 @@ const variants = {
   normalSolid: normalSolidStyle,
   destructiveSolid: destructiveSolidStyle,
   drop: dropStyle,
+  peer: peerSolidStyle,
   normalBorderless: normalBorderlessStyle,
   destructiveBorderless: destructiveBorderlessStyle,
 } as const;

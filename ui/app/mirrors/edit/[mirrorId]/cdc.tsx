@@ -16,7 +16,7 @@ import * as Tabs from '@radix-ui/react-tabs';
 import moment, { Duration, Moment } from 'moment';
 import { useQueryState } from 'next-usequerystate';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import styled from 'styled-components';
 import CDCDetails from './cdcDetails';
 
@@ -96,24 +96,9 @@ type SnapshotStatusProps = {
   status: SnapshotStatus;
 };
 const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
-  const [searchQuery, setSearchQuery] = useState('');
   const [snapshotRows, setSnapshotRows] = useState(
     status.clones.map(summarizeTableClone)
   );
-  useEffect(() => {
-    if (searchQuery.length > 0) {
-      setSnapshotRows(
-        status.clones.map(summarizeTableClone).filter((row: any) => {
-          return row.tableName
-            .toLowerCase()
-            .includes(searchQuery.toLowerCase());
-        })
-      );
-    }
-    if (searchQuery.length == 0) {
-      setSnapshotRows(status.clones.map(summarizeTableClone));
-    }
-  }, [searchQuery, status.clones]);
   return (
     <Table
       title={<Label variant='headline'>Initial Copy</Label>}

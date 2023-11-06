@@ -16,7 +16,7 @@ const SearchBar = (props: SearchProps) => {
     if (searchQuery.length == 0) {
       props.setItems(props.allItems);
     }
-  }, [searchQuery, props]);
+  }, [searchQuery]);
 
   return (
     <SearchField

@@ -7,15 +7,15 @@ import { useRouter } from 'next/navigation';
 export const DBTypeToImageMapping = (peerType: DBType) => {
   switch (peerType) {
     case DBType.POSTGRES:
-      return 'svgs/pg.svg';
+      return '/svgs/pg.svg';
     case DBType.SNOWFLAKE:
-      return 'svgs/sf.svg';
+      return '/svgs/sf.svg';
     case DBType.BIGQUERY:
-      return 'svgs/bq.svg';
+      return '/svgs/bq.svg';
     case DBType.EVENTHUB_GROUP:
-      return 'svgs/ms.svg';
+      return '/svgs/ms.svg';
     case DBType.EVENTHUB:
-      return 'svgs/ms.svg';
+      return '/svgs/ms.svg';
     default:
       return '';
   }
@@ -31,13 +31,11 @@ const PeerButton = ({
   const router = useRouter();
   return (
     <Button
+      variant='peer'
       style={{
-        backgroundColor: 'white',
-        color: 'white',
         fontSize: 13,
         padding: '0.5rem',
-        boxShadow: '2px 1px 2px 2px rgba(0,0,0,0.1)',
-        borderRadius: '0.5rem',
+        borderRadius: '0.6rem',
       }}
       onClick={() => router.push(`/peers/${peerName}`)}
     >

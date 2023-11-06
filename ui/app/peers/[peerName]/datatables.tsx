@@ -146,9 +146,7 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
                 </Label>
               </TableCell>
               <TableCell>
-                <Label as='label' style={{ fontSize: 14 }}>
-                  {<TimeLabel timeVal={stat.queryStart} /> || 'N/A'}
-                </Label>
+                <TimeLabel timeVal={stat.queryStart} fontSize={14} />
               </TableCell>
               <TableCell variant='extended'>
                 <div
