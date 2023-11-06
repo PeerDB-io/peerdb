@@ -46,6 +46,12 @@ const constructPeer = (
         type: DBType.SNOWFLAKE,
         snowflakeConfig: config as SnowflakeConfig,
       };
+    case 'BIGQUERY':
+      return {
+        name,
+        type: DBType.BIGQUERY,
+        bigqueryConfig: config as BigqueryConfig,
+      };
     default:
       return;
   }

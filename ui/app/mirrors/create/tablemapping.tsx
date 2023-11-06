@@ -1,5 +1,6 @@
 'use client';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
+import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
@@ -24,6 +25,7 @@ interface TableMappingProps {
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   schema: string;
   setSchema: Dispatch<SetStateAction<string>>;
+  peerType?: DBType;
 }
 
 const TableMapping = ({
@@ -32,6 +34,7 @@ const TableMapping = ({
   setRows,
   schema,
   setSchema,
+  peerType,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [tableColumns, setTableColumns] = useState<

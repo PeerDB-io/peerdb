@@ -1,7 +1,7 @@
 'use client';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepSyncMode } from '@/grpc_generated/flow';
-import { DBType, Peer } from '@/grpc_generated/peers';
+import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Select, SelectItem } from '@/lib/Select';
@@ -16,7 +16,6 @@ import TableMapping from './tablemapping';
 interface MirrorConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: CDCConfig;
-  peers: Peer[];
   setter: MirrorSetter;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
@@ -78,6 +77,7 @@ export default function CDCConfigForm(props: MirrorConfigProps) {
           setRows={props.setRows}
           setSchema={props.setSchema}
           schema={props.schema}
+          peerType={props.mirrorConfig.destination?.type}
         />
       )}
       {props.settings.map((setting, id) => {

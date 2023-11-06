@@ -386,7 +386,6 @@ export default function CreateMirrors() {
           <CDCConfigForm
             settings={cdcSettings}
             mirrorConfig={config as CDCConfig}
-            peers={peers}
             setter={setConfig}
             rows={rows}
             setRows={setRows}

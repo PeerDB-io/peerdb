@@ -71,7 +71,7 @@ export const snowflakeSetting: PeerSetting[] = [
       if (!value.length) {
         // remove password key from state if empty
         setter((curr) => {
-          delete curr['password'];
+          delete (curr as SnowflakeConfig)['password'];
           return curr;
         });
       } else setter((curr) => ({ ...curr, password: value }));
