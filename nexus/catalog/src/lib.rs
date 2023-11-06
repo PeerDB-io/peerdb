@@ -73,6 +73,7 @@ impl CatalogConfig {
             password: self.password.clone(),
             database: self.database.clone(),
             transaction_snapshot: "".to_string(),
+            metadata_schema: Some("".to_string())
         }
     }
 
