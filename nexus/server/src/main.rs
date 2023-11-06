@@ -692,26 +692,26 @@ fn parameter_to_string(portal: &Portal<NexusParsedStatement>, idx: usize) -> PgW
     match param_type {
         &Type::VARCHAR | &Type::TEXT => Ok(format!(
             "'{}'",
-            portal.parameter::<String>(idx)?.as_deref().unwrap_or("")
+            portal.parameter::<String>(idx, param_type)?.as_deref().unwrap_or("")
         )),
         &Type::BOOL => Ok(portal
-            .parameter::<bool>(idx)?
+            .parameter::<bool>(idx, param_type)?
             .map(|v| v.to_string())
             .unwrap_or_else(|| "".to_owned())),
         &Type::INT4 => Ok(portal
-            .parameter::<i32>(idx)?
+            .parameter::<i32>(idx, param_type)?
             .map(|v| v.to_string())
             .unwrap_or_else(|| "".to_owned())),
         &Type::INT8 => Ok(portal
-            .parameter::<i64>(idx)?
+            .parameter::<i64>(idx, param_type)?
             .map(|v| v.to_string())
             .unwrap_or_else(|| "".to_owned())),
         &Type::FLOAT4 => Ok(portal
-            .parameter::<f32>(idx)?
+            .parameter::<f32>(idx, param_type)?
             .map(|v| v.to_string())
             .unwrap_or_else(|| "".to_owned())),
         &Type::FLOAT8 => Ok(portal
-            .parameter::<f64>(idx)?
+            .parameter::<f64>(idx, param_type)?
             .map(|v| v.to_string())
             .unwrap_or_else(|| "".to_owned())),
         _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(

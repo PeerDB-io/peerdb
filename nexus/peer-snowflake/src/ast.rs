@@ -75,6 +75,8 @@ impl SnowflakeAst {
                     ))),
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(*timestamp.clone())),
                 ],
+                null_treatment: None,
+                filter: None,
                 over: None,
                 distinct: false,
                 special: false,
