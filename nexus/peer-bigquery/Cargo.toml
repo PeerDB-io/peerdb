@@ -14,7 +14,7 @@ futures = { version = "0.3.28", features = ["executor"] }
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
 pgerror = { path = "../pgerror" }
-pgwire = "0.15"
+pgwire = "0.16"
 pt = { path = "../pt" }
 rust_decimal = { version = "1.30.0", features = [ "tokio-pg" ] }
 serde = { version = "1.0", features = ["derive"] }
