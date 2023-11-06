@@ -576,6 +576,7 @@ impl NexusBackend {
                     }
                 }
                 PeerDDL::ResyncMirror {
+                    if_exists,
                     mirror_name,
                     query_string,
                     ..
@@ -603,7 +604,7 @@ impl NexusBackend {
                             mirror_name: "no".into(),
                         },
                         ddl: Box::new(PeerDDL::DropMirror {
-                            if_exists: false,
+                            if_exists: *if_exists,
                             flow_job_name: mirror_name.to_string(),
                         }),
                     })
