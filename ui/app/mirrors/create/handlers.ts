@@ -58,15 +58,17 @@ interface TableMapping {
   partitionKey: string;
 }
 const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
-  const mapping = tableMapping.map((row) => {
-    if (row.selected === true) {
-      return {
-        sourceTableIdentifier: row.source,
-        destinationTableIdentifier: row.destination,
-        partitionKey: row.partitionKey,
-      };
-    }
-  });
+  const mapping = tableMapping
+    .map((row) => {
+      if (row.selected === true) {
+        return {
+          sourceTableIdentifier: row.source,
+          destinationTableIdentifier: row.destination,
+          partitionKey: row.partitionKey,
+        };
+      }
+    })
+    .filter(Boolean);
   return mapping;
 };
 
@@ -90,7 +92,7 @@ export const handleCreateCDC = async (
   const isValid = validateCDCFields(rows, setMsg, config);
   if (!isValid) return;
   const tableNameMapping = reformattedTableMapping(rows);
-  config['tableMappings'] = tableNameMapping.filter(Boolean) as TableMapping[];
+  config['tableMappings'] = tableNameMapping as TableMapping[];
   config['flowJobName'] = flowJobName;
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch('/api/mirrors/cdc', {
