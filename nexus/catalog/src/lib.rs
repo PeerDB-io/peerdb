@@ -365,7 +365,7 @@ impl Catalog {
         Ok(table_identifier_parts.join("."))
     }
 
-    pub async fn create_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
+    pub async fn create_cdc_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
         let source_peer_id = self
             .get_peer_id_i32(&job.source_peer)
             .await
@@ -424,7 +424,7 @@ impl Catalog {
             .prepare_typed("SELECT f.*, sp.name as source_peer_name, dp.name as destination_peer_name FROM flows as f
                             INNER JOIN peers as sp ON f.source_peer = sp.id
                             INNER JOIN peers as dp ON f.destination_peer = dp.id
-                            WHERE f.name = $1", &[types::Type::TEXT])
+                            WHERE f.name = $1 AND f.query_string IS NOT NULL", &[types::Type::TEXT])
             .await?;
 
         let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
