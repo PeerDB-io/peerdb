@@ -128,10 +128,6 @@ const TableMapping = ({
     return row.source.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  const filteredRows = rows?.filter((row) => {
-    return row.source.toLowerCase().includes(searchQuery.toLowerCase());
-  });
-
   useEffect(() => {
     if (peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY') {
       setRows((rows) => {
