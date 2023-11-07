@@ -55,13 +55,11 @@ const TableMapping = ({
   const handleSelectAll = (
     e: React.MouseEvent<HTMLInputElement, MouseEvent>
   ) => {
-    if (e.currentTarget.checked) {
-      const newRows = [...rows];
-      newRows.forEach((_, i) => {
-        newRows[i].selected = true;
-      });
-      setRows(newRows);
-    } else setRows([]);
+    const newRows = [...rows];
+    newRows.forEach((_, i) => {
+      newRows[i].selected = e.currentTarget.checked;
+    });
+    setRows(newRows);
   };
 
   const handleSwitch = (on: boolean, source: string) => {
