@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
@@ -342,30 +343,13 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 	return nil
 }
 
-func (q *QRepFlowExecution) signalHandler(v shared.CDCFlowSignal) {
-	q.logger.Info("received signal - ", v)
-	if v == shared.ShutdownSignal {
-		q.logger.Info("received shutdown signal")
-		q.activeSignal = v
-	} else if v == shared.PauseSignal {
-		q.logger.Info("received pause signal")
-		if q.activeSignal == shared.NoopSignal {
-			q.logger.Info("workflow was running, pausing it")
-			q.activeSignal = shared.PauseSignal
-		} else if q.activeSignal == shared.PauseSignal {
-			q.logger.Info("workflow was paused, resuming it")
-			q.activeSignal = shared.NoopSignal
-		}
-	}
-}
-
 func (q *QRepFlowExecution) receiveAndHandleSignal(ctx workflow.Context) {
 	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
 
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
 	if ok {
-		q.signalHandler(signalVal)
+		q.activeSignal = util.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
 	}
 }
 
@@ -453,7 +437,7 @@ func QRepFlowWorkflow(
 	state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
 	if len(partitions.Partitions) > 0 {
-		lastPartition = partitions.Partitions[len(partitions.Partitions)-1]
+		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
 	// sleep for a while and continue the workflow
@@ -469,25 +453,23 @@ func QRepFlowWorkflow(
 	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
 	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
 	q.receiveAndHandleSignal(ctx)
+	if q.activeSignal == shared.PauseSignal {
+		startTime := time.Now()
+		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+		var signalVal shared.CDCFlowSignal
+
+		for q.activeSignal == shared.PauseSignal {
+			q.logger.Info("mirror has been paused for ", time.Since(startTime))
+			// only place we block on receive, so signal processing is immediate
+			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
+			if ok {
+				q.activeSignal = util.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+			}
+		}
+	}
 	if q.activeSignal == shared.ShutdownSignal {
 		q.logger.Info("terminating workflow - ", config.FlowJobName)
 		return nil
-	}
-	if q.activeSignal == shared.PauseSignal {
-		startTime := time.Now()
-		for q.activeSignal == shared.PauseSignal {
-			err = workflow.Sleep(ctx, 1*time.Minute)
-			if err != nil {
-				return err
-			}
-			q.logger.Info("mirror has been paused for ", time.Since(startTime))
-			q.receiveAndHandleSignal(ctx)
-		}
-		if q.activeSignal == shared.ShutdownSignal {
-			// handling going from paused to shutdown
-			q.logger.Info("terminating workflow - ", config.FlowJobName)
-			return nil
-		}
 	}
 
 	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals

@@ -350,22 +350,33 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}, nil
 }
 
-func (h *FlowRequestHandler) PauseFlow(
+func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
-	req *protos.PauseRequest,
-) (*protos.PauseResponse, error) {
-	err := h.temporalClient.SignalWorkflow(
-		ctx,
-		req.WorkflowId,
-		"",
-		shared.CDCFlowSignalName,
-		shared.PauseSignal,
-	)
+	req *protos.FlowStateChangeRequest,
+) (*protos.FlowStateChangeResponse, error) {
+	var err error
+	if req.RequestedFlowState == protos.FlowState_STATE_PAUSED {
+		err = h.temporalClient.SignalWorkflow(
+			ctx,
+			req.WorkflowId,
+			"",
+			shared.CDCFlowSignalName,
+			shared.PauseSignal,
+		)
+	} else if req.RequestedFlowState == protos.FlowState_STATE_RUNNING {
+		err = h.temporalClient.SignalWorkflow(
+			ctx,
+			req.WorkflowId,
+			"",
+			shared.CDCFlowSignalName,
+			shared.NoopSignal,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
 	}
 
-	return &protos.PauseResponse{
+	return &protos.FlowStateChangeResponse{
 		Ok: true,
 	}, nil
 }

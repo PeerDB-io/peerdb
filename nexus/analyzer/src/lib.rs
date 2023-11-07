@@ -131,6 +131,10 @@ pub enum PeerDDL {
     PauseMirror {
         if_exists: bool,
         flow_job_name: String,
+    },
+    ResumeMirror {
+        if_exists: bool,
+        flow_job_name: String,
     }
 }
 

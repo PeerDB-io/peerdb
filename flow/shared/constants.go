@@ -13,6 +13,7 @@ const (
 	NoopSignal CDCFlowSignal = iota
 	ShutdownSignal
 	PauseSignal
+
 	EnableMetricsKey    ContextKey = "enableMetrics"
 	CDCMirrorMonitorKey ContextKey = "cdcMirrorMonitor"
 )

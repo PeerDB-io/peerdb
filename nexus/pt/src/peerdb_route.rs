@@ -256,15 +256,17 @@ pub mod mirror_status_response {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PauseRequest {
+pub struct FlowStateChangeRequest {
     #[prost(string, tag="1")]
     pub workflow_id: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub flow_job_name: ::prost::alloc::string::String,
+    #[prost(enumeration="FlowState", tag="3")]
+    pub requested_flow_state: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PauseResponse {
+pub struct FlowStateChangeResponse {
     #[prost(bool, tag="1")]
     pub ok: bool,
     #[prost(string, tag="2")]
@@ -324,6 +326,36 @@ impl CreatePeerStatus {
             "VALIDATION_UNKNOWN" => Some(Self::ValidationUnknown),
             "CREATED" => Some(Self::Created),
             "FAILED" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+/// in the future, consider moving DropFlow to this and reduce route surface
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum FlowState {
+    StateUnknown = 0,
+    StateRunning = 1,
+    StatePaused = 2,
+}
+impl FlowState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            FlowState::StateUnknown => "STATE_UNKNOWN",
+            FlowState::StateRunning => "STATE_RUNNING",
+            FlowState::StatePaused => "STATE_PAUSED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "STATE_UNKNOWN" => Some(Self::StateUnknown),
+            "STATE_RUNNING" => Some(Self::StateRunning),
+            "STATE_PAUSED" => Some(Self::StatePaused),
             _ => None,
         }
     }

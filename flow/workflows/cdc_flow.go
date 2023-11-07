@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"go.temporal.io/api/enums/v1"
@@ -147,30 +148,13 @@ func GetChildWorkflowID(
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
-func (w *CDCFlowWorkflowExecution) signalHandler(state *CDCFlowWorkflowState, v shared.CDCFlowSignal) {
-	w.logger.Info("received signal - ", v)
-	if v == shared.ShutdownSignal {
-		w.logger.Info("received shutdown signal")
-		state.ActiveSignal = v
-	} else if v == shared.PauseSignal {
-		w.logger.Info("received pause signal")
-		if state.ActiveSignal == shared.NoopSignal {
-			w.logger.Info("workflow was running, pausing it")
-			state.ActiveSignal = shared.PauseSignal
-		} else if state.ActiveSignal == shared.PauseSignal {
-			w.logger.Info("workflow was paused, resuming it")
-			state.ActiveSignal = shared.NoopSignal
-		}
-	}
-}
-
 func (w *CDCFlowWorkflowExecution) receiveAndHandleSignal(ctx workflow.Context, state *CDCFlowWorkflowState) {
 	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
 
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
 	if ok {
-		w.signalHandler(state, signalVal)
+		state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 	}
 }
 
@@ -294,26 +278,24 @@ func CDCFlowWorkflowWithConfig(
 		// check and act on signals before a fresh flow starts.
 		w.receiveAndHandleSignal(ctx, state)
 
+		if state.ActiveSignal == shared.PauseSignal {
+			startTime := time.Now()
+			signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+			var signalVal shared.CDCFlowSignal
+
+			for state.ActiveSignal == shared.PauseSignal {
+				w.logger.Info("mirror has been paused for ", time.Since(startTime))
+				// only place we block on receive, so signal processing is immediate
+				ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
+				if ok {
+					state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+				}
+			}
+		}
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
 			w.logger.Info("peer flow has been shutdown")
 			return state, nil
-		}
-
-		if state.ActiveSignal == shared.PauseSignal {
-			startTime := time.Now()
-			for state.ActiveSignal == shared.PauseSignal {
-				err = workflow.Sleep(ctx, 1*time.Minute)
-				if err != nil {
-					return state, err
-				}
-				w.logger.Info("mirror has been paused for ", time.Since(startTime))
-				w.receiveAndHandleSignal(ctx, state)
-			}
-			if state.ActiveSignal == shared.ShutdownSignal {
-				// handling going from paused to shutdown
-				continue
-			}
 		}
 
 		// check if total sync flows have been completed
