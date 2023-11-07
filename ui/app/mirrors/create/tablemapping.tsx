@@ -43,14 +43,6 @@ const TableMapping = ({
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
     if (index >= 0) newRows[index].selected = true;
-    else {
-      newRows.push({
-        source,
-        destination: '',
-        partitionKey: '',
-        selected: true,
-      });
-    }
   };
 
   const handleRemoveRow = (source: string) => {
