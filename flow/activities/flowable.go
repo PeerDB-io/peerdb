@@ -680,7 +680,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, config *protos.
 
 func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition) error {
-	if config.SourcePeer.Type != protos.DBType_POSTGRES {
+	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
 		return nil
 	}
 	waitBetweenBatches := 5 * time.Second

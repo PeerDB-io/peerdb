@@ -31,11 +31,11 @@ jobs:
           --health-retries 5
     steps:
       - name: checkout sources
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - uses: actions/setup-go@v3
         with:
-          go-version: ">=1.19.0"
+          go-version: ">=1.21.0"
 
       - name: install gotestsum
         run: |

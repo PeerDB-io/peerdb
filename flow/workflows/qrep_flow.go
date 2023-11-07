@@ -313,7 +313,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 		}
 		q.config.DestinationTableIdentifier = oldTableIdentifier
 	}
-	state.NeedsResync = true
+	state.NeedsResync = false
 	return nil
 }
 

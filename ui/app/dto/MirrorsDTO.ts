@@ -17,4 +17,5 @@ export type TableMapRow = {
   source: string;
   destination: string;
   partitionKey: string;
+  selected: boolean;
 };
