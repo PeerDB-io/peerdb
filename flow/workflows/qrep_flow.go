@@ -17,10 +17,11 @@ import (
 )
 
 type QRepFlowExecution struct {
-	config                  *protos.QRepConfig
-	flowExecutionID         string
-	logger                  log.Logger
-	runUUID                 string
+	config          *protos.QRepConfig
+	flowExecutionID string
+	logger          log.Logger
+	runUUID         string
+	// being tracked for future workflow signalling
 	childPartitionWorkflows []workflow.ChildWorkflowFuture
 	// Current signalled state of the peer flow.
 	activeSignal shared.CDCFlowSignal
@@ -243,7 +244,6 @@ func (q *QRepFlowExecution) processPartitions(
 		}
 	}
 
-	// clear function requires go 1.21. why did this function not exist before go 1.21?
 	q.childPartitionWorkflows = nil
 	q.logger.Info("all partitions in batch processed")
 	return nil
