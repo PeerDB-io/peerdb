@@ -148,7 +148,7 @@ func GetChildWorkflowID(
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
-func (w *CDCFlowWorkflowExecution) receiveAndHandleSignal(ctx workflow.Context, state *CDCFlowWorkflowState) {
+func (w *CDCFlowWorkflowExecution) receiveAndHandleSignalAsync(ctx workflow.Context, state *CDCFlowWorkflowState) {
 	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
 
 	var signalVal shared.CDCFlowSignal
@@ -276,7 +276,7 @@ func CDCFlowWorkflowWithConfig(
 
 	for {
 		// check and act on signals before a fresh flow starts.
-		w.receiveAndHandleSignal(ctx, state)
+		w.receiveAndHandleSignalAsync(ctx, state)
 
 		if state.ActiveSignal == shared.PauseSignal {
 			startTime := time.Now()

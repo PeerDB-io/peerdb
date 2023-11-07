@@ -343,7 +343,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 	return nil
 }
 
-func (q *QRepFlowExecution) receiveAndHandleSignal(ctx workflow.Context) {
+func (q *QRepFlowExecution) receiveAndHandleSignalAsync(ctx workflow.Context) {
 	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
 
 	var signalVal shared.CDCFlowSignal
@@ -452,7 +452,7 @@ func QRepFlowWorkflow(
 
 	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
 	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	q.receiveAndHandleSignal(ctx)
+	q.receiveAndHandleSignalAsync(ctx)
 	if q.activeSignal == shared.PauseSignal {
 		startTime := time.Now()
 		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
@@ -470,30 +470,6 @@ func QRepFlowWorkflow(
 	if q.activeSignal == shared.ShutdownSignal {
 		q.logger.Info("terminating workflow - ", config.FlowJobName)
 		return nil
-	}
-
-	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
-	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
-	q.receiveAndHandleSignal(ctx)
-	if q.activeSignal == shared.ShutdownSignal {
-		q.logger.Info("terminating workflow - ", config.FlowJobName)
-		return nil
-	}
-	if q.activeSignal == shared.PauseSignal {
-		startTime := time.Now()
-		for q.activeSignal == shared.PauseSignal {
-			err = workflow.Sleep(ctx, 1*time.Minute)
-			if err != nil {
-				return err
-			}
-			q.logger.Info("mirror has been paused for ", time.Since(startTime))
-			q.receiveAndHandleSignal(ctx)
-		}
-		if q.activeSignal == shared.ShutdownSignal {
-			// handling going from paused to shutdown
-			q.logger.Info("terminating workflow - ", config.FlowJobName)
-			return nil
-		}
 	}
 
 	// Continue the workflow with new state
