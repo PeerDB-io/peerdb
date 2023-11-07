@@ -34,14 +34,12 @@ const TableMapping = ({
   setSchema,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
-  //const [allTables, setAllTables] = useState<string[]>();
   const [tableColumns, setTableColumns] = useState<
     { tableName: string; columns: string[] }[]
   >([]);
   const [loading, setLoading] = useState(false);
 
   const handleAddRow = (source: string) => {
-    // find the row with source and update the selected
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
     if (index >= 0) newRows[index].selected = true;
@@ -66,7 +64,6 @@ const TableMapping = ({
     e: React.MouseEvent<HTMLInputElement, MouseEvent>
   ) => {
     if (e.currentTarget.checked) {
-      // set selected for all rows to be true
       const newRows = [...rows];
       newRows.forEach((_, i) => {
         newRows[i].selected = true;
@@ -101,7 +98,6 @@ const TableMapping = ({
   const getTablesOfSchema = useCallback(
     (schemaName: string) => {
       fetchTables(sourcePeerName, schemaName, setLoading).then((tableNames) =>
-        // for each tableName, add a row to `rows` state
         setRows((curr) => {
           const newRows = [...curr];
           tableNames.forEach((tableName) => {
