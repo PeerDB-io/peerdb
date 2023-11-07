@@ -74,7 +74,6 @@ export default function CreateMirrors() {
 
   const handlePeer = (val: string, peerEnd: 'src' | 'dst') => {
     const stateVal = peers.find((peer) => peer.name === val)!;
-    console.log('/handelPeer: val:', stateVal);
     if (peerEnd === 'dst') {
       if (stateVal.type === DBType.POSTGRES) {
         setConfig((curr) => {
@@ -107,7 +106,6 @@ export default function CreateMirrors() {
         sourcePeer: stateVal,
       }));
     }
-    console.log('/handelPeer: val:', config);
   };
 
   return (
