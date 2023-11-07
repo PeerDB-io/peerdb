@@ -57,9 +57,9 @@ const TableMapping = ({
     e: React.MouseEvent<HTMLInputElement, MouseEvent>
   ) => {
     const newRows = [...rows];
-    newRows.forEach((_, i) => {
-      newRows[i].selected = e.currentTarget.checked;
-    });
+    for (const row of newRows) {
+      row.selected = e.currentTarget.checked;
+    }
     setRows(newRows);
   };
 
