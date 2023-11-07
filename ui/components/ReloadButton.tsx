@@ -5,7 +5,7 @@ import { Icon } from '@/lib/Icon';
 const ReloadButton = () => {
   return (
     <Button
-      style={{ backgroundColor: '#30A46C', color: 'white' }}
+      style={{ backgroundColor: '#30A46C', color: 'white', fontSize: 14 }}
       onClick={() => window.location.reload()}
     >
       Refresh <Icon name='refresh' />

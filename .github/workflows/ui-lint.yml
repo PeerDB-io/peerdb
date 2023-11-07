@@ -21,7 +21,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Node.js dependencies
         working-directory: ui
@@ -34,3 +34,5 @@ jobs:
           prettier: true
           eslint_dir: ui
           prettier_dir: ui
+          eslint_args: "--max-warnings 0"
+          eslint_extensions: js,ts,jsx,tsx

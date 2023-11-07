@@ -2,6 +2,7 @@
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
+import { SearchField } from '@/lib/SearchField';
 import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
@@ -16,6 +17,7 @@ import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../dto/MirrorsDTO';
 import ColumnsDisplay from './columns';
 import { fetchSchemas, fetchTables } from './handlers';
+
 interface TableMappingProps {
   sourcePeerName: string;
   rows: TableMapRow[];
@@ -23,6 +25,7 @@ interface TableMappingProps {
   schema: string;
   setSchema: Dispatch<SetStateAction<string>>;
 }
+
 const TableMapping = ({
   sourcePeerName,
   rows,
@@ -31,28 +34,40 @@ const TableMapping = ({
   setSchema,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
-  const [allTables, setAllTables] = useState<string[]>();
   const [tableColumns, setTableColumns] = useState<
     { tableName: string; columns: string[] }[]
   >([]);
   const [loading, setLoading] = useState(false);
 
   const handleAddRow = (source: string) => {
-    setRows([...rows, { source, destination: source, partitionKey: '' }]);
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    if (index >= 0) newRows[index] = { ...newRows[index], selected: true };
+    setRows(newRows);
   };
 
   const handleRemoveRow = (source: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows.splice(index, 1);
+    if (index >= 0) newRows[index] = { ...newRows[index], selected: false };
+    setRows(newRows);
+  };
+
+  const handleSelectAll = (
+    e: React.MouseEvent<HTMLInputElement, MouseEvent>
+  ) => {
+    const newRows = [...rows];
+    for (const row of newRows) {
+      row.selected = e.currentTarget.checked;
+    }
     setRows(newRows);
   };
 
   const handleSwitch = (on: boolean, source: string) => {
     if (on) {
-      handleAddRow(`${schema}.${source}`);
+      handleAddRow(source);
     } else {
-      handleRemoveRow(`${schema}.${source}`);
+      handleRemoveRow(source);
     }
   };
 
@@ -60,25 +75,47 @@ const TableMapping = ({
     // find the row with source and update the destination
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows[index].destination = dest;
-    return newRows;
+    newRows[index] = { ...newRows[index], destination: dest };
+    setRows(newRows);
   };
 
   const updatePartitionKey = (source: string, pkey: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows[index].partitionKey = pkey;
-    return newRows;
+    newRows[index] = { ...newRows[index], partitionKey: pkey };
+    setRows(newRows);
   };
 
   const getTablesOfSchema = useCallback(
     (schemaName: string) => {
-      fetchTables(sourcePeerName, schemaName, setLoading).then((res) =>
-        setAllTables(res)
+      fetchTables(sourcePeerName, schemaName, setLoading).then((tableNames) =>
+        setRows((curr) => {
+          const newRows = [...curr];
+          tableNames.forEach((tableName) => {
+            const row = newRows.find(
+              (row) => row.source === `${schemaName}.${tableName}`
+            );
+            if (!row) {
+              newRows.push({
+                source: `${schemaName}.${tableName}`,
+                destination: `${schemaName}.${tableName}`,
+                partitionKey: '',
+                selected: false,
+              });
+            }
+          });
+          return newRows;
+        })
       );
     },
-    [sourcePeerName]
+    [sourcePeerName, setRows]
   );
+
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredRows = rows?.filter((row) => {
+    return row.source.toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
   useEffect(() => {
     fetchSchemas(sourcePeerName, setLoading).then((res) => setAllSchemas(res));
@@ -114,10 +151,31 @@ const TableMapping = ({
           </Select>
         }
       />
-
-      <div style={{ maxHeight: '30vh', overflow: 'scroll' }}>
-        {allTables ? (
-          allTables.map((sourceTableName, index) => (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginTop: '0.5rem',
+          padding: '0.5rem',
+        }}
+      >
+        <div style={{ display: 'flex' }}>
+          <input type='checkbox' onClick={(e) => handleSelectAll(e)} />
+          <Label>Select All</Label>
+        </div>
+        <div style={{ width: '30%' }}>
+          <SearchField
+            placeholder='Search'
+            value={searchQuery}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setSearchQuery(e.target.value)
+            }
+          />
+        </div>
+      </div>
+      <div style={{ maxHeight: '40vh', overflow: 'scroll' }}>
+        {filteredRows ? (
+          filteredRows.map((row, index) => (
             <div
               key={index}
               style={{
@@ -142,8 +200,9 @@ const TableMapping = ({
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center' }}>
                     <Switch
+                      checked={row.selected}
                       onCheckedChange={(state: boolean) =>
-                        handleSwitch(state, sourceTableName)
+                        handleSwitch(state, row.source)
                       }
                     />
                     <div
@@ -156,14 +215,13 @@ const TableMapping = ({
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {sourceTableName}
+                      {row.source}
                     </div>
                   </div>
-                  {rows.find(
-                    (row) => row.source === `${schema}.${sourceTableName}`
-                  )?.destination && (
+                  {row.selected && (
                     <div style={{ padding: '0.5rem' }}>
                       <RowWithTextField
+                        key={row.source}
                         label={
                           <div
                             style={{
@@ -186,20 +244,11 @@ const TableMapping = ({
                           >
                             <TextField
                               variant='simple'
-                              defaultValue={
-                                rows.find(
-                                  (row) =>
-                                    row.source ===
-                                    `${schema}.${sourceTableName}`
-                                )?.destination
-                              }
+                              defaultValue={row.destination}
                               onChange={(
                                 e: React.ChangeEvent<HTMLInputElement>
                               ) =>
-                                updateDestination(
-                                  `${schema}.${sourceTableName}`,
-                                  e.target.value
-                                )
+                                updateDestination(row.source, e.target.value)
                               }
                             />
                           </div>
@@ -230,10 +279,7 @@ const TableMapping = ({
                               onChange={(
                                 e: React.ChangeEvent<HTMLInputElement>
                               ) =>
-                                updatePartitionKey(
-                                  `${schema}.${sourceTableName}`,
-                                  e.target.value
-                                )
+                                updatePartitionKey(row.source, e.target.value)
                               }
                             />
                           </div>
@@ -249,7 +295,7 @@ const TableMapping = ({
                 <ColumnsDisplay
                   peerName={sourcePeerName}
                   schemaName={schema}
-                  tableName={sourceTableName}
+                  tableName={row.source.split('.')[1]}
                   setColumns={setTableColumns}
                   columns={tableColumns}
                 />
