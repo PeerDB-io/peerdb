@@ -42,14 +42,14 @@ const TableMapping = ({
   const handleAddRow = (source: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    if (index >= 0) newRows[index].selected = true;
+    if (index >= 0) newRows[index] = { ...newRows[index], selected: true };
     setRows(newRows);
   };
 
   const handleRemoveRow = (source: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    if (index >= 0) newRows[index].selected = false;
+    if (index >= 0) newRows[index] = { ...newRows[index], selected: false };
     setRows(newRows);
   };
 
@@ -75,15 +75,15 @@ const TableMapping = ({
     // find the row with source and update the destination
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows[index].destination = dest;
-    return newRows;
+    newRows[index] = { ...newRows[index], destination: dest };
+    setRows(newRows);
   };
 
   const updatePartitionKey = (source: string, pkey: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
-    newRows[index].partitionKey = pkey;
-    return newRows;
+    newRows[index] = { ...newRows[index], partitionKey: pkey };
+    setRows(newRows);
   };
 
   const getTablesOfSchema = useCallback(
