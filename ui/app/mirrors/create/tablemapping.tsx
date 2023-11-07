@@ -94,14 +94,22 @@ const TableMapping = ({
       fetchTables(sourcePeerName, schemaName, setLoading).then((tableNames) =>
         setRows((curr) => {
           const newRows = [...curr];
+
           tableNames.forEach((tableName) => {
             const row = newRows.find(
               (row) => row.source === `${schemaName}.${tableName}`
             );
             if (!row) {
+              const dstName =
+                peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY'
+                  ? tableName
+                  : `${schemaName}.${tableName}`;
               newRows.push({
                 source: `${schemaName}.${tableName}`,
-                destination: `${schemaName}.${tableName}`,
+                destination:
+                  peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY'
+                    ? tableName
+                    : `${schemaName}.${tableName}`,
                 partitionKey: '',
                 selected: false,
               });
@@ -111,7 +119,7 @@ const TableMapping = ({
         })
       );
     },
-    [sourcePeerName, setRows]
+    [sourcePeerName, setRows, peerType]
   );
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -123,6 +131,36 @@ const TableMapping = ({
   const filteredRows = rows?.filter((row) => {
     return row.source.toLowerCase().includes(searchQuery.toLowerCase());
   });
+
+  useEffect(() => {
+    if (peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY') {
+      setRows((rows) => {
+        const newRows = [...rows];
+        newRows.forEach((_, i) => {
+          const row = newRows[i];
+          newRows[i] = {
+            ...row,
+            destination: row.destination.split('.')[1],
+          };
+        });
+        return newRows;
+      });
+    } else {
+      setRows((rows) => {
+        const newRows = [...rows];
+        newRows.forEach((_, i) => {
+          const row = newRows[i];
+          newRows[i] = {
+            ...row,
+            destination: `${schema}.${
+              row.destination.split('.')[1] || row.destination
+            }`,
+          };
+        });
+        return newRows;
+      });
+    }
+  }, [peerType, setRows, schema]);
 
   useEffect(() => {
     fetchSchemas(sourcePeerName, setLoading).then((res) => setAllSchemas(res));
