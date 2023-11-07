@@ -62,12 +62,6 @@ const TableMapping = ({
     setRows(newRows);
   };
 
-  // const getRow = (source: string) => {
-  //   const newRows = [...rows];
-  //   const row = newRows.find((row) => row.source === `${schema}.${source}`);
-  //   return row;
-  // };
-
   const handleSelectAll = (
     e: React.MouseEvent<HTMLInputElement, MouseEvent>
   ) => {
@@ -131,20 +125,6 @@ const TableMapping = ({
   );
 
   const [searchQuery, setSearchQuery] = useState('');
-
-  // useEffect(() => {
-  //   if (searchQuery.length > 0) {
-  //     setAllTables(
-  //       (curr) =>
-  //         curr?.filter((table) => {
-  //           return table.toLowerCase().includes(searchQuery.toLowerCase());
-  //         })
-  //     );
-  //   }
-  //   if (searchQuery.length == 0) {
-  //     getTablesOfSchema(schema);
-  //   }
-  // }, [searchQuery, getTablesOfSchema]);
 
   const filteredRows = rows?.filter((row) => {
     return row.source.toLowerCase().includes(searchQuery.toLowerCase());
