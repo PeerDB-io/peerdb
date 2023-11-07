@@ -1,29 +1,26 @@
 import { SearchField } from '@/lib/SearchField';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { Dispatch, SetStateAction } from 'react';
 
 interface SearchProps {
   allItems: any[];
   setItems: Dispatch<SetStateAction<any>>;
   filterFunction: (query: string) => {};
 }
-const SearchBar = (props: SearchProps) => {
-  const [searchQuery, setSearchQuery] = useState('');
-
-  useEffect(() => {
+const SearchBar = ({ allItems, setItems, filterFunction }: SearchProps) => {
+  const handleSearch = (searchQuery: string) => {
     if (searchQuery.length > 0) {
-      props.setItems(props.filterFunction(searchQuery));
+      setItems(filterFunction(searchQuery));
     }
     if (searchQuery.length == 0) {
-      props.setItems(props.allItems);
+      setItems(allItems);
     }
-  }, [searchQuery]);
+  };
 
   return (
     <SearchField
       placeholder='Search'
-      value={searchQuery}
       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-        setSearchQuery(e.target.value)
+        handleSearch(e.target.value)
       }
     />
   );
