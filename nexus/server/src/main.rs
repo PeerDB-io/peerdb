@@ -268,7 +268,11 @@ impl NexusBackend {
                     }
 
                     let catalog = self.catalog.lock().await;
-                    tracing::info!("DROP MIRROR: mirror_name: {}, if_exists: {}", flow_job_name, if_exists);
+                    tracing::info!(
+                        "DROP MIRROR: mirror_name: {}, if_exists: {}",
+                        flow_job_name,
+                        if_exists
+                    );
                     let workflow_details = catalog
                         .get_workflow_details_for_flow_job(flow_job_name)
                         .await
@@ -653,23 +657,26 @@ impl NexusBackend {
                     }
     
                     let catalog = self.catalog.lock().await;
-                    tracing::info!("[PAUSE MIRROR] mirror_name: {}, if_exists: {}", flow_job_name, if_exists);
+                    tracing::info!(
+                        "[PAUSE MIRROR] mirror_name: {}, if_exists: {}",
+                        flow_job_name,
+                        if_exists
+                    );
                     let workflow_details = catalog
-                    .get_workflow_details_for_flow_job(flow_job_name)
-                    .await
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: format!(
-                                "unable to query catalog for job metadata: {:?}",
-                                err
-                            ),
-                        }))
-                    })?;
+                        .get_workflow_details_for_flow_job(flow_job_name)
+                        .await
+                        .map_err(|err| {
+                            PgWireError::ApiError(Box::new(PgError::Internal {
+                                err_msg: format!(
+                                    "unable to query catalog for job metadata: {:?}",
+                                    err
+                                ),
+                            }))
+                        })?;
                     tracing::info!(
                         "[PAUSE MIRROR] got workflow id: {:?}",
                         workflow_details.as_ref().map(|w| &w.workflow_id)
                     );
-    
     
                     if let Some(workflow_details) = workflow_details {
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
