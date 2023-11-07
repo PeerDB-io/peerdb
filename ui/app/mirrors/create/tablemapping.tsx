@@ -117,6 +117,10 @@ const TableMapping = ({
     return row.source.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
+  const filteredRows = rows?.filter((row) => {
+    return row.source.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
   useEffect(() => {
     fetchSchemas(sourcePeerName, setLoading).then((res) => setAllSchemas(res));
     setSchema('public');
