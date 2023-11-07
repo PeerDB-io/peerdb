@@ -178,6 +178,10 @@ func (c *EventHubConnector) processBatch(
 		}
 	}
 
+	log.WithFields(log.Fields{
+		"flowName": flowJobName,
+	}).Infof("processed %d records for sending", numRecords)
+
 	err := flushBatch()
 	if err != nil {
 		return 0, err
