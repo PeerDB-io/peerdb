@@ -419,6 +419,13 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 if_exists: *if_exists,
                 flow_job_name: mirror_name.to_string().to_lowercase(),
             })),
+            Statement::ResumeMirror {
+                if_exists,
+                mirror_name,
+            } => Ok(Some(PeerDDL::ResumeMirror {
+                if_exists: *if_exists,
+                flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
             _ => Ok(None),
         }
     }
