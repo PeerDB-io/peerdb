@@ -43,6 +43,7 @@ const TableMapping = ({
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
     if (index >= 0) newRows[index].selected = true;
+    setRows(newRows);
   };
 
   const handleRemoveRow = (source: string) => {
