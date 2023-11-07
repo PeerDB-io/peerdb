@@ -38,7 +38,7 @@ func NewEventHubConnector(
 		return nil, err
 	}
 
-	hubManager := NewEventHubManager(ctx, defaultAzureCreds, config)
+	hubManager := NewEventHubManager(defaultAzureCreds, config)
 	metadataSchemaName := "peerdb_eventhub_metadata" // #nosec G101
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, config.GetMetadataDb(),
 		metadataSchemaName)
@@ -124,7 +124,6 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 func (c *EventHubConnector) processBatch(
 	flowJobName string,
 	batch *model.CDCRecordStream,
-	eventsPerBatch int,
 	maxParallelism int64,
 ) (uint32, error) {
 	ctx := context.Background()
@@ -132,6 +131,18 @@ func (c *EventHubConnector) processBatch(
 	tableNameRowsMapping := cmap.New[uint32]()
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
+
+	flushBatch := func() error {
+		err := c.sendEventBatch(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"flowName": flowJobName,
+			}).Infof("failed to send event batch: %v", err)
+			return err
+		}
+		batchPerTopic.Clear()
+		return nil
+	}
 
 	numRecords := 0
 	for record := range batch.GetRecords() {
@@ -142,18 +153,6 @@ func (c *EventHubConnector) processBatch(
 				"flowName": flowJobName,
 			}).Infof("failed to convert record to json: %v", err)
 			return 0, err
-		}
-
-		flushBatch := func() error {
-			err := c.sendEventBatch(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
-			if err != nil {
-				log.WithFields(log.Fields{
-					"flowName": flowJobName,
-				}).Infof("failed to send event batch: %v", err)
-				return err
-			}
-			batchPerTopic.Clear()
-			return nil
 		}
 
 		topicName, err := NewScopedEventhub(record.GetTableName())
@@ -172,19 +171,16 @@ func (c *EventHubConnector) processBatch(
 			return 0, err
 		}
 
-		if (numRecords)%eventsPerBatch == 0 {
-			err := flushBatch()
-			if err != nil {
-				return 0, err
-			}
+		if numRecords%1000 == 0 {
+			log.WithFields(log.Fields{
+				"flowName": flowJobName,
+			}).Infof("processed %d records for sending", numRecords)
 		}
 	}
 
-	if batchPerTopic.Len() > 0 {
-		err := c.sendEventBatch(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
-		if err != nil {
-			return 0, err
-		}
+	err := flushBatch()
+	if err != nil {
+		return 0, err
 	}
 
 	log.WithFields(log.Fields{
@@ -203,10 +199,6 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		shutdown <- true
 	}()
 
-	eventsPerBatch := int(req.PushBatchSize)
-	if eventsPerBatch <= 0 {
-		eventsPerBatch = 10000
-	}
 	maxParallelism := req.PushParallelism
 	if maxParallelism <= 0 {
 		maxParallelism = 10
@@ -221,13 +213,13 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	// otherwise, we block until processBatch is done.
 	if utils.GetEnvBool("PEERDB_BETA_EVENTHUB_PUSH_ASYNC", false) {
 		go func() {
-			numRecords, err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
+			numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
 			if err != nil {
 				log.Errorf("[async] failed to process batch: %v", err)
 			}
 		}()
 	} else {
-		numRecords, err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
+		numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
 		if err != nil {
 			log.Errorf("failed to process batch: %v", err)
 			return nil, err
@@ -316,7 +308,7 @@ func (c *EventHubConnector) sendEventBatch(
 		return firstErr
 	}
 
-	log.Infof("successfully sent %d events to event hub", numEventsPushed)
+	log.Infof("[sendEventBatch] successfully sent %d events to event hub", numEventsPushed)
 	return nil
 }
 
@@ -328,7 +320,7 @@ func (c *EventHubConnector) sendBatch(
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	hub, err := c.hubManager.GetOrCreateHubClient(tblName)
+	hub, err := c.hubManager.GetOrCreateHubClient(subCtx, tblName)
 	if err != nil {
 		return err
 	}

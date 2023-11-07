@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
@@ -24,7 +25,6 @@ type EventHubManager struct {
 }
 
 func NewEventHubManager(
-	ctx context.Context,
 	creds *azidentity.DefaultAzureCredential,
 	groupConfig *protos.EventHubGroupConfig,
 ) *EventHubManager {
@@ -40,7 +40,8 @@ func NewEventHubManager(
 	}
 }
 
-func (m *EventHubManager) GetOrCreateHubClient(name ScopedEventhub) (*azeventhubs.ProducerClient, error) {
+func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
+	*azeventhubs.ProducerClient, error) {
 	ehConfig, ok := m.peerConfig.Get(name.PeerName)
 	if !ok {
 		return nil, fmt.Errorf("eventhub '%s' not configured", name)
@@ -53,9 +54,27 @@ func (m *EventHubManager) GetOrCreateHubClient(name ScopedEventhub) (*azeventhub
 		namespace = fmt.Sprintf("%s.servicebus.windows.net", namespace)
 	}
 
-	hub, ok := m.hubs.Load(name)
-	if !ok {
-		opts := &azeventhubs.ProducerClientOptions{}
+	var hubConnectOK bool
+	var hub any
+	hub, hubConnectOK = m.hubs.Load(name)
+	if hubConnectOK {
+		hubTmp := hub.(*azeventhubs.ProducerClient)
+		_, err := hubTmp.GetEventHubProperties(ctx, nil)
+		if err != nil {
+			log.Infof("eventhub %s not reachable. Will re-establish connection and re-create it. Err: %v", name, err)
+			m.hubs.Delete(name)
+			hubConnectOK = false
+		}
+	}
+
+	if !hubConnectOK {
+		opts := &azeventhubs.ProducerClientOptions{
+			RetryOptions: azeventhubs.RetryOptions{
+				MaxRetries:    32,
+				RetryDelay:    2 * time.Second,
+				MaxRetryDelay: 16 * time.Second,
+			},
+		}
 		hub, err := azeventhubs.NewProducerClient(namespace, name.Eventhub, m.creds, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create eventhub client: %v", err)
@@ -67,8 +86,9 @@ func (m *EventHubManager) GetOrCreateHubClient(name ScopedEventhub) (*azeventhub
 	return hub.(*azeventhubs.ProducerClient), nil
 }
 
-func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (*azeventhubs.EventDataBatch, error) {
-	hub, err := m.GetOrCreateHubClient(name)
+func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (
+	*azeventhubs.EventDataBatch, error) {
+	hub, err := m.GetOrCreateHubClient(ctx, name)
 	if err != nil {
 		return nil, err
 	}
