@@ -42,6 +42,7 @@ export default function CreateMirrors() {
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
+  const [validSource, setValidSource] = useState<boolean>(false);
   const [sourceSchema, setSourceSchema] = useState('public');
   const [qrepQuery, setQrepQuery] =
     useState<string>(`-- Here's a sample template:
@@ -167,6 +168,7 @@ export default function CreateMirrors() {
               </div>
               <Label
                 as={Link}
+                target='_blank'
                 style={{ color: 'teal', cursor: 'pointer' }}
                 href='https://docs.peerdb.io/usecases/Real-time%20CDC/overview'
               >
@@ -208,6 +210,7 @@ export default function CreateMirrors() {
               </div>
               <Label
                 as={Link}
+                target='_blank'
                 style={{ color: 'teal', cursor: 'pointer' }}
                 href='https://docs.peerdb.io/usecases/Streaming%20Query%20Replication/overview'
               >
@@ -243,6 +246,7 @@ export default function CreateMirrors() {
               </Label>
               <Label
                 as={Link}
+                target='_blank'
                 style={{ color: 'teal', cursor: 'pointer' }}
                 href='https://docs.peerdb.io/sql/commands/create-mirror#xmin-query-replication'
               >
@@ -391,6 +395,7 @@ export default function CreateMirrors() {
             setRows={setRows}
             setSchema={setSourceSchema}
             schema={sourceSchema}
+            setValidSource={setValidSource}
           />
         ) : (
           <QRepConfigForm
@@ -409,6 +414,7 @@ export default function CreateMirrors() {
               Cancel
             </Button>
             <Button
+              disabled={!validSource}
               variant='normalSolid'
               onClick={() =>
                 mirrorType === 'CDC'

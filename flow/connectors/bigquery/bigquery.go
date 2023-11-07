@@ -165,6 +165,13 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
 
+	datasetID := config.GetDatasetId()
+	_, checkErr := client.Dataset(datasetID).Metadata(ctx)
+	if checkErr != nil {
+		log.Errorf("failed to get dataset metadata: %v", checkErr)
+		return nil, fmt.Errorf("failed to get dataset metadata: %v", checkErr)
+	}
+
 	storageClient, err := bqsa.CreateStorageClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Storage client: %v", err)
@@ -174,7 +181,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		ctx:           ctx,
 		bqConfig:      config,
 		client:        client,
-		datasetID:     config.GetDatasetId(),
+		datasetID:     datasetID,
 		storageClient: storageClient,
 	}, nil
 }

@@ -179,5 +179,9 @@ export const bqSchema = z.object({
       required_error: 'Dataset ID is required',
     })
     .min(1, { message: 'Dataset ID must be non-empty' })
-    .max(255, 'DatasetID must be less than 255 characters'),
+    .max(1024, 'DatasetID must be less than 1025 characters')
+    .regex(
+      /^[\w]+$/,
+      'Dataset ID must only contain numbers, letters, and underscores'
+    ),
 });

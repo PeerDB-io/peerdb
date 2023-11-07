@@ -1,5 +1,6 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
+import BQConfig from '@/components/BigqueryConfig';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -12,7 +13,6 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import ConfigForm from '../../../../components/ConfigForm';
 import { handleCreate, handleValidate } from './handlers';
-import { bigquerySetting } from './helpers/bq';
 import { PeerSetting, getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
@@ -44,7 +44,7 @@ export default function CreateConfig({
       case 'SNOWFLAKE':
         return configForm(snowflakeSetting);
       case 'BIGQUERY':
-        return configForm(bigquerySetting);
+        return <BQConfig setter={setConfig} />;
       default:
         return <></>;
     }
