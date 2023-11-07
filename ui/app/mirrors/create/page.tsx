@@ -414,7 +414,7 @@ export default function CreateMirrors() {
               Cancel
             </Button>
             <Button
-              disabled={!validSource}
+              disabled={mirrorType === 'CDC' && !validSource}
               variant='normalSolid'
               onClick={() =>
                 mirrorType === 'CDC'
