@@ -43,7 +43,7 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 			method := e2etype.Method(methodid)
 			if strings.HasPrefix(method.Name, "Test_") {
 				t.Run(method.Name, func(t *testing.T) {
-					t.Parallel()
+					// t.Parallel()
 					method.Func.Call([]reflect.Value{reflect.ValueOf(e2e), reflect.ValueOf(t)})
 				})
 			}
