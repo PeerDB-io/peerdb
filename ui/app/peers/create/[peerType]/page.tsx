@@ -1,5 +1,6 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
+import BQConfig from '@/components/BigqueryConfig';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -42,6 +43,8 @@ export default function CreateConfig({
         return configForm(postgresSetting);
       case 'SNOWFLAKE':
         return configForm(snowflakeSetting);
+      case 'BIGQUERY':
+        return <BQConfig setter={setConfig} />;
       default:
         return <></>;
     }

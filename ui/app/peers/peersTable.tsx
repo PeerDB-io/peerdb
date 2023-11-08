@@ -30,7 +30,7 @@ function PeerRow({ peer }: { peer: Peer }) {
 }
 
 function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
-  const [rows, setRows] = useState<Peer[]>([]);
+  const [rows, setRows] = useState<Peer[]>(peers);
 
   return (
     <Table

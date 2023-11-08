@@ -1,5 +1,6 @@
 import { PeerConfig } from '@/app/dto/PeersDTO';
 import { PeerSetter } from '@/components/ConfigForm';
+import { blankBigquerySetting } from './bq';
 import { blankPostgresSetting } from './pg';
 import { blankSnowflakeSetting } from './sf';
 
@@ -19,6 +20,8 @@ export const getBlankSetting = (dbType: string): PeerConfig => {
       return blankPostgresSetting;
     case 'SNOWFLAKE':
       return blankSnowflakeSetting;
+    case 'BIGQUERY':
+      return blankBigquerySetting;
     default:
       return blankPostgresSetting;
   }
