@@ -164,9 +164,8 @@ impl FlowGrpcClient {
             table_mappings.push(pt::peerdb_flow::TableMapping {
                 source_table_identifier: mapping.source_table_identifier.clone(),
                 destination_table_identifier: mapping.destination_table_identifier.clone(),
-                exclude: mapping.exclude.clone(),
                 partition_key: mapping.partition_key.clone().unwrap_or_default(),
-                exclude: mapping.exclude.clone().unwrap_or_default(),
+                exclude: mapping.exclude.clone(),
             });
         });
 

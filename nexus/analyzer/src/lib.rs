@@ -173,7 +173,6 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             flow_job_table_mappings.push(FlowJobTableMapping {
                                 source_table_identifier: table_mapping.source.to_string(),
                                 destination_table_identifier: table_mapping.destination.to_string(),
-                                exclude: table_mapping.exclude.as_ref().map(|ss| ss.iter().map(|s| s.to_string()).collect()).unwrap_or_default(),
                                 partition_key: table_mapping
                                     .partition_key
                                     .as_ref()
@@ -182,6 +181,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                     .exclude
                                     .as_ref()
                                     .map(|ss| ss.iter().map(|s| s.to_string()).collect())
+                                    .unwrap_or_default()
                             });
                         }
 
