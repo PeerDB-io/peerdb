@@ -3,7 +3,6 @@ package peerflow
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	logrus "github.com/sirupsen/logrus"
+	"golang.org/x/exp/maps"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -138,19 +138,13 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 	from := "*"
 	if len(mapping.Exclude) != 0 {
-		var sb strings.Builder
-		// TODO what's the correct key?
-		for _, col := range s.config.TableNameSchemaMapping[srcName].Columns {
-			// TODO optimize lookup
-			if !slices.Contains(mapping.Exclude, col) {
-				if sb.Len() != 0 {
-					sb.WriteString(", ")
-				}
-				// TODO escape
-				sb.WriteString(col)
+		// TODO need to verify destination is right
+		for _, v := range s.config.TableNameSchemaMapping {
+			if v.TableIdentifier == srcName {
+				from = strings.Join(maps.Keys(v.Columns), ",")
+				break
 			}
 		}
-		from = sb.String()
 	}
 
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
