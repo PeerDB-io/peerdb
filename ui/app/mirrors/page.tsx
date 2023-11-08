@@ -21,6 +21,7 @@ const stringifyConfig = (flowArray: any[]) => {
 
 export default async function Mirrors() {
   let mirrors = await prisma.flows.findMany({
+    distinct: 'name',
     include: {
       sourcePeer: true,
       destinationPeer: true,
