@@ -54,6 +54,8 @@ func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(t *testing.T, tableName 
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
 	require.NoError(t, err)
 
+	t.Logf("compare %v = %v", pgRows, sfRows)
+
 	assert.True(t, pgRows.Equals(sfRows), "rows from source and destination tables are not equal")
 }
 
@@ -243,7 +245,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		snowflakeSuffix, tblName)
 
-	sfPeer := s.sfHelper.Peer
+	sfPeer := s.sfHelper.Peer // TODO clone
 	sfPeer.GetSnowflakeConfig().S3Integration = "peerdb_s3_integration"
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(

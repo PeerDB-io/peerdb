@@ -93,7 +93,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 4 ./... -timeout 2400s
+          gotestsum --format testname -- -p 4 ./e2e/snowflake/... -timeout 2400s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

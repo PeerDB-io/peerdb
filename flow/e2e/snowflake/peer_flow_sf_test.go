@@ -388,7 +388,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_SF(t *testing.T) {
 			Executing a transaction which
 			1. changes both toast column
 			2. changes no toast column
-			2. changes 1 toast column
+			3. changes 1 toast column
 		*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
