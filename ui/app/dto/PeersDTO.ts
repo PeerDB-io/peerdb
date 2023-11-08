@@ -1,4 +1,8 @@
-import { PostgresConfig, SnowflakeConfig } from '@/grpc_generated/peers';
+import {
+  BigqueryConfig,
+  PostgresConfig,
+  SnowflakeConfig,
+} from '@/grpc_generated/peers';
 
 export type UValidatePeerResponse = {
   valid: boolean;
@@ -27,7 +31,7 @@ export type UDropPeerResponse = {
   errorMessage: string;
 };
 
-export type PeerConfig = PostgresConfig | SnowflakeConfig;
+export type PeerConfig = PostgresConfig | SnowflakeConfig | BigqueryConfig;
 export type CatalogPeer = {
   id: number;
   name: string;
