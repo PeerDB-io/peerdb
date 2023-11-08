@@ -441,7 +441,7 @@ pub struct QRepConfig {
     /// this is the location where the avro files will be written
     /// if this starts with gs:// then it will be written to GCS
     /// if this starts with s3:// then it will be written to S3
-    /// if nothing is specified then it will be written to local disk
+    /// if nothing is specified then it will be written to local disk, only supported in Snowflake
     /// if using GCS or S3 make sure your instance has the correct permissions.
     #[prost(string, tag="15")]
     pub staging_path: ::prost::alloc::string::String,

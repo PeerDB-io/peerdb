@@ -30,6 +30,7 @@ const (
 	FlowService_GetSlotInfo_FullMethodName       = "/peerdb_route.FlowService/GetSlotInfo"
 	FlowService_GetStatInfo_FullMethodName       = "/peerdb_route.FlowService/GetStatInfo"
 	FlowService_ShutdownFlow_FullMethodName      = "/peerdb_route.FlowService/ShutdownFlow"
+	FlowService_FlowStateChange_FullMethodName   = "/peerdb_route.FlowService/FlowStateChange"
 	FlowService_MirrorStatus_FullMethodName      = "/peerdb_route.FlowService/MirrorStatus"
 )
 
@@ -48,6 +49,7 @@ type FlowServiceClient interface {
 	GetSlotInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSlotResponse, error)
 	GetStatInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerStatResponse, error)
 	ShutdownFlow(ctx context.Context, in *ShutdownRequest, opts ...grpc.CallOption) (*ShutdownResponse, error)
+	FlowStateChange(ctx context.Context, in *FlowStateChangeRequest, opts ...grpc.CallOption) (*FlowStateChangeResponse, error)
 	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
 }
 
@@ -158,6 +160,15 @@ func (c *flowServiceClient) ShutdownFlow(ctx context.Context, in *ShutdownReques
 	return out, nil
 }
 
+func (c *flowServiceClient) FlowStateChange(ctx context.Context, in *FlowStateChangeRequest, opts ...grpc.CallOption) (*FlowStateChangeResponse, error) {
+	out := new(FlowStateChangeResponse)
+	err := c.cc.Invoke(ctx, FlowService_FlowStateChange_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error) {
 	out := new(MirrorStatusResponse)
 	err := c.cc.Invoke(ctx, FlowService_MirrorStatus_FullMethodName, in, out, opts...)
@@ -182,6 +193,7 @@ type FlowServiceServer interface {
 	GetSlotInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSlotResponse, error)
 	GetStatInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerStatResponse, error)
 	ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
+	FlowStateChange(context.Context, *FlowStateChangeRequest) (*FlowStateChangeResponse, error)
 	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
@@ -222,6 +234,9 @@ func (UnimplementedFlowServiceServer) GetStatInfo(context.Context, *PostgresPeer
 }
 func (UnimplementedFlowServiceServer) ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ShutdownFlow not implemented")
+}
+func (UnimplementedFlowServiceServer) FlowStateChange(context.Context, *FlowStateChangeRequest) (*FlowStateChangeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FlowStateChange not implemented")
 }
 func (UnimplementedFlowServiceServer) MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MirrorStatus not implemented")
@@ -437,6 +452,24 @@ func _FlowService_ShutdownFlow_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_FlowStateChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FlowStateChangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).FlowStateChange(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_FlowStateChange_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).FlowStateChange(ctx, req.(*FlowStateChangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_MirrorStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MirrorStatusRequest)
 	if err := dec(in); err != nil {
@@ -505,6 +538,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ShutdownFlow",
 			Handler:    _FlowService_ShutdownFlow_Handler,
+		},
+		{
+			MethodName: "FlowStateChange",
+			Handler:    _FlowService_FlowStateChange_Handler,
 		},
 		{
 			MethodName: "MirrorStatus",

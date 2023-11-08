@@ -175,6 +175,24 @@ message MirrorStatusResponse {
   string error_message = 4;
 }
 
+// in the future, consider moving DropFlow to this and reduce route surface
+enum FlowState {
+  STATE_UNKNOWN = 0;
+  STATE_RUNNING = 1;
+  STATE_PAUSED = 2;
+}
+
+message FlowStateChangeRequest {
+  string workflow_id = 1;
+  string flow_job_name = 2;
+  FlowState requested_flow_state = 3;
+}
+
+message FlowStateChangeResponse {
+  bool ok = 1;
+  string error_message = 2;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
@@ -228,6 +246,7 @@ service FlowService {
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
     option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
   }
+  rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {}
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
   }

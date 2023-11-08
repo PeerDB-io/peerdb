@@ -2,7 +2,6 @@ package connpostgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"regexp"
 	"time"
@@ -839,7 +838,7 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	}
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback(c.ctx)
-		if deferErr != sql.ErrTxDone && deferErr != nil {
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			log.WithFields(log.Fields{
 				"flowName": jobName,
 			}).Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)

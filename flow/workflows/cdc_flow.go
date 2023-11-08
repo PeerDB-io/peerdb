@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
+	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"go.temporal.io/api/enums/v1"
@@ -34,25 +35,7 @@ type CDCFlowLimits struct {
 	MaxBatchSize int
 }
 
-type CDCFlowWorkflowInput struct {
-	CDCFlowLimits
-	// The JDBC URL for the catalog database.
-	CatalogJdbcURL string
-	// The name of the peer flow to execute.
-	PeerFlowName string
-	// Number of sync flows to execute in total.
-	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
-	// This is typically non-zero for testing purposes.
-	TotalSyncFlows int
-	// Number of normalize flows to execute in total.
-	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
-	// This is typically non-zero for testing purposes.
-	TotalNormalizeFlows int
-	// Maximum number of rows in a sync flow batch.
-	MaxBatchSize int
-}
-
-type CDCFlowState struct {
+type CDCFlowWorkflowState struct {
 	// Progress events for the peer flow.
 	Progress []string
 	// Accumulates status for sync flows spawned.
@@ -63,6 +46,8 @@ type CDCFlowState struct {
 	ActiveSignal shared.CDCFlowSignal
 	// SetupComplete indicates whether the peer flow setup has completed.
 	SetupComplete bool
+	// SnapshotComplete indicates whether the initial snapshot workflow has completed.
+	SnapshotComplete bool
 	// Errors encountered during child sync flow executions.
 	SyncFlowErrors error
 	// Errors encountered during child sync flow executions.
@@ -73,8 +58,8 @@ type CDCFlowState struct {
 }
 
 // returns a new empty PeerFlowState
-func NewCDCFlowState() *CDCFlowState {
-	return &CDCFlowState{
+func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
+	return &CDCFlowWorkflowState{
 		Progress:              []string{"started"},
 		SyncFlowStatuses:      nil,
 		NormalizeFlowStatuses: nil,
@@ -93,7 +78,7 @@ func NewCDCFlowState() *CDCFlowState {
 }
 
 // truncate the progress and other arrays to a max of 10 elements
-func (s *CDCFlowState) TruncateProgress() {
+func (s *CDCFlowWorkflowState) TruncateProgress() {
 	if len(s.Progress) > 10 {
 		s.Progress = s.Progress[len(s.Progress)-10:]
 	}
@@ -115,7 +100,7 @@ func (s *CDCFlowState) TruncateProgress() {
 	}
 }
 
-func (s *CDCFlowState) SendWALHeartbeat(ctx workflow.Context, cfg *protos.FlowConnectionConfigs) error {
+func (s *CDCFlowWorkflowState) SendWALHeartbeat(ctx workflow.Context, cfg *protos.FlowConnectionConfigs) error {
 	walHeartbeatCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
@@ -131,6 +116,7 @@ func (s *CDCFlowState) SendWALHeartbeat(ctx workflow.Context, cfg *protos.FlowCo
 type CDCFlowWorkflowExecution struct {
 	flowExecutionID string
 	logger          log.Logger
+	ctx             workflow.Context
 }
 
 // NewCDCFlowWorkflowExecution creates a new instance of PeerFlowWorkflowExecution.
@@ -138,6 +124,7 @@ func NewCDCFlowWorkflowExecution(ctx workflow.Context) *CDCFlowWorkflowExecution
 	return &CDCFlowWorkflowExecution{
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
 		logger:          workflow.GetLogger(ctx),
+		ctx:             ctx,
 	}
 }
 
@@ -159,16 +146,26 @@ func GetChildWorkflowID(
 }
 
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
-type CDCFlowWorkflowResult = CDCFlowState
+type CDCFlowWorkflowResult = CDCFlowWorkflowState
+
+func (w *CDCFlowWorkflowExecution) receiveAndHandleSignalAsync(ctx workflow.Context, state *CDCFlowWorkflowState) {
+	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+
+	var signalVal shared.CDCFlowSignal
+	ok := signalChan.ReceiveAsync(&signalVal)
+	if ok {
+		state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+	}
+}
 
 func CDCFlowWorkflowWithConfig(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
 	limits *CDCFlowLimits,
-	state *CDCFlowState,
+	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if state == nil {
-		state = NewCDCFlowState()
+		state = NewCDCFlowWorkflowState()
 	}
 
 	if cfg == nil {
@@ -182,28 +179,18 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	// Support a Query for the current state of the peer flow.
-	err := workflow.SetQueryHandler(ctx, CDCFlowStatusQuery, func(jobName string) (CDCFlowState, error) {
+	err := workflow.SetQueryHandler(ctx, CDCFlowStatusQuery, func(jobName string) (CDCFlowWorkflowState, error) {
 		return *state, nil
 	})
 	if err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", CDCFlowStatusQuery, err)
 	}
 
-	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
-	signalHandler := func(_ workflow.Context, v shared.CDCFlowSignal) {
-		w.logger.Info("received signal - ", v)
-		state.ActiveSignal = v
-	}
-
-	// Support a signal to pause the peer flow.
-	selector := workflow.NewSelector(ctx)
-	selector.AddReceive(signalChan, func(c workflow.ReceiveChannel, more bool) {
-		var signalVal shared.CDCFlowSignal
-		c.Receive(ctx, &signalVal)
-		signalHandler(ctx, signalVal)
-	})
-
-	if !state.SetupComplete {
+	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
+	// because Resync modifies TableMappings before Setup and also before Snapshot
+	// for safety, rely on the idempotency of SetupFlow instead
+	// also, no signals are being handled until the loop starts, so no PAUSE/DROP will take here.
+	if !(state.SetupComplete && state.SnapshotComplete) {
 		// if resync is true, alter the table name schema mapping to temporarily add
 		// a suffix to the table names.
 		if cfg.Resync {
@@ -232,6 +219,7 @@ func CDCFlowWorkflowWithConfig(
 		if err := setupFlowFuture.Get(setupFlowCtx, &cfg); err != nil {
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
+		state.SetupComplete = true
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID, err := GetChildWorkflowID(ctx, "snapshot-flow", cfg.FlowJobName)
@@ -276,7 +264,7 @@ func CDCFlowWorkflowWithConfig(
 			}
 		}
 
-		state.SetupComplete = true
+		state.SnapshotComplete = true
 		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 	}
 
@@ -287,6 +275,23 @@ func CDCFlowWorkflowWithConfig(
 	currentSyncFlowNum := 0
 
 	for {
+		// check and act on signals before a fresh flow starts.
+		w.receiveAndHandleSignalAsync(ctx, state)
+
+		if state.ActiveSignal == shared.PauseSignal {
+			startTime := time.Now()
+			signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+			var signalVal shared.CDCFlowSignal
+
+			for state.ActiveSignal == shared.PauseSignal {
+				w.logger.Info("mirror has been paused for ", time.Since(startTime))
+				// only place we block on receive, so signal processing is immediate
+				ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
+				if ok {
+					state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+				}
+			}
+		}
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
 			w.logger.Info("peer flow has been shutdown")
@@ -294,6 +299,8 @@ func CDCFlowWorkflowWithConfig(
 		}
 
 		// check if total sync flows have been completed
+		// since this happens immediately after we check for signals, the case of a signal being missed
+		// due to a new workflow starting is vanishingly low, but possible
 		if limits.TotalSyncFlows != 0 && currentSyncFlowNum == limits.TotalSyncFlows {
 			w.logger.Info("All the syncflows have completed successfully, there was a"+
 				" limit on the number of syncflows to be executed: ", limits.TotalSyncFlows)
@@ -390,6 +397,7 @@ func CDCFlowWorkflowWithConfig(
 			cfg,
 		)
 
+		selector := workflow.NewSelector(ctx)
 		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
 			var childNormalizeFlowRes *model.NormalizeResponse
 			if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {

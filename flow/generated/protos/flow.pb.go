@@ -2595,7 +2595,7 @@ type QRepConfig struct {
 	// this is the location where the avro files will be written
 	// if this starts with gs:// then it will be written to GCS
 	// if this starts with s3:// then it will be written to S3
-	// if nothing is specified then it will be written to local disk
+	// if nothing is specified then it will be written to local disk, only supported in Snowflake
 	// if using GCS or S3 make sure your instance has the correct permissions.
 	StagingPath string `protobuf:"bytes,15,opt,name=staging_path,json=stagingPath,proto3" json:"staging_path,omitempty"`
 	// This setting overrides batch_size_int and batch_duration_seconds
