@@ -1,5 +1,6 @@
 import prisma from '@/app/utils/prisma';
 import { SyncStatusTable } from './syncStatusTable';
+import NewCdcDetails from './newCdcDetails';
 
 type SyncStatusProps = {
   flowJobName: string | undefined;
@@ -29,5 +30,7 @@ export default async function SyncStatus({ flowJobName }: SyncStatusProps) {
     numRows: sync.rows_in_batch,
   }));
 
-  return <SyncStatusTable rows={rows} />;
+  return <div>
+    <SyncStatusTable rows={rows} />
+  </div>;
 }
