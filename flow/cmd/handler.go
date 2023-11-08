@@ -500,6 +500,13 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		sfConfig := sfConfigObject.SnowflakeConfig
 		encodedConfig, encodingErr = proto.Marshal(sfConfig)
+	case protos.DBType_BIGQUERY:
+		bqConfigObject, ok := config.(*protos.Peer_BigqueryConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		bqConfig := bqConfigObject.BigqueryConfig
+		encodedConfig, encodingErr = proto.Marshal(bqConfig)
 	case protos.DBType_SQLSERVER:
 		sqlServerConfigObject, ok := config.(*protos.Peer_SqlserverConfig)
 		if !ok {

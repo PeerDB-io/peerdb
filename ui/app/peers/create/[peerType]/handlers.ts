@@ -4,7 +4,7 @@ import {
   UValidatePeerResponse,
 } from '@/app/dto/PeersDTO';
 import { Dispatch, SetStateAction } from 'react';
-import { pgSchema, sfSchema } from './schema';
+import { bqSchema, pgSchema, sfSchema } from './schema';
 
 // Frontend form validation
 const validateFields = (
@@ -26,6 +26,10 @@ const validateFields = (
     case 'SNOWFLAKE':
       const sfConfig = sfSchema.safeParse(config);
       if (!sfConfig.success) validationErr = sfConfig.error.issues[0].message;
+      break;
+    case 'BIGQUERY':
+      const bqConfig = bqSchema.safeParse(config);
+      if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;
