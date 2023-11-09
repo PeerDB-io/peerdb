@@ -113,6 +113,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 }
 
 func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
+	createEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
@@ -150,6 +151,8 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"f6 jsonb",
 		"f7 jsonb",
 		"f8 smallint",
+		"f9 mood",
+		"f10 hstore",
 	}
 	if strings.Contains(tableName, "sf") {
 		tblFields = append(tblFields, "geometry_point geometry(point)",
@@ -159,6 +162,11 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 			"geometry_polygon geometry(polygon)",
 			"geography_polygon geography(polygon)")
 	}
+	_, enumErr := pool.Exec(context.Background(), createEnum)
+	if enumErr != nil && !strings.Contains(enumErr.Error(), "already exists") {
+		return enumErr
+	}
+
 	tblFieldStr := strings.Join(tblFields, ",")
 
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
@@ -211,7 +219,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
 							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}',
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15 %s
+							'{"key": "value"}', 15, 'happy', 'key1=>value1,key2=>value2' %s
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)
@@ -232,7 +240,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10
 					%s
 			) VALUES %s;
 	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
@@ -342,6 +350,8 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
+			{Name: "f9", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "f10", Type: qvalue.QValueKindString, Nullable: true},
 		},
 	}
 }
