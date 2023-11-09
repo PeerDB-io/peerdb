@@ -22,7 +22,12 @@ export function Dialog({
     <RadixDialog.Root {...rootProps}>
       <RadixDialog.Trigger asChild>{TriggerButton}</RadixDialog.Trigger>
       <RadixDialog.Portal>
-        <DialogContent size={size}>{children}</DialogContent>
+        <DialogContent
+          onPointerDownOutside={(e) => e.preventDefault()}
+          size={size}
+        >
+          {children}
+        </DialogContent>
       </RadixDialog.Portal>
     </RadixDialog.Root>
   );
