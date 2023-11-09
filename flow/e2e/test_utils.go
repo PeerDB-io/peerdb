@@ -371,7 +371,7 @@ func RunSuite[T Suite](t *testing.T) {
 		methodcount := e2etype.NumMethod()
 		for methodid := 0; methodid < methodcount; methodid += 1 {
 			method := e2etype.Method(methodid)
-			if strings.HasPrefix(method.Name, "Test_") {
+			if strings.HasPrefix(method.Name, "Test") {
 				t.Run(method.Name, func(t *testing.T) {
 					t.Parallel()
 					suite := reflect.New(e2etype.Elem()).Interface().(T)
