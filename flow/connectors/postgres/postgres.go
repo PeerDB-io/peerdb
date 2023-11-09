@@ -786,7 +786,7 @@ func (c *PostgresConnector) SetupReplication(signal *SlotSignal, req *protos.Set
 	for k, v := range req.TableNameMapping {
 		tableNameMapping[k] = model.NameAndExclude {
 			Name: v,
-			Exclude: make([]string, 0),
+			Exclude: make(map[string]struct{}, 0),
 		}
 	}
 	// Create the replication slot and publication

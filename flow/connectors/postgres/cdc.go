@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"reflect"
-	"slices"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -539,7 +538,7 @@ It takes a tuple and a relation message as input and returns
 func (p *PostgresCDCSource) convertTupleToMap(
 	tuple *pglogrepl.TupleData,
 	rel *protos.RelationMessage,
-	exclude []string,
+	exclude map[string]struct{},
 ) (*model.RecordItems, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -550,10 +549,9 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	items := model.NewRecordItems()
 	unchangedToastColumns := make(map[string]struct{})
 
-	// TODO need to adjust idx by subtracting 1 from idx for each previously excluded column?
 	for idx, col := range tuple.Columns {
 		colName := rel.Columns[idx].Name
-		if slices.Contains(exclude, colName) {
+		if _, ok := exclude[colName]; ok {
 			continue
 		}
 		switch col.DataType {

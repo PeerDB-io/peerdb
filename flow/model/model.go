@@ -14,7 +14,7 @@ import (
 
 type NameAndExclude struct {
 	Name string
-	Exclude []string
+	Exclude map[string]struct{}
 }
 
 type PullRecordsRequest struct {

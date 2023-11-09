@@ -187,9 +187,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	tblNameMapping := make(map[string]model.NameAndExclude)
 	for _, v := range input.FlowConnectionConfigs.TableMappings {
+		exclude := make(map[string]struct{}, len(v.Exclude))
+		for _, col := range v.Exclude {
+			exclude[col] = struct{}{}
+		}
 		tblNameMapping[v.SourceTableIdentifier] = model.NameAndExclude {
 			Name: v.DestinationTableIdentifier,
-			Exclude: v.Exclude,
+			Exclude: exclude,
 		}
 	}
 
