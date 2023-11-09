@@ -123,6 +123,19 @@ pub enum PeerDDL {
         if_exists: bool,
         flow_job_name: String,
     },
+    ResyncMirror {
+        if_exists: bool,
+        mirror_name: String,
+        query_string: Option<String>,
+    },
+    PauseMirror {
+        if_exists: bool,
+        flow_job_name: String,
+    },
+    ResumeMirror {
+        if_exists: bool,
+        flow_job_name: String,
+    }
 }
 
 impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
@@ -162,7 +175,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                 destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
                                     .partition_key
-                                    .clone()
+                                    .as_ref()
                                     .map(|s| s.to_string()),
                             });
                         }
@@ -378,6 +391,41 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 if_exists: *if_exists,
                 peer_name: peer_name.to_string().to_lowercase(),
             })),
+            Statement::ResyncMirror {
+                if_exists,
+                mirror_name,
+                with_options,
+            } => {
+                let mut raw_options = HashMap::new();
+                for option in with_options {
+                    raw_options.insert(&option.name.value as &str, &option.value);
+                }
+
+                let query_string = match raw_options.remove("query_string") {
+                    Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                    _ => None,
+                };
+
+                Ok(Some(PeerDDL::ResyncMirror {
+                    if_exists: *if_exists,
+                    mirror_name: mirror_name.to_string().to_lowercase(),
+                    query_string,
+                }))
+            }
+            Statement::PauseMirror {
+                if_exists,
+                mirror_name,
+            } => Ok(Some(PeerDDL::PauseMirror {
+                if_exists: *if_exists,
+                flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
+            Statement::ResumeMirror {
+                if_exists,
+                mirror_name,
+            } => Ok(Some(PeerDDL::ResumeMirror {
+                if_exists: *if_exists,
+                flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
             _ => Ok(None),
         }
     }
@@ -533,6 +581,7 @@ fn parse_db_options(
                     .parse::<u64>()
                     .context("unable to parse query_timeout")?,
                 password: opts.get("password").map(|s| s.to_string()),
+                metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
             let config = Config::SnowflakeConfig(snowflake_config);
@@ -585,6 +634,7 @@ fn parse_db_options(
                     .get("database")
                     .context("no default database specified")?
                     .to_string(),
+                metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
             };
             let config = Config::PostgresConfig(postgres_config);
@@ -717,9 +767,9 @@ fn parse_db_options(
                 // check if peers contains key and if it does
                 // then add it to the eventhubs hashmap, if not error
                 if let Some(peer) = peers.get(&key) {
-                    let eventhub_config = peer.config.clone().unwrap();
+                    let eventhub_config = peer.config.as_ref().unwrap();
                     if let Config::EventhubConfig(eventhub_config) = eventhub_config {
-                        eventhubs.insert(key.to_string(), eventhub_config);
+                        eventhubs.insert(key.to_string(), eventhub_config.clone());
                     } else {
                         anyhow::bail!("Peer '{}' is not an eventhub", key);
                     }

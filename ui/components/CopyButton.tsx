@@ -11,6 +11,7 @@ export const CopyButton = ({ text }: { text: string }) => {
   };
   return (
     <Button
+      variant='normalBorderless'
       onClick={handleClick}
       style={{ backgroundColor: copied ? 'lightgreen' : 'auto' }}
     >

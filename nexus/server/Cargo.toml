@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["PeerDB <copyright@peerdb.io>"]
 
 [package.metadata.deb]
+revision = ""
 systemd-units = { enable = true }
 maintainer-scripts = "debian/"
 depends = "$auto"
@@ -18,6 +19,7 @@ assets = [
 ]
 
 [package.metadata.deb.variants.debug]
+revision = ""
 assets = [
   [
     "../target/x86_64-unknown-linux-musl/release/peerdb-server",
@@ -34,7 +36,7 @@ async-trait = "0.1"
 bytes = "1.0"
 catalog = { path = "../catalog" }
 clap = { version = "4.0", features = ["derive", "env"] }
-console-subscriber = "0.1"
+console-subscriber = "0.2"
 dashmap = "5.0"
 dotenvy = "0.15.7"
 flow-rs = { path = "../flow-rs" }
@@ -45,8 +47,8 @@ peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 peer-snowflake = { path = "../peer-snowflake" }
 peerdb-parser = { path = "../parser" }
-pgwire = "0.15"
-prost = "0.11"
+pgwire = "0.16"
+prost = "0.12"
 pt = { path = "../pt" }
 sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }
 serde_json = "1.0"
@@ -56,8 +58,8 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = "0.3"
-uuid = "0.8"
-cargo-deb = "1.43.1"
+uuid = "1.0"
+cargo-deb = "2.0"
 pgerror = { path = "../pgerror" }
 
 [dev-dependencies]

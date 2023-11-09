@@ -2,7 +2,6 @@ package connpostgres
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"regexp"
 	"time"
@@ -29,6 +28,7 @@ type PostgresConnector struct {
 	replPool           *pgxpool.Pool
 	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
+	metadataSchema     string
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
@@ -67,9 +67,16 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	replConnConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
 	replConnConfig.MaxConns = 1
 
+	// TODO: replPool not initializing might be intentional, if we only want to use QRep mirrors
+	// and the user doesn't have the REPLICATION permission
 	replPool, err := pgxpool.NewWithConfig(ctx, replConnConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+	}
+
+	metadataSchema := "_peerdb_internal"
+	if pgConfig.MetadataSchema != nil {
+		metadataSchema = *pgConfig.MetadataSchema
 	}
 
 	return &PostgresConnector{
@@ -79,6 +86,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		pool:               pool,
 		replPool:           replPool,
 		customTypesMapping: customTypeMap,
+		metadataSchema:     metadataSchema,
 	}, nil
 }
 
@@ -106,7 +114,7 @@ func (c *PostgresConnector) ConnectionActive() bool {
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
 func (c *PostgresConnector) NeedsSetupMetadataTables() bool {
 	result, err := c.tableExists(&utils.SchemaTable{
-		Schema: internalSchema,
+		Schema: c.metadataSchema,
 		Table:  mirrorJobsTableIdentifier,
 	})
 	if err != nil {
@@ -128,12 +136,12 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 		}
 	}()
 
-	err = c.createInternalSchema(createMetadataTablesTx)
+	err = c.createMetadataSchema(createMetadataTablesTx)
 	if err != nil {
 		return err
 	}
 	_, err = createMetadataTablesTx.Exec(c.ctx, fmt.Sprintf(createMirrorJobsTableSQL,
-		internalSchema, mirrorJobsTableIdentifier))
+		c.metadataSchema, mirrorJobsTableIdentifier))
 	if err != nil {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
@@ -148,7 +156,7 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 // GetLastOffset returns the last synced offset for a job.
 func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
 	rows, err := c.pool.
-		Query(c.ctx, fmt.Sprintf(getLastOffsetSQL, internalSchema, mirrorJobsTableIdentifier), jobName)
+		Query(c.ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return nil, fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
 	}
@@ -354,7 +362,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 	}()
 
-	syncedRecordsCount, err := syncRecordsTx.CopyFrom(c.ctx, pgx.Identifier{internalSchema, rawTableIdentifier},
+	syncedRecordsCount, err := syncRecordsTx.CopyFrom(c.ctx, pgx.Identifier{c.metadataSchema, rawTableIdentifier},
 		[]string{"_peerdb_uid", "_peerdb_timestamp", "_peerdb_destination_table_name", "_peerdb_data",
 			"_peerdb_record_type", "_peerdb_match_data", "_peerdb_batch_id", "_peerdb_unchanged_toast_columns"},
 		pgx.CopyFromRows(records))
@@ -507,21 +515,21 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		}
 	}()
 
-	err = c.createInternalSchema(createRawTableTx)
+	err = c.createMetadataSchema(createRawTableTx)
 	if err != nil {
 		return nil, fmt.Errorf("error creating internal schema: %w", err)
 	}
-	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableSQL, internalSchema, rawTableIdentifier))
+	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("error creating raw table: %w", err)
 	}
 	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableBatchIDIndexSQL, rawTableIdentifier,
-		internalSchema, rawTableIdentifier))
+		c.metadataSchema, rawTableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("error creating batch ID index on raw table: %w", err)
 	}
 	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier,
-		internalSchema, rawTableIdentifier))
+		c.metadataSchema, rawTableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("error creating destion table index on raw table: %w", err)
 	}
@@ -723,7 +731,6 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
 func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
-
 	tableIdentifierMapping := make(map[string]*protos.TableIdentifier)
 	for _, tableName := range req.SourceTableIdentifiers {
 		schemaTable, err := utils.ParseSchemaTable(tableName)
@@ -831,20 +838,20 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	}
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback(c.ctx)
-		if deferErr != sql.ErrTxDone && deferErr != nil {
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			log.WithFields(log.Fields{
 				"flowName": jobName,
 			}).Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
 		}
 	}()
 
-	_, err = syncFlowCleanupTx.Exec(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, internalSchema,
+	_, err = syncFlowCleanupTx.Exec(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
 		getRawTableIdentifier(jobName)))
 	if err != nil {
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 	_, err = syncFlowCleanupTx.Exec(c.ctx,
-		fmt.Sprintf(deleteJobMetadataSQL, internalSchema, mirrorJobsTableIdentifier), jobName)
+		fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
 		return fmt.Errorf("unable to delete job metadata: %w", err)
 	}

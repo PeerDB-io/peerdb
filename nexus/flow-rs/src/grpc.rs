@@ -129,6 +129,7 @@ impl FlowGrpcClient {
             workflow_id: workflow_details.workflow_id,
             source_peer: Some(workflow_details.source_peer),
             destination_peer: Some(workflow_details.destination_peer),
+            remove_flow_entry: false,
         };
         let response = self.client.shutdown_flow(shutdown_flow_req).await?;
         let shutdown_response = response.into_inner();
@@ -154,6 +155,32 @@ impl FlowGrpcClient {
             Err(anyhow::anyhow!(format!(
                 "failed to drop peer: {:?}",
                 drop_response.error_message
+            )))
+        }
+    }
+
+    pub async fn flow_state_change(
+        &mut self,
+        flow_job_name: &str,
+        workflow_id: &str,
+        pause: bool,
+    ) -> anyhow::Result<()> {
+        let pause_flow_req = pt::peerdb_route::FlowStateChangeRequest {
+            flow_job_name: flow_job_name.to_owned(),
+            workflow_id: workflow_id.to_owned(),
+            requested_flow_state: match pause {
+                true => pt::peerdb_route::FlowState::StatePaused.into(),
+                false => pt::peerdb_route::FlowState::StateRunning.into(),
+            },
+        };
+        let response = self.client.flow_state_change(pause_flow_req).await?;
+        let pause_response = response.into_inner();
+        if pause_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to pause/unpause flow job: {:?}",
+                pause_response.error_message
             )))
         }
     }
@@ -293,6 +320,8 @@ impl FlowGrpcClient {
                         cfg.initial_copy_only = *v;
                     } else if key == "setup_watermark_table_on_destination" {
                         cfg.setup_watermark_table_on_destination = *v;
+                    } else if key == "dst_table_full_resync" {
+                        cfg.dst_table_full_resync = *v;
                     } else {
                         return anyhow::Result::Err(anyhow::anyhow!("invalid bool option {}", key));
                     }

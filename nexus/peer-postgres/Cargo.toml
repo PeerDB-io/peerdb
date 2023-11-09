@@ -15,7 +15,7 @@ futures = "0.3"
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
 pgerror = { path = "../pgerror" }
-pgwire = "0.15"
+pgwire = "0.16"
 postgres-connection = { path = "../postgres-connection" }
 pt = { path = "../pt" }
 serde = { version = "1.0", features = ["derive"] }
@@ -27,8 +27,8 @@ tokio = { version = "1.0", features = ["full"] }
 tokio-postgres = { version = "0.7.6", features = [
   "with-chrono-0_4",
   "with-serde_json-1",
-  "with-uuid-0_8",
+  "with-uuid-1",
 ] }
 tracing = "0.1"
-uuid = { version = "0.8", features = ["serde", "v4"] }
+uuid = { version = "1.0", features = ["serde", "v4"] }
 value = { path = "../value" }

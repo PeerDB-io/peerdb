@@ -65,7 +65,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.CDCFlowState
+			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
 				log.Errorln(err)
@@ -95,7 +95,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.CDCFlowState
+			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
 				log.Errorln(err)
@@ -301,12 +301,8 @@ func CreateQRepWorkflowConfig(
 }
 
 func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
-	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-applicable-partition",
-		Range:       nil,
-	}
-	numPartitionsProcessed := 0
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+	state := peerflow.NewQRepFlowState()
+	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
 }
 
 func GetOwnersSchema() *model.QRecordSchema {

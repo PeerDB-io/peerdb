@@ -54,6 +54,16 @@ const normalStyle = css<BaseStyleProps>`
   --background-color-focus: ${({ theme }) => theme.colors.base.surface.normal};
 `;
 
+const dropStyle = css<BaseStyleProps>`
+  --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
+  --text-color: ${({ theme }) => theme.colors.base.text.highContrast};
+  --background-color-default: ${({ theme, $loading }) =>
+    $loading ? theme.colors.base.surface.selected : 'transparent'};
+  --background-color-hover: ${({ theme }) =>
+    theme.colors.destructive.surface.hovered};
+  --background-color-focus: transparent;
+`;
+
 const destructiveStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.destructive.text.lowContrast};
@@ -75,6 +85,15 @@ const normalSolidStyle = css<BaseStyleProps>`
       ? theme.colors.accent.fill.hovered
       : theme.colors.accent.fill.normal};
   --background-color-hover: ${({ theme }) => theme.colors.accent.fill.hovered};
+  --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
+`;
+
+const peerSolidStyle = css<BaseStyleProps>`
+  --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
+  --text-color: ${({ theme }) => theme.colors.special.fixed.black};
+  --background-color-default: ${({ theme, $loading }) =>
+    $loading ? 'rgba(0,0,0,0.07)' : 'rgba(0,0,0,0.03)'};
+  --background-color-hover: ${({ theme }) => 'rgba(0,0,0,0.07)'};
   --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
 `;
 
@@ -115,6 +134,8 @@ const variants = {
   destructive: destructiveStyle,
   normalSolid: normalSolidStyle,
   destructiveSolid: destructiveSolidStyle,
+  drop: dropStyle,
+  peer: peerSolidStyle,
   normalBorderless: normalBorderlessStyle,
   destructiveBorderless: destructiveBorderlessStyle,
 } as const;

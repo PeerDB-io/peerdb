@@ -31,33 +31,9 @@ export default function QRepConfigForm(props: QRepConfigProps) {
   };
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
-    let stateVal:
-      | string
-      | boolean
-      | Peer
-      | QRepSyncMode
-      | QRepWriteType
-      | string[] = val;
-    if (setting.label.includes('Peer')) {
-      stateVal = props.peers.find((peer) => peer.name === val)!;
-      if (setting.label === 'Destination Peer') {
-        if (stateVal.type === DBType.POSTGRES) {
-          props.setter((curr) => {
-            return {
-              ...curr,
-              syncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-            };
-          });
-        } else if (stateVal.type === DBType.SNOWFLAKE) {
-          props.setter((curr) => {
-            return {
-              ...curr,
-              syncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-            };
-          });
-        }
-      }
-    } else if (setting.label.includes('Sync Mode')) {
+    let stateVal: string | boolean | QRepSyncMode | QRepWriteType | string[] =
+      val;
+    if (setting.label.includes('Sync Mode')) {
       stateVal =
         val === 'AVRO'
           ? QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO
@@ -150,9 +126,7 @@ export default function QRepConfigForm(props: QRepConfigProps) {
                   }}
                 >
                   <Select
-                    placeholder={`Select ${
-                      setting.label.includes('Peer') ? 'a peer' : 'a mode'
-                    }`}
+                    placeholder={`Select a mode`}
                     onValueChange={(val) => handleChange(val, setting)}
                     disabled={setToDefault(setting)}
                     value={
@@ -163,9 +137,7 @@ export default function QRepConfigForm(props: QRepConfigProps) {
                         : undefined
                     }
                   >
-                    {(setting.label.includes('Peer')
-                      ? (props.peers ?? []).map((peer) => peer.name)
-                      : setting.label.includes('Sync')
+                    {(setting.label.includes('Sync')
                       ? ['AVRO', 'Copy with Binary']
                       : ['Append', 'Upsert', 'Overwrite']
                     ).map((item, id) => {

@@ -374,6 +374,32 @@ pub mod flow_service_client {
             self.inner.unary(req, path, codec).await
         }
         ///
+        pub async fn flow_state_change(
+            &mut self,
+            request: impl tonic::IntoRequest<super::FlowStateChangeRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::FlowStateChangeResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/peerdb_route.FlowService/FlowStateChange",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("peerdb_route.FlowService", "FlowStateChange"));
+            self.inner.unary(req, path, codec).await
+        }
+        ///
         pub async fn mirror_status(
             &mut self,
             request: impl tonic::IntoRequest<super::MirrorStatusRequest>,
@@ -494,6 +520,14 @@ pub mod flow_service_server {
             request: tonic::Request<super::ShutdownRequest>,
         ) -> std::result::Result<
             tonic::Response<super::ShutdownResponse>,
+            tonic::Status,
+        >;
+        ///
+        async fn flow_state_change(
+            &self,
+            request: tonic::Request<super::FlowStateChangeRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::FlowStateChangeResponse>,
             tonic::Status,
         >;
         ///
@@ -1074,6 +1108,52 @@ pub mod flow_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = ShutdownFlowSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/peerdb_route.FlowService/FlowStateChange" => {
+                    #[allow(non_camel_case_types)]
+                    struct FlowStateChangeSvc<T: FlowService>(pub Arc<T>);
+                    impl<
+                        T: FlowService,
+                    > tonic::server::UnaryService<super::FlowStateChangeRequest>
+                    for FlowStateChangeSvc<T> {
+                        type Response = super::FlowStateChangeResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::FlowStateChangeRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).flow_state_change(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = FlowStateChangeSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

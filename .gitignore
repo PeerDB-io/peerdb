@@ -1,4 +1,5 @@
-.vscode
+.vscode/
 .env
 tmp/
 .envrc
+.idea/

@@ -16,6 +16,8 @@ export const SlotNameDisplay = ({ slotName }: { slotName: string }) => {
       style={{
         cursor: 'pointer',
         textDecoration: 'underline',
+        fontSize: 13,
+        fontWeight: 'bold',
       }}
       href={`/mirrors/edit/${flowName}`}
     >

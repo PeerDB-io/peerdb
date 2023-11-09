@@ -46,6 +46,12 @@ const constructPeer = (
         type: DBType.SNOWFLAKE,
         snowflakeConfig: config as SnowflakeConfig,
       };
+    case 'BIGQUERY':
+      return {
+        name,
+        type: DBType.BIGQUERY,
+        bigqueryConfig: config as BigqueryConfig,
+      };
     default:
       return;
   }
@@ -76,6 +82,7 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify(response));
   } else if (mode === 'create') {
     const req: CreatePeerRequest = { peer };
+    console.log('/peer/create req:', req);
     const createStatus: CreatePeerResponse = await fetch(
       `${flowServiceAddr}/v1/peers/create`,
       {

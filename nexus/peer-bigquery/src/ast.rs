@@ -3,8 +3,9 @@ use std::ops::ControlFlow;
 use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
-    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, visit_setexpr_mut, Array,
-    BinaryOperator, DataType, DateTimeField, Expr, Function, FunctionArg, FunctionArgExpr, Ident,
+    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, visit_setexpr_mut,
+    Array, ArrayElemTypeDef, BinaryOperator, DataType, DateTimeField, Expr,
+    Function, FunctionArg, FunctionArgExpr, Ident,
     ObjectName, Query, SetExpr, SetOperator, SetQuantifier, TimezoneInfo,
 };
 
@@ -12,11 +13,11 @@ use sqlparser::ast::{
 pub struct BigqueryAst {}
 
 impl BigqueryAst {
-    pub fn is_timestamp_returning_function(&self, name: String) -> bool {
-        if name == "now"
-            || name == "date_trunc"
-            || name == "make_timestamp"
-            || name == "current_timestamp"
+    pub fn is_timestamp_returning_function(&self, name: &str) -> bool {
+        if name.eq_ignore_ascii_case("now")
+            || name.eq_ignore_ascii_case("date_trunc")
+            || name.eq_ignore_ascii_case("make_timestamp")
+            || name.eq_ignore_ascii_case("current_timestamp")
         {
             return true;
         }
@@ -37,7 +38,7 @@ impl BigqueryAst {
             ..
         }) = e
         {
-            if self.is_timestamp_returning_function(v[0].to_string().to_lowercase()) {
+            if self.is_timestamp_returning_function(&v[0].value) {
                 return true;
             }
         }
@@ -49,21 +50,20 @@ impl BigqueryAst {
         false
     }
 
-    pub fn convert_to_datetimefield(&self, t: String) -> Option<DateTimeField> {
-        let t_lower = t.to_lowercase();
-        if t_lower == "day" || t_lower == "days" {
+    pub fn convert_to_datetimefield(&self, t: &str) -> Option<DateTimeField> {
+        if t.eq_ignore_ascii_case("day") || t.eq_ignore_ascii_case("days") {
             return Some(DateTimeField::Day);
         }
-        if t_lower == "hour" || t_lower == "hours" {
+        if t.eq_ignore_ascii_case("hour") || t.eq_ignore_ascii_case("hours") {
             return Some(DateTimeField::Hour);
         }
-        if t_lower == "minute" || t_lower == "minutes" {
+        if t.eq_ignore_ascii_case("minute") || t.eq_ignore_ascii_case("minutes") {
             return Some(DateTimeField::Minute);
         }
-        if t_lower == "second" || t_lower == "Seconds" {
+        if t.eq_ignore_ascii_case("second") || t.eq_ignore_ascii_case("seconds") {
             return Some(DateTimeField::Second);
         }
-        if t_lower == "millisecond" || t_lower == "milliseconds" {
+        if t.eq_ignore_ascii_case("millisecond") || t.eq_ignore_ascii_case("milliseconds") {
             return Some(DateTimeField::Milliseconds);
         }
         None
@@ -79,8 +79,8 @@ impl BigqueryAst {
         visit_function_arg_mut(query, |node| {
             if let FunctionArgExpr::Expr(arg_expr) = node {
                 if let Expr::Cast {
-                    expr: _,
                     data_type: DataType::Array(_),
+                    ..
                 } = arg_expr
                 {
                     let list = self
@@ -100,12 +100,12 @@ impl BigqueryAst {
         visit_expressions_mut(query, |node| {
             // CAST AS Text to CAST AS String
             if let Expr::Cast {
-                expr: _,
                 data_type: dt,
+                ..
             } = node
             {
                 if let DataType::Text = dt {
-                    *dt = DataType::String;
+                    *dt = DataType::String(None);
                 }
 
                 if let DataType::Timestamp(_, tz) = dt {
@@ -119,7 +119,7 @@ impl BigqueryAst {
             }) = node
             {
                 // now() to CURRENT_TIMESTAMP
-                if v[0].to_string().to_lowercase() == "now" {
+                if v[0].value.eq_ignore_ascii_case("now") {
                     v[0].value = "CURRENT_TIMESTAMP".into();
                 }
             }
@@ -131,7 +131,7 @@ impl BigqueryAst {
                 ..
             }) = node
             {
-                if let Expr::Value(sqlparser::ast::Value::SingleQuotedString(s)) = value.as_mut() {
+                if let Expr::Value(sqlparser::ast::Value::SingleQuotedString(s)) = value.as_ref() {
                     /*
                     postgres will have interval '1 Day'
                     rewriting that to interval 1 Day in BQ
@@ -139,9 +139,8 @@ impl BigqueryAst {
                     let split = s.split(' ');
                     let vec = split.collect::<Vec<&str>>();
                     let val_string: String = vec[0].into();
-                    let date_time_field_string: String = vec[1].into();
+                    let date_time_field = self.convert_to_datetimefield(vec[1]);
                     *(value.as_mut()) = Expr::Value(Number(val_string, false));
-                    let date_time_field = self.convert_to_datetimefield(date_time_field_string);
                     if date_time_field.is_none() {
                         // Error handling - Nexus for BQ only supports Day, Hour, Minute, Second, Millisecond
                     }
@@ -164,7 +163,7 @@ impl BigqueryAst {
             change - to DATE_SUB
             */
             if let Expr::BinaryOp { left, op, right } = node {
-                if self.is_timestamp_expr(left.as_mut()) || self.is_timestamp_expr(right.as_mut()) {
+                if self.is_timestamp_expr(left.as_ref()) || self.is_timestamp_expr(right.as_ref()) {
                     if let BinaryOperator::Minus = op {
                         *node = Expr::Function(Function {
                             name: ObjectName(vec![Ident::new("DATE_SUB".to_string())]),
@@ -172,10 +171,13 @@ impl BigqueryAst {
                                 FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
                                 FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
                             ],
+                            null_treatment: None,
+                            filter: None,
                             over: None,
                             distinct: false,
                             special: false,
                             order_by: vec![],
+
                         })
                     } else if let BinaryOperator::Plus = op {
                         *node = Expr::Function(Function {
@@ -184,6 +186,8 @@ impl BigqueryAst {
                                 FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
                                 FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
                             ],
+                            null_treatment: None,
+                            filter: None,
                             over: None,
                             distinct: false,
                             special: false,
@@ -198,7 +202,7 @@ impl BigqueryAst {
                 ..
             }) = node
             {
-                if v[0].to_string().to_lowercase() == "date_trunc" {
+                if v[0].value.eq_ignore_ascii_case("date_trunc") {
                     let mut date_part = a[0].to_string();
                     let date_expression = &a[1];
                     a[0] = date_expression.clone();
@@ -235,36 +239,25 @@ impl BigqueryAst {
             ControlFlow::<()>::Continue(())
         });
 
-        // flatten ANY operand in BINARY to IN operation overall.
+        // flatten ANY to IN operation overall.
         visit_expressions_mut(query, |node| {
-            if let Expr::BinaryOp { left, op, right } = node {
-                // check if right is ANY
-                if let Expr::AnyOp(expr) = right.as_mut() {
+            if let Expr::AnyOp { left, compare_op, right } = node {
+                if matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq) {
                     let list = self
-                        .flatten_expr_to_in_list(expr)
+                        .flatten_expr_to_in_list(right)
                         .expect("failed to flatten");
-                    // check if op is =
-                    if let BinaryOperator::Eq = op {
-                        // rewrite to IN
-                        *node = Expr::InList {
-                            expr: left.clone(),
-                            list,
-                            negated: false,
-                        };
-                    }
-                    // if op is != rewrite to NOT IN
-                    else if let BinaryOperator::NotEq = op {
-                        *node = Expr::InList {
-                            expr: left.clone(),
-                            list,
-                            negated: true,
-                        };
-                    }
+                    *node = Expr::InList {
+                        expr: left.clone(),
+                        list,
+                        negated: matches!(compare_op, BinaryOperator::NotEq),
+                    };
                 }
             }
 
             ControlFlow::<()>::Continue(())
         });
+
+
 
         Ok(())
     }
@@ -307,7 +300,7 @@ impl BigqueryAst {
     fn flatten_expr_to_in_list(&self, expr: &Expr) -> anyhow::Result<Vec<Expr>> {
         let mut list = vec![];
         // check if expr is of type Cast
-        if let Expr::Cast { expr, data_type } = expr {
+        if let Expr::Cast { expr, data_type, .. } = expr {
             // assert that expr is of type SingleQuotedString
             if let Expr::Value(sqlparser::ast::Value::SingleQuotedString(s)) = expr.as_ref() {
                 // trim the starting and ending curly braces
@@ -316,7 +309,9 @@ impl BigqueryAst {
                 let split = s.split(',');
                 // match on data type, and create a vector of Expr::Value
                 match data_type {
-                    DataType::Array(Some(inner)) => match inner.as_ref() {
+                    DataType::Array(ArrayElemTypeDef::AngleBracket(inner)) |
+                        DataType::Array(ArrayElemTypeDef::SquareBracket(inner))
+                        => match inner.as_ref() {
                         DataType::Text | DataType::Char(_) | DataType::Varchar(_) => {
                             for s in split {
                                 list.push(Expr::Value(sqlparser::ast::Value::SingleQuotedString(

@@ -191,6 +191,7 @@ func (p *PostgresCDCSource) consumeStream(
 			records.SignalAsEmpty()
 		}
 		records.RelationMessageMapping <- &p.relationMessageMapping
+		log.Infof("[finished] PullRecords streamed %d records", len(localRecords))
 	}()
 
 	shutdown := utils.HeartbeatRoutine(p.ctx, 10*time.Second, func() string {

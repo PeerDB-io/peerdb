@@ -1,11 +1,11 @@
 'use client';
 
+import SearchBar from '@/components/Search';
+import TimeLabel from '@/components/TimeComponent';
 import { Button } from '@/lib/Button';
-import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
-import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useState } from 'react';
@@ -30,10 +30,14 @@ function TimeWithDurationOrRunning({
 }) {
   if (endTime) {
     return (
-      <Label>
-        {moment(endTime).format('YYYY-MM-DD HH:mm:ss')} (
-        {moment.duration(moment(endTime).diff(startTime)).humanize({ ss: 1 })})
-      </Label>
+      <>
+        <TimeLabel timeVal={moment(endTime).format('YYYY-MM-DD HH:mm:ss')} />
+        <Label>
+          (
+          {moment.duration(moment(endTime).diff(startTime)).humanize({ ss: 1 })}
+          )
+        </Label>
+      </>
     );
   } else {
     return (
@@ -52,9 +56,10 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
 
   const startRow = (currentPage - 1) * ROWS_PER_PAGE;
   const endRow = startRow + ROWS_PER_PAGE;
-
-  const displayedRows = rows.slice(startRow, endRow);
-
+  const allRows = rows.slice(startRow, endRow);
+  const [displayedRows, setDisplayedRows] = useState(
+    rows.slice(startRow, endRow)
+  );
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
@@ -65,7 +70,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
 
   return (
     <Table
-      title={<Label variant='headline'>Initial Copy</Label>}
+      title={<Label variant='headline'>CDC Syncs</Label>}
       toolbar={{
         left: (
           <>
@@ -84,30 +89,45 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
             </Button>
           </>
         ),
-        right: <SearchField placeholder='Search' />,
+        right: (
+          <SearchBar
+            allItems={allRows}
+            setItems={setDisplayedRows}
+            filterFunction={(query: string) =>
+              allRows.filter((row: any) => {
+                return row.batchId == parseInt(query, 10);
+              })
+            }
+          />
+        ),
       }}
       header={
         <TableRow>
-          <TableCell as='th' variant='button'>
-            <Checkbox variant='mixed' defaultChecked />
-          </TableCell>
-          <TableCell as='th'>Batch ID</TableCell>
-          <TableCell as='th'>Start Time</TableCell>
-          <TableCell as='th'>End Time (Duration)</TableCell>
-          <TableCell as='th'>Num Rows Synced</TableCell>
+          {['Batch ID', 'Start Time', 'End Time (Duration)', 'Rows Synced'].map(
+            (heading, index) => (
+              <TableCell as='th' key={index}>
+                <Label as='label' style={{ fontWeight: 'bold' }}>
+                  {heading}
+                </Label>
+              </TableCell>
+            )
+          )}
         </TableRow>
       }
     >
       {displayedRows.map((row, index) => (
         <TableRow key={index}>
-          <TableCell variant='button'>
-            <Checkbox />
-          </TableCell>
           <TableCell>
             <Label>{row.batchId}</Label>
           </TableCell>
           <TableCell>
-            <Label>{moment(row.startTime).format('YYYY-MM-DD HH:mm:ss')}</Label>
+            <Label>
+              {
+                <TimeLabel
+                  timeVal={moment(row.startTime).format('YYYY-MM-DD HH:mm:ss')}
+                />
+              }
+            </Label>
           </TableCell>
           <TableCell>
             <TimeWithDurationOrRunning
