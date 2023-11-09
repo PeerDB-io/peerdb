@@ -30,21 +30,20 @@ type PeerFlowE2ETestSuiteSF struct {
 }
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
-	e2e := new(PeerFlowE2ETestSuiteSF)
-	if e2e.SetupSuite(t) != nil {
-		return
-	}
-	defer e2e.TearDownSuite(t)
 
 	t.Run("group", func(t *testing.T) {
-		e2etype := reflect.TypeOf(e2e)
+		e2etype := reflect.TypeOf((*PeerFlowE2ETestSuiteSF)(nil))
 		methodcount := e2etype.NumMethod()
 		for methodid := 0; methodid < methodcount; methodid += 1 {
 			method := e2etype.Method(methodid)
 			if strings.HasPrefix(method.Name, "Test_") {
 				t.Run(method.Name, func(t *testing.T) {
-					// t.Parallel()
-					method.Func.Call([]reflect.Value{reflect.ValueOf(e2e), reflect.ValueOf(t)})
+					t.Parallel()
+					e2e := new(PeerFlowE2ETestSuiteSF)
+					if e2e.SetupSuite(t) == nil {
+						method.Func.Call([]reflect.Value{reflect.ValueOf(e2e), reflect.ValueOf(t)})
+						e2e.TearDownSuite(t)
+					}
 				})
 			}
 		}
