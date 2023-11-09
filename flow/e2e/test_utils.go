@@ -374,7 +374,7 @@ func RunSuite[T Suite](t *testing.T) {
 			if strings.HasPrefix(method.Name, "Test_") {
 				t.Run(method.Name, func(t *testing.T) {
 					t.Parallel()
-					suite := reflect.New(e2etype).Interface().(T)
+					suite := reflect.New(e2etype.Elem()).Interface().(T)
 					if suite.SetupSuite(t) == nil {
 						method.Func.Call([]reflect.Value{reflect.ValueOf(suite), reflect.ValueOf(t)})
 						suite.TearDownSuite(t)
