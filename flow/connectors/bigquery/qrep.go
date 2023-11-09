@@ -3,6 +3,7 @@ package connbigquery
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/bigquery"
@@ -20,10 +21,13 @@ func (c *BigQueryConnector) SyncQRepRecords(
 ) (int, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
-	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
-	tblMetadata, err := bqTable.Metadata(c.ctx)
+	srcSchema, err := stream.Schema()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get metadata of table %s: %w", destTable, err)
+		return 0, fmt.Errorf("failed to get schema of source table %s: %w", config.WatermarkTable, err)
+	}
+	tblMetadata, err := c.replayTableSchemaDeltasQRep(config, partition, srcSchema)
+	if err != nil {
+		return 0, err
 	}
 
 	done, err := c.isPartitionSynced(partition.PartitionId)
@@ -55,6 +59,53 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	default:
 		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
 	}
+}
+
+func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfig, partition *protos.QRepPartition,
+	srcSchema *model.QRecordSchema) (*bigquery.TableMetadata, error) {
+	destTable := config.DestinationTableIdentifier
+	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
+	dstTableMetadata, err := bqTable.Metadata(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destTable, err)
+	}
+
+	tableSchemaDelta := &protos.TableSchemaDelta{
+		SrcTableName: config.WatermarkTable,
+		DstTableName: config.DestinationTableIdentifier,
+	}
+
+	for _, col := range srcSchema.Fields {
+		hasColumn := false
+		// check ignoring case
+		for _, dstCol := range dstTableMetadata.Schema {
+			if strings.EqualFold(col.Name, dstCol.Name) {
+				hasColumn = true
+				break
+			}
+		}
+
+		if !hasColumn {
+			log.WithFields(log.Fields{
+				"flowName":    config.FlowJobName,
+				"partitionID": partition.PartitionId,
+			}).Infof("adding column %s to destination table %s", col.Name, config.DestinationTableIdentifier)
+			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.DeltaAddedColumn{
+				ColumnName: col.Name,
+				ColumnType: string(col.Type),
+			})
+		}
+	}
+
+	err = c.ReplayTableSchemaDeltas(config.FlowJobName, []*protos.TableSchemaDelta{tableSchemaDelta})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add columns to destination table: %w", err)
+	}
+	dstTableMetadata, err = bqTable.Metadata(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destTable, err)
+	}
+	return dstTableMetadata, nil
 }
 
 func (c *BigQueryConnector) createMetadataInsertStatement(

@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type QRepSyncMethod interface {
+type QRepSQLSyncMethod interface {
 	SyncQRepRecords(
 		flowJobName string,
 		dstTableName string,
@@ -38,6 +38,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	startTime := time.Now()
 
 	// generate a 128 bit random runID for this run
+	//nolint:gosec
 	runID := rand.Int63()
 
 	// create a staging table with the same schema as the destination table if it doesn't exist
