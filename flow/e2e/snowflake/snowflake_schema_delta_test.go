@@ -6,47 +6,55 @@ import (
 	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/stretchr/testify/suite"
+	"github.com/stretchr/testify/assert"
 )
 
 const schemaDeltaTestSchemaName = "PUBLIC"
 
 type SnowflakeSchemaDeltaTestSuite struct {
-	suite.Suite
 	connector    *connsnowflake.SnowflakeConnector
 	sfTestHelper *SnowflakeTestHelper
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) failTestError(err error) {
+func failTestError(t *testing.T, err error) {
 	if err != nil {
-		suite.FailNow(err.Error())
+		assert.FailNow(t, err.Error())
 	}
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) SetupSuite() {
+func (suite *SnowflakeSchemaDeltaTestSuite) SetupSuite(t *testing.T) error {
 	var err error
 
 	suite.sfTestHelper, err = NewSnowflakeTestHelper()
-	suite.failTestError(err)
+	if err != nil {
+		t.Error(err)
+		return err
+	}
 
 	suite.connector, err = connsnowflake.NewSnowflakeConnector(context.Background(),
 		suite.sfTestHelper.Config)
-	suite.failTestError(err)
+	if err != nil {
+		t.Error(err)
+		return err
+	}
+
+	return err
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TearDownSuite() {
+func (suite *SnowflakeSchemaDeltaTestSuite) TearDownSuite(t *testing.T) {
 	err := suite.sfTestHelper.Cleanup()
-	suite.failTestError(err)
+	assert.NoError(t, err)
 	err = suite.connector.Close()
-	suite.failTestError(err)
+	assert.NoError(t, err)
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
+func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn(t *testing.T) {
 	tableName := fmt.Sprintf("%s.SIMPLE_ADD_COLUMN", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	failTestError(t, err)
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -56,13 +64,13 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 			ColumnType: string(qvalue.QValueKindJSON),
 		}},
 	}})
-	suite.failTestError(err)
+	failTestError(t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
+	failTestError(t, err)
+	assert.Equal(t, &protos.TableSchema{
 		TableIdentifier: tableName,
 		Columns: map[string]string{
 			"ID": string(qvalue.QValueKindString),
@@ -71,10 +79,10 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
+func (suite *SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes(t *testing.T) {
 	tableName := fmt.Sprintf("%s.ADD_DROP_ALL_COLUMN_TYPES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	failTestError(t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -108,19 +116,19 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	failTestError(t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	failTestError(t, err)
+	assert.Equal(t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
+func (suite *SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames(t *testing.T) {
 	tableName := fmt.Sprintf("%s.ADD_DROP_TRICKY_COLUMN_NAMES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(id TEXT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	failTestError(t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -152,19 +160,19 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	failTestError(t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	failTestError(t, err)
+	assert.Equal(t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
+func (suite *SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames(t *testing.T) {
 	tableName := fmt.Sprintf("%s.ADD_DROP_WHITESPACE_COLUMN_NAMES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(\" \" TEXT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	failTestError(t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -190,15 +198,15 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	failTestError(t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	failTestError(t, err)
+	assert.Equal(t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
-	suite.Run(t, new(SnowflakeSchemaDeltaTestSuite))
+	e2e.RunSuite[*SnowflakeSchemaDeltaTestSuite](t)
 }

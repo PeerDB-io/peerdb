@@ -3,7 +3,6 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -30,24 +29,7 @@ type PeerFlowE2ETestSuiteSF struct {
 }
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
-
-	t.Run("group", func(t *testing.T) {
-		e2etype := reflect.TypeOf((*PeerFlowE2ETestSuiteSF)(nil))
-		methodcount := e2etype.NumMethod()
-		for methodid := 0; methodid < methodcount; methodid += 1 {
-			method := e2etype.Method(methodid)
-			if strings.HasPrefix(method.Name, "Test_") {
-				t.Run(method.Name, func(t *testing.T) {
-					t.Parallel()
-					e2e := new(PeerFlowE2ETestSuiteSF)
-					if e2e.SetupSuite(t) == nil {
-						method.Func.Call([]reflect.Value{reflect.ValueOf(e2e), reflect.ValueOf(t)})
-						e2e.TearDownSuite(t)
-					}
-				})
-			}
-		}
-	})
+	e2e.RunSuite[*PeerFlowE2ETestSuiteSF](t)
 }
 
 func (s *PeerFlowE2ETestSuiteSF) attachSchemaSuffix(tableName string) string {

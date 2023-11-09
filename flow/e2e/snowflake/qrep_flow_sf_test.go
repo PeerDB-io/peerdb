@@ -245,7 +245,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		snowflakeSuffix, tblName)
 
-	sfPeer := s.sfHelper.Peer // TODO clone
+	sfPeer := s.sfHelper.Peer
 	sfPeer.GetSnowflakeConfig().S3Integration = "peerdb_s3_integration"
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(

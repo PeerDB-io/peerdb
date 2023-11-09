@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
@@ -356,4 +358,29 @@ func GetOwnersSelectorString() string {
 		fields = append(fields, fmt.Sprintf(`"%s"`, field.Name))
 	}
 	return strings.Join(fields, ",")
+}
+
+type Suite interface {
+	SetupSuite(*testing.T) error
+	TearDownSuite(*testing.T)
+}
+
+func RunSuite[T Suite](t *testing.T) {
+	t.Run("group", func(t *testing.T) {
+		e2etype := reflect.TypeOf((*T)(nil))
+		methodcount := e2etype.NumMethod()
+		for methodid := 0; methodid < methodcount; methodid += 1 {
+			method := e2etype.Method(methodid)
+			if strings.HasPrefix(method.Name, "Test_") {
+				t.Run(method.Name, func(t *testing.T) {
+					t.Parallel()
+					suite := reflect.New(e2etype.Elem()).Interface().(T)
+					if suite.SetupSuite(t) == nil {
+						method.Func.Call([]reflect.Value{reflect.ValueOf(suite), reflect.ValueOf(t)})
+						suite.TearDownSuite(t)
+					}
+				})
+			}
+		}
+	})
 }
