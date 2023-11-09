@@ -360,6 +360,10 @@ func GetOwnersSelectorString() string {
 	return strings.Join(fields, ",")
 }
 
+func TestIdent(t *testing.T) string {
+	return strings.Replace(t.Name(), "/", "_", -1)
+}
+
 type Suite interface {
 	SetupSuite(*testing.T) error
 	TearDownSuite(*testing.T)

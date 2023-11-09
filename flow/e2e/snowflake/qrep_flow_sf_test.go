@@ -14,9 +14,9 @@ import (
 )
 
 func (s *PeerFlowE2ETestSuiteSF) setupSourceTable(t *testing.T, tableName string, rowCount int) {
-	err := e2e.CreateSourceTableQRep(s.pool, snowflakeSuffix, tableName)
+	err := e2e.CreateSourceTableQRep(s.pool, e2e.TestIdent(t), tableName)
 	assert.NoError(t, err)
-	err = e2e.PopulateSourceTable(s.pool, snowflakeSuffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.pool, e2e.TestIdent(t), tableName, rowCount)
 	assert.NoError(t, err)
 }
 
@@ -37,7 +37,7 @@ func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(t *testing.T, tableName 
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", selector, snowflakeSuffix, tableName),
+		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", selector, e2e.TestIdent(t), tableName),
 	)
 	require.NoError(t, err)
 
@@ -72,11 +72,11 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF(t *testing.T) {
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		e2e.TestIdent(t), tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf",
-		fmt.Sprintf("e2e_test_%s.%s", snowflakeSuffix, tblName),
+		fmt.Sprintf("e2e_test_%s.%s", e2e.TestIdent(t), tblName),
 		dstSchemaQualified,
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
@@ -113,11 +113,11 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple(t
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		e2e.TestIdent(t), tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf",
-		fmt.Sprintf("e2e_test_%s.%s", snowflakeSuffix, tblName),
+		fmt.Sprintf("e2e_test_%s.%s", e2e.TestIdent(t), tblName),
 		dstSchemaQualified,
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
@@ -158,11 +158,11 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3(t *testing.T
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		e2e.TestIdent(t), tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf",
-		s.attachSchemaSuffix(tblName),
+		s.attachSchemaSuffix(t, tblName),
 		dstSchemaQualified,
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
@@ -198,11 +198,11 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN(t *
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE xmin::text::bigint BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		e2e.TestIdent(t), tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf_xmin",
-		fmt.Sprintf("e2e_test_%s.%s", snowflakeSuffix, tblName),
+		fmt.Sprintf("e2e_test_%s.%s", e2e.TestIdent(t), tblName),
 		dstSchemaQualified,
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
@@ -243,14 +243,14 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		e2e.TestIdent(t), tblName)
 
 	sfPeer := s.sfHelper.Peer
 	sfPeer.GetSnowflakeConfig().S3Integration = "peerdb_s3_integration"
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf_int",
-		s.attachSchemaSuffix(tblName),
+		s.attachSchemaSuffix(t, tblName),
 		dstSchemaQualified,
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
