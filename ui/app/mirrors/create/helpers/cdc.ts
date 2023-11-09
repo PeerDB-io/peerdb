@@ -57,10 +57,10 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        snapshotNumTablesInParallel: parseInt(value as string, 10) || 1,
+        snapshotNumTablesInParallel: parseInt(value as string, 10) || 4,
       })),
-    tips: 'Specify the number of tables to sync perform initial load for, in parallel. The default value is 1.',
-    default: '1',
+    tips: 'Specify the number of tables to sync perform initial load for, in parallel. The default value is 4.',
+    default: '4',
     type: 'number',
   },
   {
