@@ -61,6 +61,7 @@ interface TableMapping {
   sourceTableIdentifier: string;
   destinationTableIdentifier: string;
   partitionKey: string;
+  exclude: string[];
 }
 const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
   const mapping = tableMapping
