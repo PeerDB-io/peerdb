@@ -86,7 +86,7 @@ const aggregateTypeMap:{[key:string]:string} = {
   };
   
   function GraphBar({label,count}:GraphBarProps){
-    let color = count && count >0 ? 'bg-green-500' : 'bg-gray-500';
+    let color = count && count >0 ? 'bg-positive-fill-normal' : 'bg-base-border-subtle';
     let classNames = `relative w-10 h-24 rounded  ${color}`;
     return <div className={"group"}>
               <div className={classNames}>
