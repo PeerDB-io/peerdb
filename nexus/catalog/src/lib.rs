@@ -577,7 +577,7 @@ impl Catalog {
         let row = self
             .pg
             .query_opt(
-                "SELECT config_proto FROM flows WHERE name=$1",
+                "SELECT config_proto FROM flows WHERE name=$1 AND query_string IS NOT NULL",
                 &[&flow_job_name],
             )
             .await?;
