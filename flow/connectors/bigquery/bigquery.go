@@ -261,7 +261,12 @@ func (c *BigQueryConnector) SetupMetadataTables() error {
 		},
 	}
 	if err := mirrorJobsTable.Create(c.ctx, mirrorJobsTableMetadata); err != nil {
-		return fmt.Errorf("failed to create table %s: %w", MirrorJobsTable, err)
+		// if the table already exists, ignore the error
+		if !strings.Contains(err.Error(), "Already Exists") {
+			return fmt.Errorf("failed to create table %s: %w", MirrorJobsTable, err)
+		} else {
+			log.Infof("table %s already exists", MirrorJobsTable)
+		}
 	}
 
 	return nil
