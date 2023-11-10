@@ -41,12 +41,12 @@ jobs:
       - name: install gotestsum
         run: |
           go install gotest.tools/gotestsum@latest
-      
+
       - name: install lib-geos
         run: |
           sudo apt-get update
           sudo apt-get install libgeos-dev
-      
+
       - name: download go modules
         run: |
           go mod download
@@ -65,14 +65,14 @@ jobs:
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
-      
+
       - name: setup S3 credentials
         id: s3-credentials
         uses: jsdaniell/create-json@v1.2.2
         with:
           name: "s3_creds.json"
           json: ${{ secrets.S3_CREDS }}
-      
+
       - name: setup GCS credentials
         id: gcs-credentials
         uses: jsdaniell/create-json@v1.2.2
@@ -94,7 +94,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 4 ./... -timeout 2400s
+          gotestsum --format testname -- -p 16 ./... -timeout 2400s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
