@@ -19,7 +19,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 )
 
-const sqlserverSuffix = "s3"
+const sqlserverSuffix = "sqlserver"
 
 type PeerFlowE2ETestSuiteSQLServer struct {
 	suite.Suite
