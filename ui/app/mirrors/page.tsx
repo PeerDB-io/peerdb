@@ -21,6 +21,7 @@ const stringifyConfig = (flowArray: any[]) => {
 
 export default async function Mirrors() {
   let mirrors = await prisma.flows.findMany({
+    distinct: 'name',
     include: {
       sourcePeer: true,
       destinationPeer: true,
@@ -57,18 +58,9 @@ export default async function Mirrors() {
     return false;
   });
 
-  let snapshotFlows = flows.filter((flow) => {
-    if (flow.config_proto && flow.query_string) {
-      let config = QRepConfig.decode(flow.config_proto);
-      return config.watermarkColumn.toLowerCase() === 'ctid';
-    }
-    return false;
-  });
-
   stringifyConfig(cdcFlows);
   stringifyConfig(qrepFlows);
   stringifyConfig(xminFlows);
-  stringifyConfig(snapshotFlows);
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
@@ -87,7 +79,13 @@ export default async function Mirrors() {
               href={'/mirrors/create'}
               variant='normalSolid'
             >
-              <div style={{ display: 'flex', alignItems: 'center' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 <Icon name='add' /> <Label>New mirror</Label>
               </div>
             </Button>
@@ -104,9 +102,6 @@ export default async function Mirrors() {
       </Panel>
       <Panel className='mt-10'>
         <QRepFlows title='XMIN Mirrors' qrepFlows={xminFlows} />
-      </Panel>
-      <Panel className='mt-10'>
-        <QRepFlows title='Snapshot Mirrors' qrepFlows={snapshotFlows} />
       </Panel>
     </LayoutMain>
   );

@@ -34,8 +34,17 @@ export default async function Peers() {
               href={'/peers/create'}
               variant='normalSolid'
             >
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <Icon name='add' /> <Label>New peer</Label>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <Icon name='add' />
+                <Label style={{ marginLeft: '0.5rem', fontSize: 15 }}>
+                  New peer
+                </Label>
               </div>
             </Button>
           }

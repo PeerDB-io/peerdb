@@ -154,7 +154,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	state := peerflow.NewCDCFlowState()
+	state := peerflow.NewCDCFlowWorkflowState()
 	_, err = h.temporalClient.ExecuteWorkflow(
 		ctx,                                // context
 		workflowOptions,                    // workflow start options
@@ -350,6 +350,37 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}, nil
 }
 
+func (h *FlowRequestHandler) FlowStateChange(
+	ctx context.Context,
+	req *protos.FlowStateChangeRequest,
+) (*protos.FlowStateChangeResponse, error) {
+	var err error
+	if req.RequestedFlowState == protos.FlowState_STATE_PAUSED {
+		err = h.temporalClient.SignalWorkflow(
+			ctx,
+			req.WorkflowId,
+			"",
+			shared.CDCFlowSignalName,
+			shared.PauseSignal,
+		)
+	} else if req.RequestedFlowState == protos.FlowState_STATE_RUNNING {
+		err = h.temporalClient.SignalWorkflow(
+			ctx,
+			req.WorkflowId,
+			"",
+			shared.CDCFlowSignalName,
+			shared.NoopSignal,
+		)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
+	}
+
+	return &protos.FlowStateChangeResponse{
+		Ok: true,
+	}, nil
+}
+
 func (h *FlowRequestHandler) waitForWorkflowClose(ctx context.Context, workflowID string) error {
 	expBackoff := backoff.NewExponentialBackOff()
 	expBackoff.InitialInterval = 3 * time.Second
@@ -500,6 +531,13 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		sfConfig := sfConfigObject.SnowflakeConfig
 		encodedConfig, encodingErr = proto.Marshal(sfConfig)
+	case protos.DBType_BIGQUERY:
+		bqConfigObject, ok := config.(*protos.Peer_BigqueryConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		bqConfig := bqConfigObject.BigqueryConfig
+		encodedConfig, encodingErr = proto.Marshal(bqConfig)
 	case protos.DBType_SQLSERVER:
 		sqlServerConfigObject, ok := config.(*protos.Peer_SqlserverConfig)
 		if !ok {

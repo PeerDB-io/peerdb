@@ -12,6 +12,8 @@ type ContextKey string
 const (
 	NoopSignal CDCFlowSignal = iota
 	ShutdownSignal
+	PauseSignal
+
 	EnableMetricsKey    ContextKey = "enableMetrics"
 	CDCMirrorMonitorKey ContextKey = "cdcMirrorMonitor"
 )

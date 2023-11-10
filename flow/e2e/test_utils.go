@@ -65,7 +65,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.CDCFlowState
+			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
 				log.Errorln(err)
@@ -95,7 +95,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.CDCFlowState
+			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
 				log.Errorln(err)
