@@ -75,7 +75,7 @@ impl FlowGrpcClient {
         })
     }
 
-    async fn start_query_replication_flow(
+    pub async fn start_query_replication_flow(
         &mut self,
         qrep_config: &pt::peerdb_flow::QRepConfig,
     ) -> anyhow::Result<String> {
