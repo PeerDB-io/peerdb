@@ -47,11 +47,11 @@ function CdcDetails({ syncs,mirrorConfig }:props) {
         </div>
         <div className="basis-1/4 md:basis-1/3">
           <div><Label variant="subheadline" colorName='lowContrast'>Source</Label></div>
-          <div><PeerButton peerName={mirrorConfig?.source?.name} peerType={dBTypeFromJSON(mirrorConfig?.source?.type)}/></div>
+          <div><PeerButton peerName={mirrorConfig?.source?.name ?? ''} peerType={dBTypeFromJSON(mirrorConfig?.source?.type)}/></div>
         </div>
         <div className="basis-1/4 md:basis-1/3">
           <div><Label variant="subheadline" colorName='lowContrast'>Destination</Label></div>
-          <div><PeerButton peerName={mirrorConfig?.destination?.name} peerType={dBTypeFromJSON(mirrorConfig?.destination?.type)}/></div>
+          <div><PeerButton peerName={mirrorConfig?.destination?.name ?? ''} peerType={dBTypeFromJSON(mirrorConfig?.destination?.type)}/></div>
         </div>
       </div>
       <div className="flex flex-row mt-10">
@@ -72,7 +72,7 @@ function CdcDetails({ syncs,mirrorConfig }:props) {
   );
 }
 
-function numberWithCommas(x:Number) {
+function numberWithCommas(x:Number):string {
   return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
   

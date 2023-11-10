@@ -1,6 +1,5 @@
 import prisma from '@/app/utils/prisma';
 import { SyncStatusTable } from './syncStatusTable';
-import NewCdcDetails from './newCdcDetails';
 
 type SyncStatusProps = {
   flowJobName: string | undefined;

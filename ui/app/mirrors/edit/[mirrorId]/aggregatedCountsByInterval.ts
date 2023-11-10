@@ -1,9 +1,11 @@
+import moment from 'moment';
+
 type timestampType ={
-  timestamp: string;
+  timestamp: Date;
   count: number;
 }
 
-function aggregateCountsByInterval(timestamps: timestampType[], interval:string) {
+function aggregateCountsByInterval(timestamps: timestampType[], interval:string):[string, number][] {
     let timeUnit;
     switch (interval) {
       case 'hour':
@@ -27,9 +29,8 @@ function aggregateCountsByInterval(timestamps: timestampType[], interval:string)
   
     // Iterate through the timestamps and populate the aggregatedCounts object
     for (let { timestamp, count } of timestamps) {
-      timestamp = roundUpToNearest15Minutes(timestamp);
-      const date = new Date(timestamp);
-      const formattedTimestamp = formatTimestamp(date, timeUnit);
+      const date = roundUpToNearest15Minutes(timestamp);
+      const formattedTimestamp = moment(date).format(timeUnit);
   
       if (!aggregatedCounts[formattedTimestamp]) {
         aggregatedCounts[formattedTimestamp] = 0;
@@ -50,7 +51,7 @@ function aggregateCountsByInterval(timestamps: timestampType[], interval:string)
     }
     
     while (intervals.length < 30) {
-      intervals.push(formatTimestamp(currentTimestamp, timeUnit));
+      intervals.push(moment(currentTimestamp).format(timeUnit));
       if (interval === 'hour') {
         currentTimestamp.setHours(currentTimestamp.getHours() - 1);
       } else if (interval === '15min') {
@@ -63,7 +64,8 @@ function aggregateCountsByInterval(timestamps: timestampType[], interval:string)
     }
   
     // Populate the result array with intervals and counts
-    const resultArray = intervals.map((interval) => [interval, aggregatedCounts[interval] || 0]);
+    const resultArray:[string, number][] = intervals.map((interval) => [interval, aggregatedCounts[interval] || 0]);
+
     return resultArray;
   }
 
@@ -81,27 +83,6 @@ function aggregateCountsByInterval(timestamps: timestampType[], interval:string)
     date.setMilliseconds(0);
   
     return date;
-  }
-  
-  // Helper function to format a timestamp
-  function formatTimestamp(date:Date, format:string) {
-    const year = date.getFullYear();
-    const month = padZero(date.getMonth() + 1); // Months are zero-based
-    const day = padZero(date.getDate());
-    const hour = padZero(date.getHours());
-    const minutes = padZero(date.getMinutes());
-  
-    return format
-      .replace('YYYY', year)
-      .replace('MM', month)
-      .replace('DD', day)
-      .replace('HH', hour)
-      .replace('mm', minutes);
-  }
-  
-  // Helper function to pad single digits with leading zeros
-  function padZero(number:number) {
-    return number < 10 ? `0${number}` : `${number}`;
   }
   
 export default aggregateCountsByInterval

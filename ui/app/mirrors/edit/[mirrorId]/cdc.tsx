@@ -243,7 +243,7 @@ export function CDCMirror({ cdc, syncStatusChild }: CDCMirrorStatusProps) {
         </Trigger>
       </Tabs.List>
       <Tabs.Content className='p-5 rounded-b-md' value='tab1'>
-        <CDCDetails config={cdc.config} />
+        {/* <CDCDetails config={cdc.config} /> */}
       </Tabs.Content>
       <Tabs.Content className='p-5 rounded-b-md' value='tab2'>
         {syncStatusChild}
