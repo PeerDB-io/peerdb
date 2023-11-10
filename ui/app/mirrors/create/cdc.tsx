@@ -1,13 +1,13 @@
 'use client';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepSyncMode } from '@/grpc_generated/flow';
-import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
+import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
-import { Dispatch, SetStateAction, useEffect } from 'react';
+import { Dispatch, SetStateAction } from 'react';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../dto/MirrorsDTO';
 import { MirrorSetting } from './helpers/common';
@@ -29,6 +29,7 @@ export const defaultSyncMode = (dtype: DBType | undefined) => {
     case DBType.POSTGRES:
       return 'Copy with Binary';
     case DBType.SNOWFLAKE:
+    case DBType.BIGQUERY:
       return 'AVRO';
     default:
       return 'Copy with Binary';
@@ -77,22 +78,7 @@ export default function CDCConfigForm({
     return true;
   };
 
-  useEffect(() => {
-    if (
-      mirrorConfig.source != undefined &&
-      dBTypeToJSON(mirrorConfig.source?.type) === 'POSTGRES'
-    )
-      setValidSource(true);
-    else {
-      setValidSource(false);
-      setRows([]);
-    }
-  }, [mirrorConfig.source, setValidSource, setRows]);
-
-  if (
-    mirrorConfig.source != undefined &&
-    dBTypeToJSON(mirrorConfig.source?.type) === 'POSTGRES'
-  )
+  if (mirrorConfig.source != undefined)
     return (
       <>
         <TableMapping
@@ -215,13 +201,4 @@ export default function CDCConfigForm({
         })}
       </>
     );
-  else {
-    return mirrorConfig.source ? (
-      <Label>
-        Only PostgreSQL source peers are currently supported via UI.
-      </Label>
-    ) : (
-      <></>
-    );
-  }
 }

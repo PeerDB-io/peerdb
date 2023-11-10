@@ -94,6 +94,37 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
 
+// Returns list of tables across schema in schema.table format
+func (h *FlowRequestHandler) GetAllTables(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.AllTablesResponse, error) {
+	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	if err != nil {
+		return &protos.AllTablesResponse{Tables: nil}, err
+	}
+
+	defer peerPool.Close()
+	rows, err := peerPool.Query(ctx, "SELECT table_schema || '.' || table_name AS schema_table "+
+		"FROM information_schema.tables;")
+	if err != nil {
+		return &protos.AllTablesResponse{Tables: nil}, err
+	}
+
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var table string
+		err := rows.Scan(&table)
+		if err != nil {
+			return &protos.AllTablesResponse{Tables: nil}, err
+		}
+
+		tables = append(tables, table)
+	}
+	return &protos.AllTablesResponse{Tables: tables}, nil
+}
+
 func (h *FlowRequestHandler) GetColumns(
 	ctx context.Context,
 	req *protos.TableColumnsRequest,

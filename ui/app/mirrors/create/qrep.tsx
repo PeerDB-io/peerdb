@@ -1,28 +1,50 @@
 'use client';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepSyncMode, QRepWriteType } from '@/grpc_generated/flow';
-import { DBType, Peer } from '@/grpc_generated/peers';
+import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import { useEffect, useState } from 'react';
+import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { MirrorSetter } from '../../dto/MirrorsDTO';
 import { defaultSyncMode } from './cdc';
-import { MirrorSetting } from './helpers/common';
+import { fetchAllTables, fetchColumns } from './handlers';
+import { MirrorSetting, blankQRepSetting } from './helpers/common';
+
 interface QRepConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: QRepConfig;
-  peers: Peer[];
   setter: MirrorSetter;
   xmin?: boolean;
 }
 
-export default function QRepConfigForm(props: QRepConfigProps) {
+interface QRepConfigProps {
+  settings: MirrorSetting[];
+  mirrorConfig: QRepConfig;
+  setter: MirrorSetter;
+  xmin?: boolean;
+}
+
+export default function QRepConfigForm({
+  settings,
+  mirrorConfig,
+  setter,
+  xmin,
+}: QRepConfigProps) {
+  const [sourceTables, setSourceTables] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [watermarkColumns, setWatermarkColumns] = useState<
+    { value: string; label: string }[]
+  >([]);
+  const [loading, setLoading] = useState(false);
   const setToDefault = (setting: MirrorSetting) => {
-    const destinationPeerType = props.mirrorConfig.destinationPeer?.type;
+    const destinationPeerType = mirrorConfig.destinationPeer?.type;
     return (
       setting.label.includes('Sync') &&
       (destinationPeerType === DBType.POSTGRES ||
@@ -54,155 +76,240 @@ export default function QRepConfigForm(props: QRepConfigProps) {
       const columns = val as string;
       stateVal = columns.split(',').map((item) => item.trim());
     }
-    setting.stateHandler(stateVal, props.setter);
+    setting.stateHandler(stateVal, setter);
   };
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
     if (
       (label.includes('upsert') &&
-        props.mirrorConfig.writeMode?.writeType !=
+        mirrorConfig.writeMode?.writeType !=
           QRepWriteType.QREP_WRITE_MODE_UPSERT) ||
       (label.includes('staging') &&
-        props.mirrorConfig.syncMode?.toString() !== '1') ||
-      (label.includes('watermark column') && props.xmin) ||
-      (label.includes('initial copy') && props.xmin)
+        mirrorConfig.syncMode?.toString() !== '1') ||
+      (label.includes('watermark column') && xmin) ||
+      (label.includes('initial copy') && xmin)
     ) {
       return false;
     }
     return true;
   };
 
+  const loadColumnOptions = (tableIdentifier: string) => {
+    const schema = tableIdentifier.split('.')[0];
+    const table = tableIdentifier.split('.')[1];
+    fetchColumns(
+      mirrorConfig.sourcePeer?.name ?? '',
+      schema,
+      table,
+      setLoading
+    ).then((cols) =>
+      setWatermarkColumns(
+        cols?.map((col) => ({
+          value: col.split(':')[0],
+          label: `${col.split(':')[0]} (${col.split(':')[1]})`,
+        }))
+      )
+    );
+  };
+
+  const handleSourceChange = (
+    val: string | undefined,
+    action: string,
+    setting: MirrorSetting
+  ) => {
+    if (action == 'select-option' && val) {
+      if (setting.label === 'Table') {
+        setter((curr) => ({ ...curr, destinationTableIdentifier: val }));
+        loadColumnOptions(val);
+      }
+      handleChange(val, setting);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllTables(mirrorConfig.sourcePeer?.name ?? '').then((tables) =>
+      setSourceTables(tables?.map((table) => ({ value: table, label: table })))
+    );
+  }, [mirrorConfig.sourcePeer]);
+
+  useEffect(() => {
+    // set defaults
+    setter((curr) => ({ ...curr, ...blankQRepSetting }));
+  }, [setter]);
   return (
     <>
-      {props.settings.map((setting, id) => {
-        return (
-          paramDisplayCondition(setting) &&
-          (setting.type === 'switch' ? (
-            <RowWithSwitch
-              key={id}
-              label={<Label>{setting.label}</Label>}
-              action={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Switch
-                    checked={
-                      setting.label.includes('Create Destination')
-                        ? props.mirrorConfig.setupWatermarkTableOnDestination
-                        : props.mirrorConfig.initialCopyOnly
-                    }
-                    onCheckedChange={(state: boolean) =>
-                      handleChange(state, setting)
-                    }
-                  />
-                  {setting.tips && (
-                    <InfoPopover
-                      tips={setting.tips}
-                      link={setting.helpfulLink}
-                    />
-                  )}
-                </div>
-              }
-            />
-          ) : setting.type === 'select' ? (
-            <RowWithSelect
-              key={id}
-              label={
-                <Label>
-                  {setting.label}
-                  {RequiredIndicator(setting.required)}
-                </Label>
-              }
-              action={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Select
-                    placeholder={`Select a mode`}
-                    onValueChange={(val) => handleChange(val, setting)}
-                    disabled={setToDefault(setting)}
-                    value={
-                      setToDefault(setting)
-                        ? defaultSyncMode(
-                            props.mirrorConfig.destinationPeer?.type
-                          )
-                        : undefined
-                    }
+      {mirrorConfig.sourcePeer?.name ? (
+        settings.map((setting, id) => {
+          return (
+            paramDisplayCondition(setting) &&
+            (setting.type === 'switch' ? (
+              <RowWithSwitch
+                key={id}
+                label={<Label>{setting.label}</Label>}
+                action={
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
                   >
-                    {(setting.label.includes('Sync')
-                      ? ['AVRO', 'Copy with Binary']
-                      : ['Append', 'Upsert', 'Overwrite']
-                    ).map((item, id) => {
-                      return (
-                        <SelectItem key={id} value={item.toString()}>
-                          {item.toString()}
-                        </SelectItem>
-                      );
-                    })}
-                  </Select>
-                  {setting.tips && (
-                    <InfoPopover
-                      tips={setting.tips}
-                      link={setting.helpfulLink}
+                    <Switch
+                      checked={
+                        setting.label === 'Create Destination Table'
+                          ? mirrorConfig.setupWatermarkTableOnDestination
+                          : setting.label === 'Initial Copy Only'
+                          ? mirrorConfig.initialCopyOnly
+                          : mirrorConfig.dstTableFullResync
+                      }
+                      onCheckedChange={(state: boolean) =>
+                        handleChange(state, setting)
+                      }
                     />
-                  )}
-                </div>
-              }
-            />
-          ) : (
-            <RowWithTextField
-              key={id}
-              label={
-                <Label>
-                  {setting.label}
-                  {setting.required && (
-                    <Tooltip
-                      style={{ width: '100%' }}
-                      content={'This is a required field.'}
-                    >
-                      <Label colorName='lowContrast' colorSet='destructive'>
-                        *
-                      </Label>
-                    </Tooltip>
-                  )}
-                </Label>
-              }
-              action={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <TextField
-                    variant='simple'
-                    type={setting.type}
-                    defaultValue={setting.default}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      handleChange(e.target.value, setting)
-                    }
-                  />
-                  {setting.tips && (
-                    <InfoPopover
-                      tips={setting.tips}
-                      link={setting.helpfulLink}
+                    {setting.tips && (
+                      <InfoPopover
+                        tips={setting.tips}
+                        link={setting.helpfulLink}
+                      />
+                    )}
+                  </div>
+                }
+              />
+            ) : setting.type === 'select' ? (
+              <RowWithSelect
+                key={id}
+                label={
+                  <Label>
+                    {setting.label}
+                    {RequiredIndicator(setting.required)}
+                  </Label>
+                }
+                action={
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    {setting.label.includes('Sync') ||
+                    setting.label.includes('Write') ? (
+                      <Select
+                        placeholder={`Select a mode`}
+                        onValueChange={(val) => handleChange(val, setting)}
+                        disabled={setToDefault(setting)}
+                        value={
+                          setToDefault(setting)
+                            ? defaultSyncMode(
+                                mirrorConfig.destinationPeer?.type
+                              )
+                            : undefined
+                        }
+                      >
+                        {(setting.label.includes('Sync')
+                          ? ['AVRO', 'Copy with Binary']
+                          : ['Append', 'Upsert', 'Overwrite']
+                        ).map((item, id) => {
+                          return (
+                            <SelectItem key={id} value={item.toString()}>
+                              {item.toString()}
+                            </SelectItem>
+                          );
+                        })}
+                      </Select>
+                    ) : (
+                      <div style={{ width: '100%' }}>
+                        <ReactSelect
+                          placeholder={
+                            setting.label.includes('Column')
+                              ? 'Select a column'
+                              : 'Select a table'
+                          }
+                          onChange={(val, action) =>
+                            handleSourceChange(
+                              val?.value,
+                              action.action,
+                              setting
+                            )
+                          }
+                          isLoading={loading}
+                          options={
+                            setting.label.includes('Column')
+                              ? watermarkColumns
+                              : sourceTables
+                          }
+                        />
+                      </div>
+                    )}
+                    {setting.tips && (
+                      <InfoPopover
+                        tips={setting.tips}
+                        link={setting.helpfulLink}
+                      />
+                    )}
+                  </div>
+                }
+              />
+            ) : (
+              <RowWithTextField
+                key={id}
+                label={
+                  <Label>
+                    {setting.label}
+                    {setting.required && (
+                      <Tooltip
+                        style={{ width: '100%' }}
+                        content={'This is a required field.'}
+                      >
+                        <Label colorName='lowContrast' colorSet='destructive'>
+                          *
+                        </Label>
+                      </Tooltip>
+                    )}
+                  </Label>
+                }
+                action={
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <TextField
+                      variant='simple'
+                      type={setting.type}
+                      defaultValue={
+                        setting.label === 'Destination Table Name'
+                          ? mirrorConfig.destinationPeer?.type ===
+                            DBType.BIGQUERY
+                            ? mirrorConfig.destinationTableIdentifier?.split(
+                                '.'
+                              )[1]
+                            : mirrorConfig.destinationTableIdentifier
+                          : setting.default
+                      }
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        handleChange(e.target.value, setting)
+                      }
                     />
-                  )}
-                </div>
-              }
-            />
-          ))
-        );
-      })}
+                    {setting.tips && (
+                      <InfoPopover
+                        tips={setting.tips}
+                        link={setting.helpfulLink}
+                      />
+                    )}
+                  </div>
+                }
+              />
+            ))
+          );
+        })
+      ) : (
+        <Label as='label' style={{ color: 'gray', fontSize: 15 }}>
+          Please select a source peer
+        </Label>
+      )}
     </>
   );
 }

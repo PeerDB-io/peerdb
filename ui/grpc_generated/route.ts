@@ -238,6 +238,10 @@ export interface SchemaTablesResponse {
   tables: string[];
 }
 
+export interface AllTablesResponse {
+  tables: string[];
+}
+
 export interface TableColumnsRequest {
   peerName: string;
   schemaName: string;
@@ -1709,6 +1713,63 @@ export const SchemaTablesResponse = {
   },
 };
 
+function createBaseAllTablesResponse(): AllTablesResponse {
+  return { tables: [] };
+}
+
+export const AllTablesResponse = {
+  encode(message: AllTablesResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.tables) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): AllTablesResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAllTablesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.tables.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): AllTablesResponse {
+    return { tables: Array.isArray(object?.tables) ? object.tables.map((e: any) => String(e)) : [] };
+  },
+
+  toJSON(message: AllTablesResponse): unknown {
+    const obj: any = {};
+    if (message.tables?.length) {
+      obj.tables = message.tables;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<AllTablesResponse>, I>>(base?: I): AllTablesResponse {
+    return AllTablesResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AllTablesResponse>, I>>(object: I): AllTablesResponse {
+    const message = createBaseAllTablesResponse();
+    message.tables = object.tables?.map((e) => e) || [];
+    return message;
+  },
+};
+
 function createBaseTableColumnsRequest(): TableColumnsRequest {
   return { peerName: "", schemaName: "", tableName: "" };
 }
@@ -2768,6 +2829,16 @@ export const FlowServiceService = {
     responseSerialize: (value: SchemaTablesResponse) => Buffer.from(SchemaTablesResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => SchemaTablesResponse.decode(value),
   },
+  getAllTables: {
+    path: "/peerdb_route.FlowService/GetAllTables",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: PostgresPeerActivityInfoRequest) =>
+      Buffer.from(PostgresPeerActivityInfoRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PostgresPeerActivityInfoRequest.decode(value),
+    responseSerialize: (value: AllTablesResponse) => Buffer.from(AllTablesResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => AllTablesResponse.decode(value),
+  },
   getColumns: {
     path: "/peerdb_route.FlowService/GetColumns",
     requestStream: false,
@@ -2834,6 +2905,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
   getSchemas: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSchemasResponse>;
   getTablesInSchema: handleUnaryCall<SchemaTablesRequest, SchemaTablesResponse>;
+  getAllTables: handleUnaryCall<PostgresPeerActivityInfoRequest, AllTablesResponse>;
   getColumns: handleUnaryCall<TableColumnsRequest, TableColumnsResponse>;
   getSlotInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSlotResponse>;
   getStatInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerStatResponse>;
@@ -2947,6 +3019,21 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: SchemaTablesResponse) => void,
+  ): ClientUnaryCall;
+  getAllTables(
+    request: PostgresPeerActivityInfoRequest,
+    callback: (error: ServiceError | null, response: AllTablesResponse) => void,
+  ): ClientUnaryCall;
+  getAllTables(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: AllTablesResponse) => void,
+  ): ClientUnaryCall;
+  getAllTables(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: AllTablesResponse) => void,
   ): ClientUnaryCall;
   getColumns(
     request: TableColumnsRequest,

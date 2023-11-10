@@ -1,6 +1,5 @@
 import {
   FlowConnectionConfigs,
-  QRepConfig,
   QRepSyncMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
@@ -45,10 +44,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   resync: false,
 };
 
-export const blankQRepSetting: QRepConfig = {
-  flowJobName: '',
-  sourcePeer: undefined,
-  destinationPeer: undefined,
+export const blankQRepSetting = {
   destinationTableIdentifier: '',
   query: '',
   watermarkTable: '',

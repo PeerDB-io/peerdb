@@ -49,6 +49,7 @@
     "protobufjs": "^7.2.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "react-select": "^5.8.0",
     "react-spinners": "^0.13.8",
     "styled-components": "^6.1.0",
     "swr": "^2.2.4",

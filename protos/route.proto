@@ -117,6 +117,10 @@ message SchemaTablesResponse {
   repeated string tables = 1;
 }
 
+message AllTablesResponse {
+  repeated string tables = 1;
+}
+
 message TableColumnsRequest {
   string peer_name = 1;
   string schema_name = 2;
@@ -231,6 +235,10 @@ service FlowService {
 
   rpc GetTablesInSchema(SchemaTablesRequest) returns (SchemaTablesResponse) {
     option (google.api.http) = { get: "/v1/peers/tables" };
+  }
+
+  rpc GetAllTables(PostgresPeerActivityInfoRequest) returns (AllTablesResponse) {
+    option (google.api.http) = { get: "/v1/peers/tables/all" };
   }
 
   rpc GetColumns(TableColumnsRequest) returns (TableColumnsResponse) {

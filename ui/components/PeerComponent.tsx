@@ -19,7 +19,7 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case DBType.EVENTHUB:
       return '/svgs/ms.svg';
     default:
-      return '';
+      return '/svgs/pg.svg';
   }
 };
 
