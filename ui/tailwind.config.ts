@@ -16,6 +16,7 @@ module.exports = {
     current: 'currentColor',
     extend: {
       colors: {
+        ...appThemeColors,
         blue: {
           500: appThemeColors.accent.fill.normal,
         },
