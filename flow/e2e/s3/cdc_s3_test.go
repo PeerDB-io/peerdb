@@ -248,7 +248,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Types_GCS_Interop() {
 	defer cancel()
 
 	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	fmt.Println("Files in Test_Complete_Simple_Flow_GCS: ", len(files))
+	fmt.Println("Files in Test_Types_GCS: ", len(files))
 	require.NoError(s.T(), err)
 
 	require.Equal(s.T(), 1, len(files))
