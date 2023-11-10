@@ -1,3 +1,4 @@
+import prisma from '@/app/utils/prisma';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
@@ -6,8 +7,6 @@ import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import CdcDetails from './cdcDetails';
 import SyncStatus from './syncStatus';
-import prisma from '@/app/utils/prisma';
-
 
 export const dynamic = 'force-dynamic';
 
@@ -56,8 +55,8 @@ export default async function EditMirror({
     orderBy: {
       start_time: 'desc',
     },
-  })
-  
+  });
+
   const rows = syncs.map((sync) => ({
     batchId: sync.id,
     startTime: sync.start_time,
@@ -70,11 +69,12 @@ export default async function EditMirror({
       <Header variant='title2'>{mirrorId}</Header>
       <Suspense fallback={<Loading />}>
         {mirrorStatus.cdcStatus && (
-          <CdcDetails syncs={rows} mirrorConfig={mirrorStatus.cdcStatus.config} />
+          <CdcDetails
+            syncs={rows}
+            mirrorConfig={mirrorStatus.cdcStatus.config}
+          />
         )}
-        <div className='mt-10'>
-        {syncStatusChild}
-        </div>
+        <div className='mt-10'>{syncStatusChild}</div>
       </Suspense>
     </LayoutMain>
   );

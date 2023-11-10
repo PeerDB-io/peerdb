@@ -18,7 +18,6 @@ import { useQueryState } from 'next-usequerystate';
 import Link from 'next/link';
 import { useState } from 'react';
 import styled from 'styled-components';
-import CDCDetails from './cdcDetails';
 
 class TableCloneSummary {
   flowJobName: string;

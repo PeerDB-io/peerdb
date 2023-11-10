@@ -29,7 +29,9 @@ export default async function SyncStatus({ flowJobName }: SyncStatusProps) {
     numRows: sync.rows_in_batch,
   }));
 
-  return <div>
-    <SyncStatusTable rows={rows} />
-  </div>;
+  return (
+    <div>
+      <SyncStatusTable rows={rows} />
+    </div>
+  );
 }

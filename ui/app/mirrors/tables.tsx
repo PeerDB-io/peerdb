@@ -10,7 +10,7 @@ import { useState } from 'react';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
   const [mirrors, setMirrors] = useState(cdcFlows);
-  
+
   return (
     <>
       <Label variant='headline'>Change-data capture</Label>
