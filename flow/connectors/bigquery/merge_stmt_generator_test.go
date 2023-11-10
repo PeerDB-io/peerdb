@@ -7,7 +7,7 @@ import (
 )
 
 func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
-	m := &MergeStmtGenerator{}
+	m := &mergeStmtGenerator{}
 	allCols := []string{"col1", "col2", "col3"}
 	unchangedToastCols := []string{"", "col2, col3", "col2", "col3"}
 
@@ -43,7 +43,7 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 }
 
 func TestGenerateUpdateStatement_NoUnchangedToastCols(t *testing.T) {
-	m := &MergeStmtGenerator{}
+	m := &mergeStmtGenerator{}
 	allCols := []string{"col1", "col2", "col3"}
 	unchangedToastCols := []string{""}
 
