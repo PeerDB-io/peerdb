@@ -135,7 +135,7 @@ export const handleCreateQRep = async (
     query = config.query;
     config.initialCopyOnly = false;
   }
-  console.log('handle Qrep:', config);
+
   if (
     config.writeMode?.writeType == QRepWriteType.QREP_WRITE_MODE_UPSERT &&
     !config.writeMode?.upsertKeyColumns
@@ -210,7 +210,6 @@ export const fetchColumns = async (
   setLoading: Dispatch<SetStateAction<boolean>>
 ) => {
   if (peerName?.length === 0) return [];
-  console.log(peerName, schemaName, tableName);
   setLoading(true);
   const columnsRes: UColumnsResponse = await fetch('/api/peers/columns', {
     method: 'POST',

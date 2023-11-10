@@ -23,17 +23,17 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
   const initialCount: [string, number][] = [];
   let [counts, setCounts] = useState(initialCount);
 
-  let rows = syncs.map((sync) => ({
-    timestamp: sync.startTime,
-    count: sync.numRows,
-  }));
-
   useEffect(() => {
+    let rows = syncs.map((sync) => ({
+      timestamp: sync.startTime,
+      count: sync.numRows,
+    }));
+
     let counts = aggregateCountsByInterval(rows, aggregateType);
     counts = counts.slice(0, 29);
     counts = counts.reverse();
     setCounts(counts);
-  }, [aggregateType, rows]);
+  }, [aggregateType, syncs]);
 
   return (
     <div>

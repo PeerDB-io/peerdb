@@ -116,7 +116,6 @@ const TableMapping = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    console.log('peertype and schema in useeffect:', peerType, schema);
     if (peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY') {
       setRows((rows) => {
         const newRows = [...rows];

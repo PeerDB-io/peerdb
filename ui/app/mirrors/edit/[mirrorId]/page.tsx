@@ -5,6 +5,7 @@ import { LayoutMain } from '@/lib/Layout';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
+import { SnapshotStatusTable } from './cdc';
 import CdcDetails from './cdcDetails';
 import SyncStatus from './syncStatus';
 
@@ -69,10 +70,17 @@ export default async function EditMirror({
       <Header variant='title2'>{mirrorId}</Header>
       <Suspense fallback={<Loading />}>
         {mirrorStatus.cdcStatus && (
-          <CdcDetails
-            syncs={rows}
-            mirrorConfig={mirrorStatus.cdcStatus.config}
-          />
+          <>
+            <CdcDetails
+              syncs={rows}
+              mirrorConfig={mirrorStatus.cdcStatus.config}
+            />
+            {mirrorStatus.cdcStatus.snapshotStatus && (
+              <SnapshotStatusTable
+                status={mirrorStatus.cdcStatus.snapshotStatus}
+              />
+            )}
+          </>
         )}
         <div className='mt-10'>{syncStatusChild}</div>
       </Suspense>
