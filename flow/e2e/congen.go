@@ -95,6 +95,7 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 	}
 
 	_, err = pool.Exec(context.Background(), `
+	  SELECT pg_advisory_lock(hashtext('peerdb_pg_setup_lock'));
 		CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
 			SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 			round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
