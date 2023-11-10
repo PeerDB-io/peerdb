@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
+	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -731,17 +732,20 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	// check if destination is snowflake, if not error out
-	if config.Peer.Type != protos.DBType_SNOWFLAKE {
-		return nil, fmt.Errorf("rename tables is only supported for snowflake")
+	if config.Peer.Type == protos.DBType_SNOWFLAKE {
+		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
+		if !ok {
+			return nil, fmt.Errorf("failed to cast connector to snowflake connector")
+		}
+		return sfConn.RenameTables(config)
+	} else if config.Peer.Type == protos.DBType_BIGQUERY {
+		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
+		if !ok {
+			return nil, fmt.Errorf("failed to cast connector to bigquery connector")
+		}
+		return bqConn.RenameTables(config)
 	}
-
-	sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast connector to snowflake connector")
-	}
-
-	return sfConn.RenameTables(config)
+	return nil, fmt.Errorf("rename tables is only supported on snowflake and bigquery")
 }
 
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
@@ -752,15 +756,18 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	// check if destination is snowflake, if not error out
-	if req.Peer.Type != protos.DBType_SNOWFLAKE {
-		return nil, fmt.Errorf("create tables from existing is only supported on snowflake")
+	if req.Peer.Type == protos.DBType_SNOWFLAKE {
+		sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
+		if !ok {
+			return nil, fmt.Errorf("failed to cast connector to snowflake connector")
+		}
+		return sfConn.CreateTablesFromExisting(req)
+	} else if req.Peer.Type == protos.DBType_BIGQUERY {
+		bqConn, ok := dstConn.(*connbigquery.BigQueryConnector)
+		if !ok {
+			return nil, fmt.Errorf("failed to cast connector to bigquery connector")
+		}
+		return bqConn.CreateTablesFromExisting(req)
 	}
-
-	sfConn, ok := dstConn.(*connsnowflake.SnowflakeConnector)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast connector to snowflake connector")
-	}
-
-	return sfConn.CreateTablesFromExisting(req)
+	return nil, fmt.Errorf("create tables from existing is only supported on snowflake and bigquery")
 }

@@ -1201,8 +1201,6 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 		log.WithFields(log.Fields{
 			"flowName": req.FlowJobName,
 		}).Infof("successfully renamed table '%s' to '%s'", src, dst)
-
-		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
 	err = renameTablesTx.Commit()
