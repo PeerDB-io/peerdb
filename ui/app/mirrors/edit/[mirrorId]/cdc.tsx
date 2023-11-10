@@ -18,7 +18,6 @@ import { useQueryState } from 'next-usequerystate';
 import Link from 'next/link';
 import { useState } from 'react';
 import styled from 'styled-components';
-import CDCDetails from './cdcDetails';
 
 class TableCloneSummary {
   flowJobName: string;
@@ -243,7 +242,7 @@ export function CDCMirror({ cdc, syncStatusChild }: CDCMirrorStatusProps) {
         </Trigger>
       </Tabs.List>
       <Tabs.Content className='p-5 rounded-b-md' value='tab1'>
-        <CDCDetails config={cdc.config} />
+        {/* <CDCDetails config={cdc.config} /> */}
       </Tabs.Content>
       <Tabs.Content className='p-5 rounded-b-md' value='tab2'>
         {syncStatusChild}
