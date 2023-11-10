@@ -619,9 +619,10 @@ impl NexusBackend {
                             err_msg: "flow service is not configured".to_owned(),
                         })));
                     }
-                    // retrieve the mirror job since DROP MIRROR will delete the row later.
-                    let catalog = self.catalog.lock().await;
-                    let qrep_config =
+
+                    let qrep_config = {
+                        // retrieve the mirror job since DROP MIRROR will delete the row later.
+                        let catalog = self.catalog.lock().await;
                         catalog
                             .get_qrep_config_proto(mirror_name)
                             .await
@@ -632,9 +633,9 @@ impl NexusBackend {
                                         err
                                     ),
                                 }))
-                            })?;
-                    // unlock the mutex so it can be used by the functions
-                    std::mem::drop(catalog);
+                            })?
+                    };
+
                     self.handle_drop_mirror(&NexusStatement::PeerDDL {
                         // not supposed to be used by the function
                         stmt: sqlparser::ast::Statement::ExecuteMirror {

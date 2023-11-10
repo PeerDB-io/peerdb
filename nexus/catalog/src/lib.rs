@@ -10,6 +10,7 @@ use pt::{
     peerdb_peers::PostgresConfig,
     peerdb_peers::{peer::Config, DbType, Peer},
 };
+use serde_json::Value;
 use tokio_postgres::{types, Client};
 
 mod embedded {
@@ -425,15 +426,21 @@ impl Catalog {
             .await?;
 
         let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
+            let flow_opts_opt: Option<Value> = row.get("flow_metadata");
+            let flow_opts: HashMap<String, Value> = match flow_opts_opt {
+                Some(flow_opts) => serde_json::from_value(flow_opts)
+                    .context("unable to deserialize flow options")
+                    .unwrap_or_default(),
+                None => HashMap::new(),
+            };
+
             QRepFlowJob {
                 name: row.get("name"),
                 source_peer: row.get("source_peer_name"),
                 target_peer: row.get("destination_peer_name"),
                 description: row.get("description"),
                 query_string: row.get("query_string"),
-                flow_options: serde_json::from_value(row.get("flow_metadata"))
-                    .context("unable to deserialize flow options")
-                    .unwrap_or_default(),
+                flow_options: flow_opts,
                 // we set the disabled flag to false by default
                 disabled: false,
             }
@@ -461,6 +468,10 @@ impl Catalog {
                  types::Type::TEXT, types::Type::TEXT, types::Type::JSONB],
             )
             .await?;
+
+        if job.flow_options.get("destination_table_name").is_none() {
+            return Err(anyhow!("destination_table_name not found in flow options"));
+        }
 
         let _rows = self
             .pg
