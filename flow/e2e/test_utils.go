@@ -72,7 +72,6 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 
 			if state.SetupComplete {
-				fmt.Println("query indicates setup is complete")
 				break
 			}
 		} else {

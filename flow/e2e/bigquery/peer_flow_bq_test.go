@@ -720,7 +720,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ(t *testing.T) {
 		ARRAY['hello','bye'];
 		`, srcTableName))
 		require.NoError(t, err)
-		fmt.Println("Executed an insert with all types")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -802,7 +801,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_Avro_BQ(t *testing.T) {
 		ARRAY['hello','bye'];
 		`, srcTableName))
 		require.NoError(t, err)
-		fmt.Println("Executed an insert with all types")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
