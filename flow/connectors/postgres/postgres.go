@@ -782,10 +782,10 @@ func (c *PostgresConnector) SetupReplication(signal *SlotSignal, req *protos.Set
 		return fmt.Errorf("error checking for replication slot and publication: %w", err)
 	}
 
-	tableNameMapping := make(map[string]model.NameAndExclude);
+	tableNameMapping := make(map[string]model.NameAndExclude)
 	for k, v := range req.TableNameMapping {
-		tableNameMapping[k] = model.NameAndExclude {
-			Name: v,
+		tableNameMapping[k] = model.NameAndExclude{
+			Name:    v,
 			Exclude: make(map[string]struct{}, 0),
 		}
 	}

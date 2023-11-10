@@ -12,10 +12,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	logrus "github.com/sirupsen/logrus"
-	"golang.org/x/exp/maps"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
 )
 
 type SnapshotFlowExecution struct {

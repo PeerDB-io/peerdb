@@ -201,9 +201,9 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 			if mapping.SourceTableIdentifier == srcTableName {
 				if len(mapping.Exclude) != 0 {
 					tableSchema = &protos.TableSchema{
-						TableIdentifier: tableSchema.TableIdentifier,
-						Columns: maps.Clone(tableSchema.Columns),
-						PrimaryKeyColumns: tableSchema.PrimaryKeyColumns,
+						TableIdentifier:       tableSchema.TableIdentifier,
+						Columns:               maps.Clone(tableSchema.Columns),
+						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
 						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
 					}
 					for _, exclude := range mapping.Exclude {

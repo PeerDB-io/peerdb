@@ -191,8 +191,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		for _, col := range v.Exclude {
 			exclude[col] = struct{}{}
 		}
-		tblNameMapping[v.SourceTableIdentifier] = model.NameAndExclude {
-			Name: v.DestinationTableIdentifier,
+		tblNameMapping[v.SourceTableIdentifier] = model.NameAndExclude{
+			Name:    v.DestinationTableIdentifier,
 			Exclude: exclude,
 		}
 	}

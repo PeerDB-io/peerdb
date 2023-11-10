@@ -13,7 +13,7 @@ import (
 )
 
 type NameAndExclude struct {
-	Name string
+	Name    string
 	Exclude map[string]struct{}
 }
 
