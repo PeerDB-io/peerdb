@@ -1,6 +1,9 @@
 debug/
 target/
 
+# catalog pkg
+/catalog/pkg
+
 # submodules
 /sqlparser-rs
 

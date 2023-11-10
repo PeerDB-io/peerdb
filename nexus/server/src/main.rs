@@ -1,4 +1,8 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use analyzer::{PeerDDL, QueryAssocation};
 use async_trait::async_trait;
@@ -446,14 +450,24 @@ impl NexusBackend {
                             let mut destinations = HashSet::with_capacity(table_mappings_count);
                             for tm in flow_job.table_mappings.iter() {
                                 if !sources.insert(tm.source_table_identifier.as_str()) {
-                                    return Err(PgWireError::ApiError(Box::new(PgError::Internal {
-                                        err_msg: format!("Duplicate source table identifier {}", tm.source_table_identifier),
-                                    })))
+                                    return Err(PgWireError::ApiError(Box::new(
+                                        PgError::Internal {
+                                            err_msg: format!(
+                                                "Duplicate source table identifier {}",
+                                                tm.source_table_identifier
+                                            ),
+                                        },
+                                    )));
                                 }
                                 if !destinations.insert(tm.destination_table_identifier.as_str()) {
-                                    return Err(PgWireError::ApiError(Box::new(PgError::Internal {
-                                        err_msg: format!("Duplicate destination table identifier {}", tm.destination_table_identifier),
-                                    })))
+                                    return Err(PgWireError::ApiError(Box::new(
+                                        PgError::Internal {
+                                            err_msg: format!(
+                                                "Duplicate destination table identifier {}",
+                                                tm.destination_table_identifier
+                                            ),
+                                        },
+                                    )));
                                 }
                             }
                         }
@@ -606,17 +620,20 @@ impl NexusBackend {
                         })));
                     }
                     // retrieve the mirror job since DROP MIRROR will delete the row later.
-                    let catalog = self.catalog.lock().await;
-                    let qrep_job = catalog
-                        .get_qrep_flow_job_by_name(mirror_name)
-                        .await
-                        .map_err(|err| {
-                            PgWireError::ApiError(Box::new(PgError::Internal {
-                                err_msg: format!("error while getting QRep flow job: {:?}", err),
-                            }))
-                        })?;
-                    // unlock the mutex so it can be used by the functions
-                    std::mem::drop(catalog);
+                    let qrep_job: Option<QRepFlowJob> = {
+                        let catalog = self.catalog.lock().await;
+                        catalog
+                            .get_qrep_flow_job_by_name(mirror_name)
+                            .await
+                            .map_err(|err| {
+                                PgWireError::ApiError(Box::new(PgError::Internal {
+                                    err_msg: format!(
+                                        "error while getting QRep flow job: {:?}",
+                                        err
+                                    ),
+                                }))
+                            })?
+                    };
                     self.handle_drop_mirror(&NexusStatement::PeerDDL {
                         // not supposed to be used by the function
                         stmt: sqlparser::ast::Statement::ExecuteMirror {
@@ -674,7 +691,7 @@ impl NexusBackend {
                             err_msg: "flow service is not configured".to_owned(),
                         })));
                     }
-    
+
                     let catalog = self.catalog.lock().await;
                     tracing::info!(
                         "[PAUSE MIRROR] mirror_name: {}, if_exists: {}",
@@ -696,7 +713,7 @@ impl NexusBackend {
                         "[PAUSE MIRROR] got workflow id: {:?}",
                         workflow_details.as_ref().map(|w| &w.workflow_id)
                     );
-    
+
                     if let Some(workflow_details) = workflow_details {
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler
@@ -725,7 +742,7 @@ impl NexusBackend {
                             format!("no such mirror: {:?}", flow_job_name),
                         ))))
                     }
-                },
+                }
                 PeerDDL::ResumeMirror {
                     if_exists,
                     flow_job_name,
