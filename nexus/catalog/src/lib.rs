@@ -10,6 +10,7 @@ use pt::{
     peerdb_peers::PostgresConfig,
     peerdb_peers::{peer::Config, DbType, Peer},
 };
+use serde_json::Value;
 use tokio_postgres::{types, Client};
 
 mod embedded {
@@ -73,7 +74,7 @@ impl CatalogConfig {
             password: self.password.clone(),
             database: self.database.clone(),
             transaction_snapshot: "".to_string(),
-            metadata_schema: Some("".to_string())
+            metadata_schema: Some("".to_string()),
         }
     }
 
@@ -308,8 +309,7 @@ impl Catalog {
             }
             Some(DbType::Mongo) => {
                 let err = format!("unable to decode {} options for peer {}", "mongo", name);
-                let mongo_config =
-                    pt::peerdb_peers::MongoConfig::decode(options).context(err)?;
+                let mongo_config = pt::peerdb_peers::MongoConfig::decode(options).context(err)?;
                 Ok(Some(Config::MongoConfig(mongo_config)))
             }
             Some(DbType::Eventhub) => {
@@ -326,8 +326,7 @@ impl Catalog {
             }
             Some(DbType::S3) => {
                 let err = format!("unable to decode {} options for peer {}", "s3", name);
-                let s3_config =
-                    pt::peerdb_peers::S3Config::decode(options).context(err)?;
+                let s3_config = pt::peerdb_peers::S3Config::decode(options).context(err)?;
                 Ok(Some(Config::S3Config(s3_config)))
             }
             Some(DbType::Sqlserver) => {
@@ -342,8 +341,7 @@ impl Catalog {
                     "eventhub_group", name
                 );
                 let eventhub_group_config =
-                    pt::peerdb_peers::EventHubGroupConfig::decode(options)
-                        .context(err)?;
+                    pt::peerdb_peers::EventHubGroupConfig::decode(options).context(err)?;
                 Ok(Some(Config::EventhubGroupConfig(eventhub_group_config)))
             }
             None => Ok(None),
@@ -428,15 +426,21 @@ impl Catalog {
             .await?;
 
         let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
+            let flow_opts_opt: Option<Value> = row.get("flow_metadata");
+            let flow_opts: HashMap<String, Value> = match flow_opts_opt {
+                Some(flow_opts) => serde_json::from_value(flow_opts)
+                    .context("unable to deserialize flow options")
+                    .unwrap_or_default(),
+                None => HashMap::new(),
+            };
+
             QRepFlowJob {
                 name: row.get("name"),
                 source_peer: row.get("source_peer_name"),
                 target_peer: row.get("destination_peer_name"),
                 description: row.get("description"),
                 query_string: row.get("query_string"),
-                flow_options: serde_json::from_value(row.get("flow_metadata"))
-                    .context("unable to deserialize flow options")
-                    .unwrap_or_default(),
+                flow_options: flow_opts,
                 // we set the disabled flag to false by default
                 disabled: false,
             }
@@ -464,6 +468,10 @@ impl Catalog {
                  types::Type::TEXT, types::Type::TEXT, types::Type::JSONB],
             )
             .await?;
+
+        if job.flow_options.get("destination_table_name").is_none() {
+            return Err(anyhow!("destination_table_name not found in flow options"));
+        }
 
         let _rows = self
             .pg
@@ -571,5 +579,25 @@ impl Catalog {
             .await?;
         let peer_count: i64 = peer_check.get(0);
         Ok(peer_count)
+    }
+
+    pub async fn get_qrep_config_proto(
+        &self,
+        flow_job_name: &str,
+    ) -> anyhow::Result<Option<pt::peerdb_flow::QRepConfig>> {
+        let row = self
+            .pg
+            .query_opt(
+                "SELECT config_proto FROM flows WHERE name=$1 AND query_string IS NOT NULL",
+                &[&flow_job_name],
+            )
+            .await?;
+
+        Ok(match row {
+            Some(row) => Some(pt::peerdb_flow::QRepConfig::decode::<&[u8]>(
+                row.get("config_proto"),
+            )?),
+            None => None,
+        })
     }
 }
