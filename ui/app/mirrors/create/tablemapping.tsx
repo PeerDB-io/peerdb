@@ -4,7 +4,6 @@ import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
-import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import {
@@ -14,6 +13,7 @@ import {
   useEffect,
   useState,
 } from 'react';
+import ReactSelect from 'react-select';
 import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../dto/MirrorsDTO';
 import ColumnsDisplay from './columns';
@@ -116,7 +116,6 @@ const TableMapping = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    console.log('peertype and schema in useeffect:', peerType, schema);
     if (peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY') {
       setRows((rows) => {
         const newRows = [...rows];
@@ -158,26 +157,20 @@ const TableMapping = ({
       <RowWithSelect
         label={<Label>Source Schema</Label>}
         action={
-          <Select
+          <ReactSelect
             placeholder='Select a schema'
-            onValueChange={(val: string) => {
-              setSchema(val);
-              getTablesOfSchema(val);
+            onChange={(val, action) => {
+              if (action.action == 'select-option') {
+                setSchema(val?.value || '');
+                getTablesOfSchema(val?.value || '');
+              }
             }}
-            value={schema.length > 0 ? schema : 'Loading...'}
-          >
-            {allSchemas ? (
-              allSchemas.map((schemaName, id) => {
-                return (
-                  <SelectItem key={id} value={schemaName}>
-                    {schemaName}
-                  </SelectItem>
-                );
-              })
-            ) : (
-              <p>Loading schemas...</p>
-            )}
-          </Select>
+            defaultInputValue={schema.length > 0 ? schema : 'Loading...'}
+            isLoading={loading}
+            options={allSchemas?.map((schemaName) => {
+              return { value: schemaName, label: schemaName };
+            })}
+          />
         }
       />
       <div

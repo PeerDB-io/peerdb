@@ -48,7 +48,7 @@ export const cdcSettings: MirrorSetting[] = [
         ...curr,
         snapshotMaxParallelWorkers: parseInt(value as string, 10) || 1,
       })),
-    tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 8.',
+    tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 1.',
     default: '1',
     type: 'number',
   },

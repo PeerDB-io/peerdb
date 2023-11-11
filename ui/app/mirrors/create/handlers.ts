@@ -209,6 +209,7 @@ export const fetchColumns = async (
   tableName: string,
   setLoading: Dispatch<SetStateAction<boolean>>
 ) => {
+  if (peerName?.length === 0) return [];
   setLoading(true);
   const columnsRes: UColumnsResponse = await fetch('/api/peers/columns', {
     method: 'POST',
@@ -220,4 +221,15 @@ export const fetchColumns = async (
   }).then((res) => res.json());
   setLoading(false);
   return columnsRes.columns;
+};
+
+export const fetchAllTables = async (peerName: string) => {
+  if (peerName?.length === 0) return [];
+  const tablesRes: UTablesResponse = await fetch('/api/peers/tables/all', {
+    method: 'POST',
+    body: JSON.stringify({
+      peerName,
+    }),
+  }).then((res) => res.json());
+  return tablesRes.tables;
 };

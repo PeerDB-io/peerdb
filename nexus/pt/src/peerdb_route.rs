@@ -155,6 +155,12 @@ pub struct SchemaTablesResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AllTablesResponse {
+    #[prost(string, repeated, tag="1")]
+    pub tables: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TableColumnsRequest {
     #[prost(string, tag="1")]
     pub peer_name: ::prost::alloc::string::String,

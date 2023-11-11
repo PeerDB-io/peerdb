@@ -85,7 +85,10 @@ export default function CreateMirrors() {
             syncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
           };
         });
-      } else if (stateVal.type === DBType.SNOWFLAKE) {
+      } else if (
+        stateVal.type === DBType.SNOWFLAKE ||
+        stateVal.type === DBType.BIGQUERY
+      ) {
         setConfig((curr) => {
           return {
             ...curr,
@@ -145,7 +148,7 @@ export default function CreateMirrors() {
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
-                boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.1)',
+                border: '2px solid rgba(0, 0, 0, 0.07)',
                 borderRadius: '1rem',
               }}
             >
@@ -186,7 +189,7 @@ export default function CreateMirrors() {
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
-                boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.1)',
+                border: '2px solid rgba(0, 0, 0, 0.07)',
                 borderRadius: '1rem',
               }}
             >
@@ -226,7 +229,7 @@ export default function CreateMirrors() {
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
-                boxShadow: '2px 2px 4px rgba(0, 0, 0, 0.1)',
+                border: '2px solid rgba(0, 0, 0, 0.07)',
                 borderRadius: '1rem',
               }}
             >
@@ -288,7 +291,9 @@ export default function CreateMirrors() {
                 placeholder='Select the source peer'
                 onValueChange={(val) => handlePeer(val, 'src')}
               >
-                {(peers ?? []).map((peer, id) => {
+                {(
+                  peers.filter((peer) => peer.type == DBType.POSTGRES) ?? []
+                ).map((peer, id) => {
                   return (
                     <SelectItem key={id} value={peer.name}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -298,7 +303,7 @@ export default function CreateMirrors() {
                             alt='me'
                             width={500}
                             height={500}
-                            objectFit={'cover'}
+                            style={{ objectFit: 'cover' }}
                           />
                         </div>
                         <div style={{ marginLeft: '1rem' }}>{peer.name}</div>
@@ -348,7 +353,7 @@ export default function CreateMirrors() {
                             alt='me'
                             width={500}
                             height={500}
-                            objectFit={'cover'}
+                            style={{ objectFit: 'cover' }}
                           />
                         </div>
                         <div style={{ marginLeft: '1rem' }}>{peer.name}</div>
@@ -374,7 +379,15 @@ export default function CreateMirrors() {
           <QRepQuery query={qrepQuery} setter={setQrepQuery} />
         )}
 
-        {mirrorType && <Label colorName='lowContrast'>Configuration</Label>}
+        {mirrorType && (
+          <Label
+            as='label'
+            style={{ marginTop: '1rem' }}
+            colorName='lowContrast'
+          >
+            Configuration
+          </Label>
+        )}
         {!loading && formMessage.msg.length > 0 && (
           <Label
             colorName='lowContrast'
@@ -395,13 +408,11 @@ export default function CreateMirrors() {
             setRows={setRows}
             setSchema={setSourceSchema}
             schema={sourceSchema}
-            setValidSource={setValidSource}
           />
         ) : (
           <QRepConfigForm
             settings={qrepSettings}
             mirrorConfig={config as QRepConfig}
-            peers={peers}
             setter={setConfig}
             xmin={mirrorType === 'XMIN'}
           />
@@ -414,7 +425,6 @@ export default function CreateMirrors() {
               Cancel
             </Button>
             <Button
-              disabled={mirrorType === 'CDC' && !validSource}
               variant='normalSolid'
               onClick={() =>
                 mirrorType === 'CDC'

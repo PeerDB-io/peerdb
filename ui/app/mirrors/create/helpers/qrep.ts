@@ -13,6 +13,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         watermarkTable: (value as string) || '',
       })),
+    type: 'select',
     tips: 'The source table of the replication and the table to which the watermark column belongs.',
     required: true,
   },
@@ -23,6 +24,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         watermarkColumn: (value as string) || '',
       })),
+    type: 'select',
     tips: 'Watermark column is used to track the progress of the replication. This column should be a unique column in the query. Example: id',
     required: true,
   },
@@ -51,8 +53,9 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        numRowsPerPartition: parseInt(value as string, 10),
+        numRowsPerPartition: parseInt(value as string, 10) || 100000,
       })),
+    default: 100000,
     tips: 'PeerDB splits up table data into partitions for increased performance. This setting controls the number of rows per partition.',
     type: 'number',
     required: true,
@@ -62,10 +65,10 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        maxParallelWorkers: parseInt(value as string, 10) || 1,
+        maxParallelWorkers: parseInt(value as string, 10) || 4,
       })),
     tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 8.',
-    default: '1',
+    default: '4',
     type: 'number',
   },
   {
@@ -142,10 +145,20 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        waitBetweenBatchesSeconds: parseInt(value as string, 10) || 30,
+        waitBetweenBatchesSeconds: parseInt(value as string, 10) || 5,
       })),
     tips: 'Time to wait (in seconds) between getting partitions to process.',
-    default: '0',
+    default: 5,
     type: 'number',
   },
+  // {
+  //   label: 'Resync Destination Table',
+  //   stateHandler: (value, setter) =>
+  //     setter((curr: QRepConfig) => ({
+  //       ...curr,
+  //       dstTableFullResync:value as boolean
+  //     })),
+  //   tips: 'Perform a resync of the provided destination table',
+  //   type: 'switch',
+  // },
 ];
