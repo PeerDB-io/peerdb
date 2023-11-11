@@ -21,7 +21,6 @@ interface MirrorConfigProps {
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
   schema: string;
   setSchema: Dispatch<SetStateAction<string>>;
-  setValidSource: Dispatch<SetStateAction<boolean>>;
 }
 
 export const defaultSyncMode = (dtype: DBType | undefined) => {
@@ -44,7 +43,6 @@ export default function CDCConfigForm({
   setRows,
   schema,
   setSchema,
-  setValidSource,
 }: MirrorConfigProps) {
   const setToDefault = (setting: MirrorSetting) => {
     const destinationPeerType = mirrorConfig.destination?.type;

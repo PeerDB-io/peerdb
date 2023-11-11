@@ -408,7 +408,6 @@ export default function CreateMirrors() {
             setRows={setRows}
             setSchema={setSourceSchema}
             schema={sourceSchema}
-            setValidSource={setValidSource}
           />
         ) : (
           <QRepConfigForm
@@ -426,7 +425,6 @@ export default function CreateMirrors() {
               Cancel
             </Button>
             <Button
-              disabled={mirrorType === 'CDC' && !validSource}
               variant='normalSolid'
               onClick={() =>
                 mirrorType === 'CDC'
