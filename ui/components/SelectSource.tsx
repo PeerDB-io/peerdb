@@ -20,25 +20,25 @@ function SourceLabel({ value }: { value: string }) {
   );
 }
 
-function SourceValue() {}
-
 export default function SelectSource({
   peerType,
   setPeerType,
 }: SelectSourceProps) {
-  const dbTypes: string[] = Object.values(DBType)
+  const dbTypes = Object.values(DBType)
     .filter(
       (value): value is string =>
         typeof value === 'string' &&
         (value === 'POSTGRES' || value === 'SNOWFLAKE' || value === 'BIGQUERY')
-    );
+    )
+    .map((value) => ({ label: value, value }));
 
   return (
     <ReactSelect
       placeholder='Select a source'
       options={dbTypes}
-      defaultInputValue={peerType}
-      onChange={(val, action) => val && setPeerType(val)}
+      defaultValue={dbTypes.find((opt) => opt.value === peerType)}
+      onChange={(val, action) => val && setPeerType(val.value)}
+      formatOptionLabel={SourceLabel}
     />
   );
 }

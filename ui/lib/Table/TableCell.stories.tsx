@@ -24,10 +24,7 @@ export const NormalCell: Story = {
   args: {
     variant: 'normal',
   },
-  render: (props) => (
-    <TableCell {...props}>
-    </TableCell>
-  ),
+  render: (props) => <TableCell {...props}></TableCell>,
 };
 
 export const ExtendedCell: Story = {

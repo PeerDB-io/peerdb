@@ -29,6 +29,15 @@ interface QRepConfigProps {
   xmin?: boolean;
 }
 
+const SyncModes = ['AVRO', 'Copy with Binary'].map((value) => ({
+  label: value,
+  value,
+}));
+const WriteModes = ['Append', 'Upsert', 'Overwrite'].map((value) => ({
+  label: value,
+  value,
+}));
+
 export default function QRepConfigForm({
   settings,
   mirrorConfig,
@@ -195,18 +204,25 @@ export default function QRepConfigForm({
                       setting.label.includes('Write') ? (
                         <ReactSelect
                           placeholder='Select a mode'
-                          onChange={(val, action) => val && handleChange(val, setting)}
+                          onChange={(val, action) =>
+                            val && handleChange(val.value, setting)
+                          }
                           isDisabled={setToDefault(setting)}
                           defaultValue={
                             setToDefault(setting)
-                              ? defaultSyncMode(
-                                  mirrorConfig.destinationPeer?.type
+                              ? ((mode) =>
+                                  SyncModes.find((opt) => opt.value === mode) ||
+                                  WriteModes.find((opt) => opt.value === mode))(
+                                  defaultSyncMode(
+                                    mirrorConfig.destinationPeer?.type
+                                  )
                                 )
                               : undefined
                           }
-                          options={setting.label.includes('Sync')
-                            ? ['AVRO', 'Copy with Binary']
-                            : ['Append', 'Upsert', 'Overwrite']
+                          options={
+                            setting.label.includes('Sync')
+                              ? SyncModes
+                              : WriteModes
                           }
                         />
                       ) : (
@@ -217,10 +233,7 @@ export default function QRepConfigForm({
                               : 'Select a table'
                           }
                           onChange={(val, action) =>
-                            handleSourceChange(
-                              val?.value,
-                              setting
-                            )
+                            handleSourceChange(val?.value, setting)
                           }
                           isLoading={loading}
                           options={

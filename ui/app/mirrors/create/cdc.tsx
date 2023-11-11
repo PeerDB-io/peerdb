@@ -23,6 +23,11 @@ interface MirrorConfigProps {
   setSchema: Dispatch<SetStateAction<string>>;
 }
 
+const SyncModeOptions = ['AVRO', 'Copy with Binary'].map((value) => ({
+  label: value,
+  value,
+}));
+
 export const defaultSyncMode = (dtype: DBType | undefined) => {
   switch (dtype) {
     case DBType.POSTGRES:
@@ -135,14 +140,20 @@ export default function CDCConfigForm({
                   >
                     <ReactSelect
                       placeholder='Select a sync mode'
-                      onChange={(val, action) => val && handleChange(val, setting)}
+                      onChange={(val, action) =>
+                        val && handleChange(val.value, setting)
+                      }
                       isDisabled={setToDefault(setting)}
                       value={
                         setToDefault(setting)
-                          ? defaultSyncMode(mirrorConfig.destination?.type)
+                          ? SyncModeOptions.find(
+                              (opt) =>
+                                opt.value ===
+                                defaultSyncMode(mirrorConfig.destination?.type)
+                            )
                           : undefined
                       }
-                      options={['AVRO', 'Copy with Binary']}
+                      options={SyncModeOptions}
                     />
                     {setting.tips && (
                       <InfoPopover

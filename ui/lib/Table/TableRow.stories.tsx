@@ -29,8 +29,7 @@ export default {
           <TableCell>
             <Label>Label</Label>
           </TableCell>
-          <TableCell>
-          </TableCell>
+          <TableCell></TableCell>
           <TableCell>
             <Badge variant='positive'>Active</Badge>
           </TableCell>
