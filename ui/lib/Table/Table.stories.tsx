@@ -5,7 +5,6 @@ import { Checkbox } from '../Checkbox';
 import { Icon } from '../Icon';
 import { Label } from '../Label';
 import { SearchField } from '../SearchField';
-import { Select } from '../Select';
 import { Table } from './Table';
 import { TableCell } from './TableCell';
 import { TableRow } from './TableRow';
@@ -49,24 +48,6 @@ export default {
         <TableRow>
           <TableCell as='th' variant='button'>
             <Checkbox variant='mixed' defaultChecked />
-          </TableCell>
-          <TableCell as='th'>
-            <Select placeholder='Select' />
-          </TableCell>
-          <TableCell as='th'>
-            <Select placeholder='Select' />
-          </TableCell>
-          <TableCell as='th'>
-            <Select placeholder='Select' />
-          </TableCell>
-          <TableCell as='th'>
-            <Select placeholder='Select' />
-          </TableCell>
-          <TableCell as='th'>
-            <Select placeholder='Select' />
-          </TableCell>
-          <TableCell as='th'>
-            <Select placeholder='Select' />
           </TableCell>
           <TableCell as='th' variant='button'>
             <Button>

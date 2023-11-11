@@ -12,19 +12,7 @@ export default {
         Label
       </Label>
     ),
-    action: (
-      <Select
-        placeholder='Select'
-        name='storybook-select'
-        id='storybook-select'
-      >
-        <SelectItem value='apple'>Apple</SelectItem>
-        <SelectItem value='banana'>Banana</SelectItem>
-        <SelectItem value='blueberry'>Blueberry</SelectItem>
-        <SelectItem value='grapes'>Grapes</SelectItem>
-        <SelectItem value='pineapple'>Pineapple</SelectItem>
-      </Select>
-    ),
+    action: <div>select</div>,
     description: <Label>Description</Label>,
   },
 } satisfies Meta<typeof RowWithSelect>;

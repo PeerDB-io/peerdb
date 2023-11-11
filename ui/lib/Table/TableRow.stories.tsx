@@ -4,7 +4,6 @@ import { Button } from '../Button';
 import { Checkbox } from '../Checkbox';
 import { Icon } from '../Icon';
 import { Label } from '../Label';
-import { Select } from '../Select';
 import { TableCell } from './TableCell';
 import { TableRow } from './TableRow';
 
@@ -31,7 +30,6 @@ export default {
             <Label>Label</Label>
           </TableCell>
           <TableCell>
-            <Select placeholder='Select' />
           </TableCell>
           <TableCell>
             <Badge variant='positive'>Active</Badge>

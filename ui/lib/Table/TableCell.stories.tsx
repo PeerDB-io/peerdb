@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react';
 import { Checkbox } from '../Checkbox';
 import { Label } from '../Label';
-import { Select } from '../Select';
 import { TableCell } from './TableCell';
 
 export default {
@@ -27,7 +26,6 @@ export const NormalCell: Story = {
   },
   render: (props) => (
     <TableCell {...props}>
-      <Select placeholder='Select' />
     </TableCell>
   ),
 };
