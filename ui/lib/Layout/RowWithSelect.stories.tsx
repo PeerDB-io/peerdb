@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react';
 import { Label } from '../Label';
-import { Select, SelectItem } from '../Select';
 import { RowWithSelect } from './Layout';
 
 export default {

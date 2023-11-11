@@ -134,18 +134,15 @@ export default function CDCConfigForm({
                     }}
                   >
                     <ReactSelect
-                      placeholder={`Select a sync mode`}
-                      onValueChange={(val) => handleChange(val, setting)}
-                      disabled={setToDefault(setting)}
+                      placeholder='Select a sync mode'
+                      onChange={(val, action) => val && handleChange(val, setting)}
+                      isDisabled={setToDefault(setting)}
                       value={
                         setToDefault(setting)
                           ? defaultSyncMode(mirrorConfig.destination?.type)
                           : undefined
                       }
-                      options={['AVRO', 'Copy with Binary'].map((value) => ({
-                        label: value,
-                        value,
-                      }))}
+                      options={['AVRO', 'Copy with Binary']}
                     />
                     {setting.tips && (
                       <InfoPopover

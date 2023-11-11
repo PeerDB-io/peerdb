@@ -30,11 +30,11 @@ import { qrepSettings } from './helpers/qrep';
 import QRepConfigForm from './qrep';
 import QRepQuery from './query';
 
-function getPeerValue(peer) {
+function getPeerValue(peer: Peer) {
   return peer.name;
 }
 
-function getPeerLabel(peer) {
+function getPeerLabel(peer: Peer) {
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       <div style={{ width: '5%', height: '5%' }}>
@@ -94,10 +94,10 @@ export default function CreateMirrors() {
     router.push('/mirrors');
   };
 
-  const handlePeer = (val: string, peerEnd: 'src' | 'dst') => {
-    const stateVal = peers.find((peer) => peer.name === val)!;
+  const handlePeer = (peer: Peer | null, peerEnd: 'src' | 'dst') => {
+    if (!peer) return;
     if (peerEnd === 'dst') {
-      if (stateVal.type === DBType.POSTGRES) {
+      if (peer.type === DBType.POSTGRES) {
         setConfig((curr) => {
           return {
             ...curr,
@@ -107,8 +107,8 @@ export default function CreateMirrors() {
           };
         });
       } else if (
-        stateVal.type === DBType.SNOWFLAKE ||
-        stateVal.type === DBType.BIGQUERY
+        peer.type === DBType.SNOWFLAKE ||
+        peer.type === DBType.BIGQUERY
       ) {
         setConfig((curr) => {
           return {
@@ -121,14 +121,14 @@ export default function CreateMirrors() {
       }
       setConfig((curr) => ({
         ...curr,
-        destination: stateVal,
-        destinationPeer: stateVal,
+        destination: peer,
+        destinationPeer: peer,
       }));
     } else {
       setConfig((curr) => ({
         ...curr,
-        source: stateVal,
-        sourcePeer: stateVal,
+        source: peer,
+        sourcePeer: peer,
       }));
     }
   };
@@ -310,12 +310,12 @@ export default function CreateMirrors() {
             >
               <ReactSelect
                 placeholder='Select the source peer'
-                onValueChange={(val) => handlePeer(val, 'src')}
+                onChange={(val, action) => handlePeer(val, 'src')}
                 options={
                   peers.filter((peer) => peer.type == DBType.POSTGRES) ?? []
                 }
                 getOptionValue={getPeerValue}
-                getOptionLabel={getPeerLabel}
+                formatOptionLabel={getPeerLabel}
               />
               <InfoPopover
                 tips={
@@ -346,10 +346,10 @@ export default function CreateMirrors() {
             >
               <ReactSelect
                 placeholder='Select the destination peer'
-                onValueChange={(val) => handlePeer(val, 'dst')}
+                onChange={(val, action) => handlePeer(val, 'dst')}
                 options={peers ?? []}
                 getOptionValue={getPeerValue}
-                getOptionLabel={getPeerLabel}
+                formatOptionLabel={getPeerLabel}
               />
               <InfoPopover
                 tips={

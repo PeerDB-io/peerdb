@@ -31,15 +31,14 @@ export default function SelectSource({
       (value): value is string =>
         typeof value === 'string' &&
         (value === 'POSTGRES' || value === 'SNOWFLAKE' || value === 'BIGQUERY')
-    )
-    .map((value) => ({ value }));
+    );
 
   return (
     <ReactSelect
       placeholder='Select a source'
       options={dbTypes}
       defaultInputValue={peerType}
-      onValueChange={(val) => setPeerType(val)}
+      onChange={(val, action) => val && setPeerType(val)}
     />
   );
 }

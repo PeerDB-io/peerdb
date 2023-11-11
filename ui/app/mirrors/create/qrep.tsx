@@ -113,10 +113,9 @@ export default function QRepConfigForm({
 
   const handleSourceChange = (
     val: string | undefined,
-    action: string,
     setting: MirrorSetting
   ) => {
-    if (action == 'select-option' && val) {
+    if (val) {
       if (setting.label === 'Table') {
         setter((curr) => ({ ...curr, destinationTableIdentifier: val }));
         loadColumnOptions(val);
@@ -195,8 +194,8 @@ export default function QRepConfigForm({
                       {setting.label.includes('Sync') ||
                       setting.label.includes('Write') ? (
                         <ReactSelect
-                          placeholder={`Select a mode`}
-                          onValueChange={(val) => handleChange(val, setting)}
+                          placeholder='Select a mode'
+                          onChange={(val, action) => val && handleChange(val, setting)}
                           isDisabled={setToDefault(setting)}
                           defaultValue={
                             setToDefault(setting)
@@ -205,12 +204,10 @@ export default function QRepConfigForm({
                                 )
                               : undefined
                           }
-                          options={(setting.label.includes('Sync')
+                          options={setting.label.includes('Sync')
                             ? ['AVRO', 'Copy with Binary']
                             : ['Append', 'Upsert', 'Overwrite']
-                          ).map((value) => {
-                            label: value, value;
-                          })}
+                          }
                         />
                       ) : (
                         <ReactSelect
@@ -222,7 +219,6 @@ export default function QRepConfigForm({
                           onChange={(val, action) =>
                             handleSourceChange(
                               val?.value,
-                              action.action,
                               setting
                             )
                           }

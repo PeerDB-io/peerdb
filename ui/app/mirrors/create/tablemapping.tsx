@@ -160,9 +160,9 @@ const TableMapping = ({
           <ReactSelect
             placeholder='Select a schema'
             onChange={(val, action) => {
-              if (action.action == 'select-option') {
-                setSchema(val?.value || '');
-                getTablesOfSchema(val?.value || '');
+              if (val) {
+                setSchema(val.value || '');
+                getTablesOfSchema(val.value || '');
               }
             }}
             defaultInputValue={schema.length > 0 ? schema : 'Loading...'}
