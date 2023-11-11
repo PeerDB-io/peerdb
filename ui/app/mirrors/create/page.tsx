@@ -13,13 +13,13 @@ import {
 } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
-import { Select, SelectItem } from '@/lib/Select';
 import { TextField } from '@/lib/TextField';
 import { Divider } from '@tremor/react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc';
@@ -29,6 +29,27 @@ import { blankCDCSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import QRepConfigForm from './qrep';
 import QRepQuery from './query';
+
+function getPeerValue(peer) {
+  return peer.name;
+}
+
+function getPeerLabel(peer) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      <div style={{ width: '5%', height: '5%' }}>
+        <Image
+          src={DBTypeToImageMapping(peer.type)}
+          alt='me'
+          width={500}
+          height={500}
+          style={{ objectFit: 'cover' }}
+        />
+      </div>
+      <div style={{ marginLeft: '1rem' }}>{peer.name}</div>
+    </div>
+  );
+}
 
 export default function CreateMirrors() {
   const router = useRouter();
@@ -287,31 +308,15 @@ export default function CreateMirrors() {
                 alignItems: 'center',
               }}
             >
-              <Select
+              <ReactSelect
                 placeholder='Select the source peer'
                 onValueChange={(val) => handlePeer(val, 'src')}
-              >
-                {(
+                options={
                   peers.filter((peer) => peer.type == DBType.POSTGRES) ?? []
-                ).map((peer, id) => {
-                  return (
-                    <SelectItem key={id} value={peer.name}>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <div style={{ width: '5%', height: '5%' }}>
-                          <Image
-                            src={DBTypeToImageMapping(peer.type)}
-                            alt='me'
-                            width={500}
-                            height={500}
-                            style={{ objectFit: 'cover' }}
-                          />
-                        </div>
-                        <div style={{ marginLeft: '1rem' }}>{peer.name}</div>
-                      </div>
-                    </SelectItem>
-                  );
-                })}
-              </Select>
+                }
+                getOptionValue={getPeerValue}
+                getOptionLabel={getPeerLabel}
+              />
               <InfoPopover
                 tips={
                   'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'

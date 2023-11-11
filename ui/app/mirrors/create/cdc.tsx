@@ -4,10 +4,10 @@ import { QRepSyncMode } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
-import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Dispatch, SetStateAction } from 'react';
+import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../dto/MirrorsDTO';
 import { MirrorSetting } from './helpers/common';
@@ -133,7 +133,7 @@ export default function CDCConfigForm({
                       alignItems: 'center',
                     }}
                   >
-                    <Select
+                    <ReactSelect
                       placeholder={`Select a sync mode`}
                       onValueChange={(val) => handleChange(val, setting)}
                       disabled={setToDefault(setting)}
@@ -142,15 +142,11 @@ export default function CDCConfigForm({
                           ? defaultSyncMode(mirrorConfig.destination?.type)
                           : undefined
                       }
-                    >
-                      {['AVRO', 'Copy with Binary'].map((item, id) => {
-                        return (
-                          <SelectItem key={id} value={item.toString()}>
-                            {item.toString()}
-                          </SelectItem>
-                        );
-                      })}
-                    </Select>
+                      options={['AVRO', 'Copy with Binary'].map((value) => ({
+                        label: value,
+                        value,
+                      }))}
+                    />
                     {setting.tips && (
                       <InfoPopover
                         tips={setting.tips}

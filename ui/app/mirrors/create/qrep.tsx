@@ -4,7 +4,6 @@ import { QRepConfig, QRepSyncMode, QRepWriteType } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
-import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
@@ -192,33 +191,28 @@ export default function QRepConfigForm({
                       alignItems: 'center',
                     }}
                   >
-                    {setting.label.includes('Sync') ||
-                    setting.label.includes('Write') ? (
-                      <Select
-                        placeholder={`Select a mode`}
-                        onValueChange={(val) => handleChange(val, setting)}
-                        disabled={setToDefault(setting)}
-                        value={
-                          setToDefault(setting)
-                            ? defaultSyncMode(
-                                mirrorConfig.destinationPeer?.type
-                              )
-                            : undefined
-                        }
-                      >
-                        {(setting.label.includes('Sync')
-                          ? ['AVRO', 'Copy with Binary']
-                          : ['Append', 'Upsert', 'Overwrite']
-                        ).map((item, id) => {
-                          return (
-                            <SelectItem key={id} value={item.toString()}>
-                              {item.toString()}
-                            </SelectItem>
-                          );
-                        })}
-                      </Select>
-                    ) : (
-                      <div style={{ width: '100%' }}>
+                    <div style={{ width: '100%' }}>
+                      {setting.label.includes('Sync') ||
+                      setting.label.includes('Write') ? (
+                        <ReactSelect
+                          placeholder={`Select a mode`}
+                          onValueChange={(val) => handleChange(val, setting)}
+                          isDisabled={setToDefault(setting)}
+                          defaultValue={
+                            setToDefault(setting)
+                              ? defaultSyncMode(
+                                  mirrorConfig.destinationPeer?.type
+                                )
+                              : undefined
+                          }
+                          options={(setting.label.includes('Sync')
+                            ? ['AVRO', 'Copy with Binary']
+                            : ['Append', 'Upsert', 'Overwrite']
+                          ).map((value) => {
+                            label: value, value;
+                          })}
+                        />
+                      ) : (
                         <ReactSelect
                           placeholder={
                             setting.label.includes('Column')
@@ -239,8 +233,8 @@ export default function QRepConfigForm({
                               : sourceTables
                           }
                         />
-                      </div>
-                    )}
+                      )}
+                    </div>
                     {setting.tips && (
                       <InfoPopover
                         tips={setting.tips}
