@@ -120,3 +120,4 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
+          PEERDB_CDC_IDLE_TIMEOUT_SECONDS: 3

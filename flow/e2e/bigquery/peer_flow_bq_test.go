@@ -1085,7 +1085,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ(t *testing.T) {
 	require.NoError(t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 4,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -1238,7 +1238,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ(t *testing.T) {
 	require.NoError(t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 4,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
