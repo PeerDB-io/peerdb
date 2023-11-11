@@ -187,14 +187,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	tblNameMapping := make(map[string]model.NameAndExclude)
 	for _, v := range input.FlowConnectionConfigs.TableMappings {
-		exclude := make(map[string]struct{}, len(v.Exclude))
-		for _, col := range v.Exclude {
-			exclude[col] = struct{}{}
-		}
-		tblNameMapping[v.SourceTableIdentifier] = model.NameAndExclude{
-			Name:    v.DestinationTableIdentifier,
-			Exclude: exclude,
-		}
+		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
 	idleTimeout := utils.GetEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 10)

@@ -17,6 +17,14 @@ type NameAndExclude struct {
 	Exclude map[string]struct{}
 }
 
+func NewNameAndExclude(name string, exclude []string) NameAndExclude {
+	exset := make(map[string]struct{}, len(exclude))
+	for _, col := range exclude {
+		exset[col] = struct{}{}
+	}
+	return NameAndExclude{Name: name, Exclude: exset}
+}
+
 type PullRecordsRequest struct {
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
