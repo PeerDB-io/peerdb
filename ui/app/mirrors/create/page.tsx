@@ -344,29 +344,13 @@ export default function CreateMirrors() {
                 alignItems: 'center',
               }}
             >
-              <Select
+              <ReactSelect
                 placeholder='Select the destination peer'
                 onValueChange={(val) => handlePeer(val, 'dst')}
-              >
-                {(peers ?? []).map((peer, id) => {
-                  return (
-                    <SelectItem key={id} value={peer.name}>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <div style={{ width: '5%', height: '5%' }}>
-                          <Image
-                            src={DBTypeToImageMapping(peer.type)}
-                            alt='me'
-                            width={500}
-                            height={500}
-                            style={{ objectFit: 'cover' }}
-                          />
-                        </div>
-                        <div style={{ marginLeft: '1rem' }}>{peer.name}</div>
-                      </div>
-                    </SelectItem>
-                  );
-                })}
-              </Select>
+                options={peers ?? []}
+                getOptionValue={getPeerValue}
+                getOptionLabel={getPeerLabel}
+              />
               <InfoPopover
                 tips={
                   'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
