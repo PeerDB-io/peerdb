@@ -7,7 +7,12 @@ import {
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
 import { Dispatch, SetStateAction } from 'react';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
-import { cdcSchema, qrepSchema, tableMappingSchema } from './schema';
+import {
+  cdcSchema,
+  flowNameSchema,
+  qrepSchema,
+  tableMappingSchema,
+} from './schema';
 
 const validateCDCFields = (
   tableMapping: TableMapRow[],
@@ -85,10 +90,13 @@ export const handleCreateCDC = async (
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback
 ) => {
-  if (!flowJobName) {
-    setMsg({ ok: false, msg: 'Mirror name is required' });
-    return;
+  const flowNameValid = flowNameSchema.safeParse(flowJobName);
+  if (!flowNameValid.success) {
+    const flowNameErr = flowNameValid.error.issues[0].message;
+    setMsg({ ok: false, msg: flowNameErr });
+    return false;
   }
+
   const isValid = validateCDCFields(rows, setMsg, config);
   if (!isValid) return;
   const tableNameMapping = reformattedTableMapping(rows);
@@ -125,10 +133,13 @@ export const handleCreateQRep = async (
   route: RouteCallback,
   xmin?: boolean
 ) => {
-  if (!flowJobName) {
-    setMsg({ ok: false, msg: 'Mirror name is required' });
-    return;
+  const flowNameValid = flowNameSchema.safeParse(flowJobName);
+  if (!flowNameValid.success) {
+    const flowNameErr = flowNameValid.error.issues[0].message;
+    setMsg({ ok: false, msg: flowNameErr });
+    return false;
   }
+  
   if (xmin == true) {
     config.watermarkColumn = 'xmin';
     config.query = `SELECT * FROM ${config.watermarkTable} WHERE xmin::text::bigint BETWEEN {{.start}} AND {{.end}}`;
