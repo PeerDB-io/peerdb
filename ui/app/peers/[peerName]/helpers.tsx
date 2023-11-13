@@ -35,8 +35,8 @@ export const DurationDisplay = ({ duration }: { duration: number }) => {
         (duration % 3600) / 60
       )} minutes`
     : duration >= 60
-    ? `${Math.floor(duration / 60)} minute(s) ${Math.floor(
-        duration % 60
-      )} seconds`
-    : `${duration.toFixed(2)} seconds`;
+      ? `${Math.floor(duration / 60)} minute(s) ${Math.floor(
+          duration % 60
+        )} seconds`
+      : `${duration.toFixed(2)} seconds`;
 };
