@@ -1223,6 +1223,12 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.resync {
             len += 1;
         }
+        if !self.soft_delete_col_name.is_empty() {
+            len += 1;
+        }
+        if !self.synced_at_col_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.FlowConnectionConfigs", len)?;
         if let Some(v) = self.source.as_ref() {
             struct_ser.serialize_field("source", v)?;
@@ -1297,6 +1303,12 @@ impl serde::Serialize for FlowConnectionConfigs {
         if self.resync {
             struct_ser.serialize_field("resync", &self.resync)?;
         }
+        if !self.soft_delete_col_name.is_empty() {
+            struct_ser.serialize_field("softDeleteColName", &self.soft_delete_col_name)?;
+        }
+        if !self.synced_at_col_name.is_empty() {
+            struct_ser.serialize_field("syncedAtColName", &self.synced_at_col_name)?;
+        }
         struct_ser.end()
     }
 }
@@ -1350,6 +1362,10 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             "push_parallelism",
             "pushParallelism",
             "resync",
+            "soft_delete_col_name",
+            "softDeleteColName",
+            "synced_at_col_name",
+            "syncedAtColName",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1377,6 +1393,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             PushBatchSize,
             PushParallelism,
             Resync,
+            SoftDeleteColName,
+            SyncedAtColName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1422,6 +1440,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             "pushBatchSize" | "push_batch_size" => Ok(GeneratedField::PushBatchSize),
                             "pushParallelism" | "push_parallelism" => Ok(GeneratedField::PushParallelism),
                             "resync" => Ok(GeneratedField::Resync),
+                            "softDeleteColName" | "soft_delete_col_name" => Ok(GeneratedField::SoftDeleteColName),
+                            "syncedAtColName" | "synced_at_col_name" => Ok(GeneratedField::SyncedAtColName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1464,6 +1484,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                 let mut push_batch_size__ = None;
                 let mut push_parallelism__ = None;
                 let mut resync__ = None;
+                let mut soft_delete_col_name__ = None;
+                let mut synced_at_col_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -1621,6 +1643,18 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             }
                             resync__ = Some(map.next_value()?);
                         }
+                        GeneratedField::SoftDeleteColName => {
+                            if soft_delete_col_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("softDeleteColName"));
+                            }
+                            soft_delete_col_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::SyncedAtColName => {
+                            if synced_at_col_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("syncedAtColName"));
+                            }
+                            synced_at_col_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1650,6 +1684,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                     push_batch_size: push_batch_size__.unwrap_or_default(),
                     push_parallelism: push_parallelism__.unwrap_or_default(),
                     resync: resync__.unwrap_or_default(),
+                    soft_delete_col_name: soft_delete_col_name__.unwrap_or_default(),
+                    synced_at_col_name: synced_at_col_name__.unwrap_or_default(),
                 })
             }
         }
@@ -4427,12 +4463,24 @@ impl serde::Serialize for SetupNormalizedTableBatchInput {
         if !self.table_name_schema_mapping.is_empty() {
             len += 1;
         }
+        if !self.soft_delete_col_name.is_empty() {
+            len += 1;
+        }
+        if !self.synced_at_col_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.SetupNormalizedTableBatchInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
         }
         if !self.table_name_schema_mapping.is_empty() {
             struct_ser.serialize_field("tableNameSchemaMapping", &self.table_name_schema_mapping)?;
+        }
+        if !self.soft_delete_col_name.is_empty() {
+            struct_ser.serialize_field("softDeleteColName", &self.soft_delete_col_name)?;
+        }
+        if !self.synced_at_col_name.is_empty() {
+            struct_ser.serialize_field("syncedAtColName", &self.synced_at_col_name)?;
         }
         struct_ser.end()
     }
@@ -4448,12 +4496,18 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
             "peerConnectionConfig",
             "table_name_schema_mapping",
             "tableNameSchemaMapping",
+            "soft_delete_col_name",
+            "softDeleteColName",
+            "synced_at_col_name",
+            "syncedAtColName",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             PeerConnectionConfig,
             TableNameSchemaMapping,
+            SoftDeleteColName,
+            SyncedAtColName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4478,6 +4532,8 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
                         match value {
                             "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
                             "tableNameSchemaMapping" | "table_name_schema_mapping" => Ok(GeneratedField::TableNameSchemaMapping),
+                            "softDeleteColName" | "soft_delete_col_name" => Ok(GeneratedField::SoftDeleteColName),
+                            "syncedAtColName" | "synced_at_col_name" => Ok(GeneratedField::SyncedAtColName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4499,6 +4555,8 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
             {
                 let mut peer_connection_config__ = None;
                 let mut table_name_schema_mapping__ = None;
+                let mut soft_delete_col_name__ = None;
+                let mut synced_at_col_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -4515,6 +4573,18 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
                                 map.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
+                        GeneratedField::SoftDeleteColName => {
+                            if soft_delete_col_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("softDeleteColName"));
+                            }
+                            soft_delete_col_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::SyncedAtColName => {
+                            if synced_at_col_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("syncedAtColName"));
+                            }
+                            synced_at_col_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4523,6 +4593,8 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
                 Ok(SetupNormalizedTableBatchInput {
                     peer_connection_config: peer_connection_config__,
                     table_name_schema_mapping: table_name_schema_mapping__.unwrap_or_default(),
+                    soft_delete_col_name: soft_delete_col_name__.unwrap_or_default(),
+                    synced_at_col_name: synced_at_col_name__.unwrap_or_default(),
                 })
             }
         }

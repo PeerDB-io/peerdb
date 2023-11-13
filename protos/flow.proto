@@ -67,6 +67,9 @@ message FlowConnectionConfigs {
   // create new tables with "_resync" suffix, perform initial load and then swap the new tables with the old ones
   // to be used after the old mirror is dropped
   bool resync = 23;
+
+  string soft_delete_col_name = 24;
+  string synced_at_col_name = 25;
 }
 
 message RenameTableOption {
@@ -206,6 +209,10 @@ message SetupNormalizedTableInput {
 message SetupNormalizedTableBatchInput {
   peerdb_peers.Peer peer_connection_config = 1;
   map<string, TableSchema> table_name_schema_mapping = 2;
+
+  // migration related columns
+  string soft_delete_col_name = 4;
+  string synced_at_col_name = 5;
 }
 
 message SetupNormalizedTableOutput {

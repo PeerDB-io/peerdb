@@ -73,7 +73,6 @@ const (
 	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	isDeletedColumnName         = "_PEERDB_IS_DELETED"
 	checkSchemaExistsSQL        = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 
 	syncRecordsChunkSize = 1024
@@ -422,7 +421,8 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 			continue
 		}
 
-		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(tableIdentifier, tableSchema)
+		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
+			tableIdentifier, tableSchema, req.SoftDeleteColName, req.SyncedAtColName)
 		_, err = c.database.ExecContext(c.ctx, normalizedTableCreateSQL)
 		if err != nil {
 			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
@@ -761,7 +761,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 			tableNametoUnchangedToastCols[destinationTableName],
 			getRawTableIdentifier(req.FlowJobName),
 			syncBatchID, normalizeBatchID,
-			req.SoftDelete,
+			req,
 			normalizeRecordsTx)
 		if err != nil {
 			return nil, err
@@ -889,6 +889,8 @@ func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableId
 func generateCreateTableSQLForNormalizedTable(
 	sourceTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
+	softDeleteColName string,
+	syncedAtColName string,
 ) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
@@ -904,7 +906,13 @@ func generateCreateTableSQLForNormalizedTable(
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
 	createTableSQLArray = append(createTableSQLArray,
-		fmt.Sprintf(`"%s" BOOLEAN DEFAULT FALSE,`, isDeletedColumnName))
+		fmt.Sprintf(`"%s" BOOLEAN DEFAULT FALSE,`, softDeleteColName))
+
+	// add a _peerdb_synced column to the normalized table
+	// this is a timestamp column that is used to mark records as synced
+	// default value is the current timestamp (snowflake)
+	createTableSQLArray = append(createTableSQLArray,
+		fmt.Sprintf(`"%s" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, syncedAtColName))
 
 	// add composite primary key to the table
 	primaryKeyColsUpperQuoted := make([]string, 0)
@@ -955,7 +963,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	rawTableIdentifier string,
 	syncBatchID int64,
 	normalizeBatchID int64,
-	softDelete bool,
+	normalizeReq *model.NormalizeRecordsRequest,
 	normalizeRecordsTx *sql.Tx,
 ) (int64, error) {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
@@ -1007,7 +1015,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	}
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
-	updateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns)
+	updateStatementsforToastCols := c.generateUpdateStatement(normalizeReq.SyncedAtColName, columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
 	pkeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
@@ -1019,8 +1027,9 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	deletePart := "DELETE"
-	if softDelete {
-		deletePart = fmt.Sprintf("UPDATE SET %s = TRUE", isDeletedColumnName)
+	if normalizeReq.SoftDelete {
+		colName := normalizeReq.SoftDeleteColName
+		deletePart = fmt.Sprintf("UPDATE SET %s = TRUE", colName)
 	}
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
@@ -1142,7 +1151,8 @@ and updating the other columns.
 6. Repeat steps 1-5 for each unique set of unchanged toast column groups.
 7. Return the list of generated update statements.
 */
-func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchangedToastCols []string) []string {
+func (c *SnowflakeConnector) generateUpdateStatement(
+	syncedAtCol string, allCols []string, unchangedToastCols []string) []string {
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {
@@ -1153,6 +1163,12 @@ func (c *SnowflakeConnector) generateUpdateStatement(allCols []string, unchanged
 			quotedUpperColName := fmt.Sprintf(`"%s"`, strings.ToUpper(colName))
 			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", quotedUpperColName, quotedUpperColName))
 		}
+
+		// set the synced at column to the current timestamp
+		if syncedAtCol != "" {
+			tmpArray = append(tmpArray, fmt.Sprintf(`"%s" = CURRENT_TIMESTAMP`, syncedAtCol))
+		}
+
 		ssep := strings.Join(tmpArray, ", ")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 		(SOURCE._PEERDB_RECORD_TYPE != 2) AND _PEERDB_UNCHANGED_TOAST_COLUMNS='%s'

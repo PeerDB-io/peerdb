@@ -374,8 +374,10 @@ func (a *FlowableActivity) StartNormalize(
 	}
 
 	res, err := dstConn.NormalizeRecords(&model.NormalizeRecordsRequest{
-		FlowJobName: input.FlowConnectionConfigs.FlowJobName,
-		SoftDelete:  input.FlowConnectionConfigs.SoftDelete,
+		FlowJobName:       input.FlowConnectionConfigs.FlowJobName,
+		SoftDelete:        input.FlowConnectionConfigs.SoftDelete,
+		SoftDeleteColName: input.FlowConnectionConfigs.SoftDeleteColName,
+		SyncedAtColName:   input.FlowConnectionConfigs.SyncedAtColName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to normalized records: %w", err)

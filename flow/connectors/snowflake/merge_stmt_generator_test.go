@@ -22,7 +22,7 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 		THEN UPDATE SET "COL1" = SOURCE."COL1", "COL2" = SOURCE."COL2"`,
 	}
 
-	result := c.generateUpdateStatement(allCols, unchangedToastCols)
+	result := c.generateUpdateStatement("", allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = removeSpacesTabsNewlines(expected[i])
@@ -44,7 +44,7 @@ func TestGenerateUpdateStatement_EmptyColumns(t *testing.T) {
 		THEN UPDATE SET "COL1" = SOURCE."COL1", "COL2" = SOURCE."COL2", "COL3" = SOURCE."COL3"`,
 	}
 
-	result := c.generateUpdateStatement(allCols, unchangedToastCols)
+	result := c.generateUpdateStatement("", allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = removeSpacesTabsNewlines(expected[i])

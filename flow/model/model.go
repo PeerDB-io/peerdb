@@ -407,8 +407,10 @@ type SyncRecordsRequest struct {
 }
 
 type NormalizeRecordsRequest struct {
-	FlowJobName string
-	SoftDelete  bool
+	FlowJobName       string
+	SoftDelete        bool
+	SoftDeleteColName string
+	SyncedAtColName   string
 }
 
 type SyncResponse struct {

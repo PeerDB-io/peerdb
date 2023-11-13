@@ -94,6 +94,10 @@ pub struct FlowConnectionConfigs {
     /// to be used after the old mirror is dropped
     #[prost(bool, tag="23")]
     pub resync: bool,
+    #[prost(string, tag="24")]
+    pub soft_delete_col_name: ::prost::alloc::string::String,
+    #[prost(string, tag="25")]
+    pub synced_at_col_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -326,6 +330,11 @@ pub struct SetupNormalizedTableBatchInput {
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(map="string, message", tag="2")]
     pub table_name_schema_mapping: ::std::collections::HashMap<::prost::alloc::string::String, TableSchema>,
+    /// migration related columns
+    #[prost(string, tag="4")]
+    pub soft_delete_col_name: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub synced_at_col_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

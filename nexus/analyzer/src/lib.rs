@@ -135,7 +135,7 @@ pub enum PeerDDL {
     ResumeMirror {
         if_exists: bool,
         flow_job_name: String,
-    }
+    },
 }
 
 impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
@@ -303,6 +303,20 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             _ => None,
                         };
 
+                        let soft_delete_col_name: Option<String> = match raw_options
+                            .remove("soft_delete_col_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
+                        let synced_at_col_name: Option<String> = match raw_options
+                            .remove("synced_at_col_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -324,6 +338,8 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             push_parallelism,
                             max_batch_size,
                             resync,
+                            soft_delete_col_name,
+                            synced_at_col_name,
                         };
 
                         // Error reporting

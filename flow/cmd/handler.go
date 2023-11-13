@@ -141,6 +141,20 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		MaxBatchSize:        maxBatchSize,
 	}
 
+	if req.ConnectionConfigs.SoftDeleteColName == "" {
+		req.ConnectionConfigs.SoftDeleteColName = "_PEERDB_IS_DELETED"
+	} else {
+		// make them all uppercase
+		req.ConnectionConfigs.SoftDeleteColName = strings.ToUpper(req.ConnectionConfigs.SoftDeleteColName)
+	}
+
+	if req.ConnectionConfigs.SyncedAtColName == "" {
+		req.ConnectionConfigs.SyncedAtColName = "_PEERDB_SYNCED_AT"
+	} else {
+		// make them all uppercase
+		req.ConnectionConfigs.SyncedAtColName = strings.ToUpper(req.ConnectionConfigs.SyncedAtColName)
+	}
+
 	if req.CreateCatalogEntry {
 		err := h.createCdcJobEntry(ctx, req, workflowID)
 		if err != nil {
