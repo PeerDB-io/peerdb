@@ -82,5 +82,11 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.2.2",
     "webpack": "^5.89.0"
+  },
+  "nextBundleAnalysis": {
+    "budget": null,
+    "budgetPercentIncreaseRed": 20,
+    "minimumChangeThreshold": 0,
+    "showDetails": true
   }
 }
