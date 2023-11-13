@@ -1019,7 +1019,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	}
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
-	updateStatementsforToastCols := c.generateUpdateStatement(normalizeReq.SyncedAtColName, columnNames, unchangedToastColumns)
+	updateStatementsforToastCols := c.generateUpdateStatement(
+		normalizeReq.SyncedAtColName, columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
 	pkeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
