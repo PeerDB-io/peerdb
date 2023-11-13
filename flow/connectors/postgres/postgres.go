@@ -699,7 +699,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
-			return nil
+			continue
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {

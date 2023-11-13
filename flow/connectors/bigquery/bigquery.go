@@ -226,7 +226,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta) error {
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
-			return nil
+			continue
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
@@ -1127,6 +1127,16 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
+		table := c.client.Dataset(c.datasetID).Table(tableIdentifier)
+
+		// check if the table exists
+		_, err := table.Metadata(c.ctx)
+		if err == nil {
+			// table exists, go to next table
+			tableExistsMapping[tableIdentifier] = true
+			continue
+		}
+
 		// convert the column names and types to bigquery types
 		columns := make([]*bigquery.FieldSchema, len(tableSchema.Columns))
 		idx := 0
@@ -1141,16 +1151,6 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 
 		// create the table using the columns
 		schema := bigquery.Schema(columns)
-		table := c.client.Dataset(c.datasetID).Table(tableIdentifier)
-
-		// check if the table exists
-		_, err := table.Metadata(c.ctx)
-		if err == nil {
-			// table exists, go to next table
-			tableExistsMapping[tableIdentifier] = true
-			continue
-		}
-
 		err = table.Create(c.ctx, &bigquery.TableMetadata{Schema: schema})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create table %s: %w", tableIdentifier, err)
