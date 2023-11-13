@@ -94,7 +94,7 @@ export const handleCreateCDC = async (
   if (!flowNameValid.success) {
     const flowNameErr = flowNameValid.error.issues[0].message;
     setMsg({ ok: false, msg: flowNameErr });
-    return false;
+    return;
   }
 
   const isValid = validateCDCFields(rows, setMsg, config);
@@ -137,7 +137,7 @@ export const handleCreateQRep = async (
   if (!flowNameValid.success) {
     const flowNameErr = flowNameValid.error.issues[0].message;
     setMsg({ ok: false, msg: flowNameErr });
-    return false;
+    return;
   }
 
   if (xmin == true) {
