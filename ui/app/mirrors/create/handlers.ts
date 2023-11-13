@@ -139,7 +139,7 @@ export const handleCreateQRep = async (
     setMsg({ ok: false, msg: flowNameErr });
     return false;
   }
-  
+
   if (xmin == true) {
     config.watermarkColumn = 'xmin';
     config.query = `SELECT * FROM ${config.watermarkTable} WHERE xmin::text::bigint BETWEEN {{.start}} AND {{.end}}`;
