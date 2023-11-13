@@ -166,8 +166,8 @@ export default function QRepConfigForm({
                         setting.label === 'Create Destination Table'
                           ? mirrorConfig.setupWatermarkTableOnDestination
                           : setting.label === 'Initial Copy Only'
-                          ? mirrorConfig.initialCopyOnly
-                          : mirrorConfig.dstTableFullResync
+                            ? mirrorConfig.initialCopyOnly
+                            : mirrorConfig.dstTableFullResync
                       }
                       onCheckedChange={(state: boolean) =>
                         handleChange(state, setting)
