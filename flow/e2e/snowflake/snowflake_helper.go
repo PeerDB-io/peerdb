@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 )
 
@@ -138,4 +140,38 @@ func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(query string) (*model.QReco
 
 func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
 	return s.testClient.CreateTable(schema, s.testSchemaName, tableName)
+}
+
+// runs a query that returns an int result
+func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
+	rows, err := s.testClient.ExecuteAndProcessQuery(query)
+	if err != nil {
+		return 0, err
+	}
+
+	numRecords := 0
+	if rows == nil || len(rows.Records) != 1 {
+		if rows != nil {
+			numRecords = len(rows.Records)
+		}
+		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 rows", query, numRecords)
+	}
+
+	rec := rows.Records[0]
+	if rec.NumEntries != 1 {
+		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 columns", query, rec.NumEntries)
+	}
+
+	switch rec.Entries[0].Kind {
+	case qvalue.QValueKindInt32:
+		return int(rec.Entries[0].Value.(int32)), nil
+	case qvalue.QValueKindInt64:
+		return int(rec.Entries[0].Value.(int64)), nil
+	case qvalue.QValueKindNumeric:
+		// get big.Rat and convert to int
+		rat := rec.Entries[0].Value.(*big.Rat)
+		return int(rat.Num().Int64() / rat.Denom().Int64()), nil
+	default:
+		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec.Entries[0].Kind)
+	}
 }

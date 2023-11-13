@@ -905,14 +905,18 @@ func generateCreateTableSQLForNormalizedTable(
 
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
-	createTableSQLArray = append(createTableSQLArray,
-		fmt.Sprintf(`"%s" BOOLEAN DEFAULT FALSE,`, softDeleteColName))
+	if softDeleteColName != "" {
+		createTableSQLArray = append(createTableSQLArray,
+			fmt.Sprintf(`"%s" BOOLEAN DEFAULT FALSE,`, softDeleteColName))
+	}
 
 	// add a _peerdb_synced column to the normalized table
 	// this is a timestamp column that is used to mark records as synced
 	// default value is the current timestamp (snowflake)
-	createTableSQLArray = append(createTableSQLArray,
-		fmt.Sprintf(`"%s" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, syncedAtColName))
+	if syncedAtColName != "" {
+		createTableSQLArray = append(createTableSQLArray,
+			fmt.Sprintf(`"%s" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, syncedAtColName))
+	}
 
 	// add composite primary key to the table
 	primaryKeyColsUpperQuoted := make([]string, 0)

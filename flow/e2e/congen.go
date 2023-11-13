@@ -185,6 +185,8 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 	ret.Destination = c.Destination
 	ret.CdcSyncMode = c.CDCSyncMode
 	ret.CdcStagingPath = c.CdcStagingPath
+	ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
+	ret.SyncedAtColName = "_PEERDB_SYNCED_AT"
 	return ret, nil
 }
 

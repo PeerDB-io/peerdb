@@ -211,6 +211,15 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF(t *testing.T) {
 	require.NoError(t, err)
 	s.Equal(10, count)
 
+	// check the number of rows where _PEERDB_SYNCED_AT is newer than 5 mins ago
+	// it should match the count.
+	newerSyncedAtQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s WHERE _PEERDB_SYNCED_AT > CURRENT_TIMESTAMP() - INTERVAL '5 MINUTE'
+	`, dstTableName)
+	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
+	require.NoError(t, err)
+	s.Equal(10, numNewRows)
+
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
 
@@ -1002,6 +1011,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF(t *testing.T) {
 				"ID":                 string(qvalue.QValueKindNumeric),
 				"C1":                 string(qvalue.QValueKindNumeric),
 				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
+				"_PEERDB_SYNCED_AT":  string(qvalue.QValueKindTimestamp),
 			},
 		}
 		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -1030,6 +1040,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF(t *testing.T) {
 				"C1":                 string(qvalue.QValueKindNumeric),
 				"C2":                 string(qvalue.QValueKindNumeric),
 				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
+				"_PEERDB_SYNCED_AT":  string(qvalue.QValueKindTimestamp),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -1059,6 +1070,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF(t *testing.T) {
 				"C2":                 string(qvalue.QValueKindNumeric),
 				"C3":                 string(qvalue.QValueKindNumeric),
 				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
+				"_PEERDB_SYNCED_AT":  string(qvalue.QValueKindTimestamp),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -1088,6 +1100,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF(t *testing.T) {
 				"C2":                 string(qvalue.QValueKindNumeric),
 				"C3":                 string(qvalue.QValueKindNumeric),
 				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
+				"_PEERDB_SYNCED_AT":  string(qvalue.QValueKindTimestamp),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
