@@ -13,7 +13,7 @@ on:
 defaults:
   run:
     # change this if your nextjs app does not live at the root of the repo
-    working-directory: ./ui/
+    working-directory: ui
 
 permissions:
   contents: read # for checkout repository
