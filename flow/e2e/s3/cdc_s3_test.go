@@ -170,7 +170,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Types_GCS_Interop() {
 
 	srcTableName := s.attachSchemaSuffix("test_types_interop")
 	dstTableName := fmt.Sprintf("%s.%s_%d", "peerdb_test_gcs_interop", "test_types_interop", time.Now().Unix())
-	flowJobName := s.attachSuffix("test_simple_flow")
+	flowJobName := s.attachSuffix("test_types_interop_flow")
 
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	_, enumErr := s.pool.Exec(context.Background(), createMoodEnum)
