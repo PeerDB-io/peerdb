@@ -653,7 +653,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		LANGUAGE 'sql'
 		VOLATILE
 		SET search_path = 'pg_catalog';
-	`, srcTableName))
+	`, srcTableName, srcTableName))
 	s.NoError(err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
