@@ -4,7 +4,6 @@ import { QRepConfig, QRepSyncMode, QRepWriteType } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
-import { Select, SelectItem } from '@/lib/Select';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
@@ -29,6 +28,15 @@ interface QRepConfigProps {
   setter: MirrorSetter;
   xmin?: boolean;
 }
+
+const SyncModes = ['AVRO', 'Copy with Binary'].map((value) => ({
+  label: value,
+  value,
+}));
+const WriteModes = ['Append', 'Upsert', 'Overwrite'].map((value) => ({
+  label: value,
+  value,
+}));
 
 export default function QRepConfigForm({
   settings,
@@ -114,10 +122,9 @@ export default function QRepConfigForm({
 
   const handleSourceChange = (
     val: string | undefined,
-    action: string,
     setting: MirrorSetting
   ) => {
-    if (action == 'select-option' && val) {
+    if (val) {
       if (setting.label === 'Table') {
         setter((curr) => ({ ...curr, destinationTableIdentifier: val }));
         loadColumnOptions(val);
@@ -159,8 +166,8 @@ export default function QRepConfigForm({
                         setting.label === 'Create Destination Table'
                           ? mirrorConfig.setupWatermarkTableOnDestination
                           : setting.label === 'Initial Copy Only'
-                          ? mirrorConfig.initialCopyOnly
-                          : mirrorConfig.dstTableFullResync
+                            ? mirrorConfig.initialCopyOnly
+                            : mirrorConfig.dstTableFullResync
                       }
                       onCheckedChange={(state: boolean) =>
                         handleChange(state, setting)
@@ -192,33 +199,33 @@ export default function QRepConfigForm({
                       alignItems: 'center',
                     }}
                   >
-                    {setting.label.includes('Sync') ||
-                    setting.label.includes('Write') ? (
-                      <Select
-                        placeholder={`Select a mode`}
-                        onValueChange={(val) => handleChange(val, setting)}
-                        disabled={setToDefault(setting)}
-                        value={
-                          setToDefault(setting)
-                            ? defaultSyncMode(
-                                mirrorConfig.destinationPeer?.type
-                              )
-                            : undefined
-                        }
-                      >
-                        {(setting.label.includes('Sync')
-                          ? ['AVRO', 'Copy with Binary']
-                          : ['Append', 'Upsert', 'Overwrite']
-                        ).map((item, id) => {
-                          return (
-                            <SelectItem key={id} value={item.toString()}>
-                              {item.toString()}
-                            </SelectItem>
-                          );
-                        })}
-                      </Select>
-                    ) : (
-                      <div style={{ width: '100%' }}>
+                    <div style={{ width: '100%' }}>
+                      {setting.label.includes('Sync') ||
+                      setting.label.includes('Write') ? (
+                        <ReactSelect
+                          placeholder='Select a mode'
+                          onChange={(val, action) =>
+                            val && handleChange(val.value, setting)
+                          }
+                          isDisabled={setToDefault(setting)}
+                          defaultValue={
+                            setToDefault(setting)
+                              ? ((mode) =>
+                                  SyncModes.find((opt) => opt.value === mode) ||
+                                  WriteModes.find((opt) => opt.value === mode))(
+                                  defaultSyncMode(
+                                    mirrorConfig.destinationPeer?.type
+                                  )
+                                )
+                              : undefined
+                          }
+                          options={
+                            setting.label.includes('Sync')
+                              ? SyncModes
+                              : WriteModes
+                          }
+                        />
+                      ) : (
                         <ReactSelect
                           placeholder={
                             setting.label.includes('Column')
@@ -226,11 +233,7 @@ export default function QRepConfigForm({
                               : 'Select a table'
                           }
                           onChange={(val, action) =>
-                            handleSourceChange(
-                              val?.value,
-                              action.action,
-                              setting
-                            )
+                            handleSourceChange(val?.value, setting)
                           }
                           isLoading={loading}
                           options={
@@ -239,8 +242,8 @@ export default function QRepConfigForm({
                               : sourceTables
                           }
                         />
-                      </div>
-                    )}
+                      )}
+                    </div>
                     {setting.tips && (
                       <InfoPopover
                         tips={setting.tips}

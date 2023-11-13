@@ -58,7 +58,7 @@ export default function BQConfig(props: BQProps) {
       <Label
         as={Link}
         style={{ color: 'teal', textDecoration: 'underline' }}
-        href={`https://cloud.google.com/bigquery/docs/authentication/service-account-file`}
+        href='https://cloud.google.com/bigquery/docs/authentication/service-account-file'
       >
         Creating a service account file
       </Label>
@@ -122,7 +122,7 @@ export default function BQConfig(props: BQProps) {
             />
             <InfoPopover
               tips={'ID of the dataset containing the tables you want to sync.'}
-              link={`https://cloud.google.com/bigquery/docs/datasets`}
+              link='https://cloud.google.com/bigquery/docs/datasets'
             />
           </div>
         }
