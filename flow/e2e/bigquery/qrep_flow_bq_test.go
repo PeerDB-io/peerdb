@@ -11,9 +11,9 @@ import (
 )
 
 func (s *PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateSourceTableQRep(s.pool, bigquerySuffix, tableName)
+	err := e2e.CreateSourceTableQRep(s.pool, s.bqSuffix, tableName)
 	s.NoError(err)
-	err = e2e.PopulateSourceTable(s.pool, bigquerySuffix, tableName, rowCount)
+	err = e2e.PopulateSourceTable(s.pool, s.bqSuffix, tableName, rowCount)
 	s.NoError(err)
 }
 
@@ -33,7 +33,7 @@ func (s *PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsSt
 	pgQueryExecutor.SetTestEnv(true)
 
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", colsString, bigquerySuffix, tableName),
+		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", colsString, s.bqSuffix, tableName),
 	)
 	s.NoError(err)
 
@@ -58,10 +58,10 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	s.setupBQDestinationTable(tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		bigquerySuffix, tblName)
+		s.bqSuffix, tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig("test_qrep_flow_avro",
-		fmt.Sprintf("e2e_test_%s.%s", bigquerySuffix, tblName),
+		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
 		tblName,
 		query,
 		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,

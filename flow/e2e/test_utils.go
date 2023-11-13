@@ -72,7 +72,6 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 
 			if state.SetupComplete {
-				fmt.Println("query indicates setup is complete")
 				break
 			}
 		} else {
@@ -233,7 +232,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8 
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
 					%s
 			) VALUES %s;
 	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
@@ -356,4 +355,50 @@ func GetOwnersSelectorString() string {
 		fields = append(fields, fmt.Sprintf(`"%s"`, field.Name))
 	}
 	return strings.Join(fields, ",")
+}
+
+// implement temporal logger interface with logrus
+//
+//	type Logger interface {
+//		Debug(msg string, keyvals ...interface{})
+//		Info(msg string, keyvals ...interface{})
+//		Warn(msg string, keyvals ...interface{})
+//		Error(msg string, keyvals ...interface{})
+//	}
+type TLogrusLogger struct {
+	logger *log.Logger
+}
+
+func NewTLogrusLogger(logger *log.Logger) *TLogrusLogger {
+	return &TLogrusLogger{logger: logger}
+}
+
+func (l *TLogrusLogger) keyvalsToFields(keyvals []interface{}) log.Fields {
+	fields := make(log.Fields)
+	for i := 0; i < len(keyvals); i += 2 {
+		key := fmt.Sprintf("%v", keyvals[i])
+		if i+1 < len(keyvals) {
+			fields[key] = keyvals[i+1]
+		} else {
+			// Handle the case where there is no value for the key
+			fields[key] = nil // or some default value
+		}
+	}
+	return fields
+}
+
+func (l *TLogrusLogger) Debug(msg string, keyvals ...interface{}) {
+	l.logger.WithFields(l.keyvalsToFields(keyvals)).Debug(msg)
+}
+
+func (l *TLogrusLogger) Info(msg string, keyvals ...interface{}) {
+	l.logger.WithFields(l.keyvalsToFields(keyvals)).Info(msg)
+}
+
+func (l *TLogrusLogger) Warn(msg string, keyvals ...interface{}) {
+	l.logger.WithFields(l.keyvalsToFields(keyvals)).Warn(msg)
+}
+
+func (l *TLogrusLogger) Error(msg string, keyvals ...interface{}) {
+	l.logger.WithFields(l.keyvalsToFields(keyvals)).Error(msg)
 }
