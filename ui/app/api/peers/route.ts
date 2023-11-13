@@ -154,6 +154,6 @@ export const getTruePeer = (peer: CatalogPeer) => {
 // GET all the peers from the database
 export async function GET(request: Request) {
   const peers = await prisma.peers.findMany();
-  const truePeers: Peer[] = peers.map((peer) => getTruePeer(peer));
+  const truePeers: Peer[] = peers.map((peer: CatalogPeer) => getTruePeer(peer));
   return new Response(JSON.stringify(truePeers));
 }
