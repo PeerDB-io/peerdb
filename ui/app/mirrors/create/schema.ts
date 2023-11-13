@@ -1,5 +1,15 @@
 import * as z from 'zod';
 
+export const flowNameSchema = z
+  .string({
+    invalid_type_error: 'Mirror name is invalid.',
+    required_error: 'Mirror name is required.',
+  })
+  .min(1, { message: 'Mirror name cannot be empty.' })
+  .regex(/^[\w]*$/, {
+    message: 'Mirror name must contain only letters, numbers and underscores',
+  });
+
 export const tableMappingSchema = z
   .array(
     z.object({
