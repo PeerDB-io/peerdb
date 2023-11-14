@@ -1035,6 +1035,9 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	if normalizeReq.SoftDelete {
 		colName := normalizeReq.SoftDeleteColName
 		deletePart = fmt.Sprintf("UPDATE SET %s = TRUE", colName)
+		if normalizeReq.SyncedAtColName != "" {
+			deletePart = fmt.Sprintf("%s, %s = CURRENT_TIMESTAMP", deletePart, normalizeReq.SyncedAtColName)
+		}
 	}
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, destinationTableIdentifier, toVariantColumnName,
