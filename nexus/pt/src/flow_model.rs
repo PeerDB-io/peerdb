@@ -78,6 +78,8 @@ pub struct FlowJob {
     pub push_batch_size: Option<i64>,
     pub max_batch_size: Option<u32>,
     pub resync: bool,
+    pub soft_delete_col_name: Option<String>,
+    pub synced_at_col_name: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

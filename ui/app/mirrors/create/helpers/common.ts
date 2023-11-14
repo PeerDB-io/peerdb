@@ -42,6 +42,8 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   pushBatchSize: 0,
   pushParallelism: 0,
   resync: false,
+  softDeleteColName: '',
+  syncedAtColName: '',
 };
 
 export const blankQRepSetting = {

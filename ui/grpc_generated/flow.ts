@@ -139,6 +139,8 @@ export interface FlowConnectionConfigs {
    * to be used after the old mirror is dropped
    */
   resync: boolean;
+  softDeleteColName: string;
+  syncedAtColName: string;
 }
 
 export interface FlowConnectionConfigs_SrcTableIdNameMappingEntry {
@@ -330,6 +332,9 @@ export interface SetupNormalizedTableInput {
 export interface SetupNormalizedTableBatchInput {
   peerConnectionConfig: Peer | undefined;
   tableNameSchemaMapping: { [key: string]: TableSchema };
+  /** migration related columns */
+  softDeleteColName: string;
+  syncedAtColName: string;
 }
 
 export interface SetupNormalizedTableBatchInput_TableNameSchemaMappingEntry {
@@ -836,6 +841,8 @@ function createBaseFlowConnectionConfigs(): FlowConnectionConfigs {
     pushBatchSize: 0,
     pushParallelism: 0,
     resync: false,
+    softDeleteColName: "",
+    syncedAtColName: "",
   };
 }
 
@@ -911,6 +918,12 @@ export const FlowConnectionConfigs = {
     }
     if (message.resync === true) {
       writer.uint32(184).bool(message.resync);
+    }
+    if (message.softDeleteColName !== "") {
+      writer.uint32(194).string(message.softDeleteColName);
+    }
+    if (message.syncedAtColName !== "") {
+      writer.uint32(202).string(message.syncedAtColName);
     }
     return writer;
   },
@@ -1089,6 +1102,20 @@ export const FlowConnectionConfigs = {
 
           message.resync = reader.bool();
           continue;
+        case 24:
+          if (tag !== 194) {
+            break;
+          }
+
+          message.softDeleteColName = reader.string();
+          continue;
+        case 25:
+          if (tag !== 202) {
+            break;
+          }
+
+          message.syncedAtColName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1141,6 +1168,8 @@ export const FlowConnectionConfigs = {
       pushBatchSize: isSet(object.pushBatchSize) ? Number(object.pushBatchSize) : 0,
       pushParallelism: isSet(object.pushParallelism) ? Number(object.pushParallelism) : 0,
       resync: isSet(object.resync) ? Boolean(object.resync) : false,
+      softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : "",
+      syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : "",
     };
   },
 
@@ -1227,6 +1256,12 @@ export const FlowConnectionConfigs = {
     if (message.resync === true) {
       obj.resync = message.resync;
     }
+    if (message.softDeleteColName !== "") {
+      obj.softDeleteColName = message.softDeleteColName;
+    }
+    if (message.syncedAtColName !== "") {
+      obj.syncedAtColName = message.syncedAtColName;
+    }
     return obj;
   },
 
@@ -1280,6 +1315,8 @@ export const FlowConnectionConfigs = {
     message.pushBatchSize = object.pushBatchSize ?? 0;
     message.pushParallelism = object.pushParallelism ?? 0;
     message.resync = object.resync ?? false;
+    message.softDeleteColName = object.softDeleteColName ?? "";
+    message.syncedAtColName = object.syncedAtColName ?? "";
     return message;
   },
 };
@@ -4254,7 +4291,7 @@ export const SetupNormalizedTableInput = {
 };
 
 function createBaseSetupNormalizedTableBatchInput(): SetupNormalizedTableBatchInput {
-  return { peerConnectionConfig: undefined, tableNameSchemaMapping: {} };
+  return { peerConnectionConfig: undefined, tableNameSchemaMapping: {}, softDeleteColName: "", syncedAtColName: "" };
 }
 
 export const SetupNormalizedTableBatchInput = {
@@ -4268,6 +4305,12 @@ export const SetupNormalizedTableBatchInput = {
         writer.uint32(18).fork(),
       ).ldelim();
     });
+    if (message.softDeleteColName !== "") {
+      writer.uint32(34).string(message.softDeleteColName);
+    }
+    if (message.syncedAtColName !== "") {
+      writer.uint32(42).string(message.syncedAtColName);
+    }
     return writer;
   },
 
@@ -4295,6 +4338,20 @@ export const SetupNormalizedTableBatchInput = {
             message.tableNameSchemaMapping[entry2.key] = entry2.value;
           }
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.softDeleteColName = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.syncedAtColName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4313,6 +4370,8 @@ export const SetupNormalizedTableBatchInput = {
           return acc;
         }, {})
         : {},
+      softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : "",
+      syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : "",
     };
   },
 
@@ -4329,6 +4388,12 @@ export const SetupNormalizedTableBatchInput = {
           obj.tableNameSchemaMapping[k] = TableSchema.toJSON(v);
         });
       }
+    }
+    if (message.softDeleteColName !== "") {
+      obj.softDeleteColName = message.softDeleteColName;
+    }
+    if (message.syncedAtColName !== "") {
+      obj.syncedAtColName = message.syncedAtColName;
     }
     return obj;
   },
@@ -4351,6 +4416,8 @@ export const SetupNormalizedTableBatchInput = {
       }
       return acc;
     }, {});
+    message.softDeleteColName = object.softDeleteColName ?? "";
+    message.syncedAtColName = object.syncedAtColName ?? "";
     return message;
   },
 };

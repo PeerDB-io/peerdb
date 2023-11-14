@@ -339,7 +339,9 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage str
 	return nil
 }
 
-func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyInfo, error) {
+func (sc *SnowflakeConnector) GetCopyTransformation(
+	dstTableName string,
+) (*CopyInfo, error) {
 	colInfo, colsErr := sc.getColsFromTable(dstTableName)
 	if colsErr != nil {
 		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
@@ -348,9 +350,6 @@ func (sc *SnowflakeConnector) GetCopyTransformation(dstTableName string) (*CopyI
 	var transformations []string
 	var columnOrder []string
 	for colName, colType := range colInfo.ColumnMap {
-		if colName == "_PEERDB_IS_DELETED" {
-			continue
-		}
 		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
 		switch colType {
 		case "GEOGRAPHY":

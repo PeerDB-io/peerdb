@@ -205,6 +205,8 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerConnectionConfig:   flowConnectionConfigs.Destination,
 		TableNameSchemaMapping: normalizedTableMapping,
+		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
+		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)

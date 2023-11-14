@@ -235,6 +235,8 @@ impl FlowGrpcClient {
             push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
+            soft_delete_col_name: job.soft_delete_col_name.clone().unwrap_or_default(),
+            synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
             ..Default::default()
         };
 
