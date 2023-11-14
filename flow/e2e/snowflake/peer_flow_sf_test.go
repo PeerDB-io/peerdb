@@ -1407,7 +1407,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Column_Exclusion(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, &config, &limits, nil)
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 	require.True(t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	s.Error(err)
