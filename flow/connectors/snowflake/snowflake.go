@@ -1010,6 +1010,18 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	for _, columnName := range columnNames {
 		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(columnName)))
 	}
+
+	// add soft delete and synced at columns to the list of columns
+	if normalizeReq.SoftDelete {
+		colName := normalizeReq.SoftDeleteColName
+		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(colName)))
+	}
+
+	if normalizeReq.SyncedAtColName != "" {
+		colName := normalizeReq.SyncedAtColName
+		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(colName)))
+	}
+
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
 
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
@@ -1017,6 +1029,18 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		quotedUpperColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
 		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", quotedUpperColumnName))
 	}
+
+	// add soft delete and synced at columns to the list of columns
+	if normalizeReq.SoftDelete {
+		// add false as default value for soft delete column
+		insertValuesSQLArray = append(insertValuesSQLArray, "FALSE,")
+	}
+
+	if normalizeReq.SyncedAtColName != "" {
+		// add current timestamp as default value for synced at column
+		insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP,")
+	}
+
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
 	updateStatementsforToastCols := c.generateUpdateStatement(
