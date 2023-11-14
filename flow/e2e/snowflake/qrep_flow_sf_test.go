@@ -41,11 +41,12 @@ func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, select
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("%s.%s.%s", s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
+	exclude := "EXCLUDE _PEERDB_SYNCED_AT, _PEERDB_IS_DELETED"
 	var sfSelQuery string
 	if caseSensitive {
-		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
+		sfSelQuery = fmt.Sprintf(`SELECT %s %s FROM %s ORDER BY "id"`, selector, exclude, qualifiedTableName)
 	} else {
-		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
+		sfSelQuery = fmt.Sprintf(`SELECT %s %s FROM %s ORDER BY id`, selector, exclude, qualifiedTableName)
 	}
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
 
