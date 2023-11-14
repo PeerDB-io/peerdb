@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync"
 	"time"
 
@@ -385,9 +386,31 @@ func (r *CDCRecordStream) WaitAndCheckEmpty() bool {
 	return isEmpty
 }
 
-func (r *CDCRecordStream) WaitForSchemaDeltas() []*protos.TableSchemaDelta {
+func (r *CDCRecordStream) WaitForSchemaDeltas(tableMappings []*protos.TableMapping) []*protos.TableSchemaDelta {
 	schemaDeltas := make([]*protos.TableSchemaDelta, 0)
+schemaLoop:
 	for delta := range r.SchemaDeltas {
+		for _, tm := range tableMappings {
+			if delta.SrcTableName == tm.SourceTableIdentifier && delta.DstTableName == tm.DestinationTableIdentifier {
+				if len(tm.Exclude) == 0 {
+					break
+				}
+				added := make([]*protos.DeltaAddedColumn, len(delta.AddedColumns))
+				for _, column := range delta.AddedColumns {
+					if !slices.Contains(tm.Exclude, column.ColumnName) {
+						added = append(added, column)
+					}
+				}
+				if len(added) != 0 {
+					schemaDeltas = append(schemaDeltas, &protos.TableSchemaDelta{
+						SrcTableName: delta.SrcTableName,
+						DstTableName: delta.DstTableName,
+						AddedColumns: added,
+					})
+				}
+				continue schemaLoop
+			}
+		}
 		schemaDeltas = append(schemaDeltas, delta)
 	}
 	return schemaDeltas

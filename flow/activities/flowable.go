@@ -254,7 +254,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		log.WithFields(log.Fields{"flowName": input.FlowConnectionConfigs.FlowJobName}).Info("no records to push")
 		syncResponse := &model.SyncResponse{}
 		syncResponse.RelationMessageMapping = <-recordBatch.RelationMessageMapping
-		syncResponse.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas()
+		syncResponse.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
 		return syncResponse, nil
 	}
 
@@ -323,7 +323,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	res.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas()
+	res.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
 	res.RelationMessageMapping = <-recordBatch.RelationMessageMapping
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
