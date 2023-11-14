@@ -399,7 +399,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		return nil, err
 	}
 	if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
-		currState == protos.FlowStatus_STATUS_RUNNING.Enum() {
+		*currState == protos.FlowStatus_STATUS_RUNNING {
 		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING.Enum())
 		if err != nil {
 			return nil, err
@@ -412,7 +412,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			shared.PauseSignal,
 		)
 	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
-		currState == protos.FlowStatus_STATUS_PAUSED.Enum() {
+		*currState == protos.FlowStatus_STATUS_PAUSED {
 		err = h.temporalClient.SignalWorkflow(
 			ctx,
 			workflowID,
@@ -421,7 +421,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			shared.NoopSignal,
 		)
 	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
-		(currState == protos.FlowStatus_STATUS_RUNNING.Enum() || currState == protos.FlowStatus_STATUS_PAUSED.Enum()) {
+		(*currState == protos.FlowStatus_STATUS_RUNNING || *currState == protos.FlowStatus_STATUS_PAUSED) {
 		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING.Enum())
 		if err != nil {
 			return nil, err
@@ -434,7 +434,8 @@ func (h *FlowRequestHandler) FlowStateChange(
 			RemoveFlowEntry: false,
 		})
 	} else {
-		return nil, fmt.Errorf("illegal state change requested: %v", req.RequestedFlowState)
+		return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
+			req.RequestedFlowState, currState)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to signal CDCFlow workflow: %w", err)

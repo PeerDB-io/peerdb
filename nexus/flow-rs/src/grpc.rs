@@ -130,16 +130,14 @@ impl FlowGrpcClient {
     pub async fn flow_state_change(
         &mut self,
         flow_job_name: &str,
-        workflow_id: &str,
-        pause: bool,
+        workflow_details: WorkflowDetails,
+        state: pt::peerdb_flow::FlowStatus,
     ) -> anyhow::Result<()> {
         let pause_flow_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
-            workflow_id: workflow_id.to_owned(),
-            requested_flow_state: match pause {
-                true => pt::peerdb_route::FlowState::StatePaused.into(),
-                false => pt::peerdb_route::FlowState::StateRunning.into(),
-            },
+            requested_flow_state: state.into(),
+            source_peer: Some(workflow_details.source_peer),
+            destination_peer: Some(workflow_details.destination_peer)
         };
         let response = self.client.flow_state_change(pause_flow_req).await?;
         let pause_response = response.into_inner();
