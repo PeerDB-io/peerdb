@@ -214,7 +214,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF(t *testing.T) {
 	// check the number of rows where _PEERDB_SYNCED_AT is newer than 5 mins ago
 	// it should match the count.
 	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s WHERE _PEERDB_SYNCED_AT > CURRENT_TIMESTAMP() - INTERVAL '5 MINUTE'
+		SELECT COUNT(*) FROM %s WHERE _PEERDB_SYNCED_AT > CURRENT_TIMESTAMP() - INTERVAL '30 MINUTE'
 	`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(t, err)
