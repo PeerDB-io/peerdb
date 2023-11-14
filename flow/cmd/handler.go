@@ -364,30 +364,80 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}, nil
 }
 
+func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (*protos.FlowStatus, error) {
+	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", peerflow.FlowStatusQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+	}
+	var state *protos.FlowStatus
+	err = res.Get(&state)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+	}
+	return state, nil
+}
+
+func (h *FlowRequestHandler) updateWorkflowStatus(ctx context.Context,
+	workflowID string, state *protos.FlowStatus) error {
+	_, err := h.temporalClient.UpdateWorkflow(ctx, workflowID, "", peerflow.FlowStatusUpdate, state)
+	if err != nil {
+		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
+	}
+	return nil
+}
+
 func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, error) {
-	var err error
-	if req.RequestedFlowState == protos.FlowState_STATE_PAUSED {
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	currState, err := h.getWorkflowStatus(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
+		currState == protos.FlowStatus_STATUS_RUNNING.Enum() {
+		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING.Enum())
+		if err != nil {
+			return nil, err
+		}
 		err = h.temporalClient.SignalWorkflow(
 			ctx,
-			req.WorkflowId,
+			workflowID,
 			"",
 			shared.CDCFlowSignalName,
 			shared.PauseSignal,
 		)
-	} else if req.RequestedFlowState == protos.FlowState_STATE_RUNNING {
+	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
+		currState == protos.FlowStatus_STATUS_PAUSED.Enum() {
 		err = h.temporalClient.SignalWorkflow(
 			ctx,
-			req.WorkflowId,
+			workflowID,
 			"",
 			shared.CDCFlowSignalName,
 			shared.NoopSignal,
 		)
+	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
+		(currState == protos.FlowStatus_STATUS_RUNNING.Enum() || currState == protos.FlowStatus_STATUS_PAUSED.Enum()) {
+		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING.Enum())
+		if err != nil {
+			return nil, err
+		}
+		_, err = h.ShutdownFlow(ctx, &protos.ShutdownRequest{
+			WorkflowId:      workflowID,
+			FlowJobName:     req.FlowJobName,
+			SourcePeer:      req.SourcePeer,
+			DestinationPeer: req.DestinationPeer,
+			RemoveFlowEntry: false,
+		})
+	} else {
+		return nil, fmt.Errorf("illegal state change requested: %v", req.RequestedFlowState)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
+		return nil, fmt.Errorf("unable to signal CDCFlow workflow: %w", err)
 	}
 
 	return &protos.FlowStateChangeResponse{

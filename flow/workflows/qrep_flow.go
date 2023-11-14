@@ -16,6 +16,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+const QRepFlowStateQuery = "q-qrep-flow-state"
+
 type QRepFlowExecution struct {
 	config          *protos.QRepConfig
 	flowExecutionID string
@@ -384,12 +386,26 @@ func QRepFlowWorkflow(
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
 
-	// register a query to get the number of partitions processed
-	err := workflow.SetQueryHandler(ctx, "num-partitions-processed", func() (uint64, error) {
-		return state.NumPartitionsProcessed, nil
+	// Support a Query for the current state of the peer flow.
+	err := workflow.SetQueryHandler(ctx, QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
+		return state, nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to register query handler: %w", err)
+		return fmt.Errorf("failed to set `%s` query handler: %w", QRepFlowStateQuery, err)
+	}
+	// Support a Query for the current status of the peer flow.
+	err = workflow.SetQueryHandler(ctx, FlowStatusQuery, func() (*protos.FlowStatus, error) {
+		return &state.CurrentFlowState, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set `%s` query handler: %w", FlowStatusQuery, err)
+	}
+	err = workflow.SetUpdateHandler(ctx, FlowStatusUpdate, func(status *protos.FlowStatus) error {
+		state.CurrentFlowState = *status
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set `%s` update handler: %w", FlowStatusUpdate, err)
 	}
 
 	// get qrep run uuid via side-effect

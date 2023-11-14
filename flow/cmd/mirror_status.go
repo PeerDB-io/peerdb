@@ -22,6 +22,16 @@ func (h *FlowRequestHandler) MirrorStatus(
 			ErrorMessage: fmt.Sprintf("unable to query flow: %s", err.Error()),
 		}, nil
 	}
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	currState, err := h.getWorkflowStatus(ctx, workflowID)
+	if err != nil {
+		return &protos.MirrorStatusResponse{
+			ErrorMessage: fmt.Sprintf("unable to get flow state: %s", err.Error()),
+		}, nil
+	}
 
 	if cdcFlow {
 		cdcStatus, err := h.CDCFlowStatus(ctx, req)
@@ -36,6 +46,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_CdcStatus{
 				CdcStatus: cdcStatus,
 			},
+			CurrentFlowState: *currState,
 		}, nil
 	} else {
 		qrepStatus, err := h.QRepFlowStatus(ctx, req)
@@ -50,6 +61,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_QrepStatus{
 				QrepStatus: qrepStatus,
 			},
+			CurrentFlowState: *currState,
 		}, nil
 	}
 }
@@ -272,4 +284,15 @@ func (h *FlowRequestHandler) getCloneTableFlowNames(ctx context.Context, flowJob
 	}
 
 	return flowNames, nil
+}
+
+func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName string) (string, error) {
+	q := "SELECT workflow_id FROM flows WHERE flow_name ILIKE $1"
+	row := h.pool.QueryRow(ctx, q, flowJobName)
+	var workflowID string
+	if err := row.Scan(&workflowID); err != nil {
+		return "", fmt.Errorf("unable to get workflowID for flow job %s: %w", flowJobName, err)
+	}
+
+	return workflowID, nil
 }

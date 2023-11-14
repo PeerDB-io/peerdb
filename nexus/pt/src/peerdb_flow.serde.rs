@@ -1692,6 +1692,97 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
         deserializer.deserialize_struct("peerdb_flow.FlowConnectionConfigs", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for FlowStatus {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::StatusUnknown => "STATUS_UNKNOWN",
+            Self::StatusRunning => "STATUS_RUNNING",
+            Self::StatusPaused => "STATUS_PAUSED",
+            Self::StatusPausing => "STATUS_PAUSING",
+            Self::StatusSetup => "STATUS_SETUP",
+            Self::StatusSnapshot => "STATUS_SNAPSHOT",
+            Self::StatusTerminating => "STATUS_TERMINATING",
+            Self::StatusTerminated => "STATUS_TERMINATED",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for FlowStatus {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "STATUS_UNKNOWN",
+            "STATUS_RUNNING",
+            "STATUS_PAUSED",
+            "STATUS_PAUSING",
+            "STATUS_SETUP",
+            "STATUS_SNAPSHOT",
+            "STATUS_TERMINATING",
+            "STATUS_TERMINATED",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = FlowStatus;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(FlowStatus::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(FlowStatus::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "STATUS_UNKNOWN" => Ok(FlowStatus::StatusUnknown),
+                    "STATUS_RUNNING" => Ok(FlowStatus::StatusRunning),
+                    "STATUS_PAUSED" => Ok(FlowStatus::StatusPaused),
+                    "STATUS_PAUSING" => Ok(FlowStatus::StatusPausing),
+                    "STATUS_SETUP" => Ok(FlowStatus::StatusSetup),
+                    "STATUS_SNAPSHOT" => Ok(FlowStatus::StatusSnapshot),
+                    "STATUS_TERMINATING" => Ok(FlowStatus::StatusTerminating),
+                    "STATUS_TERMINATED" => Ok(FlowStatus::StatusTerminated),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for GetLastSyncedIdInput {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -3007,6 +3098,9 @@ impl serde::Serialize for QRepFlowState {
         if self.disable_wait_for_new_rows {
             len += 1;
         }
+        if self.current_flow_state != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.QRepFlowState", len)?;
         if let Some(v) = self.last_partition.as_ref() {
             struct_ser.serialize_field("lastPartition", v)?;
@@ -3019,6 +3113,11 @@ impl serde::Serialize for QRepFlowState {
         }
         if self.disable_wait_for_new_rows {
             struct_ser.serialize_field("disableWaitForNewRows", &self.disable_wait_for_new_rows)?;
+        }
+        if self.current_flow_state != 0 {
+            let v = FlowStatus::from_i32(self.current_flow_state)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.current_flow_state)))?;
+            struct_ser.serialize_field("currentFlowState", &v)?;
         }
         struct_ser.end()
     }
@@ -3038,6 +3137,8 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
             "needsResync",
             "disable_wait_for_new_rows",
             "disableWaitForNewRows",
+            "current_flow_state",
+            "currentFlowState",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3046,6 +3147,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
             NumPartitionsProcessed,
             NeedsResync,
             DisableWaitForNewRows,
+            CurrentFlowState,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3072,6 +3174,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                             "numPartitionsProcessed" | "num_partitions_processed" => Ok(GeneratedField::NumPartitionsProcessed),
                             "needsResync" | "needs_resync" => Ok(GeneratedField::NeedsResync),
                             "disableWaitForNewRows" | "disable_wait_for_new_rows" => Ok(GeneratedField::DisableWaitForNewRows),
+                            "currentFlowState" | "current_flow_state" => Ok(GeneratedField::CurrentFlowState),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3095,6 +3198,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                 let mut num_partitions_processed__ = None;
                 let mut needs_resync__ = None;
                 let mut disable_wait_for_new_rows__ = None;
+                let mut current_flow_state__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::LastPartition => {
@@ -3123,6 +3227,12 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                             }
                             disable_wait_for_new_rows__ = Some(map.next_value()?);
                         }
+                        GeneratedField::CurrentFlowState => {
+                            if current_flow_state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("currentFlowState"));
+                            }
+                            current_flow_state__ = Some(map.next_value::<FlowStatus>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3133,6 +3243,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                     num_partitions_processed: num_partitions_processed__.unwrap_or_default(),
                     needs_resync: needs_resync__.unwrap_or_default(),
                     disable_wait_for_new_rows: disable_wait_for_new_rows__.unwrap_or_default(),
+                    current_flow_state: current_flow_state__.unwrap_or_default(),
                 })
             }
         }

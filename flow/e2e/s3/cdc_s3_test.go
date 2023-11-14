@@ -49,7 +49,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	}
 
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		s.NoError(err)
 		//insert 20 rows
 		for i := 1; i <= 20; i++ {
@@ -120,7 +120,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	}
 
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		s.NoError(err)
 		//insert 20 rows
 		for i := 1; i <= 20; i++ {

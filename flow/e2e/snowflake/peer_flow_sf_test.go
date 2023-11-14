@@ -157,9 +157,9 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 15 rows into the source table
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		// insert 15 rows into the source table
-		for i := 0; i < 20; i++ {
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
+		// insert 10 rows into the source table
+		for i := 0; i < 10; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -234,7 +234,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 4; i++ {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -322,7 +322,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		/*
 			Executing a transaction which
 			1. changes both toast column
@@ -393,7 +393,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		/* transaction updating no rows */
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
@@ -456,7 +456,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
@@ -531,7 +531,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		//complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
@@ -601,7 +601,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		/*
 			transaction updating a single row
 			multiple times with changed/unchanged toast columns
@@ -671,7 +671,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		/* test inserting various types*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 2,2,b'1',b'101',
@@ -747,7 +747,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		/* inserting across multiple tables*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (c1,c2) VALUES (1,'dummy_1');
@@ -808,7 +808,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	// and then insert and mutate schema repeatedly.
 	go func() {
 		// insert first row.
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
 		s.NoError(err)
@@ -972,7 +972,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
 			testValue := fmt.Sprintf("test_value_%d", i)
@@ -1048,7 +1048,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 		rowsTx, err := s.pool.Begin(context.Background())
 		s.NoError(err)
 
@@ -1126,7 +1126,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {

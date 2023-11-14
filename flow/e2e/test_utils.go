@@ -54,15 +54,14 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.RegisterActivity(&activities.SnapshotActivity{})
 }
 
-func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
+func SetupCDCFlowStateQuery(env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig) {
 	// wait for PeerFlowStatusQuery to finish setup
 	// sleep for 5 second to allow the workflow to start
 	time.Sleep(5 * time.Second)
 	for {
 		response, err := env.QueryWorkflow(
-			peerflow.CDCFlowStatusQuery,
-			connectionGen.FlowJobName,
+			peerflow.CDCFlowStateQuery,
 		)
 		if err == nil {
 			var state peerflow.CDCFlowWorkflowState
@@ -71,7 +70,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 				log.Errorln(err)
 			}
 
-			if state.SnapshotComplete {
+			if state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING.Enum() {
 				break
 			}
 		} else {
@@ -90,8 +89,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 	time.Sleep(5 * time.Second)
 	for {
 		response, err := env.QueryWorkflow(
-			peerflow.CDCFlowStatusQuery,
-			connectionGen.FlowJobName,
+			peerflow.CDCFlowStateQuery,
 		)
 		if err == nil {
 			var state peerflow.CDCFlowWorkflowState

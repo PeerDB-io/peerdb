@@ -80,6 +80,90 @@ export function qRepWriteTypeToJSON(object: QRepWriteType): string {
   }
 }
 
+/**
+ * UI reads current workflow status and also requests status changes using same enum
+ * UI can request STATUS_PAUSED, STATUS_RUNNING and STATUS_TERMINATED
+ * STATUS_RUNNING -> STATUS_PAUSED/STATUS_TERMINATED
+ * STATUS_PAUSED -> STATUS_RUNNING/STATUS_TERMINATED
+ * UI can read everything except STATUS_UNKNOWN
+ */
+export enum FlowStatus {
+  /** STATUS_UNKNOWN - should never be read by UI, bail */
+  STATUS_UNKNOWN = 0,
+  /** STATUS_RUNNING - enable pause and terminate buttons */
+  STATUS_RUNNING = 1,
+  /** STATUS_PAUSED - pause button becomes resume button, terminate button should still be enabled */
+  STATUS_PAUSED = 2,
+  /** STATUS_PAUSING - neither button should be enabled */
+  STATUS_PAUSING = 3,
+  /** STATUS_SETUP - neither button should be enabled, not reachable in QRep mirrors */
+  STATUS_SETUP = 4,
+  /** STATUS_SNAPSHOT - neither button should be enabled, not reachable in QRep mirrors */
+  STATUS_SNAPSHOT = 5,
+  /** STATUS_TERMINATING - neither button should be enabled */
+  STATUS_TERMINATING = 6,
+  /** STATUS_TERMINATED - neither button should be enabled */
+  STATUS_TERMINATED = 7,
+  UNRECOGNIZED = -1,
+}
+
+export function flowStatusFromJSON(object: any): FlowStatus {
+  switch (object) {
+    case 0:
+    case "STATUS_UNKNOWN":
+      return FlowStatus.STATUS_UNKNOWN;
+    case 1:
+    case "STATUS_RUNNING":
+      return FlowStatus.STATUS_RUNNING;
+    case 2:
+    case "STATUS_PAUSED":
+      return FlowStatus.STATUS_PAUSED;
+    case 3:
+    case "STATUS_PAUSING":
+      return FlowStatus.STATUS_PAUSING;
+    case 4:
+    case "STATUS_SETUP":
+      return FlowStatus.STATUS_SETUP;
+    case 5:
+    case "STATUS_SNAPSHOT":
+      return FlowStatus.STATUS_SNAPSHOT;
+    case 6:
+    case "STATUS_TERMINATING":
+      return FlowStatus.STATUS_TERMINATING;
+    case 7:
+    case "STATUS_TERMINATED":
+      return FlowStatus.STATUS_TERMINATED;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return FlowStatus.UNRECOGNIZED;
+  }
+}
+
+export function flowStatusToJSON(object: FlowStatus): string {
+  switch (object) {
+    case FlowStatus.STATUS_UNKNOWN:
+      return "STATUS_UNKNOWN";
+    case FlowStatus.STATUS_RUNNING:
+      return "STATUS_RUNNING";
+    case FlowStatus.STATUS_PAUSED:
+      return "STATUS_PAUSED";
+    case FlowStatus.STATUS_PAUSING:
+      return "STATUS_PAUSING";
+    case FlowStatus.STATUS_SETUP:
+      return "STATUS_SETUP";
+    case FlowStatus.STATUS_SNAPSHOT:
+      return "STATUS_SNAPSHOT";
+    case FlowStatus.STATUS_TERMINATING:
+      return "STATUS_TERMINATING";
+    case FlowStatus.STATUS_TERMINATED:
+      return "STATUS_TERMINATED";
+    case FlowStatus.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 export interface TableNameMapping {
   sourceTableName: string;
   destinationTableName: string;
@@ -476,6 +560,7 @@ export interface QRepFlowState {
   numPartitionsProcessed: number;
   needsResync: boolean;
   disableWaitForNewRows: boolean;
+  currentFlowState: FlowStatus;
 }
 
 function createBaseTableNameMapping(): TableNameMapping {
@@ -6156,7 +6241,13 @@ export const ReplayTableSchemaDeltaInput = {
 };
 
 function createBaseQRepFlowState(): QRepFlowState {
-  return { lastPartition: undefined, numPartitionsProcessed: 0, needsResync: false, disableWaitForNewRows: false };
+  return {
+    lastPartition: undefined,
+    numPartitionsProcessed: 0,
+    needsResync: false,
+    disableWaitForNewRows: false,
+    currentFlowState: 0,
+  };
 }
 
 export const QRepFlowState = {
@@ -6172,6 +6263,9 @@ export const QRepFlowState = {
     }
     if (message.disableWaitForNewRows === true) {
       writer.uint32(32).bool(message.disableWaitForNewRows);
+    }
+    if (message.currentFlowState !== 0) {
+      writer.uint32(40).int32(message.currentFlowState);
     }
     return writer;
   },
@@ -6211,6 +6305,13 @@ export const QRepFlowState = {
 
           message.disableWaitForNewRows = reader.bool();
           continue;
+        case 5:
+          if (tag !== 40) {
+            break;
+          }
+
+          message.currentFlowState = reader.int32() as any;
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -6226,6 +6327,7 @@ export const QRepFlowState = {
       numPartitionsProcessed: isSet(object.numPartitionsProcessed) ? Number(object.numPartitionsProcessed) : 0,
       needsResync: isSet(object.needsResync) ? Boolean(object.needsResync) : false,
       disableWaitForNewRows: isSet(object.disableWaitForNewRows) ? Boolean(object.disableWaitForNewRows) : false,
+      currentFlowState: isSet(object.currentFlowState) ? flowStatusFromJSON(object.currentFlowState) : 0,
     };
   },
 
@@ -6243,6 +6345,9 @@ export const QRepFlowState = {
     if (message.disableWaitForNewRows === true) {
       obj.disableWaitForNewRows = message.disableWaitForNewRows;
     }
+    if (message.currentFlowState !== 0) {
+      obj.currentFlowState = flowStatusToJSON(message.currentFlowState);
+    }
     return obj;
   },
 
@@ -6257,6 +6362,7 @@ export const QRepFlowState = {
     message.numPartitionsProcessed = object.numPartitionsProcessed ?? 0;
     message.needsResync = object.needsResync ?? false;
     message.disableWaitForNewRows = object.disableWaitForNewRows ?? false;
+    message.currentFlowState = object.currentFlowState ?? 0;
     return message;
   },
 };

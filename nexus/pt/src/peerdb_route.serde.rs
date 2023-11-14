@@ -1313,82 +1313,6 @@ impl<'de> serde::Deserialize<'de> for DropPeerResponse {
         deserializer.deserialize_struct("peerdb_route.DropPeerResponse", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for FlowState {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let variant = match self {
-            Self::StateUnknown => "STATE_UNKNOWN",
-            Self::StateRunning => "STATE_RUNNING",
-            Self::StatePaused => "STATE_PAUSED",
-        };
-        serializer.serialize_str(variant)
-    }
-}
-impl<'de> serde::Deserialize<'de> for FlowState {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "STATE_UNKNOWN",
-            "STATE_RUNNING",
-            "STATE_PAUSED",
-        ];
-
-        struct GeneratedVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = FlowState;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "expected one of: {:?}", &FIELDS)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                use std::convert::TryFrom;
-                i32::try_from(v)
-                    .ok()
-                    .and_then(FlowState::from_i32)
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
-                    })
-            }
-
-            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                use std::convert::TryFrom;
-                i32::try_from(v)
-                    .ok()
-                    .and_then(FlowState::from_i32)
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
-                    })
-            }
-
-            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "STATE_UNKNOWN" => Ok(FlowState::StateUnknown),
-                    "STATE_RUNNING" => Ok(FlowState::StateRunning),
-                    "STATE_PAUSED" => Ok(FlowState::StatePaused),
-                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
-                }
-            }
-        }
-        deserializer.deserialize_any(GeneratedVisitor)
-    }
-}
 impl serde::Serialize for FlowStateChangeRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1397,26 +1321,32 @@ impl serde::Serialize for FlowStateChangeRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.workflow_id.is_empty() {
-            len += 1;
-        }
         if !self.flow_job_name.is_empty() {
             len += 1;
         }
         if self.requested_flow_state != 0 {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("peerdb_route.FlowStateChangeRequest", len)?;
-        if !self.workflow_id.is_empty() {
-            struct_ser.serialize_field("workflowId", &self.workflow_id)?;
+        if self.source_peer.is_some() {
+            len += 1;
         }
+        if self.destination_peer.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_route.FlowStateChangeRequest", len)?;
         if !self.flow_job_name.is_empty() {
             struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
         }
         if self.requested_flow_state != 0 {
-            let v = FlowState::from_i32(self.requested_flow_state)
+            let v = super::peerdb_flow::FlowStatus::from_i32(self.requested_flow_state)
                 .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.requested_flow_state)))?;
             struct_ser.serialize_field("requestedFlowState", &v)?;
+        }
+        if let Some(v) = self.source_peer.as_ref() {
+            struct_ser.serialize_field("sourcePeer", v)?;
+        }
+        if let Some(v) = self.destination_peer.as_ref() {
+            struct_ser.serialize_field("destinationPeer", v)?;
         }
         struct_ser.end()
     }
@@ -1428,19 +1358,22 @@ impl<'de> serde::Deserialize<'de> for FlowStateChangeRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "workflow_id",
-            "workflowId",
             "flow_job_name",
             "flowJobName",
             "requested_flow_state",
             "requestedFlowState",
+            "source_peer",
+            "sourcePeer",
+            "destination_peer",
+            "destinationPeer",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            WorkflowId,
             FlowJobName,
             RequestedFlowState,
+            SourcePeer,
+            DestinationPeer,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1463,9 +1396,10 @@ impl<'de> serde::Deserialize<'de> for FlowStateChangeRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "workflowId" | "workflow_id" => Ok(GeneratedField::WorkflowId),
                             "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
                             "requestedFlowState" | "requested_flow_state" => Ok(GeneratedField::RequestedFlowState),
+                            "sourcePeer" | "source_peer" => Ok(GeneratedField::SourcePeer),
+                            "destinationPeer" | "destination_peer" => Ok(GeneratedField::DestinationPeer),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1485,17 +1419,12 @@ impl<'de> serde::Deserialize<'de> for FlowStateChangeRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut workflow_id__ = None;
                 let mut flow_job_name__ = None;
                 let mut requested_flow_state__ = None;
+                let mut source_peer__ = None;
+                let mut destination_peer__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::WorkflowId => {
-                            if workflow_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("workflowId"));
-                            }
-                            workflow_id__ = Some(map.next_value()?);
-                        }
                         GeneratedField::FlowJobName => {
                             if flow_job_name__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("flowJobName"));
@@ -1506,7 +1435,19 @@ impl<'de> serde::Deserialize<'de> for FlowStateChangeRequest {
                             if requested_flow_state__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("requestedFlowState"));
                             }
-                            requested_flow_state__ = Some(map.next_value::<FlowState>()? as i32);
+                            requested_flow_state__ = Some(map.next_value::<super::peerdb_flow::FlowStatus>()? as i32);
+                        }
+                        GeneratedField::SourcePeer => {
+                            if source_peer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sourcePeer"));
+                            }
+                            source_peer__ = map.next_value()?;
+                        }
+                        GeneratedField::DestinationPeer => {
+                            if destination_peer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("destinationPeer"));
+                            }
+                            destination_peer__ = map.next_value()?;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
@@ -1514,9 +1455,10 @@ impl<'de> serde::Deserialize<'de> for FlowStateChangeRequest {
                     }
                 }
                 Ok(FlowStateChangeRequest {
-                    workflow_id: workflow_id__.unwrap_or_default(),
                     flow_job_name: flow_job_name__.unwrap_or_default(),
                     requested_flow_state: requested_flow_state__.unwrap_or_default(),
+                    source_peer: source_peer__,
+                    destination_peer: destination_peer__,
                 })
             }
         }
@@ -1746,6 +1688,9 @@ impl serde::Serialize for MirrorStatusResponse {
         if !self.error_message.is_empty() {
             len += 1;
         }
+        if self.current_flow_state != 0 {
+            len += 1;
+        }
         if self.status.is_some() {
             len += 1;
         }
@@ -1755,6 +1700,11 @@ impl serde::Serialize for MirrorStatusResponse {
         }
         if !self.error_message.is_empty() {
             struct_ser.serialize_field("errorMessage", &self.error_message)?;
+        }
+        if self.current_flow_state != 0 {
+            let v = super::peerdb_flow::FlowStatus::from_i32(self.current_flow_state)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.current_flow_state)))?;
+            struct_ser.serialize_field("currentFlowState", &v)?;
         }
         if let Some(v) = self.status.as_ref() {
             match v {
@@ -1780,6 +1730,8 @@ impl<'de> serde::Deserialize<'de> for MirrorStatusResponse {
             "flowJobName",
             "error_message",
             "errorMessage",
+            "current_flow_state",
+            "currentFlowState",
             "qrep_status",
             "qrepStatus",
             "cdc_status",
@@ -1790,6 +1742,7 @@ impl<'de> serde::Deserialize<'de> for MirrorStatusResponse {
         enum GeneratedField {
             FlowJobName,
             ErrorMessage,
+            CurrentFlowState,
             QrepStatus,
             CdcStatus,
             __SkipField__,
@@ -1816,6 +1769,7 @@ impl<'de> serde::Deserialize<'de> for MirrorStatusResponse {
                         match value {
                             "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
                             "errorMessage" | "error_message" => Ok(GeneratedField::ErrorMessage),
+                            "currentFlowState" | "current_flow_state" => Ok(GeneratedField::CurrentFlowState),
                             "qrepStatus" | "qrep_status" => Ok(GeneratedField::QrepStatus),
                             "cdcStatus" | "cdc_status" => Ok(GeneratedField::CdcStatus),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -1839,6 +1793,7 @@ impl<'de> serde::Deserialize<'de> for MirrorStatusResponse {
             {
                 let mut flow_job_name__ = None;
                 let mut error_message__ = None;
+                let mut current_flow_state__ = None;
                 let mut status__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -1853,6 +1808,12 @@ impl<'de> serde::Deserialize<'de> for MirrorStatusResponse {
                                 return Err(serde::de::Error::duplicate_field("errorMessage"));
                             }
                             error_message__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::CurrentFlowState => {
+                            if current_flow_state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("currentFlowState"));
+                            }
+                            current_flow_state__ = Some(map.next_value::<super::peerdb_flow::FlowStatus>()? as i32);
                         }
                         GeneratedField::QrepStatus => {
                             if status__.is_some() {
@@ -1876,6 +1837,7 @@ impl<'de> serde::Deserialize<'de> for MirrorStatusResponse {
                 Ok(MirrorStatusResponse {
                     flow_job_name: flow_job_name__.unwrap_or_default(),
                     error_message: error_message__.unwrap_or_default(),
+                    current_flow_state: current_flow_state__.unwrap_or_default(),
                     status: status__,
                 })
             }

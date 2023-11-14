@@ -118,6 +118,83 @@ func (QRepWriteType) EnumDescriptor() ([]byte, []int) {
 	return file_flow_proto_rawDescGZIP(), []int{1}
 }
 
+// UI reads current workflow status and also requests status changes using same enum
+// UI can request STATUS_PAUSED, STATUS_RUNNING and STATUS_TERMINATED
+// STATUS_RUNNING -> STATUS_PAUSED/STATUS_TERMINATED
+// STATUS_PAUSED -> STATUS_RUNNING/STATUS_TERMINATED
+// UI can read everything except STATUS_UNKNOWN
+type FlowStatus int32
+
+const (
+	// should never be read by UI, bail
+	FlowStatus_STATUS_UNKNOWN FlowStatus = 0
+	// enable pause and terminate buttons
+	FlowStatus_STATUS_RUNNING FlowStatus = 1
+	// pause button becomes resume button, terminate button should still be enabled
+	FlowStatus_STATUS_PAUSED FlowStatus = 2
+	// neither button should be enabled
+	FlowStatus_STATUS_PAUSING FlowStatus = 3
+	// neither button should be enabled, not reachable in QRep mirrors
+	FlowStatus_STATUS_SETUP FlowStatus = 4
+	// neither button should be enabled, not reachable in QRep mirrors
+	FlowStatus_STATUS_SNAPSHOT FlowStatus = 5
+	// neither button should be enabled
+	FlowStatus_STATUS_TERMINATING FlowStatus = 6
+	// neither button should be enabled
+	FlowStatus_STATUS_TERMINATED FlowStatus = 7
+)
+
+// Enum value maps for FlowStatus.
+var (
+	FlowStatus_name = map[int32]string{
+		0: "STATUS_UNKNOWN",
+		1: "STATUS_RUNNING",
+		2: "STATUS_PAUSED",
+		3: "STATUS_PAUSING",
+		4: "STATUS_SETUP",
+		5: "STATUS_SNAPSHOT",
+		6: "STATUS_TERMINATING",
+		7: "STATUS_TERMINATED",
+	}
+	FlowStatus_value = map[string]int32{
+		"STATUS_UNKNOWN":     0,
+		"STATUS_RUNNING":     1,
+		"STATUS_PAUSED":      2,
+		"STATUS_PAUSING":     3,
+		"STATUS_SETUP":       4,
+		"STATUS_SNAPSHOT":    5,
+		"STATUS_TERMINATING": 6,
+		"STATUS_TERMINATED":  7,
+	}
+)
+
+func (x FlowStatus) Enum() *FlowStatus {
+	p := new(FlowStatus)
+	*p = x
+	return p
+}
+
+func (x FlowStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FlowStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_flow_proto_enumTypes[2].Descriptor()
+}
+
+func (FlowStatus) Type() protoreflect.EnumType {
+	return &file_flow_proto_enumTypes[2]
+}
+
+func (x FlowStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FlowStatus.Descriptor instead.
+func (FlowStatus) EnumDescriptor() ([]byte, []int) {
+	return file_flow_proto_rawDescGZIP(), []int{2}
+}
+
 type TableNameMapping struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -3226,6 +3303,7 @@ type QRepFlowState struct {
 	NumPartitionsProcessed uint64         `protobuf:"varint,2,opt,name=num_partitions_processed,json=numPartitionsProcessed,proto3" json:"num_partitions_processed,omitempty"`
 	NeedsResync            bool           `protobuf:"varint,3,opt,name=needs_resync,json=needsResync,proto3" json:"needs_resync,omitempty"`
 	DisableWaitForNewRows  bool           `protobuf:"varint,4,opt,name=disable_wait_for_new_rows,json=disableWaitForNewRows,proto3" json:"disable_wait_for_new_rows,omitempty"`
+	CurrentFlowState       FlowStatus     `protobuf:"varint,5,opt,name=current_flow_state,json=currentFlowState,proto3,enum=peerdb_flow.FlowStatus" json:"current_flow_state,omitempty"`
 }
 
 func (x *QRepFlowState) Reset() {
@@ -3286,6 +3364,13 @@ func (x *QRepFlowState) GetDisableWaitForNewRows() bool {
 		return x.DisableWaitForNewRows
 	}
 	return false
+}
+
+func (x *QRepFlowState) GetCurrentFlowState() FlowStatus {
+	if x != nil {
+		return x.CurrentFlowState
+	}
+	return FlowStatus_STATUS_UNKNOWN
 }
 
 var File_flow_proto protoreflect.FileDescriptor
@@ -3949,8 +4034,8 @@ var file_flow_proto_rawDesc = []byte{
 	0x64, 0x65, 0x6c, 0x74, 0x61, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x1d, 0x2e, 0x70,
 	0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x54, 0x61, 0x62, 0x6c, 0x65,
 	0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x44, 0x65, 0x6c, 0x74, 0x61, 0x52, 0x11, 0x74, 0x61, 0x62,
-	0x6c, 0x65, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x44, 0x65, 0x6c, 0x74, 0x61, 0x73, 0x22, 0xe9,
-	0x01, 0x0a, 0x0d, 0x51, 0x52, 0x65, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x53, 0x74, 0x61, 0x74, 0x65,
+	0x6c, 0x65, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x44, 0x65, 0x6c, 0x74, 0x61, 0x73, 0x22, 0xb0,
+	0x02, 0x0a, 0x0d, 0x51, 0x52, 0x65, 0x70, 0x46, 0x6c, 0x6f, 0x77, 0x53, 0x74, 0x61, 0x74, 0x65,
 	0x12, 0x41, 0x0a, 0x0e, 0x6c, 0x61, 0x73, 0x74, 0x5f, 0x70, 0x61, 0x72, 0x74, 0x69, 0x74, 0x69,
 	0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64,
 	0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x51, 0x52, 0x65, 0x70, 0x50, 0x61, 0x72, 0x74, 0x69,
@@ -3964,27 +4049,42 @@ var file_flow_proto_rawDesc = []byte{
 	0x12, 0x38, 0x0a, 0x19, 0x64, 0x69, 0x73, 0x61, 0x62, 0x6c, 0x65, 0x5f, 0x77, 0x61, 0x69, 0x74,
 	0x5f, 0x66, 0x6f, 0x72, 0x5f, 0x6e, 0x65, 0x77, 0x5f, 0x72, 0x6f, 0x77, 0x73, 0x18, 0x04, 0x20,
 	0x01, 0x28, 0x08, 0x52, 0x15, 0x64, 0x69, 0x73, 0x61, 0x62, 0x6c, 0x65, 0x57, 0x61, 0x69, 0x74,
-	0x46, 0x6f, 0x72, 0x4e, 0x65, 0x77, 0x52, 0x6f, 0x77, 0x73, 0x2a, 0x50, 0x0a, 0x0c, 0x51, 0x52,
-	0x65, 0x70, 0x53, 0x79, 0x6e, 0x63, 0x4d, 0x6f, 0x64, 0x65, 0x12, 0x1f, 0x0a, 0x1b, 0x51, 0x52,
-	0x45, 0x50, 0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x4d, 0x55, 0x4c,
-	0x54, 0x49, 0x5f, 0x49, 0x4e, 0x53, 0x45, 0x52, 0x54, 0x10, 0x00, 0x12, 0x1f, 0x0a, 0x1b, 0x51,
-	0x52, 0x45, 0x50, 0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x53, 0x54,
-	0x4f, 0x52, 0x41, 0x47, 0x45, 0x5f, 0x41, 0x56, 0x52, 0x4f, 0x10, 0x01, 0x2a, 0x66, 0x0a, 0x0d,
-	0x51, 0x52, 0x65, 0x70, 0x57, 0x72, 0x69, 0x74, 0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x1a, 0x0a,
-	0x16, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45,
-	0x5f, 0x41, 0x50, 0x50, 0x45, 0x4e, 0x44, 0x10, 0x00, 0x12, 0x1a, 0x0a, 0x16, 0x51, 0x52, 0x45,
-	0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x55, 0x50, 0x53,
-	0x45, 0x52, 0x54, 0x10, 0x01, 0x12, 0x1d, 0x0a, 0x19, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52,
-	0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x4f, 0x56, 0x45, 0x52, 0x57, 0x52, 0x49,
-	0x54, 0x45, 0x10, 0x02, 0x42, 0x76, 0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x2e, 0x70, 0x65, 0x65, 0x72,
-	0x64, 0x62, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x42, 0x09, 0x46, 0x6c, 0x6f, 0x77, 0x50, 0x72, 0x6f,
-	0x74, 0x6f, 0x50, 0x01, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x2f,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0xa2, 0x02, 0x03, 0x50, 0x58, 0x58, 0xaa, 0x02, 0x0a, 0x50,
-	0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xca, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72,
-	0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0xe2, 0x02, 0x16, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46,
-	0x6c, 0x6f, 0x77, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea,
-	0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0x62, 0x06, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x33,
+	0x46, 0x6f, 0x72, 0x4e, 0x65, 0x77, 0x52, 0x6f, 0x77, 0x73, 0x12, 0x45, 0x0a, 0x12, 0x63, 0x75,
+	0x72, 0x72, 0x65, 0x6e, 0x74, 0x5f, 0x66, 0x6c, 0x6f, 0x77, 0x5f, 0x73, 0x74, 0x61, 0x74, 0x65,
+	0x18, 0x05, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x17, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f,
+	0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x46, 0x6c, 0x6f, 0x77, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52,
+	0x10, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x46, 0x6c, 0x6f, 0x77, 0x53, 0x74, 0x61, 0x74,
+	0x65, 0x2a, 0x50, 0x0a, 0x0c, 0x51, 0x52, 0x65, 0x70, 0x53, 0x79, 0x6e, 0x63, 0x4d, 0x6f, 0x64,
+	0x65, 0x12, 0x1f, 0x0a, 0x1b, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f, 0x4d,
+	0x4f, 0x44, 0x45, 0x5f, 0x4d, 0x55, 0x4c, 0x54, 0x49, 0x5f, 0x49, 0x4e, 0x53, 0x45, 0x52, 0x54,
+	0x10, 0x00, 0x12, 0x1f, 0x0a, 0x1b, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f,
+	0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x53, 0x54, 0x4f, 0x52, 0x41, 0x47, 0x45, 0x5f, 0x41, 0x56, 0x52,
+	0x4f, 0x10, 0x01, 0x2a, 0x66, 0x0a, 0x0d, 0x51, 0x52, 0x65, 0x70, 0x57, 0x72, 0x69, 0x74, 0x65,
+	0x54, 0x79, 0x70, 0x65, 0x12, 0x1a, 0x0a, 0x16, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49,
+	0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f, 0x41, 0x50, 0x50, 0x45, 0x4e, 0x44, 0x10, 0x00,
+	0x12, 0x1a, 0x0a, 0x16, 0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d,
+	0x4f, 0x44, 0x45, 0x5f, 0x55, 0x50, 0x53, 0x45, 0x52, 0x54, 0x10, 0x01, 0x12, 0x1d, 0x0a, 0x19,
+	0x51, 0x52, 0x45, 0x50, 0x5f, 0x57, 0x52, 0x49, 0x54, 0x45, 0x5f, 0x4d, 0x4f, 0x44, 0x45, 0x5f,
+	0x4f, 0x56, 0x45, 0x52, 0x57, 0x52, 0x49, 0x54, 0x45, 0x10, 0x02, 0x2a, 0xb1, 0x01, 0x0a, 0x0a,
+	0x46, 0x6c, 0x6f, 0x77, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x12, 0x0a, 0x0e, 0x53, 0x54,
+	0x41, 0x54, 0x55, 0x53, 0x5f, 0x55, 0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10, 0x00, 0x12, 0x12,
+	0x0a, 0x0e, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x52, 0x55, 0x4e, 0x4e, 0x49, 0x4e, 0x47,
+	0x10, 0x01, 0x12, 0x11, 0x0a, 0x0d, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x50, 0x41, 0x55,
+	0x53, 0x45, 0x44, 0x10, 0x02, 0x12, 0x12, 0x0a, 0x0e, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f,
+	0x50, 0x41, 0x55, 0x53, 0x49, 0x4e, 0x47, 0x10, 0x03, 0x12, 0x10, 0x0a, 0x0c, 0x53, 0x54, 0x41,
+	0x54, 0x55, 0x53, 0x5f, 0x53, 0x45, 0x54, 0x55, 0x50, 0x10, 0x04, 0x12, 0x13, 0x0a, 0x0f, 0x53,
+	0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x53, 0x4e, 0x41, 0x50, 0x53, 0x48, 0x4f, 0x54, 0x10, 0x05,
+	0x12, 0x16, 0x0a, 0x12, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x54, 0x45, 0x52, 0x4d, 0x49,
+	0x4e, 0x41, 0x54, 0x49, 0x4e, 0x47, 0x10, 0x06, 0x12, 0x15, 0x0a, 0x11, 0x53, 0x54, 0x41, 0x54,
+	0x55, 0x53, 0x5f, 0x54, 0x45, 0x52, 0x4d, 0x49, 0x4e, 0x41, 0x54, 0x45, 0x44, 0x10, 0x07, 0x42,
+	0x76, 0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x66, 0x6c,
+	0x6f, 0x77, 0x42, 0x09, 0x46, 0x6c, 0x6f, 0x77, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a,
+	0x10, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f,
+	0x73, 0xa2, 0x02, 0x03, 0x50, 0x58, 0x58, 0xaa, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62,
+	0x46, 0x6c, 0x6f, 0x77, 0xca, 0x02, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f,
+	0x77, 0xe2, 0x02, 0x16, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0x5c, 0x47,
+	0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x0a, 0x50, 0x65, 0x65,
+	0x72, 0x64, 0x62, 0x46, 0x6c, 0x6f, 0x77, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -3999,147 +4099,149 @@ func file_flow_proto_rawDescGZIP() []byte {
 	return file_flow_proto_rawDescData
 }
 
-var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
 var file_flow_proto_goTypes = []interface{}{
 	(QRepSyncMode)(0),                       // 0: peerdb_flow.QRepSyncMode
 	(QRepWriteType)(0),                      // 1: peerdb_flow.QRepWriteType
-	(*TableNameMapping)(nil),                // 2: peerdb_flow.TableNameMapping
-	(*RelationMessageColumn)(nil),           // 3: peerdb_flow.RelationMessageColumn
-	(*RelationMessage)(nil),                 // 4: peerdb_flow.RelationMessage
-	(*TableMapping)(nil),                    // 5: peerdb_flow.TableMapping
-	(*FlowConnectionConfigs)(nil),           // 6: peerdb_flow.FlowConnectionConfigs
-	(*RenameTableOption)(nil),               // 7: peerdb_flow.RenameTableOption
-	(*RenameTablesInput)(nil),               // 8: peerdb_flow.RenameTablesInput
-	(*RenameTablesOutput)(nil),              // 9: peerdb_flow.RenameTablesOutput
-	(*CreateTablesFromExistingInput)(nil),   // 10: peerdb_flow.CreateTablesFromExistingInput
-	(*CreateTablesFromExistingOutput)(nil),  // 11: peerdb_flow.CreateTablesFromExistingOutput
-	(*SyncFlowOptions)(nil),                 // 12: peerdb_flow.SyncFlowOptions
-	(*NormalizeFlowOptions)(nil),            // 13: peerdb_flow.NormalizeFlowOptions
-	(*LastSyncState)(nil),                   // 14: peerdb_flow.LastSyncState
-	(*StartFlowInput)(nil),                  // 15: peerdb_flow.StartFlowInput
-	(*StartNormalizeInput)(nil),             // 16: peerdb_flow.StartNormalizeInput
-	(*GetLastSyncedIDInput)(nil),            // 17: peerdb_flow.GetLastSyncedIDInput
-	(*EnsurePullabilityInput)(nil),          // 18: peerdb_flow.EnsurePullabilityInput
-	(*EnsurePullabilityBatchInput)(nil),     // 19: peerdb_flow.EnsurePullabilityBatchInput
-	(*PostgresTableIdentifier)(nil),         // 20: peerdb_flow.PostgresTableIdentifier
-	(*TableIdentifier)(nil),                 // 21: peerdb_flow.TableIdentifier
-	(*EnsurePullabilityOutput)(nil),         // 22: peerdb_flow.EnsurePullabilityOutput
-	(*EnsurePullabilityBatchOutput)(nil),    // 23: peerdb_flow.EnsurePullabilityBatchOutput
-	(*SetupReplicationInput)(nil),           // 24: peerdb_flow.SetupReplicationInput
-	(*SetupReplicationOutput)(nil),          // 25: peerdb_flow.SetupReplicationOutput
-	(*CreateRawTableInput)(nil),             // 26: peerdb_flow.CreateRawTableInput
-	(*CreateRawTableOutput)(nil),            // 27: peerdb_flow.CreateRawTableOutput
-	(*TableSchema)(nil),                     // 28: peerdb_flow.TableSchema
-	(*GetTableSchemaBatchInput)(nil),        // 29: peerdb_flow.GetTableSchemaBatchInput
-	(*GetTableSchemaBatchOutput)(nil),       // 30: peerdb_flow.GetTableSchemaBatchOutput
-	(*SetupNormalizedTableInput)(nil),       // 31: peerdb_flow.SetupNormalizedTableInput
-	(*SetupNormalizedTableBatchInput)(nil),  // 32: peerdb_flow.SetupNormalizedTableBatchInput
-	(*SetupNormalizedTableOutput)(nil),      // 33: peerdb_flow.SetupNormalizedTableOutput
-	(*SetupNormalizedTableBatchOutput)(nil), // 34: peerdb_flow.SetupNormalizedTableBatchOutput
-	(*IntPartitionRange)(nil),               // 35: peerdb_flow.IntPartitionRange
-	(*TimestampPartitionRange)(nil),         // 36: peerdb_flow.TimestampPartitionRange
-	(*TID)(nil),                             // 37: peerdb_flow.TID
-	(*TIDPartitionRange)(nil),               // 38: peerdb_flow.TIDPartitionRange
-	(*PartitionRange)(nil),                  // 39: peerdb_flow.PartitionRange
-	(*QRepWriteMode)(nil),                   // 40: peerdb_flow.QRepWriteMode
-	(*QRepConfig)(nil),                      // 41: peerdb_flow.QRepConfig
-	(*QRepPartition)(nil),                   // 42: peerdb_flow.QRepPartition
-	(*QRepPartitionBatch)(nil),              // 43: peerdb_flow.QRepPartitionBatch
-	(*QRepParitionResult)(nil),              // 44: peerdb_flow.QRepParitionResult
-	(*DropFlowInput)(nil),                   // 45: peerdb_flow.DropFlowInput
-	(*DeltaAddedColumn)(nil),                // 46: peerdb_flow.DeltaAddedColumn
-	(*TableSchemaDelta)(nil),                // 47: peerdb_flow.TableSchemaDelta
-	(*ReplayTableSchemaDeltaInput)(nil),     // 48: peerdb_flow.ReplayTableSchemaDeltaInput
-	(*QRepFlowState)(nil),                   // 49: peerdb_flow.QRepFlowState
-	nil,                                     // 50: peerdb_flow.FlowConnectionConfigs.SrcTableIdNameMappingEntry
-	nil,                                     // 51: peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry
-	nil,                                     // 52: peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
-	nil,                                     // 53: peerdb_flow.SyncFlowOptions.RelationMessageMappingEntry
-	nil,                                     // 54: peerdb_flow.StartFlowInput.RelationMessageMappingEntry
-	nil,                                     // 55: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
-	nil,                                     // 56: peerdb_flow.SetupReplicationInput.TableNameMappingEntry
-	nil,                                     // 57: peerdb_flow.CreateRawTableInput.TableNameMappingEntry
-	nil,                                     // 58: peerdb_flow.TableSchema.ColumnsEntry
-	nil,                                     // 59: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
-	nil,                                     // 60: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
-	nil,                                     // 61: peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	(*Peer)(nil),                            // 62: peerdb_peers.Peer
-	(*timestamppb.Timestamp)(nil),           // 63: google.protobuf.Timestamp
+	(FlowStatus)(0),                         // 2: peerdb_flow.FlowStatus
+	(*TableNameMapping)(nil),                // 3: peerdb_flow.TableNameMapping
+	(*RelationMessageColumn)(nil),           // 4: peerdb_flow.RelationMessageColumn
+	(*RelationMessage)(nil),                 // 5: peerdb_flow.RelationMessage
+	(*TableMapping)(nil),                    // 6: peerdb_flow.TableMapping
+	(*FlowConnectionConfigs)(nil),           // 7: peerdb_flow.FlowConnectionConfigs
+	(*RenameTableOption)(nil),               // 8: peerdb_flow.RenameTableOption
+	(*RenameTablesInput)(nil),               // 9: peerdb_flow.RenameTablesInput
+	(*RenameTablesOutput)(nil),              // 10: peerdb_flow.RenameTablesOutput
+	(*CreateTablesFromExistingInput)(nil),   // 11: peerdb_flow.CreateTablesFromExistingInput
+	(*CreateTablesFromExistingOutput)(nil),  // 12: peerdb_flow.CreateTablesFromExistingOutput
+	(*SyncFlowOptions)(nil),                 // 13: peerdb_flow.SyncFlowOptions
+	(*NormalizeFlowOptions)(nil),            // 14: peerdb_flow.NormalizeFlowOptions
+	(*LastSyncState)(nil),                   // 15: peerdb_flow.LastSyncState
+	(*StartFlowInput)(nil),                  // 16: peerdb_flow.StartFlowInput
+	(*StartNormalizeInput)(nil),             // 17: peerdb_flow.StartNormalizeInput
+	(*GetLastSyncedIDInput)(nil),            // 18: peerdb_flow.GetLastSyncedIDInput
+	(*EnsurePullabilityInput)(nil),          // 19: peerdb_flow.EnsurePullabilityInput
+	(*EnsurePullabilityBatchInput)(nil),     // 20: peerdb_flow.EnsurePullabilityBatchInput
+	(*PostgresTableIdentifier)(nil),         // 21: peerdb_flow.PostgresTableIdentifier
+	(*TableIdentifier)(nil),                 // 22: peerdb_flow.TableIdentifier
+	(*EnsurePullabilityOutput)(nil),         // 23: peerdb_flow.EnsurePullabilityOutput
+	(*EnsurePullabilityBatchOutput)(nil),    // 24: peerdb_flow.EnsurePullabilityBatchOutput
+	(*SetupReplicationInput)(nil),           // 25: peerdb_flow.SetupReplicationInput
+	(*SetupReplicationOutput)(nil),          // 26: peerdb_flow.SetupReplicationOutput
+	(*CreateRawTableInput)(nil),             // 27: peerdb_flow.CreateRawTableInput
+	(*CreateRawTableOutput)(nil),            // 28: peerdb_flow.CreateRawTableOutput
+	(*TableSchema)(nil),                     // 29: peerdb_flow.TableSchema
+	(*GetTableSchemaBatchInput)(nil),        // 30: peerdb_flow.GetTableSchemaBatchInput
+	(*GetTableSchemaBatchOutput)(nil),       // 31: peerdb_flow.GetTableSchemaBatchOutput
+	(*SetupNormalizedTableInput)(nil),       // 32: peerdb_flow.SetupNormalizedTableInput
+	(*SetupNormalizedTableBatchInput)(nil),  // 33: peerdb_flow.SetupNormalizedTableBatchInput
+	(*SetupNormalizedTableOutput)(nil),      // 34: peerdb_flow.SetupNormalizedTableOutput
+	(*SetupNormalizedTableBatchOutput)(nil), // 35: peerdb_flow.SetupNormalizedTableBatchOutput
+	(*IntPartitionRange)(nil),               // 36: peerdb_flow.IntPartitionRange
+	(*TimestampPartitionRange)(nil),         // 37: peerdb_flow.TimestampPartitionRange
+	(*TID)(nil),                             // 38: peerdb_flow.TID
+	(*TIDPartitionRange)(nil),               // 39: peerdb_flow.TIDPartitionRange
+	(*PartitionRange)(nil),                  // 40: peerdb_flow.PartitionRange
+	(*QRepWriteMode)(nil),                   // 41: peerdb_flow.QRepWriteMode
+	(*QRepConfig)(nil),                      // 42: peerdb_flow.QRepConfig
+	(*QRepPartition)(nil),                   // 43: peerdb_flow.QRepPartition
+	(*QRepPartitionBatch)(nil),              // 44: peerdb_flow.QRepPartitionBatch
+	(*QRepParitionResult)(nil),              // 45: peerdb_flow.QRepParitionResult
+	(*DropFlowInput)(nil),                   // 46: peerdb_flow.DropFlowInput
+	(*DeltaAddedColumn)(nil),                // 47: peerdb_flow.DeltaAddedColumn
+	(*TableSchemaDelta)(nil),                // 48: peerdb_flow.TableSchemaDelta
+	(*ReplayTableSchemaDeltaInput)(nil),     // 49: peerdb_flow.ReplayTableSchemaDeltaInput
+	(*QRepFlowState)(nil),                   // 50: peerdb_flow.QRepFlowState
+	nil,                                     // 51: peerdb_flow.FlowConnectionConfigs.SrcTableIdNameMappingEntry
+	nil,                                     // 52: peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry
+	nil,                                     // 53: peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
+	nil,                                     // 54: peerdb_flow.SyncFlowOptions.RelationMessageMappingEntry
+	nil,                                     // 55: peerdb_flow.StartFlowInput.RelationMessageMappingEntry
+	nil,                                     // 56: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
+	nil,                                     // 57: peerdb_flow.SetupReplicationInput.TableNameMappingEntry
+	nil,                                     // 58: peerdb_flow.CreateRawTableInput.TableNameMappingEntry
+	nil,                                     // 59: peerdb_flow.TableSchema.ColumnsEntry
+	nil,                                     // 60: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
+	nil,                                     // 61: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
+	nil,                                     // 62: peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
+	(*Peer)(nil),                            // 63: peerdb_peers.Peer
+	(*timestamppb.Timestamp)(nil),           // 64: google.protobuf.Timestamp
 }
 var file_flow_proto_depIdxs = []int32{
-	3,  // 0: peerdb_flow.RelationMessage.columns:type_name -> peerdb_flow.RelationMessageColumn
-	62, // 1: peerdb_flow.FlowConnectionConfigs.source:type_name -> peerdb_peers.Peer
-	62, // 2: peerdb_flow.FlowConnectionConfigs.destination:type_name -> peerdb_peers.Peer
-	28, // 3: peerdb_flow.FlowConnectionConfigs.table_schema:type_name -> peerdb_flow.TableSchema
-	5,  // 4: peerdb_flow.FlowConnectionConfigs.table_mappings:type_name -> peerdb_flow.TableMapping
-	50, // 5: peerdb_flow.FlowConnectionConfigs.src_table_id_name_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.SrcTableIdNameMappingEntry
-	51, // 6: peerdb_flow.FlowConnectionConfigs.table_name_schema_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry
-	62, // 7: peerdb_flow.FlowConnectionConfigs.metadata_peer:type_name -> peerdb_peers.Peer
+	4,  // 0: peerdb_flow.RelationMessage.columns:type_name -> peerdb_flow.RelationMessageColumn
+	63, // 1: peerdb_flow.FlowConnectionConfigs.source:type_name -> peerdb_peers.Peer
+	63, // 2: peerdb_flow.FlowConnectionConfigs.destination:type_name -> peerdb_peers.Peer
+	29, // 3: peerdb_flow.FlowConnectionConfigs.table_schema:type_name -> peerdb_flow.TableSchema
+	6,  // 4: peerdb_flow.FlowConnectionConfigs.table_mappings:type_name -> peerdb_flow.TableMapping
+	51, // 5: peerdb_flow.FlowConnectionConfigs.src_table_id_name_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.SrcTableIdNameMappingEntry
+	52, // 6: peerdb_flow.FlowConnectionConfigs.table_name_schema_mapping:type_name -> peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry
+	63, // 7: peerdb_flow.FlowConnectionConfigs.metadata_peer:type_name -> peerdb_peers.Peer
 	0,  // 8: peerdb_flow.FlowConnectionConfigs.snapshot_sync_mode:type_name -> peerdb_flow.QRepSyncMode
 	0,  // 9: peerdb_flow.FlowConnectionConfigs.cdc_sync_mode:type_name -> peerdb_flow.QRepSyncMode
-	28, // 10: peerdb_flow.RenameTableOption.table_schema:type_name -> peerdb_flow.TableSchema
-	62, // 11: peerdb_flow.RenameTablesInput.peer:type_name -> peerdb_peers.Peer
-	7,  // 12: peerdb_flow.RenameTablesInput.rename_table_options:type_name -> peerdb_flow.RenameTableOption
-	62, // 13: peerdb_flow.CreateTablesFromExistingInput.peer:type_name -> peerdb_peers.Peer
-	52, // 14: peerdb_flow.CreateTablesFromExistingInput.new_to_existing_table_mapping:type_name -> peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
-	53, // 15: peerdb_flow.SyncFlowOptions.relation_message_mapping:type_name -> peerdb_flow.SyncFlowOptions.RelationMessageMappingEntry
-	63, // 16: peerdb_flow.LastSyncState.last_synced_at:type_name -> google.protobuf.Timestamp
-	14, // 17: peerdb_flow.StartFlowInput.last_sync_state:type_name -> peerdb_flow.LastSyncState
-	6,  // 18: peerdb_flow.StartFlowInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
-	12, // 19: peerdb_flow.StartFlowInput.sync_flow_options:type_name -> peerdb_flow.SyncFlowOptions
-	54, // 20: peerdb_flow.StartFlowInput.relation_message_mapping:type_name -> peerdb_flow.StartFlowInput.RelationMessageMappingEntry
-	6,  // 21: peerdb_flow.StartNormalizeInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
-	62, // 22: peerdb_flow.GetLastSyncedIDInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	62, // 23: peerdb_flow.EnsurePullabilityInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	62, // 24: peerdb_flow.EnsurePullabilityBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	20, // 25: peerdb_flow.TableIdentifier.postgres_table_identifier:type_name -> peerdb_flow.PostgresTableIdentifier
-	21, // 26: peerdb_flow.EnsurePullabilityOutput.table_identifier:type_name -> peerdb_flow.TableIdentifier
-	55, // 27: peerdb_flow.EnsurePullabilityBatchOutput.table_identifier_mapping:type_name -> peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
-	62, // 28: peerdb_flow.SetupReplicationInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	56, // 29: peerdb_flow.SetupReplicationInput.table_name_mapping:type_name -> peerdb_flow.SetupReplicationInput.TableNameMappingEntry
-	62, // 30: peerdb_flow.SetupReplicationInput.destination_peer:type_name -> peerdb_peers.Peer
-	62, // 31: peerdb_flow.CreateRawTableInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	57, // 32: peerdb_flow.CreateRawTableInput.table_name_mapping:type_name -> peerdb_flow.CreateRawTableInput.TableNameMappingEntry
+	29, // 10: peerdb_flow.RenameTableOption.table_schema:type_name -> peerdb_flow.TableSchema
+	63, // 11: peerdb_flow.RenameTablesInput.peer:type_name -> peerdb_peers.Peer
+	8,  // 12: peerdb_flow.RenameTablesInput.rename_table_options:type_name -> peerdb_flow.RenameTableOption
+	63, // 13: peerdb_flow.CreateTablesFromExistingInput.peer:type_name -> peerdb_peers.Peer
+	53, // 14: peerdb_flow.CreateTablesFromExistingInput.new_to_existing_table_mapping:type_name -> peerdb_flow.CreateTablesFromExistingInput.NewToExistingTableMappingEntry
+	54, // 15: peerdb_flow.SyncFlowOptions.relation_message_mapping:type_name -> peerdb_flow.SyncFlowOptions.RelationMessageMappingEntry
+	64, // 16: peerdb_flow.LastSyncState.last_synced_at:type_name -> google.protobuf.Timestamp
+	15, // 17: peerdb_flow.StartFlowInput.last_sync_state:type_name -> peerdb_flow.LastSyncState
+	7,  // 18: peerdb_flow.StartFlowInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
+	13, // 19: peerdb_flow.StartFlowInput.sync_flow_options:type_name -> peerdb_flow.SyncFlowOptions
+	55, // 20: peerdb_flow.StartFlowInput.relation_message_mapping:type_name -> peerdb_flow.StartFlowInput.RelationMessageMappingEntry
+	7,  // 21: peerdb_flow.StartNormalizeInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
+	63, // 22: peerdb_flow.GetLastSyncedIDInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	63, // 23: peerdb_flow.EnsurePullabilityInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	63, // 24: peerdb_flow.EnsurePullabilityBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	21, // 25: peerdb_flow.TableIdentifier.postgres_table_identifier:type_name -> peerdb_flow.PostgresTableIdentifier
+	22, // 26: peerdb_flow.EnsurePullabilityOutput.table_identifier:type_name -> peerdb_flow.TableIdentifier
+	56, // 27: peerdb_flow.EnsurePullabilityBatchOutput.table_identifier_mapping:type_name -> peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry
+	63, // 28: peerdb_flow.SetupReplicationInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	57, // 29: peerdb_flow.SetupReplicationInput.table_name_mapping:type_name -> peerdb_flow.SetupReplicationInput.TableNameMappingEntry
+	63, // 30: peerdb_flow.SetupReplicationInput.destination_peer:type_name -> peerdb_peers.Peer
+	63, // 31: peerdb_flow.CreateRawTableInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	58, // 32: peerdb_flow.CreateRawTableInput.table_name_mapping:type_name -> peerdb_flow.CreateRawTableInput.TableNameMappingEntry
 	0,  // 33: peerdb_flow.CreateRawTableInput.cdc_sync_mode:type_name -> peerdb_flow.QRepSyncMode
-	58, // 34: peerdb_flow.TableSchema.columns:type_name -> peerdb_flow.TableSchema.ColumnsEntry
-	62, // 35: peerdb_flow.GetTableSchemaBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	59, // 36: peerdb_flow.GetTableSchemaBatchOutput.table_name_schema_mapping:type_name -> peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
-	62, // 37: peerdb_flow.SetupNormalizedTableInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	28, // 38: peerdb_flow.SetupNormalizedTableInput.source_table_schema:type_name -> peerdb_flow.TableSchema
-	62, // 39: peerdb_flow.SetupNormalizedTableBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
-	60, // 40: peerdb_flow.SetupNormalizedTableBatchInput.table_name_schema_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
-	61, // 41: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
-	63, // 42: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
-	63, // 43: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
-	37, // 44: peerdb_flow.TIDPartitionRange.start:type_name -> peerdb_flow.TID
-	37, // 45: peerdb_flow.TIDPartitionRange.end:type_name -> peerdb_flow.TID
-	35, // 46: peerdb_flow.PartitionRange.int_range:type_name -> peerdb_flow.IntPartitionRange
-	36, // 47: peerdb_flow.PartitionRange.timestamp_range:type_name -> peerdb_flow.TimestampPartitionRange
-	38, // 48: peerdb_flow.PartitionRange.tid_range:type_name -> peerdb_flow.TIDPartitionRange
+	59, // 34: peerdb_flow.TableSchema.columns:type_name -> peerdb_flow.TableSchema.ColumnsEntry
+	63, // 35: peerdb_flow.GetTableSchemaBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	60, // 36: peerdb_flow.GetTableSchemaBatchOutput.table_name_schema_mapping:type_name -> peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry
+	63, // 37: peerdb_flow.SetupNormalizedTableInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	29, // 38: peerdb_flow.SetupNormalizedTableInput.source_table_schema:type_name -> peerdb_flow.TableSchema
+	63, // 39: peerdb_flow.SetupNormalizedTableBatchInput.peer_connection_config:type_name -> peerdb_peers.Peer
+	61, // 40: peerdb_flow.SetupNormalizedTableBatchInput.table_name_schema_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry
+	62, // 41: peerdb_flow.SetupNormalizedTableBatchOutput.table_exists_mapping:type_name -> peerdb_flow.SetupNormalizedTableBatchOutput.TableExistsMappingEntry
+	64, // 42: peerdb_flow.TimestampPartitionRange.start:type_name -> google.protobuf.Timestamp
+	64, // 43: peerdb_flow.TimestampPartitionRange.end:type_name -> google.protobuf.Timestamp
+	38, // 44: peerdb_flow.TIDPartitionRange.start:type_name -> peerdb_flow.TID
+	38, // 45: peerdb_flow.TIDPartitionRange.end:type_name -> peerdb_flow.TID
+	36, // 46: peerdb_flow.PartitionRange.int_range:type_name -> peerdb_flow.IntPartitionRange
+	37, // 47: peerdb_flow.PartitionRange.timestamp_range:type_name -> peerdb_flow.TimestampPartitionRange
+	39, // 48: peerdb_flow.PartitionRange.tid_range:type_name -> peerdb_flow.TIDPartitionRange
 	1,  // 49: peerdb_flow.QRepWriteMode.write_type:type_name -> peerdb_flow.QRepWriteType
-	62, // 50: peerdb_flow.QRepConfig.source_peer:type_name -> peerdb_peers.Peer
-	62, // 51: peerdb_flow.QRepConfig.destination_peer:type_name -> peerdb_peers.Peer
+	63, // 50: peerdb_flow.QRepConfig.source_peer:type_name -> peerdb_peers.Peer
+	63, // 51: peerdb_flow.QRepConfig.destination_peer:type_name -> peerdb_peers.Peer
 	0,  // 52: peerdb_flow.QRepConfig.sync_mode:type_name -> peerdb_flow.QRepSyncMode
-	40, // 53: peerdb_flow.QRepConfig.write_mode:type_name -> peerdb_flow.QRepWriteMode
-	39, // 54: peerdb_flow.QRepPartition.range:type_name -> peerdb_flow.PartitionRange
-	42, // 55: peerdb_flow.QRepPartitionBatch.partitions:type_name -> peerdb_flow.QRepPartition
-	42, // 56: peerdb_flow.QRepParitionResult.partitions:type_name -> peerdb_flow.QRepPartition
-	46, // 57: peerdb_flow.TableSchemaDelta.added_columns:type_name -> peerdb_flow.DeltaAddedColumn
-	6,  // 58: peerdb_flow.ReplayTableSchemaDeltaInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
-	47, // 59: peerdb_flow.ReplayTableSchemaDeltaInput.table_schema_deltas:type_name -> peerdb_flow.TableSchemaDelta
-	42, // 60: peerdb_flow.QRepFlowState.last_partition:type_name -> peerdb_flow.QRepPartition
-	28, // 61: peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	4,  // 62: peerdb_flow.SyncFlowOptions.RelationMessageMappingEntry.value:type_name -> peerdb_flow.RelationMessage
-	4,  // 63: peerdb_flow.StartFlowInput.RelationMessageMappingEntry.value:type_name -> peerdb_flow.RelationMessage
-	21, // 64: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.TableIdentifier
-	28, // 65: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	28, // 66: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
-	67, // [67:67] is the sub-list for method output_type
-	67, // [67:67] is the sub-list for method input_type
-	67, // [67:67] is the sub-list for extension type_name
-	67, // [67:67] is the sub-list for extension extendee
-	0,  // [0:67] is the sub-list for field type_name
+	41, // 53: peerdb_flow.QRepConfig.write_mode:type_name -> peerdb_flow.QRepWriteMode
+	40, // 54: peerdb_flow.QRepPartition.range:type_name -> peerdb_flow.PartitionRange
+	43, // 55: peerdb_flow.QRepPartitionBatch.partitions:type_name -> peerdb_flow.QRepPartition
+	43, // 56: peerdb_flow.QRepParitionResult.partitions:type_name -> peerdb_flow.QRepPartition
+	47, // 57: peerdb_flow.TableSchemaDelta.added_columns:type_name -> peerdb_flow.DeltaAddedColumn
+	7,  // 58: peerdb_flow.ReplayTableSchemaDeltaInput.flow_connection_configs:type_name -> peerdb_flow.FlowConnectionConfigs
+	48, // 59: peerdb_flow.ReplayTableSchemaDeltaInput.table_schema_deltas:type_name -> peerdb_flow.TableSchemaDelta
+	43, // 60: peerdb_flow.QRepFlowState.last_partition:type_name -> peerdb_flow.QRepPartition
+	2,  // 61: peerdb_flow.QRepFlowState.current_flow_state:type_name -> peerdb_flow.FlowStatus
+	29, // 62: peerdb_flow.FlowConnectionConfigs.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	5,  // 63: peerdb_flow.SyncFlowOptions.RelationMessageMappingEntry.value:type_name -> peerdb_flow.RelationMessage
+	5,  // 64: peerdb_flow.StartFlowInput.RelationMessageMappingEntry.value:type_name -> peerdb_flow.RelationMessage
+	22, // 65: peerdb_flow.EnsurePullabilityBatchOutput.TableIdentifierMappingEntry.value:type_name -> peerdb_flow.TableIdentifier
+	29, // 66: peerdb_flow.GetTableSchemaBatchOutput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	29, // 67: peerdb_flow.SetupNormalizedTableBatchInput.TableNameSchemaMappingEntry.value:type_name -> peerdb_flow.TableSchema
+	68, // [68:68] is the sub-list for method output_type
+	68, // [68:68] is the sub-list for method input_type
+	68, // [68:68] is the sub-list for extension type_name
+	68, // [68:68] is the sub-list for extension extendee
+	0,  // [0:68] is the sub-list for field type_name
 }
 
 func init() { file_flow_proto_init() }
@@ -4740,7 +4842,7 @@ func file_flow_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_flow_proto_rawDesc,
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   60,
 			NumExtensions: 0,
 			NumServices:   0,

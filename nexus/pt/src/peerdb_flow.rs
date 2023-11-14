@@ -542,6 +542,8 @@ pub struct QRepFlowState {
     pub needs_resync: bool,
     #[prost(bool, tag="4")]
     pub disable_wait_for_new_rows: bool,
+    #[prost(enumeration="FlowStatus", tag="5")]
+    pub current_flow_state: i32,
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -596,6 +598,63 @@ impl QRepWriteType {
             "QREP_WRITE_MODE_APPEND" => Some(Self::QrepWriteModeAppend),
             "QREP_WRITE_MODE_UPSERT" => Some(Self::QrepWriteModeUpsert),
             "QREP_WRITE_MODE_OVERWRITE" => Some(Self::QrepWriteModeOverwrite),
+            _ => None,
+        }
+    }
+}
+/// UI reads current workflow status and also requests status changes using same enum
+/// UI can request STATUS_PAUSED, STATUS_RUNNING and STATUS_TERMINATED
+/// STATUS_RUNNING -> STATUS_PAUSED/STATUS_TERMINATED
+/// STATUS_PAUSED -> STATUS_RUNNING/STATUS_TERMINATED
+/// UI can read everything except STATUS_UNKNOWN
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum FlowStatus {
+    /// should never be read by UI, bail
+    StatusUnknown = 0,
+    /// enable pause and terminate buttons
+    StatusRunning = 1,
+    /// pause button becomes resume button, terminate button should still be enabled
+    StatusPaused = 2,
+    /// neither button should be enabled
+    StatusPausing = 3,
+    /// neither button should be enabled, not reachable in QRep mirrors
+    StatusSetup = 4,
+    /// neither button should be enabled, not reachable in QRep mirrors
+    StatusSnapshot = 5,
+    /// neither button should be enabled
+    StatusTerminating = 6,
+    /// neither button should be enabled
+    StatusTerminated = 7,
+}
+impl FlowStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            FlowStatus::StatusUnknown => "STATUS_UNKNOWN",
+            FlowStatus::StatusRunning => "STATUS_RUNNING",
+            FlowStatus::StatusPaused => "STATUS_PAUSED",
+            FlowStatus::StatusPausing => "STATUS_PAUSING",
+            FlowStatus::StatusSetup => "STATUS_SETUP",
+            FlowStatus::StatusSnapshot => "STATUS_SNAPSHOT",
+            FlowStatus::StatusTerminating => "STATUS_TERMINATING",
+            FlowStatus::StatusTerminated => "STATUS_TERMINATED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "STATUS_UNKNOWN" => Some(Self::StatusUnknown),
+            "STATUS_RUNNING" => Some(Self::StatusRunning),
+            "STATUS_PAUSED" => Some(Self::StatusPaused),
+            "STATUS_PAUSING" => Some(Self::StatusPausing),
+            "STATUS_SETUP" => Some(Self::StatusSetup),
+            "STATUS_SNAPSHOT" => Some(Self::StatusSnapshot),
+            "STATUS_TERMINATING" => Some(Self::StatusTerminating),
+            "STATUS_TERMINATED" => Some(Self::StatusTerminated),
             _ => None,
         }
     }

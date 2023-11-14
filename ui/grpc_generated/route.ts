@@ -13,7 +13,7 @@ import {
 } from "@grpc/grpc-js";
 import Long from "long";
 import _m0 from "protobufjs/minimal";
-import { FlowConnectionConfigs, QRepConfig } from "./flow";
+import { FlowConnectionConfigs, FlowStatus, flowStatusFromJSON, flowStatusToJSON, QRepConfig } from "./flow";
 import { Timestamp } from "./google/protobuf/timestamp";
 import { Peer } from "./peers";
 
@@ -92,46 +92,6 @@ export function createPeerStatusToJSON(object: CreatePeerStatus): string {
     case CreatePeerStatus.FAILED:
       return "FAILED";
     case CreatePeerStatus.UNRECOGNIZED:
-    default:
-      return "UNRECOGNIZED";
-  }
-}
-
-/** in the future, consider moving DropFlow to this and reduce route surface */
-export enum FlowState {
-  STATE_UNKNOWN = 0,
-  STATE_RUNNING = 1,
-  STATE_PAUSED = 2,
-  UNRECOGNIZED = -1,
-}
-
-export function flowStateFromJSON(object: any): FlowState {
-  switch (object) {
-    case 0:
-    case "STATE_UNKNOWN":
-      return FlowState.STATE_UNKNOWN;
-    case 1:
-    case "STATE_RUNNING":
-      return FlowState.STATE_RUNNING;
-    case 2:
-    case "STATE_PAUSED":
-      return FlowState.STATE_PAUSED;
-    case -1:
-    case "UNRECOGNIZED":
-    default:
-      return FlowState.UNRECOGNIZED;
-  }
-}
-
-export function flowStateToJSON(object: FlowState): string {
-  switch (object) {
-    case FlowState.STATE_UNKNOWN:
-      return "STATE_UNKNOWN";
-    case FlowState.STATE_RUNNING:
-      return "STATE_RUNNING";
-    case FlowState.STATE_PAUSED:
-      return "STATE_PAUSED";
-    case FlowState.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
   }
@@ -296,12 +256,15 @@ export interface MirrorStatusResponse {
   qrepStatus?: QRepMirrorStatus | undefined;
   cdcStatus?: CDCMirrorStatus | undefined;
   errorMessage: string;
+  currentFlowState: FlowStatus;
 }
 
+/** fold ShutdownFlow into this eventually to reduce API surface */
 export interface FlowStateChangeRequest {
-  workflowId: string;
   flowJobName: string;
-  requestedFlowState: FlowState;
+  requestedFlowState: FlowStatus;
+  sourcePeer: Peer | undefined;
+  destinationPeer: Peer | undefined;
 }
 
 export interface FlowStateChangeResponse {
@@ -2493,7 +2456,7 @@ export const CDCMirrorStatus = {
 };
 
 function createBaseMirrorStatusResponse(): MirrorStatusResponse {
-  return { flowJobName: "", qrepStatus: undefined, cdcStatus: undefined, errorMessage: "" };
+  return { flowJobName: "", qrepStatus: undefined, cdcStatus: undefined, errorMessage: "", currentFlowState: 0 };
 }
 
 export const MirrorStatusResponse = {
@@ -2509,6 +2472,9 @@ export const MirrorStatusResponse = {
     }
     if (message.errorMessage !== "") {
       writer.uint32(34).string(message.errorMessage);
+    }
+    if (message.currentFlowState !== 0) {
+      writer.uint32(40).int32(message.currentFlowState);
     }
     return writer;
   },
@@ -2548,6 +2514,13 @@ export const MirrorStatusResponse = {
 
           message.errorMessage = reader.string();
           continue;
+        case 5:
+          if (tag !== 40) {
+            break;
+          }
+
+          message.currentFlowState = reader.int32() as any;
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2563,6 +2536,7 @@ export const MirrorStatusResponse = {
       qrepStatus: isSet(object.qrepStatus) ? QRepMirrorStatus.fromJSON(object.qrepStatus) : undefined,
       cdcStatus: isSet(object.cdcStatus) ? CDCMirrorStatus.fromJSON(object.cdcStatus) : undefined,
       errorMessage: isSet(object.errorMessage) ? String(object.errorMessage) : "",
+      currentFlowState: isSet(object.currentFlowState) ? flowStatusFromJSON(object.currentFlowState) : 0,
     };
   },
 
@@ -2580,6 +2554,9 @@ export const MirrorStatusResponse = {
     if (message.errorMessage !== "") {
       obj.errorMessage = message.errorMessage;
     }
+    if (message.currentFlowState !== 0) {
+      obj.currentFlowState = flowStatusToJSON(message.currentFlowState);
+    }
     return obj;
   },
 
@@ -2596,24 +2573,28 @@ export const MirrorStatusResponse = {
       ? CDCMirrorStatus.fromPartial(object.cdcStatus)
       : undefined;
     message.errorMessage = object.errorMessage ?? "";
+    message.currentFlowState = object.currentFlowState ?? 0;
     return message;
   },
 };
 
 function createBaseFlowStateChangeRequest(): FlowStateChangeRequest {
-  return { workflowId: "", flowJobName: "", requestedFlowState: 0 };
+  return { flowJobName: "", requestedFlowState: 0, sourcePeer: undefined, destinationPeer: undefined };
 }
 
 export const FlowStateChangeRequest = {
   encode(message: FlowStateChangeRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
-    if (message.workflowId !== "") {
-      writer.uint32(10).string(message.workflowId);
-    }
     if (message.flowJobName !== "") {
-      writer.uint32(18).string(message.flowJobName);
+      writer.uint32(10).string(message.flowJobName);
     }
     if (message.requestedFlowState !== 0) {
-      writer.uint32(24).int32(message.requestedFlowState);
+      writer.uint32(16).int32(message.requestedFlowState);
+    }
+    if (message.sourcePeer !== undefined) {
+      Peer.encode(message.sourcePeer, writer.uint32(26).fork()).ldelim();
+    }
+    if (message.destinationPeer !== undefined) {
+      Peer.encode(message.destinationPeer, writer.uint32(34).fork()).ldelim();
     }
     return writer;
   },
@@ -2630,21 +2611,28 @@ export const FlowStateChangeRequest = {
             break;
           }
 
-          message.workflowId = reader.string();
-          continue;
-        case 2:
-          if (tag !== 18) {
-            break;
-          }
-
           message.flowJobName = reader.string();
           continue;
-        case 3:
-          if (tag !== 24) {
+        case 2:
+          if (tag !== 16) {
             break;
           }
 
           message.requestedFlowState = reader.int32() as any;
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.sourcePeer = Peer.decode(reader, reader.uint32());
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.destinationPeer = Peer.decode(reader, reader.uint32());
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
@@ -2657,22 +2645,26 @@ export const FlowStateChangeRequest = {
 
   fromJSON(object: any): FlowStateChangeRequest {
     return {
-      workflowId: isSet(object.workflowId) ? String(object.workflowId) : "",
       flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
-      requestedFlowState: isSet(object.requestedFlowState) ? flowStateFromJSON(object.requestedFlowState) : 0,
+      requestedFlowState: isSet(object.requestedFlowState) ? flowStatusFromJSON(object.requestedFlowState) : 0,
+      sourcePeer: isSet(object.sourcePeer) ? Peer.fromJSON(object.sourcePeer) : undefined,
+      destinationPeer: isSet(object.destinationPeer) ? Peer.fromJSON(object.destinationPeer) : undefined,
     };
   },
 
   toJSON(message: FlowStateChangeRequest): unknown {
     const obj: any = {};
-    if (message.workflowId !== "") {
-      obj.workflowId = message.workflowId;
-    }
     if (message.flowJobName !== "") {
       obj.flowJobName = message.flowJobName;
     }
     if (message.requestedFlowState !== 0) {
-      obj.requestedFlowState = flowStateToJSON(message.requestedFlowState);
+      obj.requestedFlowState = flowStatusToJSON(message.requestedFlowState);
+    }
+    if (message.sourcePeer !== undefined) {
+      obj.sourcePeer = Peer.toJSON(message.sourcePeer);
+    }
+    if (message.destinationPeer !== undefined) {
+      obj.destinationPeer = Peer.toJSON(message.destinationPeer);
     }
     return obj;
   },
@@ -2682,9 +2674,14 @@ export const FlowStateChangeRequest = {
   },
   fromPartial<I extends Exact<DeepPartial<FlowStateChangeRequest>, I>>(object: I): FlowStateChangeRequest {
     const message = createBaseFlowStateChangeRequest();
-    message.workflowId = object.workflowId ?? "";
     message.flowJobName = object.flowJobName ?? "";
     message.requestedFlowState = object.requestedFlowState ?? 0;
+    message.sourcePeer = (object.sourcePeer !== undefined && object.sourcePeer !== null)
+      ? Peer.fromPartial(object.sourcePeer)
+      : undefined;
+    message.destinationPeer = (object.destinationPeer !== undefined && object.destinationPeer !== null)
+      ? Peer.fromPartial(object.destinationPeer)
+      : undefined;
     return message;
   },
 };
