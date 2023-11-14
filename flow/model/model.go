@@ -121,22 +121,23 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 	jsonStruct := make(map[string]interface{})
 	for col, idx := range r.colToValIdx {
 		v := r.values[idx]
+		if v.Value == nil {
+			jsonStruct[col] = nil
+			continue
+		}
+
 		var err error
 		switch v.Kind {
 		case qvalue.QValueKindString, qvalue.QValueKindJSON:
-			if v.Value == nil {
-				jsonStruct[col] = nil
-			} else {
-				strVal, ok := v.Value.(string)
-				if !ok {
-					return nil, fmt.Errorf("expected string value for column %s for %T", col, v.Value)
-				}
+			strVal, ok := v.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("expected string value for column %s for %T", col, v.Value)
+			}
 
-				if len(strVal) > 15*1024*1024 {
-					jsonStruct[col] = ""
-				} else {
-					jsonStruct[col] = strVal
-				}
+			if len(strVal) > 15*1024*1024 {
+				jsonStruct[col] = ""
+			} else {
+				jsonStruct[col] = strVal
 			}
 		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
 			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
