@@ -1089,6 +1089,10 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
 	startTime := time.Now()
+	log.WithFields(log.Fields{
+		"flowName": destinationTableIdentifier,
+	}).Infof("[merge] merging records into %s...", destinationTableIdentifier)
+
 	result, err := normalizeRecordsTx.ExecContext(ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
 		return 0, fmt.Errorf("failed to merge records into %s (statement: %s): %w",
