@@ -1111,6 +1111,11 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 			destinationTableIdentifier, mergeStatement, err)
 	}
 
+	err = mergeTx.Commit()
+	if err != nil {
+		return 0, fmt.Errorf("unable to commit transaction for merge: %w", err)
+	}
+
 	endTime := time.Now()
 	log.Infof("[merge] merged records into %s, took: %d seconds",
 		destinationTableIdentifier, endTime.Sub(startTime)/time.Second)
