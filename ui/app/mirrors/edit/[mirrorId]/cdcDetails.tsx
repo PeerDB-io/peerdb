@@ -1,4 +1,5 @@
 'use client';
+import MirrorInfo from '@/components/MirrorInfo';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
@@ -7,7 +8,8 @@ import { Badge } from '@/lib/Badge';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
-import CdcGraph from './cdcGraph';
+import MirrorValues from './configValues';
+import TablePairs from './tablePairs';
 
 type SyncStatusRow = {
   batchId: number;
@@ -113,109 +115,19 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
               <Label variant='body'>{numberWithCommas(rowsSynced)}</Label>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className='mt-10'>
-        <CdcGraph syncs={syncs} />
-      </div>
-
-      <div
-        style={{ display: 'flex', flexDirection: 'column', marginTop: '1rem' }}
-      >
-        <div className='mt-5'>
-          <Label colorName='lowContrast'>Mirror Configuration</Label>
-          <div
-            style={{
-              width: 'fit-content',
-              display: 'flex',
-              rowGap: '0.5rem',
-              flexDirection: 'column',
-            }}
-          >
-            <div
-              className='bg-white rounded-lg p-1'
-              style={{ border: '1px solid #ddd' }}
-            >
-              <Label variant='subheadline' colorName='lowContrast'>
-                Pull Batch Size:
-              </Label>
-              <Label variant='body'>{mirrorConfig?.maxBatchSize}</Label>
-            </div>
-            <div
-              className='bg-white rounded-lg p-1'
-              style={{ border: '1px solid #ddd' }}
-            >
-              <Label variant='subheadline' colorName='lowContrast'>
-                Snapshot Rows Per Partition:
-              </Label>
-              <Label variant='body'>
-                {mirrorConfig?.snapshotNumRowsPerPartition}
-              </Label>
-            </div>
-            <div
-              className='bg-white rounded-lg p-1'
-              style={{ border: '1px solid #ddd' }}
-            >
-              <Label variant='subheadline' colorName='lowContrast'>
-                Snapshot Parallel Workers:
-              </Label>
-              <Label variant='body'>
-                {mirrorConfig?.snapshotMaxParallelWorkers}
-              </Label>
-            </div>
-            <div
-              className='bg-white rounded-lg p-1'
-              style={{ border: '1px solid #ddd' }}
-            >
-              <Label variant='subheadline' colorName='lowContrast'>
-                Snapshot Tables In Parallel:
-              </Label>
-              <Label variant='body'>
-                {mirrorConfig?.snapshotNumTablesInParallel}
-              </Label>
-            </div>
+          <div className='basis-1/4'>
+            <MirrorInfo configs={MirrorValues(mirrorConfig)} />
           </div>
         </div>
-        <table
-          style={{
-            marginTop: '1rem',
-            borderCollapse: 'collapse',
-            width: '100%',
-          }}
-        >
-          <thead>
-            <tr style={{ borderBottom: '1px solid #ddd' }}>
-              <th style={{ textAlign: 'left', padding: '0.5rem' }}>
-                Source Table
-              </th>
-              <th style={{ textAlign: 'left', padding: '0.5rem' }}>
-                Destination Table
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {tablesSynced?.map((table) => (
-              <tr
-                key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
-                style={{ borderBottom: '1px solid #ddd' }}
-              >
-                <td style={{ padding: '0.5rem' }}>
-                  {table.sourceTableIdentifier}
-                </td>
-                <td style={{ padding: '0.5rem' }}>
-                  {table.destinationTableIdentifier}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
+
+      <TablePairs tables={tablesSynced} />
     </>
   );
 }
 
-function numberWithCommas(x: Number): string {
+export function numberWithCommas(x: any): string {
   return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 

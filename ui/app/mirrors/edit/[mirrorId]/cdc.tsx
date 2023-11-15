@@ -96,7 +96,7 @@ type SnapshotStatusProps = {
   status: SnapshotStatus;
 };
 
-const ROWS_PER_PAGE = 6;
+const ROWS_PER_PAGE = 10;
 export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   const allRows = status.clones.map(summarizeTableClone);
   const [sortField, setSortField] = useState<
@@ -107,9 +107,10 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
 
   const startRow = (currentPage - 1) * ROWS_PER_PAGE;
   const endRow = startRow + ROWS_PER_PAGE;
-  const [displayedRows, setDisplayedRows] = useState(
+  const [displayedRows, setDisplayedRows] = useState(() =>
     allRows.slice(startRow, endRow)
   );
+
   const handlePrevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
@@ -186,7 +187,6 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
                     (val?.value as 'cloneStartTime' | 'avgTimePerPartition') ??
                     'cloneStartTime';
                   setSortField(sortVal);
-                  handleSort(sortVal);
                 }}
                 value={{
                   value: sortField,

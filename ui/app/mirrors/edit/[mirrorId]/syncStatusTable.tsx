@@ -48,7 +48,7 @@ function TimeWithDurationOrRunning({
   }
 }
 
-const ROWS_PER_PAGE = 6;
+const ROWS_PER_PAGE = 10;
 const sortOptions = [
   { value: 'startTime', label: 'Start Time' },
   { value: 'endTime', label: 'End Time' },
@@ -146,7 +146,6 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
                   (val?.value as 'startTime' | 'endTime' | 'numRows') ??
                   'startTime';
                 setSortField(sortVal);
-                handleSort(sortVal);
               }}
               defaultValue={{ value: 'startTime', label: 'Start Time' }}
             />

@@ -1,3 +1,4 @@
+'use client';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
 import { useEffect, useState } from 'react';
@@ -10,16 +11,6 @@ type SyncStatusRow = {
 };
 
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
-
-const aggregateTypeMap: { [key: string]: string } = {
-  '15min': ' 15 mins',
-  '5min': '5 mins',
-  '1min': '1 min',
-  hour: 'Hour',
-  day: 'Day',
-  month: 'Month',
-  week: 'Week',
-};
 
 function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
   let [aggregateType, setAggregateType] = useState('hour');

@@ -33,13 +33,6 @@ export default async function EditMirror({
     return <div>No mirror status found!</div>;
   }
 
-  let syncStatusChild = <></>;
-  if (mirrorStatus.cdcStatus) {
-    syncStatusChild = <SyncStatus flowJobName={mirrorId} />;
-  } else {
-    redirect(`/mirrors/status/qrep/${mirrorId}`);
-  }
-
   let createdAt = await prisma.flows.findFirst({
     select: {
       created_at: true,
@@ -60,6 +53,16 @@ export default async function EditMirror({
       start_time: 'desc',
     },
   });
+
+  let syncStatusChild = <></>;
+  if (mirrorStatus.cdcStatus) {
+    let rowsSynced = syncs.reduce((acc, sync) => acc + sync.rows_in_batch, 0);
+    syncStatusChild = (
+      <SyncStatus rowsSynced={rowsSynced} flowJobName={mirrorId} />
+    );
+  } else {
+    redirect(`/mirrors/status/qrep/${mirrorId}`);
+  }
 
   const rows = syncs.map((sync) => ({
     batchId: sync.id,
