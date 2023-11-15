@@ -15,7 +15,7 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import * as Tabs from '@radix-ui/react-tabs';
 import moment, { Duration, Moment } from 'moment';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 import styled from 'styled-components';
 import CdcDetails from './cdcDetails';
@@ -126,28 +126,32 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
     }
   };
 
-  const handleSort = (sortField: 'cloneStartTime' | 'avgTimePerPartition') => {
-    const sortedRows = [...displayedRows].sort((a, b) => {
-      const aValue = a[sortField];
-      const bValue = b[sortField];
-      if (aValue === null || bValue === null) {
-        return 0;
-      }
+  const handleSort = useCallback(
+    (sortField: 'cloneStartTime' | 'avgTimePerPartition') => {
+      setDisplayedRows((currRows) =>
+        [...currRows].sort((a, b) => {
+          const aValue = a[sortField];
+          const bValue = b[sortField];
+          if (aValue === null || bValue === null) {
+            return 0;
+          }
 
-      if (aValue < bValue) {
-        return -1;
-      } else if (aValue > bValue) {
-        return 1;
-      } else {
-        return 0;
-      }
-    });
-    setDisplayedRows(sortedRows);
-  };
+          if (aValue < bValue) {
+            return -1;
+          } else if (aValue > bValue) {
+            return 1;
+          } else {
+            return 0;
+          }
+        })
+      );
+    },
+    [setDisplayedRows]
+  );
 
   useEffect(() => {
     handleSort('cloneStartTime');
-  }, []);
+  }, [handleSort]);
 
   return (
     <div style={{ marginTop: '2rem' }}>
@@ -216,16 +220,11 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
               </Label>
             </TableCell>
             <TableCell>
-              <Label>
-                {
-                  <TimeLabel
-                    timeVal={
-                      clone.cloneStartTime?.format('YYYY-MM-DD HH:mm:ss') ||
-                      'N/A'
-                    }
-                  />
+              <TimeLabel
+                timeVal={
+                  clone.cloneStartTime?.format('YYYY-MM-DD HH:mm:ss') || 'N/A'
                 }
-              </Label>
+              />
             </TableCell>
             <TableCell>
               <ProgressBar progress={clone.getPartitionProgressPercentage()} />

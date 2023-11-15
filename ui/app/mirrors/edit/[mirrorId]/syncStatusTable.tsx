@@ -8,7 +8,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 type SyncStatusRow = {
   batchId: number;
@@ -85,28 +85,32 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
     }
   };
 
-  const handleSort = (sortField: 'startTime' | 'endTime' | 'numRows') => {
-    const sortedRows = [...displayedRows].sort((a, b) => {
-      const aValue = a[sortField];
-      const bValue = b[sortField];
-      if (aValue === null || bValue === null) {
-        return 0;
-      }
+  const handleSort = useCallback(
+    (sortField: 'startTime' | 'endTime' | 'numRows') => {
+      setDisplayedRows((currRows) =>
+        [...currRows].sort((a, b) => {
+          const aValue = a[sortField];
+          const bValue = b[sortField];
+          if (aValue === null || bValue === null) {
+            return 0;
+          }
 
-      if (aValue < bValue) {
-        return -1;
-      } else if (aValue > bValue) {
-        return 1;
-      } else {
-        return 0;
-      }
-    });
-    setDisplayedRows(sortedRows);
-  };
+          if (aValue < bValue) {
+            return -1;
+          } else if (aValue > bValue) {
+            return 1;
+          } else {
+            return 0;
+          }
+        })
+      );
+    },
+    [setDisplayedRows]
+  );
 
   useEffect(() => {
     handleSort('startTime');
-  }, []);
+  }, [handleSort]);
 
   return (
     <Table
