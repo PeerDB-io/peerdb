@@ -4,9 +4,7 @@ import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import { redirect } from 'next/navigation';
-import { Suspense } from 'react';
-import { SnapshotStatusTable } from './cdc';
-import CdcDetails from './cdcDetails';
+import { CDCMirror } from './cdc';
 import SyncStatus from './syncStatus';
 
 export const dynamic = 'force-dynamic';
@@ -27,10 +25,6 @@ async function getMirrorStatus(mirrorId: string) {
   return json;
 }
 
-function Loading() {
-  return <div>Loading...</div>;
-}
-
 export default async function EditMirror({
   params: { mirrorId },
 }: EditMirrorProps) {
@@ -45,6 +39,15 @@ export default async function EditMirror({
   } else {
     redirect(`/mirrors/status/qrep/${mirrorId}`);
   }
+
+  let createdAt = await prisma.flows.findFirst({
+    select: {
+      created_at: true,
+    },
+    where: {
+      name: mirrorId,
+    },
+  });
 
   let syncs = await prisma.cdc_batches.findMany({
     where: {
@@ -68,22 +71,12 @@ export default async function EditMirror({
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
       <Header variant='title2'>{mirrorId}</Header>
-      <Suspense fallback={<Loading />}>
-        {mirrorStatus.cdcStatus && (
-          <>
-            <CdcDetails
-              syncs={rows}
-              mirrorConfig={mirrorStatus.cdcStatus.config}
-            />
-            {mirrorStatus.cdcStatus.snapshotStatus && (
-              <SnapshotStatusTable
-                status={mirrorStatus.cdcStatus.snapshotStatus}
-              />
-            )}
-          </>
-        )}
-        <div className='mt-10'>{syncStatusChild}</div>
-      </Suspense>
+      <CDCMirror
+        rows={rows}
+        createdAt={createdAt?.created_at}
+        syncStatusChild={syncStatusChild}
+        cdc={mirrorStatus.cdcStatus}
+      />
     </LayoutMain>
   );
 }

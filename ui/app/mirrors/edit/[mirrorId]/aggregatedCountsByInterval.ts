@@ -23,6 +23,15 @@ function aggregateCountsByInterval(
     case 'day':
       timeUnit = 'YYYY-MM-DD';
       break;
+    case '1min':
+      timeUnit = 'YYYY-MM-DD HH:mm';
+      break;
+    case '5min':
+      timeUnit = 'YYYY-MM-DD HH:mm';
+      break;
+    case 'week':
+      timeUnit = 'YYYY-MM-DD';
+      break;
     default:
       throw new Error('Invalid interval provided');
   }

@@ -8,8 +8,8 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useMemo, useState } from 'react';
-
+import { useEffect, useMemo, useState } from 'react';
+import ReactSelect from 'react-select';
 type SyncStatusRow = {
   batchId: number;
   startTime: Date;
@@ -48,8 +48,12 @@ function TimeWithDurationOrRunning({
   }
 }
 
-const ROWS_PER_PAGE = 10;
-
+const ROWS_PER_PAGE = 6;
+const sortOptions = [
+  { value: 'startTime', label: 'Start Time' },
+  { value: 'endTime', label: 'End Time' },
+  { value: 'numRows', label: 'Rows Synced' },
+];
 export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
@@ -64,12 +68,45 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
     return shownRows.length > 0 ? shownRows : allRows;
   }, [searchQuery, endRow, startRow, rows]);
   const handlePrevPage = () => {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+      const newStartRow = (currentPage - 2) * ROWS_PER_PAGE;
+      const newEndRow = newStartRow + ROWS_PER_PAGE;
+      setDisplayedRows(rows.slice(newStartRow, newEndRow));
+    }
   };
 
   const handleNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+      const newStartRow = currentPage * ROWS_PER_PAGE;
+      const newEndRow = newStartRow + ROWS_PER_PAGE;
+      setDisplayedRows(rows.slice(newStartRow, newEndRow));
+    }
   };
+
+  const handleSort = (sortField: 'startTime' | 'endTime' | 'numRows') => {
+    const sortedRows = [...displayedRows].sort((a, b) => {
+      const aValue = a[sortField];
+      const bValue = b[sortField];
+      if (aValue === null || bValue === null) {
+        return 0;
+      }
+
+      if (aValue < bValue) {
+        return -1;
+      } else if (aValue > bValue) {
+        return 1;
+      } else {
+        return 0;
+      }
+    });
+    setDisplayedRows(sortedRows);
+  };
+
+  useEffect(() => {
+    handleSort('startTime');
+  }, []);
 
   return (
     <Table
@@ -90,6 +127,16 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
             >
               <Icon name='refresh' />
             </Button>
+            <ReactSelect
+              options={sortOptions}
+              onChange={(val, _) =>
+                handleSort(
+                  (val?.value as 'startTime' | 'endTime' | 'numRows') ??
+                    'startTime'
+                )
+              }
+              defaultValue={{ value: 'startTime', label: 'Start Time' }}
+            />
           </>
         ),
         right: (
@@ -115,8 +162,8 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
         </TableRow>
       }
     >
-      {displayedRows.map((row, index) => (
-        <TableRow key={index}>
+      {displayedRows.map((row) => (
+        <TableRow key={row.batchId}>
           <TableCell>
             <Label>{row.batchId}</Label>
           </TableCell>

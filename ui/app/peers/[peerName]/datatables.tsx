@@ -69,7 +69,7 @@ export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
                 </TableCell>
                 <TableCell>
                   <Label as='label' style={{ fontSize: 14 }}>
-                    {lagInMb}
+                    {lagInMb < 0 ? 0 : lagInMb}
                   </Label>
                 </TableCell>
               </TableRow>
