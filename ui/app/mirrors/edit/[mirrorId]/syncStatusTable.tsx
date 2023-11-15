@@ -63,13 +63,10 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const startRow = (currentPage - 1) * ROWS_PER_PAGE;
   const endRow = startRow + ROWS_PER_PAGE;
-  const displayedRows = useMemo(() => {
-    const allRows = rows.slice(startRow, endRow);
-    const shownRows = allRows.filter(
-      (row: any) => row.batchId == parseInt(searchQuery, 10)
-    );
-    return shownRows.length > 0 ? shownRows : allRows;
-  }, [searchQuery, endRow, startRow, rows]);
+  const allRows = rows.slice(startRow, endRow);
+  const [displayedRows, setDisplayedRows] = useState(() =>
+    rows.slice(startRow, endRow)
+  );
   const handlePrevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
