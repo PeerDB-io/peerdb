@@ -775,6 +775,9 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 				req,
 				normalizeRecordsTx)
 			if err != nil {
+				log.WithFields(log.Fields{
+					"flowName": req.FlowJobName,
+				}).Errorf("[merge] error while normalizing records: %v", err)
 				return err
 			}
 
