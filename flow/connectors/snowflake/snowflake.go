@@ -1088,11 +1088,18 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		fmt.Sprintf("(%s)", strings.Join(normalizedTableSchema.PrimaryKeyColumns, ",")),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
+	startTime := time.Now()
 	result, err := normalizeRecordsTx.ExecContext(ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
 		return 0, fmt.Errorf("failed to merge records into %s (statement: %s): %w",
 			destinationTableIdentifier, mergeStatement, err)
 	}
+
+	endTime := time.Now()
+	log.WithFields(log.Fields{
+		"flowName": destinationTableIdentifier,
+	}).Infof("[merge] merged records into %s, took: %d seconds",
+		destinationTableIdentifier, endTime.Sub(startTime)/time.Second)
 
 	return result.RowsAffected()
 }
