@@ -1091,29 +1091,10 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		"flowName": destinationTableIdentifier,
 	}).Infof("[merge] merging records into %s...", destinationTableIdentifier)
 
-	// transaction for NormalizeRecords
-	mergeTx, err := c.database.BeginTx(c.ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("unable to begin transactions for merge: %w", err)
-	}
-
-	// in case we return after error, ensure transaction is rolled back
-	defer func() {
-		deferErr := mergeTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for merge: %v", deferErr)
-		}
-	}()
-
-	result, err := mergeTx.ExecContext(ctx, mergeStatement, destinationTableIdentifier)
+	result, err := c.database.ExecContext(ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
 		return 0, fmt.Errorf("failed to merge records into %s (statement: %s): %w",
 			destinationTableIdentifier, mergeStatement, err)
-	}
-
-	err = mergeTx.Commit()
-	if err != nil {
-		return 0, fmt.Errorf("unable to commit transaction for merge: %w", err)
 	}
 
 	endTime := time.Now()
