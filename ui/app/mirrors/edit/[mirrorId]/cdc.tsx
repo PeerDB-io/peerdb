@@ -277,9 +277,7 @@ export function CDCMirror({
   createdAt,
   syncStatusChild,
 }: CDCMirrorStatusProps) {
-  const [selectedTab, setSelectedTab] = useState(
-    localStorage?.getItem('mirrortab') || 'tab1'
-  );
+  const [selectedTab, setSelectedTab] = useState('');
 
   let snapshot = <></>;
   if (cdc.snapshotStatus) {
@@ -291,10 +289,16 @@ export function CDCMirror({
     setSelectedTab(tabVal);
   };
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setSelectedTab(localStorage?.getItem('mirrortab') || 'tab1');
+    }
+  }, []);
+
   return (
     <Tabs.Root
       className='flex flex-col w-full'
-      defaultValue={selectedTab}
+      value={selectedTab}
       onValueChange={(val) => handleTab(val)}
       style={{ marginTop: '2rem' }}
     >

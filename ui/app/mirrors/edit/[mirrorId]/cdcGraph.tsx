@@ -55,7 +55,6 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
           placeholder='Select a timeframe'
           options={timeOptions}
           defaultValue={{ label: 'hour', value: 'hour' }}
-          defaultInputValue={'hour'}
           onChange={(val, _) => val && setAggregateType(val.value)}
         />
       </div>

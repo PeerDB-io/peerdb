@@ -121,37 +121,91 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
       </div>
 
       <div
-        style={{ display: 'flex', flexDirection: 'column', marginTop: '2rem' }}
+        style={{ display: 'flex', flexDirection: 'column', marginTop: '1rem' }}
       >
-        <Label colorName='lowContrast'>Mirror Configuration</Label>
-        <Label variant='subheadline'>
-          Pull Batch Size: {mirrorConfig?.maxBatchSize}
-        </Label>
-        <Label variant='subheadline'>
-          Snapshot Rows Per Partition:{' '}
-          {mirrorConfig?.snapshotNumRowsPerPartition}
-        </Label>
-        <Label variant='subheadline'>
-          Snapshot Parallel Workers: {mirrorConfig?.snapshotMaxParallelWorkers}
-        </Label>
-        <Label variant='subheadline'>
-          Snapshot Tables In Parallel:{' '}
-          {mirrorConfig?.snapshotNumTablesInParallel}
-        </Label>
-        <table style={{ marginTop: '1rem' }}>
+        <div className='mt-5'>
+          <Label colorName='lowContrast'>Mirror Configuration</Label>
+          <div
+            style={{
+              width: 'fit-content',
+              display: 'flex',
+              rowGap: '0.5rem',
+              flexDirection: 'column',
+            }}
+          >
+            <div
+              className='bg-white rounded-lg p-1'
+              style={{ border: '1px solid #ddd' }}
+            >
+              <Label variant='subheadline' colorName='lowContrast'>
+                Pull Batch Size:
+              </Label>
+              <Label variant='body'>{mirrorConfig?.maxBatchSize}</Label>
+            </div>
+            <div
+              className='bg-white rounded-lg p-1'
+              style={{ border: '1px solid #ddd' }}
+            >
+              <Label variant='subheadline' colorName='lowContrast'>
+                Snapshot Rows Per Partition:
+              </Label>
+              <Label variant='body'>
+                {mirrorConfig?.snapshotNumRowsPerPartition}
+              </Label>
+            </div>
+            <div
+              className='bg-white rounded-lg p-1'
+              style={{ border: '1px solid #ddd' }}
+            >
+              <Label variant='subheadline' colorName='lowContrast'>
+                Snapshot Parallel Workers:
+              </Label>
+              <Label variant='body'>
+                {mirrorConfig?.snapshotMaxParallelWorkers}
+              </Label>
+            </div>
+            <div
+              className='bg-white rounded-lg p-1'
+              style={{ border: '1px solid #ddd' }}
+            >
+              <Label variant='subheadline' colorName='lowContrast'>
+                Snapshot Tables In Parallel:
+              </Label>
+              <Label variant='body'>
+                {mirrorConfig?.snapshotNumTablesInParallel}
+              </Label>
+            </div>
+          </div>
+        </div>
+        <table
+          style={{
+            marginTop: '1rem',
+            borderCollapse: 'collapse',
+            width: '100%',
+          }}
+        >
           <thead>
-            <tr>
-              <th style={{ textAlign: 'left' }}>Source Table</th>
-              <th style={{ textAlign: 'left' }}>Destination Table</th>
+            <tr style={{ borderBottom: '1px solid #ddd' }}>
+              <th style={{ textAlign: 'left', padding: '0.5rem' }}>
+                Source Table
+              </th>
+              <th style={{ textAlign: 'left', padding: '0.5rem' }}>
+                Destination Table
+              </th>
             </tr>
           </thead>
           <tbody>
             {tablesSynced?.map((table) => (
               <tr
                 key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
+                style={{ borderBottom: '1px solid #ddd' }}
               >
-                <td>{table.sourceTableIdentifier}</td>
-                <td>{table.destinationTableIdentifier}</td>
+                <td style={{ padding: '0.5rem' }}>
+                  {table.sourceTableIdentifier}
+                </td>
+                <td style={{ padding: '0.5rem' }}>
+                  {table.destinationTableIdentifier}
+                </td>
               </tr>
             ))}
           </tbody>
