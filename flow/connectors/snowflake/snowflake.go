@@ -138,7 +138,7 @@ func NewSnowflakeConnector(ctx context.Context,
 		Database:         snowflakeProtoConfig.Database,
 		Warehouse:        snowflakeProtoConfig.Warehouse,
 		Role:             snowflakeProtoConfig.Role,
-		RequestTimeout:   time.Duration(snowflakeProtoConfig.QueryTimeout * 10),
+		RequestTimeout:   time.Duration(snowflakeProtoConfig.QueryTimeout),
 		DisableTelemetry: true,
 	}
 	snowflakeConfigDSN, err := gosnowflake.DSN(&snowflakeConfig)
