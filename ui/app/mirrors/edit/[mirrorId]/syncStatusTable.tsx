@@ -56,6 +56,9 @@ const sortOptions = [
 ];
 export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortField, setSortField] = useState<
+    'startTime' | 'endTime' | 'numRows'
+  >('startTime');
   const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const startRow = (currentPage - 1) * ROWS_PER_PAGE;
@@ -86,11 +89,11 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   };
 
   const handleSort = useCallback(
-    (sortField: 'startTime' | 'endTime' | 'numRows') => {
+    (sortOption: 'startTime' | 'endTime' | 'numRows') => {
       setDisplayedRows((currRows) =>
         [...currRows].sort((a, b) => {
-          const aValue = a[sortField];
-          const bValue = b[sortField];
+          const aValue = a[sortOption];
+          const bValue = b[sortOption];
           if (aValue === null || bValue === null) {
             return 0;
           }
@@ -109,8 +112,8 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   );
 
   useEffect(() => {
-    handleSort('startTime');
-  }, [handleSort]);
+    handleSort(sortField);
+  }, [handleSort, currentPage, sortField]);
 
   return (
     <Table
@@ -133,12 +136,18 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
             </Button>
             <ReactSelect
               options={sortOptions}
-              onChange={(val, _) =>
-                handleSort(
+              value={{
+                value: sortField,
+                label: sortOptions.find((opt) => opt.value === sortField)
+                  ?.label,
+              }}
+              onChange={(val, _) => {
+                const sortVal =
                   (val?.value as 'startTime' | 'endTime' | 'numRows') ??
-                    'startTime'
-                )
-              }
+                  'startTime';
+                setSortField(sortVal);
+                handleSort(sortVal);
+              }}
               defaultValue={{ value: 'startTime', label: 'Start Time' }}
             />
           </>

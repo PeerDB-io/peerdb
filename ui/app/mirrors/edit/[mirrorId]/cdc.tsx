@@ -99,7 +99,9 @@ type SnapshotStatusProps = {
 const ROWS_PER_PAGE = 6;
 export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   const allRows = status.clones.map(summarizeTableClone);
-
+  const [sortField, setSortField] = useState<
+    'cloneStartTime' | 'avgTimePerPartition'
+  >('cloneStartTime');
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(allRows.length / ROWS_PER_PAGE);
 
@@ -127,11 +129,11 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   };
 
   const handleSort = useCallback(
-    (sortField: 'cloneStartTime' | 'avgTimePerPartition') => {
+    (sortOption: 'cloneStartTime' | 'avgTimePerPartition') => {
       setDisplayedRows((currRows) =>
         [...currRows].sort((a, b) => {
-          const aValue = a[sortField];
-          const bValue = b[sortField];
+          const aValue = a[sortOption];
+          const bValue = b[sortOption];
           if (aValue === null || bValue === null) {
             return 0;
           }
@@ -150,9 +152,13 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   );
 
   useEffect(() => {
-    handleSort('cloneStartTime');
-  }, [handleSort]);
+    handleSort(sortField);
+  }, [handleSort, currentPage, sortField]);
 
+  const sortOptions = [
+    { value: 'cloneStartTime', label: 'Start Time' },
+    { value: 'avgTimePerPartition', label: 'Time Per Partition' },
+  ];
   return (
     <div style={{ marginTop: '2rem' }}>
       <Table
@@ -174,16 +180,19 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
                 <Icon name='refresh' />
               </Button>
               <ReactSelect
-                options={[
-                  { value: 'cloneStartTime', label: 'Start Time' },
-                  { value: 'avgTimePerPartition', label: 'Time Per Partition' },
-                ]}
-                onChange={(val, _) =>
-                  handleSort(
+                options={sortOptions}
+                onChange={(val, _) => {
+                  const sortVal =
                     (val?.value as 'cloneStartTime' | 'avgTimePerPartition') ??
-                      'cloneStartTime'
-                  )
-                }
+                    'cloneStartTime';
+                  setSortField(sortVal);
+                  handleSort(sortVal);
+                }}
+                value={{
+                  value: sortField,
+                  label: sortOptions.find((opt) => opt.value === sortField)
+                    ?.label,
+                }}
                 defaultValue={{ value: 'cloneStartTime', label: 'Start Time' }}
               />
             </>
