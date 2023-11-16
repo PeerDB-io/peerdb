@@ -1,27 +1,28 @@
 'use client';
-import SearchBar from '@/components/Search';
 import { TableMapping } from '@/grpc_generated/flow';
-import { useState } from 'react';
+import { SearchField } from '@/lib/SearchField';
+import { useMemo, useState } from 'react';
 
 const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
-  const [shownTables, setShownTables] = useState<TableMapping[] | undefined>(
-    tables
-  );
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const shownTables = useMemo(() => {
+    const shownTables = tables?.filter((table: TableMapping) => {
+      return (
+        table.sourceTableIdentifier.includes(searchQuery) ||
+        table.destinationTableIdentifier.includes(searchQuery)
+      );
+    });
+    return shownTables?.length ? shownTables : tables;
+  }, [tables, searchQuery]);
   if (tables)
     return (
       <>
         <div style={{ width: '20%', marginTop: '2rem' }}>
-          <SearchBar
-            allItems={tables}
-            setItems={setShownTables}
-            filterFunction={(query: string) =>
-              tables.filter((table: TableMapping) => {
-                return (
-                  table.sourceTableIdentifier.includes(query) ||
-                  table.destinationTableIdentifier.includes(query)
-                );
-              })
-            }
+          <SearchField
+            placeholder='Search by table name'
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+              setSearchQuery(e.target.value);
+            }}
           />
         </div>
         <table

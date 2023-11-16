@@ -8,7 +8,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 type SyncStatusRow = {
   batchId: number;
@@ -48,7 +48,7 @@ function TimeWithDurationOrRunning({
   }
 }
 
-const ROWS_PER_PAGE = 10;
+const ROWS_PER_PAGE = 5;
 const sortOptions = [
   { value: 'startTime', label: 'Start Time' },
   { value: 'endTime', label: 'End Time' },
@@ -59,58 +59,48 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [sortField, setSortField] = useState<
     'startTime' | 'endTime' | 'numRows'
   >('startTime');
+
   const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const startRow = (currentPage - 1) * ROWS_PER_PAGE;
-  const endRow = startRow + ROWS_PER_PAGE;
-  const allRows = rows.slice(startRow, endRow);
-  const [displayedRows, setDisplayedRows] = useState(() =>
-    rows.slice(startRow, endRow)
-  );
+  const displayedRows = useMemo(() => {
+    const searchRows = rows.filter(
+      (row: any) => row.batchId == parseInt(searchQuery, 10)
+    );
+    const shownRows = searchRows.length > 0 ? searchRows : rows;
+    shownRows.sort((a, b) => {
+      const aValue = a[sortField];
+      const bValue = b[sortField];
+      if (aValue === null || bValue === null) {
+        return 0;
+      }
+
+      if (aValue < bValue) {
+        return -1;
+      } else if (aValue > bValue) {
+        return 1;
+      } else {
+        return 0;
+      }
+    });
+
+    const startRow = (currentPage - 1) * ROWS_PER_PAGE;
+    const endRow = startRow + ROWS_PER_PAGE;
+    return shownRows.length > ROWS_PER_PAGE
+      ? shownRows.slice(startRow, endRow)
+      : shownRows;
+  }, [searchQuery, currentPage, rows, sortField]);
+
   const handlePrevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
-      const newStartRow = (currentPage - 2) * ROWS_PER_PAGE;
-      const newEndRow = newStartRow + ROWS_PER_PAGE;
-      setDisplayedRows(rows.slice(newStartRow, newEndRow));
     }
   };
 
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
-      const newStartRow = currentPage * ROWS_PER_PAGE;
-      const newEndRow = newStartRow + ROWS_PER_PAGE;
-      setDisplayedRows(rows.slice(newStartRow, newEndRow));
     }
   };
-
-  const handleSort = useCallback(
-    (sortOption: 'startTime' | 'endTime' | 'numRows') => {
-      setDisplayedRows((currRows) =>
-        [...currRows].sort((a, b) => {
-          const aValue = a[sortOption];
-          const bValue = b[sortOption];
-          if (aValue === null || bValue === null) {
-            return 0;
-          }
-
-          if (aValue < bValue) {
-            return -1;
-          } else if (aValue > bValue) {
-            return 1;
-          } else {
-            return 0;
-          }
-        })
-      );
-    },
-    [setDisplayedRows]
-  );
-
-  useEffect(() => {
-    handleSort(sortField);
-  }, [handleSort, currentPage, sortField]);
 
   return (
     <Table

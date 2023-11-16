@@ -15,7 +15,7 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import * as Tabs from '@radix-ui/react-tabs';
 import moment, { Duration, Moment } from 'moment';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 import styled from 'styled-components';
 import CdcDetails from './cdcDetails';
@@ -96,65 +96,53 @@ type SnapshotStatusProps = {
   status: SnapshotStatus;
 };
 
-const ROWS_PER_PAGE = 10;
+const ROWS_PER_PAGE = 5;
 export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
-  const allRows = status.clones.map(summarizeTableClone);
   const [sortField, setSortField] = useState<
     'cloneStartTime' | 'avgTimePerPartition'
   >('cloneStartTime');
+  const allRows = status.clones.map(summarizeTableClone);
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(allRows.length / ROWS_PER_PAGE);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const displayedRows = useMemo(() => {
+    const shownRows = allRows.filter((row: any) =>
+      row.tableName.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    shownRows.sort((a, b) => {
+      const aValue = a[sortField];
+      const bValue = b[sortField];
+      if (aValue === null || bValue === null) {
+        return 0;
+      }
 
-  const startRow = (currentPage - 1) * ROWS_PER_PAGE;
-  const endRow = startRow + ROWS_PER_PAGE;
-  const [displayedRows, setDisplayedRows] = useState(() =>
-    allRows.slice(startRow, endRow)
-  );
+      if (aValue < bValue) {
+        return -1;
+      } else if (aValue > bValue) {
+        return 1;
+      } else {
+        return 0;
+      }
+    });
+
+    const startRow = (currentPage - 1) * ROWS_PER_PAGE;
+    const endRow = startRow + ROWS_PER_PAGE;
+    return shownRows.length > ROWS_PER_PAGE
+      ? shownRows.slice(startRow, endRow)
+      : shownRows;
+  }, [allRows, currentPage, searchQuery, sortField]);
 
   const handlePrevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
-      const newStartRow = (currentPage - 2) * ROWS_PER_PAGE;
-      const newEndRow = newStartRow + ROWS_PER_PAGE;
-      setDisplayedRows(allRows.slice(newStartRow, newEndRow));
     }
   };
 
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
-      const newStartRow = currentPage * ROWS_PER_PAGE;
-      const newEndRow = newStartRow + ROWS_PER_PAGE;
-      setDisplayedRows(allRows.slice(newStartRow, newEndRow));
     }
   };
-
-  const handleSort = useCallback(
-    (sortOption: 'cloneStartTime' | 'avgTimePerPartition') => {
-      setDisplayedRows((currRows) =>
-        [...currRows].sort((a, b) => {
-          const aValue = a[sortOption];
-          const bValue = b[sortOption];
-          if (aValue === null || bValue === null) {
-            return 0;
-          }
-
-          if (aValue < bValue) {
-            return -1;
-          } else if (aValue > bValue) {
-            return 1;
-          } else {
-            return 0;
-          }
-        })
-      );
-    },
-    [setDisplayedRows]
-  );
-
-  useEffect(() => {
-    handleSort(sortField);
-  }, [handleSort, currentPage, sortField]);
 
   const sortOptions = [
     { value: 'cloneStartTime', label: 'Start Time' },
