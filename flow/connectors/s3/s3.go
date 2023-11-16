@@ -93,15 +93,14 @@ func (c *S3Connector) Close() error {
 	return nil
 }
 
-func ValidCheck(s3Client *s3.S3, bucketUrl string, metadataDB *metadataStore.PostgresMetadataStore) error {
+func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
 	_, listErr := s3Client.ListBuckets(nil)
 	if listErr != nil {
 		return fmt.Errorf("failed to list buckets: %w", listErr)
 	}
 
 	reader := strings.NewReader("hello world")
-
-	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(bucketUrl)
+	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(bucketURL)
 	if parseErr != nil {
 		return fmt.Errorf("failed to parse bucket url: %w", parseErr)
 	}

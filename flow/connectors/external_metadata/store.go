@@ -24,7 +24,6 @@ type PostgresMetadataStore struct {
 func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
 	schemaName string) (*PostgresMetadataStore, error) {
 	connectionString := utils.GetPGConnectionString(pgConfig)
-	log.Info("connection string in external metadata: ", connectionString)
 	pool, err := pgxpool.New(ctx, connectionString)
 	if err != nil {
 		log.Errorf("failed to create connection pool: %v", err)
