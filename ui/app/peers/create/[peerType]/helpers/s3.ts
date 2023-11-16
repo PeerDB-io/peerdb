@@ -6,54 +6,60 @@ export const s3Setting: PeerSetting[] = [
     label: 'Bucket URL',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, url: value })),
-    tips: 'The URL of the S3/GCS bucket. It begins with s3://',
+    tips: 'The URL of your existing S3/GCS bucket along with a prefix of your choice. It begins with s3://',
+    helpfulLink:
+      'https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-bucket-intro.html#accessing-a-bucket-using-S3-format',
+    default: 's3://<bucket_name>/<prefix_name>',
   },
   {
     label: 'Access Key ID',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, accessKeyID: parseInt(value, 10) })),
-    tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which postgres is listening for connections from client applications.',
+      setter((curr) => ({ ...curr, accessKeyId: value })),
+    optional: true,
+    tips: 'The AWS access key ID associated with your account. In case of GCS, this is the HMAC access key ID.',
+    helpfulLink:
+      'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
   },
   {
     label: 'Secret Access Key',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, secretAccessKey: value })),
-    tips: 'Specify the user that we should use to connect to this host.',
-    helpfulLink: 'https://www.postgresql.org/docs/8.0/user-manag.html',
-  },
-  {
-    label: 'Role ARN',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, roleArn: value })),
-    type: 'password',
-    tips: 'Password associated with the user you provided.',
-    helpfulLink: 'https://www.postgresql.org/docs/current/auth-password.html',
+    tips: 'The AWS secret access key associated with your account. In case of GCS, this is the HMAC secret.',
+    helpfulLink:
+      'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
     optional: true,
   },
   {
     label: 'Region',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, region: value })),
-    tips: 'Specify which database to associate with this peer.',
-    helpfulLink:
-      'https://www.postgresql.org/docs/current/sql-createdatabase.html',
-    optional: true,
+    tips: 'The region where your bucket is located. For example, us-east-1. In case of GCS, this will be set to auto, which detects where your bucket it.',
   },
   {
-    label: 'Endpoint',
+    label: 'Role ARN',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, endpoint: value })),
+      setter((curr) => ({ ...curr, roleArn: value })),
+    type: 'password',
+    tips: 'You may set this instead of the access key ID and secret.',
+    helpfulLink:
+      'https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-arns',
     optional: true,
-    tips: '',
   },
 ];
 
-export const blankS3Config: S3Config = {
-  url: '',
+export const blankS3Setting: S3Config = {
+  url: 's3://<bucket_name>/<prefix_name>',
   accessKeyId: undefined,
   secretAccessKey: undefined,
   roleArn: undefined,
   region: undefined,
-  endpoint: undefined,
-  metadataDb: undefined,
+  endpoint: '',
+  metadataDb: {
+    host: '',
+    port: 5432,
+    user: 'postgres',
+    password: '',
+    database: 'postgres',
+    transactionSnapshot: '',
+  },
 };

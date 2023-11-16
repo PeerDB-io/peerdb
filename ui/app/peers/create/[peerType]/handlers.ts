@@ -3,6 +3,7 @@ import {
   UCreatePeerResponse,
   UValidatePeerResponse,
 } from '@/app/dto/PeersDTO';
+import { S3Config } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
 import { bqSchema, peerNameSchema, pgSchema, s3Schema, sfSchema } from './schema';
 
@@ -17,6 +18,14 @@ const validateFields = (
     const peerNameErr = peerNameValid.error.issues[0].message;
     setMessage({ ok: false, msg: peerNameErr });
     return false;
+  }
+
+  if (type === 'S3') {
+    const s3Valid = S3Validation(config as S3Config);
+    if (s3Valid.length > 0) {
+      setMessage({ ok: false, msg: s3Valid });
+      return false;
+    }
   }
 
   let validationErr: string | undefined;
@@ -74,6 +83,13 @@ export const handleValidate = async (
   }
   setMessage({ ok: true, msg: 'Peer is valid' });
   setLoading(false);
+};
+
+const S3Validation = (config: S3Config): string => {
+  if (!config.secretAccessKey && !config.accessKeyId && !config.roleArn) {
+    return 'Either both access key and secret or role ARN is required';
+  }
+  return '';
 };
 
 // API call to create peer

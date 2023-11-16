@@ -204,8 +204,8 @@ export const s3Schema = z.object({
       required_error: 'URL is required',
     })
     .min(1, { message: 'URL must be non-empty' })
-    .refine((url) => url.startsWith('s3:/'), {
-      message: 'URL must start with s3:/',
+    .refine((url) => url.startsWith('s3://'), {
+      message: 'URL must start with s3://',
     }),
   accessKeyId: z
     .string({
