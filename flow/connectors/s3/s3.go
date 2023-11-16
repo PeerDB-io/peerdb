@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -12,6 +13,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
+)
+
+const (
+	CHECK_OBJECT_KEY = "peerdb_check"
 )
 
 type S3Connector struct {
@@ -93,14 +98,15 @@ func (c *S3Connector) Close() error {
 	return nil
 }
 
-func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
+func ValidCheck(s3Client *s3.S3, bucketUrl string, metadataDB *metadataStore.PostgresMetadataStore) error {
 	_, listErr := s3Client.ListBuckets(nil)
 	if listErr != nil {
 		return fmt.Errorf("failed to list buckets: %w", listErr)
 	}
 
-	reader := strings.NewReader("hello world")
-	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(bucketURL)
+	reader := strings.NewReader(time.Now().Format(time.RFC3339))
+
+	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(bucketUrl)
 	if parseErr != nil {
 		return fmt.Errorf("failed to parse bucket url: %w", parseErr)
 	}
@@ -110,7 +116,7 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 	bucketName := aws.String(bucketPrefix.Bucket)
 	_, putErr := s3Client.PutObject(&s3.PutObjectInput{
 		Bucket: bucketName,
-		Key:    aws.String("peerdb_check"),
+		Key:    aws.String(CHECK_OBJECT_KEY),
 		Body:   reader,
 	})
 	if putErr != nil {
@@ -119,7 +125,7 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 
 	_, delErr := s3Client.DeleteObject(&s3.DeleteObjectInput{
 		Bucket: bucketName,
-		Key:    aws.String("peerdb_check"),
+		Key:    aws.String(CHECK_OBJECT_KEY),
 	})
 	if delErr != nil {
 		return fmt.Errorf("failed to delete from bucket: %w", delErr)
