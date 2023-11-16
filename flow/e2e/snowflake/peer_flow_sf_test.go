@@ -1418,10 +1418,9 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Column_Exclusion(t *testing.T) {
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(query)
 	require.NoError(t, err)
 
-	fmt.Printf("%v\n", sfRows.Schema.Fields)
 	for _, field := range sfRows.Schema.Fields {
 		require.NotEqual(t, field.Name, "c2")
 	}
 	require.Equal(t, 4, len(sfRows.Schema.Fields))
-	// TODO inspect content
+	require.Equal(t, 10, len(sfRows.Records))
 }
