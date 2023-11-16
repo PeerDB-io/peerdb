@@ -91,9 +91,11 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const snapshotRows = useMemo(
     () =>
-      status.clones.map(summarizeTableClone).filter((row: any) => {
-        return row.tableName.toLowerCase().includes(searchQuery.toLowerCase());
-      }),
+      status.clones
+        .map(summarizeTableClone)
+        .filter((row: any) =>
+          row.tableName.toLowerCase().includes(searchQuery.toLowerCase())
+        ),
     [status.clones, searchQuery]
   );
 
