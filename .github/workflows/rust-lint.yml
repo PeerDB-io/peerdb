@@ -26,7 +26,7 @@ jobs:
           components: clippy
 
       - name: disable clippy for sqlparser-rs
-        run: echo -e "\n#![allow(clippy)]" >> nexus/sqlparser-rs/src/lib.rs
+        run: sed -i '1s/^/#![allow(clippy)]/' nexus/sqlparser-rs/src/lib.rs
 
 
       - name: clippy
