@@ -1,15 +1,22 @@
 'use client';
 import { DropDialog } from '@/components/DropDialog';
 import PeerButton from '@/components/PeerComponent';
-import SearchBar from '@/components/Search';
 import TimeLabel from '@/components/TimeComponent';
 import { Label } from '@/lib/Label';
+import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
-  const [mirrors, setMirrors] = useState(cdcFlows);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const mirrors = useMemo(
+    () =>
+      cdcFlows.filter((flow: any) => {
+        return flow.name.toLowerCase().includes(searchQuery.toLowerCase());
+      }),
+    [searchQuery, cdcFlows]
+  );
 
   return (
     <>
@@ -26,15 +33,10 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
           toolbar={{
             left: <></>,
             right: (
-              <SearchBar
-                allItems={cdcFlows}
-                setItems={setMirrors}
-                filterFunction={(query: string) =>
-                  cdcFlows.filter((flow: any) => {
-                    return flow.name
-                      .toLowerCase()
-                      .includes(query.toLowerCase());
-                  })
+              <SearchField
+                placeholder='Search by flow name'
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setSearchQuery(e.target.value)
                 }
               />
             ),
@@ -102,8 +104,14 @@ export function QRepFlows({
   qrepFlows: any;
   title: string;
 }) {
-  const [mirrors, setMirrors] = useState(qrepFlows);
-
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const mirrors = useMemo(
+    () =>
+      qrepFlows.filter((flow: any) => {
+        return flow.name.toLowerCase().includes(searchQuery.toLowerCase());
+      }),
+    [searchQuery, qrepFlows]
+  );
   return (
     <>
       <Label variant='headline'>{title}</Label>
@@ -119,15 +127,10 @@ export function QRepFlows({
           toolbar={{
             left: <></>,
             right: (
-              <SearchBar
-                allItems={qrepFlows}
-                setItems={setMirrors}
-                filterFunction={(query: string) =>
-                  qrepFlows.filter((flow: any) => {
-                    return flow.name
-                      .toLowerCase()
-                      .includes(query.toLowerCase());
-                  })
+              <SearchField
+                placeholder='Search by flow name'
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setSearchQuery(e.target.value)
                 }
               />
             ),
