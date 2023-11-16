@@ -28,7 +28,10 @@ export default function SelectSource({
     .filter(
       (value): value is string =>
         typeof value === 'string' &&
-        (value === 'POSTGRES' || value === 'SNOWFLAKE' || value === 'BIGQUERY')
+        (value === 'POSTGRES' ||
+          value === 'SNOWFLAKE' ||
+          value === 'BIGQUERY' ||
+          value === 'S3')
     )
     .map((value) => ({ label: value, value }));
 
@@ -37,7 +40,7 @@ export default function SelectSource({
       placeholder='Select a source'
       options={dbTypes}
       defaultValue={dbTypes.find((opt) => opt.value === peerType)}
-      onChange={(val, action) => val && setPeerType(val.value)}
+      onChange={(val, _) => val && setPeerType(val.value)}
       formatOptionLabel={SourceLabel}
     />
   );

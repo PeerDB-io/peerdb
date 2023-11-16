@@ -559,7 +559,13 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		sqlServerConfig := sqlServerConfigObject.SqlserverConfig
 		encodedConfig, encodingErr = proto.Marshal(sqlServerConfig)
-
+	case protos.DBType_S3:
+		s3ConfigObject, ok := config.(*protos.Peer_S3Config)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		s3Config := s3ConfigObject.S3Config
+		encodedConfig, encodingErr = proto.Marshal(s3Config)
 	default:
 		return wrongConfigResponse, nil
 	}

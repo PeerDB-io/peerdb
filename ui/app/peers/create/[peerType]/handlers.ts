@@ -4,7 +4,7 @@ import {
   UValidatePeerResponse,
 } from '@/app/dto/PeersDTO';
 import { Dispatch, SetStateAction } from 'react';
-import { bqSchema, peerNameSchema, pgSchema, sfSchema } from './schema';
+import { bqSchema, peerNameSchema, pgSchema, s3Schema, sfSchema } from './schema';
 
 const validateFields = (
   type: string,
@@ -32,6 +32,10 @@ const validateFields = (
     case 'BIGQUERY':
       const bqConfig = bqSchema.safeParse(config);
       if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
+      break;
+    case 'S3':
+      const s3Config = s3Schema.safeParse(config);
+      if (!s3Config.success) validationErr = s3Config.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;

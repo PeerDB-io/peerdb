@@ -1,6 +1,7 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
 import BQConfig from '@/components/BigqueryConfig';
+import S3ConfigForm from '@/components/S3Form';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -45,6 +46,8 @@ export default function CreateConfig({
         return configForm(snowflakeSetting);
       case 'BIGQUERY':
         return <BQConfig setter={setConfig} />;
+      case 'S3':
+        return <S3ConfigForm setter={setConfig} />;
       default:
         return <></>;
     }
