@@ -1,5 +1,16 @@
 import * as z from 'zod';
 
+export const peerNameSchema = z
+  .string({
+    invalid_type_error: 'Peer name is invalid.',
+    required_error: 'Peer name is required.',
+  })
+  .min(1, { message: 'Peer name cannot be empty.' })
+  .regex(/^[a-z0-9_]*$/, {
+    message:
+      'Peer name must contain only lowercase letters, numbers and underscores',
+  });
+
 export const pgSchema = z.object({
   host: z
     .string({

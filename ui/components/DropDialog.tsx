@@ -79,7 +79,7 @@ export const DropDialog = ({
 
   return (
     <Dialog
-      modal={true}
+      noInteract={true}
       size='large'
       triggerButton={
         <Button variant='drop' style={{ color: 'black' }}>

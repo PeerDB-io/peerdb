@@ -9,7 +9,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useMemo, useState } from 'react';
-
+import ReactSelect from 'react-select';
 type SyncStatusRow = {
   batchId: number;
   startTime: Date;
@@ -48,27 +48,58 @@ function TimeWithDurationOrRunning({
   }
 }
 
-const ROWS_PER_PAGE = 10;
-
+const ROWS_PER_PAGE = 5;
+const sortOptions = [
+  { value: 'startTime', label: 'Start Time' },
+  { value: 'endTime', label: 'End Time' },
+  { value: 'numRows', label: 'Rows Synced' },
+];
 export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortField, setSortField] = useState<
+    'startTime' | 'endTime' | 'numRows'
+  >('startTime');
+
   const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const startRow = (currentPage - 1) * ROWS_PER_PAGE;
-  const endRow = startRow + ROWS_PER_PAGE;
   const displayedRows = useMemo(() => {
-    const allRows = rows.slice(startRow, endRow);
-    const shownRows = allRows.filter(
+    const searchRows = rows.filter(
       (row: any) => row.batchId == parseInt(searchQuery, 10)
     );
-    return shownRows.length > 0 ? shownRows : allRows;
-  }, [searchQuery, endRow, startRow, rows]);
+    const shownRows = searchRows.length > 0 ? searchRows : rows;
+    shownRows.sort((a, b) => {
+      const aValue = a[sortField];
+      const bValue = b[sortField];
+      if (aValue === null || bValue === null) {
+        return 0;
+      }
+
+      if (aValue < bValue) {
+        return -1;
+      } else if (aValue > bValue) {
+        return 1;
+      } else {
+        return 0;
+      }
+    });
+
+    const startRow = (currentPage - 1) * ROWS_PER_PAGE;
+    const endRow = startRow + ROWS_PER_PAGE;
+    return shownRows.length > ROWS_PER_PAGE
+      ? shownRows.slice(startRow, endRow)
+      : shownRows;
+  }, [searchQuery, currentPage, rows, sortField]);
+
   const handlePrevPage = () => {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
   };
 
   const handleNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
   };
 
   return (
@@ -90,6 +121,21 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
             >
               <Icon name='refresh' />
             </Button>
+            <ReactSelect
+              options={sortOptions}
+              value={{
+                value: sortField,
+                label: sortOptions.find((opt) => opt.value === sortField)
+                  ?.label,
+              }}
+              onChange={(val, _) => {
+                const sortVal =
+                  (val?.value as 'startTime' | 'endTime' | 'numRows') ??
+                  'startTime';
+                setSortField(sortVal);
+              }}
+              defaultValue={{ value: 'startTime', label: 'Start Time' }}
+            />
           </>
         ),
         right: (
@@ -115,8 +161,8 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
         </TableRow>
       }
     >
-      {displayedRows.map((row, index) => (
-        <TableRow key={index}>
+      {displayedRows.map((row) => (
+        <TableRow key={row.batchId}>
           <TableCell>
             <Label>{row.batchId}</Label>
           </TableCell>

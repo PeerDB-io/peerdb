@@ -4,19 +4,21 @@ import {
   UValidatePeerResponse,
 } from '@/app/dto/PeersDTO';
 import { Dispatch, SetStateAction } from 'react';
-import { bqSchema, pgSchema, sfSchema } from './schema';
+import { bqSchema, peerNameSchema, pgSchema, sfSchema } from './schema';
 
-// Frontend form validation
 const validateFields = (
   type: string,
   config: PeerConfig,
   setMessage: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
   name?: string
 ): boolean => {
-  if (!name) {
-    setMessage({ ok: false, msg: 'Peer name is required' });
+  const peerNameValid = peerNameSchema.safeParse(name);
+  if (!peerNameValid.success) {
+    const peerNameErr = peerNameValid.error.issues[0].message;
+    setMessage({ ok: false, msg: peerNameErr });
     return false;
   }
+
   let validationErr: string | undefined;
   switch (type) {
     case 'POSTGRES':
