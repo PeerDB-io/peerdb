@@ -18,10 +18,16 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+
+      - name: disable clippy for sqlparser-rs
+        run: echo -e "\n#![allow(clippy)]" >> nexus/sqlparser-rs/src/lib.rs
+
 
       - name: clippy
         run: cargo clippy -- -D warnings
