@@ -4,8 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	cmap "github.com/orcaman/concurrent-map/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 // multimap from ScopedEventhub to *azeventhubs.EventDataBatch
@@ -77,6 +82,89 @@ func (h *HubBatches) ForEach(fn func(ScopedEventhub, *azeventhubs.EventDataBatch
 			fn(name, batch)
 		}
 	}
+}
+
+func (h *HubBatches) sendBatch(
+	ctx context.Context,
+	tblName ScopedEventhub,
+	events *azeventhubs.EventDataBatch,
+) error {
+	subCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	hub, err := h.manager.GetOrCreateHubClient(subCtx, tblName)
+	if err != nil {
+		return err
+	}
+
+	opts := &azeventhubs.SendEventDataBatchOptions{}
+	err = hub.SendEventDataBatch(subCtx, events, opts)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("successfully sent %d events to event hub topic - %s", events.NumEvents(), tblName.ToString())
+	return nil
+}
+
+func (h *HubBatches) flushAllBatches(
+	ctx context.Context,
+	events *HubBatches,
+	maxParallelism int64,
+	flowName string,
+	tableNameRowsMapping cmap.ConcurrentMap[string, uint32]) error {
+	if events.Len() == 0 {
+		log.WithFields(log.Fields{
+			"flowName": flowName,
+		}).Infof("no events to send")
+		return nil
+	}
+
+	var numEventsPushed int32
+	var wg sync.WaitGroup
+	var once sync.Once
+	var firstErr error
+	// Limiting concurrent sends
+	guard := make(chan struct{}, maxParallelism)
+
+	events.ForEach(func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
+		guard <- struct{}{}
+		wg.Add(1)
+		go func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
+			defer func() {
+				<-guard
+				wg.Done()
+			}()
+
+			numEvents := eventBatch.NumEvents()
+			err := h.sendBatch(ctx, tblName, eventBatch)
+			if err != nil {
+				once.Do(func() { firstErr = err })
+				return
+			}
+
+			atomic.AddInt32(&numEventsPushed, numEvents)
+			log.WithFields(log.Fields{
+				"flowName": flowName,
+			}).Infof("pushed %d events to event hub: %s", numEvents, tblName)
+			rowCount, ok := tableNameRowsMapping.Get(tblName.ToString())
+			if !ok {
+				rowCount = uint32(0)
+			}
+			rowCount += uint32(numEvents)
+			tableNameRowsMapping.Set(tblName.ToString(), rowCount)
+		}(tblName, eventBatch)
+	})
+
+	wg.Wait()
+
+	if firstErr != nil {
+		log.Error(firstErr)
+		return firstErr
+	}
+
+	log.Infof("[sendEventBatch] successfully sent %d events to event hub", numEventsPushed)
+	return nil
 }
 
 // Clear removes all batches from the HubBatches
