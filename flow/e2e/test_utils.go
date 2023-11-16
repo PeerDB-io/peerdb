@@ -293,6 +293,7 @@ func CreateQRepWorkflowConfig(
 	if err != nil {
 		return nil, err
 	}
+	qrepConfig.InitialCopyOnly = true
 
 	return qrepConfig, nil
 }
