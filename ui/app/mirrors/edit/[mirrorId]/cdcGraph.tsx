@@ -35,7 +35,6 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
     { label: '15min', value: '15min' },
     { label: 'hour', value: 'hour' },
     { label: 'day', value: 'day' },
-    { label: 'week', value: 'week' },
     { label: 'month', value: 'month' },
   ];
   return (
@@ -67,20 +66,15 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
 
 function formatGraphLabel(date: Date, aggregateType: String): string {
   switch (aggregateType) {
+    case '1min':
+    case '5min':
     case '15min':
-      return moment(date).format('MMM Do HH:mm');
     case 'hour':
       return moment(date).format('MMM Do HH:mm');
     case 'day':
       return moment(date).format('MMM Do');
     case 'month':
       return moment(date).format('MMM yy');
-    case 'week':
-      return moment(date).format('MMM Do');
-    case '5min':
-      return moment(date).format('MMM Do HH:mm');
-    case '1min':
-      return moment(date).format('MMM Do HH:mm');
     default:
       return 'Unknown aggregate type: ' + aggregateType;
   }
