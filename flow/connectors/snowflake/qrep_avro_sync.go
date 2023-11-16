@@ -274,7 +274,8 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 ) (int, string, error) {
 	var numRecords int
 	if s.config.StagingPath == "" {
-		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd, qvalue.QDWHTypeSnowflake)
+		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
+			qvalue.QDWHTypeSnowflake)
 		tmpDir, err := os.MkdirTemp("", "peerdb-avro")
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to create temp dir: %w", err)
