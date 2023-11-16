@@ -164,9 +164,7 @@ func (c *EventHubConnector) processBatch(
 		"flowName": flowJobName,
 	}).Infof("processed %d records for sending", numRecords)
 
-	var flushErr error
-
-	flushErr = batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+	flushErr := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
 	if flushErr != nil {
 		return 0, flushErr
 	}
