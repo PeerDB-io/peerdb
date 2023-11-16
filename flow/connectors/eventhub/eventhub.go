@@ -11,7 +11,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	cmap "github.com/orcaman/concurrent-map/v2"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -124,8 +123,6 @@ func (c *EventHubConnector) processBatch(
 	maxParallelism int64,
 ) (uint32, error) {
 	ctx := context.Background()
-
-	tableNameRowsMapping := cmap.New[uint32]()
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
@@ -167,9 +164,11 @@ func (c *EventHubConnector) processBatch(
 		"flowName": flowJobName,
 	}).Infof("processed %d records for sending", numRecords)
 
-	err := batchPerTopic.flushAllBatches(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
-	if err != nil {
-		return 0, err
+	var flushErr error
+
+	flushErr = batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+	if flushErr != nil {
+		return 0, flushErr
 	}
 	batchPerTopic.Clear()
 

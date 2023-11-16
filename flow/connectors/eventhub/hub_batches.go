@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 // multimap from ScopedEventhub to *azeventhubs.EventDataBatch
@@ -109,11 +109,10 @@ func (h *HubBatches) sendBatch(
 
 func (h *HubBatches) flushAllBatches(
 	ctx context.Context,
-	events *HubBatches,
 	maxParallelism int64,
 	flowName string,
-	tableNameRowsMapping cmap.ConcurrentMap[string, uint32]) error {
-	if events.Len() == 0 {
+) error {
+	if h.Len() == 0 {
 		log.WithFields(log.Fields{
 			"flowName": flowName,
 		}).Infof("no events to send")
@@ -121,26 +120,15 @@ func (h *HubBatches) flushAllBatches(
 	}
 
 	var numEventsPushed int32
-	var wg sync.WaitGroup
-	var once sync.Once
-	var firstErr error
-	// Limiting concurrent sends
-	guard := make(chan struct{}, maxParallelism)
-
-	events.ForEach(func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
-		guard <- struct{}{}
-		wg.Add(1)
-		go func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
-			defer func() {
-				<-guard
-				wg.Done()
-			}()
-
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(int(maxParallelism)) // limit parallel merges to 8
+	tableNameRowsMapping := cmap.New[uint32]()
+	h.ForEach(func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
+		g.Go(func() error {
 			numEvents := eventBatch.NumEvents()
-			err := h.sendBatch(ctx, tblName, eventBatch)
+			err := h.sendBatch(gCtx, tblName, eventBatch)
 			if err != nil {
-				once.Do(func() { firstErr = err })
-				return
+				return err
 			}
 
 			atomic.AddInt32(&numEventsPushed, numEvents)
@@ -153,18 +141,12 @@ func (h *HubBatches) flushAllBatches(
 			}
 			rowCount += uint32(numEvents)
 			tableNameRowsMapping.Set(tblName.ToString(), rowCount)
-		}(tblName, eventBatch)
+			return nil
+		})
 	})
 
-	wg.Wait()
-
-	if firstErr != nil {
-		log.Error(firstErr)
-		return firstErr
-	}
-
 	log.Infof("[sendEventBatch] successfully sent %d events to event hub", numEventsPushed)
-	return nil
+	return g.Wait()
 }
 
 // Clear removes all batches from the HubBatches
