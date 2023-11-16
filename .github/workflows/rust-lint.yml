@@ -28,7 +28,6 @@ jobs:
       - name: disable clippy for sqlparser-rs
         run: sed -i '1s/^/#![allow(clippy::all)]\n/' nexus/sqlparser-rs/src/lib.rs
 
-
       - name: clippy
         run: cargo clippy -- -D warnings
         working-directory: ./nexus
