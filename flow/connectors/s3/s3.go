@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	CHECK_OBJECT_KEY = "peerdb_check"
+	_peerDBCheck = "peerdb_check"
 )
 
 type S3Connector struct {
@@ -116,7 +116,7 @@ func ValidCheck(s3Client *s3.S3, bucketUrl string, metadataDB *metadataStore.Pos
 	bucketName := aws.String(bucketPrefix.Bucket)
 	_, putErr := s3Client.PutObject(&s3.PutObjectInput{
 		Bucket: bucketName,
-		Key:    aws.String(CHECK_OBJECT_KEY),
+		Key:    aws.String(_peerDBCheck),
 		Body:   reader,
 	})
 	if putErr != nil {
@@ -125,7 +125,7 @@ func ValidCheck(s3Client *s3.S3, bucketUrl string, metadataDB *metadataStore.Pos
 
 	_, delErr := s3Client.DeleteObject(&s3.DeleteObjectInput{
 		Bucket: bucketName,
-		Key:    aws.String(CHECK_OBJECT_KEY),
+		Key:    aws.String(_peerDBCheck),
 	})
 	if delErr != nil {
 		return fmt.Errorf("failed to delete from bucket: %w", delErr)
