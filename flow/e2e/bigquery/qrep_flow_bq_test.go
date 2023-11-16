@@ -68,7 +68,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		s.bqHelper.Peer,
 		"peerdb_staging")
 	s.NoError(err)
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -81,43 +81,3 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 
 	env.AssertExpectations(s.T())
 }
-
-// NOTE: Disabled due to large JSON tests being added: https://github.com/PeerDB-io/peerdb/issues/309
-
-// Test_Complete_QRep_Flow tests a complete flow with data in the source table.
-// The test inserts 10 rows into the source table and verifies that the data is
-// // correctly synced to the destination table this runs a QRep Flow.
-// func (s *E2EPeerFlowTestSuite) Test_Complete_QRep_Flow_Multi_Insert() {
-// 	env := s.NewTestWorkflowEnvironment()
-// 	registerWorkflowsAndActivities(env)
-
-// 	numRows := 10
-
-// 	tblName := "test_qrep_flow_multi_insert"
-// 	s.setupSourceTable(tblName, numRows)
-// 	s.setupBQDestinationTable(tblName)
-
-// 	query := fmt.Sprintf("SELECT * FROM e2e_test.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", tblName)
-
-// 	qrepConfig := s.createQRepWorkflowConfig("test_qrep_flow_mi",
-// 		"e2e_test."+tblName,
-// 		tblName,
-// 		query,
-// 		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
-// 		s.bqHelper.Peer)
-// 	runQrepFlowWorkflow(env, qrepConfig)
-
-// 	// Verify workflow completes without error
-// 	s.True(env.IsWorkflowCompleted())
-
-// 	// assert that error contains "invalid connection configs"
-// 	err := env.GetWorkflowError()
-// 	s.NoError(err)
-
-// 	count, err := s.bqHelper.CountRows(tblName)
-// 	s.NoError(err)
-
-// 	s.Equal(numRows, count)
-
-// 	env.AssertExpectations(s.T())
-// }

@@ -34,7 +34,7 @@ type QRepPartitionFlowExecution struct {
 	runUUID         string
 }
 
-// returns a new empty PeerFlowState
+// returns a new empty QRepFlowState
 func NewQRepFlowState() *protos.QRepFlowState {
 	return &protos.QRepFlowState{
 		LastPartition: &protos.QRepPartition{
@@ -43,6 +43,19 @@ func NewQRepFlowState() *protos.QRepFlowState {
 		},
 		NumPartitionsProcessed: 0,
 		NeedsResync:            true,
+	}
+}
+
+// returns a new empty QRepFlowState
+func NewQRepFlowStateForTesting() *protos.QRepFlowState {
+	return &protos.QRepFlowState{
+		LastPartition: &protos.QRepPartition{
+			PartitionId: "not-applicable-partition",
+			Range:       nil,
+		},
+		NumPartitionsProcessed: 0,
+		NeedsResync:            true,
+		DisableWaitForNewRows:  true,
 	}
 }
 
@@ -440,10 +453,12 @@ func QRepFlowWorkflow(
 		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
-	// sleep for a while and continue the workflow
-	err = q.waitForNewRows(ctx, state.LastPartition)
-	if err != nil {
-		return err
+	if !state.DisableWaitForNewRows {
+		// sleep for a while and continue the workflow
+		err = q.waitForNewRows(ctx, state.LastPartition)
+		if err != nil {
+			return err
+		}
 	}
 
 	workflow.GetLogger(ctx).Info("Continuing as new workflow",

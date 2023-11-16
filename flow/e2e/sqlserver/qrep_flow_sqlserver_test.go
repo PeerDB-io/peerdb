@@ -168,7 +168,7 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 		WaitBetweenBatchesSeconds:  5,
 	}
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

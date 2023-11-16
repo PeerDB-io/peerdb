@@ -46,8 +46,6 @@ func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
 		{"Test_Toast_Advance_2_BQ", s.Test_Toast_Advance_2_BQ},
 		{"Test_Toast_Advance_3_BQ", s.Test_Toast_Advance_3_BQ},
 		{"Test_Types_BQ", s.Test_Types_BQ},
-		{"Test_Types_Avro_BQ", s.Test_Types_Avro_BQ},
-		{"Test_Simple_Flow_BQ_Avro_CDC", s.Test_Simple_Flow_BQ_Avro_CDC},
 		{"Test_Multi_Table_BQ", s.Test_Multi_Table_BQ},
 		{"Test_Simple_Schema_Changes_BQ", s.Test_Simple_Schema_Changes_BQ},
 		{"Test_Composite_PKey_BQ", s.Test_Composite_PKey_BQ},
@@ -65,6 +63,10 @@ func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
 
 		t.Run(tt.name, tt.test)
 	}
+
+	t.Cleanup(func() {
+		s.TearDownSuite()
+	})
 }
 
 func (s *PeerFlowE2ETestSuiteBQ) attachSchemaSuffix(tableName string) string {
@@ -185,6 +187,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -230,6 +234,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -278,6 +284,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -347,13 +355,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -416,13 +426,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -478,6 +490,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -552,13 +566,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -621,13 +637,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -689,6 +707,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -696,7 +716,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ(t *testing.T) {
 
 	limits := peerflow.CDCFlowLimits{
 
-		TotalSyncFlows: 1,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -745,153 +765,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ(t *testing.T) {
 	env.AssertExpectations(s.T())
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Types_Avro_BQ(t *testing.T) {
-	t.Parallel()
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
-
-	srcTableName := s.attachSchemaSuffix("test_types_avro_bq")
-	dstTableName := "test_types_avro_bq"
-
-	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
-		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
-		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
-		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
-		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
-		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[]);
-	`, srcTableName))
-	require.NoError(t, err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_types_avro_bq"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
-		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
-		CdcStagingPath:   "peerdb_staging",
-	}
-
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(t, err)
-
-	limits := peerflow.CDCFlowLimits{
-
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
-	}
-
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		/* test inserting various types*/
-		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s SELECT 2,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
-		CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
-		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
-		'{"sai":1}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
-		1.2,1.23,4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
-		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
-		txid_current_snapshot(),
-		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello'),
-		ARRAY[9301,239827],
-		ARRAY[0.0003, 1039.0034],
-		ARRAY['hello','bye'];
-		`, srcTableName))
-		require.NoError(t, err)
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
-
-	noNulls, err := s.bqHelper.CheckNull(dstTableName, []string{"c41", "c1", "c2", "c3", "c4",
-		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
-		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44"})
-	if err != nil {
-		fmt.Println("error  %w", err)
-	}
-	// Make sure that there are no nulls
-	s.True(noNulls)
-
-	env.AssertExpectations(s.T())
-}
-
-func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Flow_BQ_Avro_CDC(t *testing.T) {
-	t.Parallel()
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
-
-	srcTableName := s.attachSchemaSuffix("test_simple_flow_bq_avro_cdc")
-	dstTableName := "test_simple_flow_bq_avro_cdc"
-
-	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL
-		);
-	`, srcTableName))
-	require.NoError(t, err)
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_simple_flow_bq_avro_cdc"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
-		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
-		CdcStagingPath:   "peerdb_staging",
-	}
-
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(t, err)
-
-	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
-	}
-
-	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		for i := 0; i < 10; i++ {
-			testKey := fmt.Sprintf("test_key_%d", i)
-			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s (key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
-			require.NoError(t, err)
-		}
-		fmt.Println("Inserted 10 rows into the source table")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
-
-	count, err := s.bqHelper.countRows(dstTableName)
-	require.NoError(t, err)
-	s.Equal(10, count)
-
-	// TODO: verify that the data is correctly synced to the destination table
-	// on the bigquery side
-
-	env.AssertExpectations(s.T())
-}
-
 func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ(t *testing.T) {
 	t.Parallel()
 	env := s.NewTestWorkflowEnvironment()
@@ -913,13 +786,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 
@@ -975,6 +850,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -1079,6 +956,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -1154,6 +1033,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -1232,6 +1113,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ(t *testing.T) {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()

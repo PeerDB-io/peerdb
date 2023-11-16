@@ -1242,20 +1242,13 @@ func (c *BigQueryConnector) grabJobsUpdateLock() (func() error, error) {
 
 	// grab an advisory lock based on the mirror jobs table hash
 	mjTbl := fmt.Sprintf("%s.%s", c.datasetID, MirrorJobsTable)
-	_, err = tx.Exec(c.ctx, "SELECT pg_advisory_lock(hashtext($1))", mjTbl)
-
+	_, err = tx.Exec(c.ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", mjTbl)
 	if err != nil {
 		err = tx.Rollback(c.ctx)
 		return nil, fmt.Errorf("failed to grab lock on %s: %w", mjTbl, err)
 	}
 
 	return func() error {
-		// release the lock
-		_, err := tx.Exec(c.ctx, "SELECT pg_advisory_unlock(hashtext($1))", mjTbl)
-		if err != nil {
-			return fmt.Errorf("failed to release lock on %s: %w", mjTbl, err)
-		}
-
 		err = tx.Commit(c.ctx)
 		if err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)

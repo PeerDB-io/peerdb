@@ -114,7 +114,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	s.NoError(err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -164,7 +164,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.WatermarkColumn = "ctid"
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
