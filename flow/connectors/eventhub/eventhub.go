@@ -174,7 +174,7 @@ func (c *EventHubConnector) processBatch(
 
 	log.WithFields(log.Fields{
 		"flowName": flowJobName,
-	}).Infof("[total] successfully sent %d records to event hub", numRecords)
+	}).Infof("[total] successfully flushed %d records to event hub", numRecords)
 	return uint32(numRecords), nil
 }
 
