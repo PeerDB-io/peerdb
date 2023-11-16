@@ -6,12 +6,11 @@ import { useMemo, useState } from 'react';
 const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const shownTables = useMemo(() => {
-    const shownTables = tables?.filter((table: TableMapping) => {
-      return (
+    const shownTables = tables?.filter(
+      (table: TableMapping) =>
         table.sourceTableIdentifier.includes(searchQuery) ||
         table.destinationTableIdentifier.includes(searchQuery)
-      );
-    });
+    );
     return shownTables?.length ? shownTables : tables;
   }, [tables, searchQuery]);
   if (tables)
