@@ -1,14 +1,14 @@
 'use client';
 
-import SearchBar from '@/components/Search';
 import TimeLabel from '@/components/TimeComponent';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
+import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 export type QRepPartitionStatus = {
   partitionId: string;
@@ -85,8 +85,17 @@ export default function QRepStatusTable({
     (currentPage - 1) * ROWS_PER_PAGE,
     currentPage * ROWS_PER_PAGE
   );
-  const [displayedPartitions, setDisplayedPartitions] =
-    useState(visiblePartitions);
+
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const displayedPartitions = useMemo(
+    () =>
+      visiblePartitions.filter((partition: QRepPartitionStatus) => {
+        return partition.partitionId
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase());
+      }),
+    [visiblePartitions, searchQuery]
+  );
 
   const handleNext = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -136,15 +145,10 @@ export default function QRepStatusTable({
           </>
         ),
         right: (
-          <SearchBar
-            allItems={visiblePartitions}
-            setItems={setDisplayedPartitions}
-            filterFunction={(query: string) =>
-              visiblePartitions.filter((partition: QRepPartitionStatus) => {
-                return partition.partitionId
-                  .toLowerCase()
-                  .includes(query.toLowerCase());
-              })
+          <SearchField
+            placeholder='Search by partition UUID'
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setSearchQuery(e.target.value)
             }
           />
         ),

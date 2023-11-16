@@ -1,14 +1,14 @@
 'use client';
 
-import SearchBar from '@/components/Search';
 import TimeLabel from '@/components/TimeComponent';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
+import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 type SyncStatusRow = {
   batchId: number;
@@ -53,13 +53,16 @@ const ROWS_PER_PAGE = 10;
 export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
-
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const startRow = (currentPage - 1) * ROWS_PER_PAGE;
   const endRow = startRow + ROWS_PER_PAGE;
-  const allRows = rows.slice(startRow, endRow);
-  const [displayedRows, setDisplayedRows] = useState(
-    rows.slice(startRow, endRow)
-  );
+  const displayedRows = useMemo(() => {
+    const allRows = rows.slice(startRow, endRow);
+    const shownRows = allRows.filter(
+      (row: any) => row.batchId == parseInt(searchQuery, 10)
+    );
+    return shownRows.length > 0 ? shownRows : allRows;
+  }, [searchQuery, endRow, startRow, rows]);
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
@@ -90,13 +93,10 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
           </>
         ),
         right: (
-          <SearchBar
-            allItems={allRows}
-            setItems={setDisplayedRows}
-            filterFunction={(query: string) =>
-              allRows.filter((row: any) => {
-                return row.batchId == parseInt(query, 10);
-              })
+          <SearchField
+            placeholder='Search by batch ID'
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setSearchQuery(e.target.value)
             }
           />
         ),

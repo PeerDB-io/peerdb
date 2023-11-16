@@ -1,16 +1,16 @@
 'use client';
 
-import SearchBar from '@/components/Search';
 import TimeLabel from '@/components/TimeComponent';
 import { QRepMirrorStatus, SnapshotStatus } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
+import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment, { Duration, Moment } from 'moment';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 class TableCloneSummary {
   flowJobName: string;
@@ -88,9 +88,17 @@ type SnapshotStatusProps = {
   status: SnapshotStatus;
 };
 export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
-  const [snapshotRows, setSnapshotRows] = useState(
-    status.clones.map(summarizeTableClone)
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const snapshotRows = useMemo(
+    () =>
+      status.clones
+        .map(summarizeTableClone)
+        .filter((row: any) =>
+          row.tableName.toLowerCase().includes(searchQuery.toLowerCase())
+        ),
+    [status.clones, searchQuery]
   );
+
   return (
     <div style={{ marginTop: '2rem' }}>
       <Table
@@ -113,15 +121,10 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
             </>
           ),
           right: (
-            <SearchBar
-              allItems={status.clones.map(summarizeTableClone)}
-              setItems={setSnapshotRows}
-              filterFunction={(query: string) =>
-                status.clones.map(summarizeTableClone).filter((row: any) => {
-                  return row.tableName
-                    .toLowerCase()
-                    .includes(query.toLowerCase());
-                })
+            <SearchField
+              placeholder='Search by table name'
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setSearchQuery(e.target.value)
               }
             />
           ),
