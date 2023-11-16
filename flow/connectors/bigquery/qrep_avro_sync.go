@@ -328,7 +328,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	var avroFilePath string
 	numRecords, err := func() (int, error) {
 		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema,
-			avro.CompressSnappy, qvalue.QDWHTypeBigQuery)
+			avro.CompressDeflate, qvalue.QDWHTypeBigQuery)
 		if s.gcsBucket != "" {
 			bucket := s.connector.storageClient.Bucket(s.gcsBucket)
 			avroFilePath = fmt.Sprintf("%s/%s.avro.snappy", objectFolder, syncID)
@@ -370,6 +370,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	if s.gcsBucket != "" {
 		gcsRef := bigquery.NewGCSReference(fmt.Sprintf("gs://%s/%s", s.gcsBucket, avroFilePath))
 		gcsRef.SourceFormat = bigquery.Avro
+		gcsRef.Compression = bigquery.Deflate
 		avroRef = gcsRef
 	} else {
 		fh, err := os.Open(avroFilePath)

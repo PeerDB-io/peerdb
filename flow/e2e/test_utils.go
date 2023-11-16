@@ -297,18 +297,10 @@ func CreateQRepWorkflowConfig(
 	return qrepConfig, nil
 }
 
-func RunQrepFlowWorkflow(suite testsuite.WorkflowTestSuite, config *protos.QRepConfig) bool {
-	env := suite.NewTestWorkflowEnvironment()
-	RegisterWorkflowsAndActivities(env)
+func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
 	state := peerflow.NewQRepFlowStateForTesting()
+	time.Sleep(5 * time.Second)
 	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
-	if !env.IsWorkflowCompleted() {
-		return false
-	}
-	env = suite.NewTestWorkflowEnvironment()
-	RegisterWorkflowsAndActivities(env)
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
-	return env.IsWorkflowCompleted()
 }
 
 func GetOwnersSchema() *model.QRecordSchema {

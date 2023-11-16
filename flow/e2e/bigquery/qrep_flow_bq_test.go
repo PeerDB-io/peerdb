@@ -68,7 +68,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		s.bqHelper.Peer,
 		"peerdb_staging")
 	s.NoError(err)
-	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

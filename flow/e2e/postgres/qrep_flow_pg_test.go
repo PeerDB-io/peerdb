@@ -171,7 +171,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	)
 	s.NoError(err)
 
-	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

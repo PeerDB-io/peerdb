@@ -81,7 +81,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	)
 	s.NoError(err)
 
-	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -126,7 +126,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple()
 	}
 	s.NoError(err)
 
-	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -168,7 +168,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	s.NoError(err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 
-	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -212,7 +212,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	qrepConfig.WatermarkColumn = "xmin"
 	s.NoError(err)
 
-	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -256,7 +256,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 	s.NoError(err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 
-	e2e.RunQrepFlowWorkflow(s.WorkflowTestSuite, qrepConfig)
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
