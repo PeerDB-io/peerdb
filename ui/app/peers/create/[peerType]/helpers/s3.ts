@@ -15,7 +15,6 @@ export const s3Setting: PeerSetting[] = [
     label: 'Access Key ID',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, accessKeyId: value })),
-    optional: true,
     tips: 'The AWS access key ID associated with your account. In case of GCS, this is the HMAC access key ID.',
     helpfulLink:
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
@@ -27,7 +26,6 @@ export const s3Setting: PeerSetting[] = [
     tips: 'The AWS secret access key associated with your account. In case of GCS, this is the HMAC secret.',
     helpfulLink:
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
-    optional: true,
   },
   {
     label: 'Region',
@@ -40,7 +38,7 @@ export const s3Setting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, roleArn: value })),
     type: 'password',
-    tips: 'You may set this instead of the access key ID and secret.',
+    tips: 'If set, the role ARN will be used to assume the role before accessing the bucket.',
     helpfulLink:
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-arns',
     optional: true,
