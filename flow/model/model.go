@@ -395,7 +395,7 @@ schemaLoop:
 				if len(tm.Exclude) == 0 {
 					break
 				}
-				added := make([]*protos.DeltaAddedColumn, len(delta.AddedColumns))
+				added := make([]*protos.DeltaAddedColumn, 0, len(delta.AddedColumns))
 				for _, column := range delta.AddedColumns {
 					if !slices.Contains(tm.Exclude, column.ColumnName) {
 						added = append(added, column)
