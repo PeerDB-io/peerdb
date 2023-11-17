@@ -1,10 +1,11 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
 import BQConfig from '@/components/BigqueryConfig';
+import S3ConfigForm from '@/components/S3Form';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
-import { LayoutMain, RowWithTextField } from '@/lib/Layout';
+import { RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
@@ -45,6 +46,8 @@ export default function CreateConfig({
         return configForm(snowflakeSetting);
       case 'BIGQUERY':
         return <BQConfig setter={setConfig} />;
+      case 'S3':
+        return <S3ConfigForm setter={setConfig} />;
       default:
         return <></>;
     }
@@ -55,7 +58,15 @@ export default function CreateConfig({
   };
 
   return (
-    <LayoutMain alignSelf='center' justifySelf='center' width='xxLarge'>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignSelf: 'center',
+        justifySelf: 'center',
+        width: '45%',
+      }}
+    >
       <Panel>
         <Label variant='title3'>
           Setup a new{' '}
@@ -144,6 +155,6 @@ export default function CreateConfig({
           )}
         </Panel>
       </Panel>
-    </LayoutMain>
+    </div>
   );
 }

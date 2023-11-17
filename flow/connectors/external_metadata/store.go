@@ -2,6 +2,7 @@ package connmetadata
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -23,7 +24,6 @@ type PostgresMetadataStore struct {
 func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
 	schemaName string) (*PostgresMetadataStore, error) {
 	connectionString := utils.GetPGConnectionString(pgConfig)
-
 	pool, err := pgxpool.New(ctx, connectionString)
 	if err != nil {
 		log.Errorf("failed to create connection pool: %v", err)
@@ -42,6 +42,18 @@ func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConf
 func (p *PostgresMetadataStore) Close() error {
 	if p.pool != nil {
 		p.pool.Close()
+	}
+
+	return nil
+}
+
+func (p *PostgresMetadataStore) Ping() error {
+	if p.pool == nil {
+		return fmt.Errorf("metadata db ping failed as pool does not exist")
+	}
+	pingErr := p.pool.Ping(p.ctx)
+	if pingErr != nil {
+		return fmt.Errorf("metadata db ping failed: %w", pingErr)
 	}
 
 	return nil

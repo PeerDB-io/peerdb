@@ -3,13 +3,20 @@ package conns3
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
+)
+
+const (
+	_peerDBCheck = "peerdb_check"
 )
 
 type S3Connector struct {
@@ -61,6 +68,12 @@ func NewS3Connector(ctx context.Context,
 		return nil, err
 	}
 
+	validErr := ValidCheck(s3Client, config.Url, pgMetadata)
+	if validErr != nil {
+		log.Errorf("failed to validate s3 connector: %v", validErr)
+		return nil, validErr
+	}
+
 	return &S3Connector{
 		ctx:        ctx,
 		url:        config.Url,
@@ -82,6 +95,48 @@ func (c *S3Connector) InitializeTableSchema(req map[string]*protos.TableSchema) 
 
 func (c *S3Connector) Close() error {
 	log.Debugf("Closing s3 connector is a noop")
+	return nil
+}
+
+func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {
+	_, listErr := s3Client.ListBuckets(nil)
+	if listErr != nil {
+		return fmt.Errorf("failed to list buckets: %w", listErr)
+	}
+
+	reader := strings.NewReader(time.Now().Format(time.RFC3339))
+
+	bucketPrefix, parseErr := utils.NewS3BucketAndPrefix(bucketURL)
+	if parseErr != nil {
+		return fmt.Errorf("failed to parse bucket url: %w", parseErr)
+	}
+
+	// Write an empty file and then delete it
+	// to check if we have write permissions
+	bucketName := aws.String(bucketPrefix.Bucket)
+	_, putErr := s3Client.PutObject(&s3.PutObjectInput{
+		Bucket: bucketName,
+		Key:    aws.String(_peerDBCheck),
+		Body:   reader,
+	})
+	if putErr != nil {
+		return fmt.Errorf("failed to write to bucket: %w", putErr)
+	}
+
+	_, delErr := s3Client.DeleteObject(&s3.DeleteObjectInput{
+		Bucket: bucketName,
+		Key:    aws.String(_peerDBCheck),
+	})
+	if delErr != nil {
+		return fmt.Errorf("failed to delete from bucket: %w", delErr)
+	}
+
+	// check if we can ping external metadata
+	err := metadataDB.Ping()
+	if err != nil {
+		return fmt.Errorf("failed to ping external metadata: %w", err)
+	}
+
 	return nil
 }
 

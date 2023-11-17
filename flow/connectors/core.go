@@ -230,8 +230,12 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 			return nil, fmt.Errorf("missing sqlserver config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connsqlserver.NewSQLServerConnector(ctx, sqlServerConfig)
-	// case protos.DBType_S3:
-	// 	return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case protos.DBType_S3:
+		s3Config := peer.GetS3Config()
+		if s3Config == nil {
+			return nil, fmt.Errorf("missing s3 config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return conns3.NewS3Connector(ctx, s3Config)
 	// case protos.DBType_EVENTHUB:
 	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	default:
