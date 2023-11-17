@@ -414,7 +414,7 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	// cancel the SendWalHeartbeat activity
-	cancelHeartbeat()
+	defer cancelHeartbeat()
 
 	state.TruncateProgress()
 	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
