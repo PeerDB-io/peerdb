@@ -209,7 +209,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 			cloneTablesInput.snapshotName)
 	}
 
-	boundSelector := concurrency.NewBoundSelector(cloneTablesInput.maxParallelClones)
+	boundSelector := concurrency.NewBoundSelector(ctx, cloneTablesInput.maxParallelClones)
 
 	defaultPartitionCol := "ctid"
 	if !cloneTablesInput.supportsTIDScans {
