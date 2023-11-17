@@ -1228,6 +1228,25 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 		}
 	}()
 
+	if req.SyncedAtColName != nil {
+		for _, renameRequest := range req.RenameTableOptions {
+			resyncTblName := renameRequest.CurrentName
+
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Infof("setting synced at column for table '%s'...", resyncTblName)
+
+			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("setting synced at column for table '%s'...",
+				resyncTblName))
+
+			_, err = renameTablesTx.ExecContext(c.ctx,
+				fmt.Sprintf("UPDATE %s SET %s = CURRENT_TIMESTAMP", resyncTblName, *req.SyncedAtColName))
+			if err != nil {
+				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", resyncTblName, err)
+			}
+		}
+	}
+
 	if req.SoftDeleteColName != nil {
 		for _, renameRequest := range req.RenameTableOptions {
 			src := renameRequest.CurrentName

@@ -100,18 +100,6 @@ func (s *CDCFlowWorkflowState) TruncateProgress() {
 	}
 }
 
-func (s *CDCFlowWorkflowState) SendWALHeartbeat(ctx workflow.Context, cfg *protos.FlowConnectionConfigs) error {
-	walHeartbeatCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
-
-	if err := workflow.ExecuteActivity(walHeartbeatCtx, flowable.SendWALHeartbeat, cfg).Get(ctx, nil); err != nil {
-		return fmt.Errorf("failed to send WAL heartbeat: %w", err)
-	}
-
-	return nil
-}
-
 // CDCFlowWorkflowExecution represents the state for execution of a peer flow.
 type CDCFlowWorkflowExecution struct {
 	flowExecutionID string
@@ -247,6 +235,7 @@ func CDCFlowWorkflowWithConfig(
 			if cfg.SoftDelete {
 				renameOpts.SoftDeleteColName = &cfg.SoftDeleteColName
 			}
+			renameOpts.SyncedAtColName = &cfg.SyncedAtColName
 			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
 			for _, mapping := range cfg.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
@@ -276,6 +265,12 @@ func CDCFlowWorkflowWithConfig(
 		state.SnapshotComplete = true
 		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 	}
+
+	heartbeatCancelCtx, cancelHeartbeat := workflow.WithCancel(ctx)
+	walHeartbeatCtx := workflow.WithActivityOptions(heartbeatCancelCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: 7 * 24 * time.Hour,
+	})
+	workflow.ExecuteActivity(walHeartbeatCtx, flowable.SendWALHeartbeat, cfg)
 
 	syncFlowOptions := &protos.SyncFlowOptions{
 		BatchSize: int32(limits.MaxBatchSize),
@@ -419,10 +414,8 @@ func CDCFlowWorkflowWithConfig(
 		selector.Select(ctx)
 	}
 
-	// send WAL heartbeat
-	if err := state.SendWALHeartbeat(ctx, cfg); err != nil {
-		return state, err
-	}
+	// cancel the SendWalHeartbeat activity
+	defer cancelHeartbeat()
 
 	state.TruncateProgress()
 	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)

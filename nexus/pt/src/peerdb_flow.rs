@@ -122,6 +122,8 @@ pub struct RenameTablesInput {
     pub rename_table_options: ::prost::alloc::vec::Vec<RenameTableOption>,
     #[prost(string, optional, tag="4")]
     pub soft_delete_col_name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="5")]
+    pub synced_at_col_name: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

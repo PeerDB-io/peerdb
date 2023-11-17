@@ -671,13 +671,27 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, config *protos.
 		return fmt.Errorf("failed to get destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(srcConn)
-
-	err = srcConn.SendWALHeartbeat()
-	if err != nil {
-		return fmt.Errorf("failed to send WAL heartbeat: %w", err)
+	log.WithFields(log.Fields{"flowName": config.FlowJobName}).Info("sending walheartbeat every 10 minutes")
+	ticker := time.NewTicker(10 * time.Minute)
+	for {
+		select {
+		case <-ctx.Done():
+			log.WithFields(
+				log.Fields{
+					"flowName": config.FlowJobName,
+				}).Info("context is done, exiting wal heartbeat send loop")
+			return nil
+		case <-ticker.C:
+			err = srcConn.SendWALHeartbeat()
+			if err != nil {
+				return fmt.Errorf("failed to send WAL heartbeat: %w", err)
+			}
+			log.WithFields(
+				log.Fields{
+					"flowName": config.FlowJobName,
+				}).Info("sent wal heartbeat")
+		}
 	}
-
-	return nil
 }
 
 func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
