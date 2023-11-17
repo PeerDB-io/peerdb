@@ -186,7 +186,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         }
 
                         // get do_initial_copy from with_options
-                        let mut raw_options = HashMap::new();
+                        let mut raw_options = HashMap::with_capacity(cdc.with_options.len());
                         for option in &cdc.with_options {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
@@ -362,7 +362,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         }))
                     }
                     Select(select) => {
-                        let mut raw_options = HashMap::new();
+                        let mut raw_options = HashMap::with_capacity(select.with_options.len());
                         for option in &select.with_options {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
@@ -417,7 +417,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 mirror_name,
                 with_options,
             } => {
-                let mut raw_options = HashMap::new();
+                let mut raw_options = HashMap::with_capacity(with_options.len());
                 for option in with_options {
                     raw_options.insert(&option.name.value as &str, &option.value);
                 }
@@ -511,7 +511,7 @@ fn parse_db_options(
     db_type: DbType,
     with_options: &[SqlOption],
 ) -> anyhow::Result<Option<Config>> {
-    let mut opts: HashMap<&str, &str> = HashMap::new();
+    let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
         let val = match opt.value {
             sqlparser::ast::Value::SingleQuotedString(ref str) => str,
