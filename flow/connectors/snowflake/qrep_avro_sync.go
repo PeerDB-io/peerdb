@@ -339,10 +339,10 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage str
 	return nil
 }
 
-func (sc *SnowflakeConnector) GetCopyTransformation(
+func (c *SnowflakeConnector) GetCopyTransformation(
 	dstTableName string,
 ) (*CopyInfo, error) {
-	colInfo, colsErr := sc.getColsFromTable(dstTableName)
+	colInfo, colsErr := c.getColsFromTable(dstTableName)
 	if colsErr != nil {
 		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
 	}

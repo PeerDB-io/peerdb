@@ -75,12 +75,14 @@ message FlowConnectionConfigs {
 message RenameTableOption {
   string current_name = 1;
   string new_name = 2;
+  TableSchema table_schema = 3;
 }
 
 message RenameTablesInput {
   string flow_job_name = 1;
   peerdb_peers.Peer peer = 2;
   repeated RenameTableOption rename_table_options = 3;
+  optional string soft_delete_col_name = 4;
 }
 
 message RenameTablesOutput {
