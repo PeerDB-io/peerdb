@@ -165,6 +165,7 @@ export interface RenameTablesInput {
   peer: Peer | undefined;
   renameTableOptions: RenameTableOption[];
   softDeleteColName?: string | undefined;
+  syncedAtColName?: string | undefined;
 }
 
 export interface RenameTablesOutput {
@@ -1592,7 +1593,13 @@ export const RenameTableOption = {
 };
 
 function createBaseRenameTablesInput(): RenameTablesInput {
-  return { flowJobName: "", peer: undefined, renameTableOptions: [], softDeleteColName: undefined };
+  return {
+    flowJobName: "",
+    peer: undefined,
+    renameTableOptions: [],
+    softDeleteColName: undefined,
+    syncedAtColName: undefined,
+  };
 }
 
 export const RenameTablesInput = {
@@ -1608,6 +1615,9 @@ export const RenameTablesInput = {
     }
     if (message.softDeleteColName !== undefined) {
       writer.uint32(34).string(message.softDeleteColName);
+    }
+    if (message.syncedAtColName !== undefined) {
+      writer.uint32(42).string(message.syncedAtColName);
     }
     return writer;
   },
@@ -1647,6 +1657,13 @@ export const RenameTablesInput = {
 
           message.softDeleteColName = reader.string();
           continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.syncedAtColName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1664,6 +1681,7 @@ export const RenameTablesInput = {
         ? object.renameTableOptions.map((e: any) => RenameTableOption.fromJSON(e))
         : [],
       softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : undefined,
+      syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : undefined,
     };
   },
 
@@ -1681,6 +1699,9 @@ export const RenameTablesInput = {
     if (message.softDeleteColName !== undefined) {
       obj.softDeleteColName = message.softDeleteColName;
     }
+    if (message.syncedAtColName !== undefined) {
+      obj.syncedAtColName = message.syncedAtColName;
+    }
     return obj;
   },
 
@@ -1693,6 +1714,7 @@ export const RenameTablesInput = {
     message.peer = (object.peer !== undefined && object.peer !== null) ? Peer.fromPartial(object.peer) : undefined;
     message.renameTableOptions = object.renameTableOptions?.map((e) => RenameTableOption.fromPartial(e)) || [];
     message.softDeleteColName = object.softDeleteColName ?? undefined;
+    message.syncedAtColName = object.syncedAtColName ?? undefined;
     return message;
   },
 };

@@ -9,6 +9,7 @@ import { PostgresConfig } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithRadiobutton, RowWithTextField } from '@/lib/Layout';
 import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
+import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
@@ -19,6 +20,7 @@ interface S3Props {
   setter: PeerSetter;
 }
 const S3ConfigForm = ({ setter }: S3Props) => {
+  const [showMetadata, setShowMetadata] = useState<boolean>(false);
   const [metadataDB, setMetadataDB] = useState<PeerConfig>(
     blankS3Setting.metadataDb!
   );
@@ -34,7 +36,7 @@ const S3ConfigForm = ({ setter }: S3Props) => {
     setter((prev) => {
       return {
         ...prev,
-        metadataDb: metadataDB as PostgresConfig,
+        metadataDb: showMetadata ? (metadataDB as PostgresConfig) : undefined,
         endpoint,
       };
     });
@@ -47,7 +49,7 @@ const S3ConfigForm = ({ setter }: S3Props) => {
         };
       });
     }
-  }, [metadataDB, storageType, setter]);
+  }, [metadataDB, storageType, setter, showMetadata]);
 
   return (
     <div>
@@ -143,62 +145,65 @@ const S3ConfigForm = ({ setter }: S3Props) => {
         For S3/GCS storage peers, PeerDB uses an external PostgreSQL database to
         store metadata (last sync state) for mirrors.
         <br></br>
-        More information on creation of storage peers in PeerDB{' '}
-        <a
-          style={{ color: 'teal' }}
-          href='https://docs.peerdb.io/sql/commands/create-peer#storage-peers-s3-and-gcs'
-        >
-          here.
-        </a>
+        By default, PeerDB will use its internal Catalog as the metadata
+        database.
+        <br></br>
+        <br></br>
+        You can also choose to use your own PostgreSQL database:
       </Label>
-      {postgresSetting.map(
-        (pgSetting, index) =>
-          pgSetting.label !== 'Transaction Snapshot' && (
-            <RowWithTextField
-              key={index}
-              label={
-                <Label>
-                  {pgSetting.label}{' '}
-                  <Tooltip
-                    style={{ width: '100%' }}
-                    content={'This is a required field.'}
+      <div style={{ width: '50%', display: 'flex', alignItems: 'center' }}>
+        <Label variant='subheadline'>Use my own metadata detabase</Label>
+        <Switch onCheckedChange={(state) => setShowMetadata(state)} />
+      </div>
+      {showMetadata &&
+        postgresSetting.map(
+          (pgSetting, index) =>
+            pgSetting.label !== 'Transaction Snapshot' && (
+              <RowWithTextField
+                key={index}
+                label={
+                  <Label>
+                    {pgSetting.label}{' '}
+                    <Tooltip
+                      style={{ width: '100%' }}
+                      content={'This is a required field.'}
+                    >
+                      <Label colorName='lowContrast' colorSet='destructive'>
+                        *
+                      </Label>
+                    </Tooltip>
+                  </Label>
+                }
+                action={
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
                   >
-                    <Label colorName='lowContrast' colorSet='destructive'>
-                      *
-                    </Label>
-                  </Tooltip>
-                </Label>
-              }
-              action={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <TextField
-                    variant='simple'
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      pgSetting.stateHandler(e.target.value, setMetadataDB)
-                    }
-                    defaultValue={
-                      (metadataDB as PostgresConfig)[
-                        pgSetting.label.toLowerCase() as keyof PostgresConfig
-                      ] || ''
-                    }
-                  />
-                  {pgSetting.tips && (
-                    <InfoPopover
-                      tips={pgSetting.tips}
-                      link={pgSetting.helpfulLink}
+                    <TextField
+                      variant='simple'
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        pgSetting.stateHandler(e.target.value, setMetadataDB)
+                      }
+                      defaultValue={
+                        (metadataDB as PostgresConfig)[
+                          pgSetting.label.toLowerCase() as keyof PostgresConfig
+                        ] || ''
+                      }
                     />
-                  )}
-                </div>
-              }
-            />
-          )
-      )}
+                    {pgSetting.tips && (
+                      <InfoPopover
+                        tips={pgSetting.tips}
+                        link={pgSetting.helpfulLink}
+                      />
+                    )}
+                  </div>
+                }
+              />
+            )
+        )}
     </div>
   );
 };
