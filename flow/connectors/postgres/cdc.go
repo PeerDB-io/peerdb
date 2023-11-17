@@ -235,7 +235,7 @@ func (p *PostgresCDCSource) consumeStream(
 			pkmRequiresResponse = false
 		}
 
-		if len(localRecords) <= 1 {
+		if len(localRecords) == 0 {
 			log.Infof("pushing the standby deadline to %s", time.Now().Add(standbyMessageTimeout))
 			log.Infof("num records accumulated: %d", len(localRecords))
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
