@@ -3,6 +3,7 @@ package peerflow
 import (
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/concurrency"
@@ -14,6 +15,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
 )
 
 type SnapshotFlowExecution struct {
@@ -134,8 +136,18 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}).Errorf("unable to parse source table")
 		return fmt.Errorf("unable to parse source table: %w", err)
 	}
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-		parsedSrcTable.String(), partitionCol)
+	from := "*"
+	if len(mapping.Exclude) != 0 {
+		for _, v := range s.config.TableNameSchemaMapping {
+			if v.TableIdentifier == srcName {
+				from = strings.Join(maps.Keys(v.Columns), ",")
+				break
+			}
+		}
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+		from, parsedSrcTable.String(), partitionCol)
 
 	numWorkers := uint32(8)
 	if s.config.SnapshotMaxParallelWorkers > 0 {

@@ -52,6 +52,12 @@ const constructPeer = (
         type: DBType.BIGQUERY,
         bigqueryConfig: config as BigqueryConfig,
       };
+    case 'S3':
+      return {
+        name,
+        type: DBType.S3,
+        s3Config: config as S3Config,
+      };
     default:
       return;
   }

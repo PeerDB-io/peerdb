@@ -1362,20 +1362,14 @@ pub async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&server_addr).await.unwrap();
     tracing::info!("Listening on {}", server_addr);
 
-    let flow_server_addr = args.flow_api_url.clone();
-    let mut flow_handler: Option<Arc<Mutex<FlowGrpcClient>>> = None;
     // log that we accept mirror commands if we have a flow server
-    if let Some(addr) = &flow_server_addr {
-        let mut handler = FlowGrpcClient::new(addr).await?;
-        if handler.is_healthy().await? {
-            flow_handler = Some(Arc::new(Mutex::new(handler)));
-            tracing::info!("MIRROR commands enabled, flow server: {}", addr);
-        } else {
-            tracing::info!("MIRROR commands disabled, flow server: {}", addr);
-        }
+    let flow_handler = if let Some(ref addr) = args.flow_api_url {
+        tracing::info!("MIRROR commands enabled");
+        Some(Arc::new(Mutex::new(FlowGrpcClient::new(addr).await?)))
     } else {
         tracing::info!("MIRROR commands disabled");
-    }
+        None
+    };
 
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();

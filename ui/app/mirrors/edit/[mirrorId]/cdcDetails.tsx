@@ -1,13 +1,15 @@
 'use client';
+import MirrorInfo from '@/components/MirrorInfo';
+import PeerButton from '@/components/PeerComponent';
+import TimeLabel from '@/components/TimeComponent';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
+import { dBTypeFromJSON } from '@/grpc_generated/peers';
 import { Badge } from '@/lib/Badge';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
-import CdcGraph from './cdcGraph';
-
-import PeerButton from '@/components/PeerComponent';
-import { dBTypeFromJSON } from '@/grpc_generated/peers';
+import MirrorValues from './configValues';
+import TablePairs from './tablePairs';
 
 type SyncStatusRow = {
   batchId: number;
@@ -19,11 +21,13 @@ type SyncStatusRow = {
 type props = {
   syncs: SyncStatusRow[];
   mirrorConfig: FlowConnectionConfigs | undefined;
+  createdAt?: Date;
 };
-function CdcDetails({ syncs, mirrorConfig }: props) {
+function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
   let lastSyncedAt = moment(syncs[0]?.startTime).fromNow();
   let rowsSynced = syncs.reduce((acc, sync) => acc + sync.numRows, 0);
 
+  const tablesSynced = mirrorConfig?.tableMappings;
   return (
     <>
       <div className='mt-10'>
@@ -94,6 +98,16 @@ function CdcDetails({ syncs, mirrorConfig }: props) {
           <div className='basis-1/4'>
             <div>
               <Label variant='subheadline' colorName='lowContrast'>
+                Created At
+              </Label>
+            </div>
+            <div>
+              <TimeLabel timeVal={createdAt || ''} />
+            </div>
+          </div>
+          <div className='basis-1/4'>
+            <div>
+              <Label variant='subheadline' colorName='lowContrast'>
                 Rows synced
               </Label>
             </div>
@@ -101,16 +115,19 @@ function CdcDetails({ syncs, mirrorConfig }: props) {
               <Label variant='body'>{numberWithCommas(rowsSynced)}</Label>
             </div>
           </div>
+
+          <div className='basis-1/4'>
+            <MirrorInfo configs={MirrorValues(mirrorConfig)} />
+          </div>
         </div>
       </div>
-      <div className='mt-10'>
-        <CdcGraph syncs={syncs} />
-      </div>
+
+      <TablePairs tables={tablesSynced} />
     </>
   );
 }
 
-function numberWithCommas(x: Number): string {
+export function numberWithCommas(x: any): string {
   return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 

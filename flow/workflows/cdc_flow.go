@@ -244,16 +244,25 @@ func CDCFlowWorkflowWithConfig(
 			renameOpts := &protos.RenameTablesInput{}
 			renameOpts.FlowJobName = cfg.FlowJobName
 			renameOpts.Peer = cfg.Destination
+			if cfg.SoftDelete {
+				renameOpts.SoftDeleteColName = &cfg.SoftDeleteColName
+			}
+			correctedTableNameSchemaMapping := make(map[string]*protos.TableSchema)
 			for _, mapping := range cfg.TableMappings {
 				oldName := mapping.DestinationTableIdentifier
 				newName := strings.TrimSuffix(oldName, "_resync")
 				renameOpts.RenameTableOptions = append(renameOpts.RenameTableOptions, &protos.RenameTableOption{
 					CurrentName: oldName,
 					NewName:     newName,
+					// oldName is what was used for the TableNameSchema mapping
+					TableSchema: cfg.TableNameSchemaMapping[oldName],
 				})
 				mapping.DestinationTableIdentifier = newName
+				// TableNameSchemaMapping is referring to the _resync tables, not the actual names
+				correctedTableNameSchemaMapping[newName] = cfg.TableNameSchemaMapping[oldName]
 			}
 
+			cfg.TableNameSchemaMapping = correctedTableNameSchemaMapping
 			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 12 * time.Hour,
 				HeartbeatTimeout:    1 * time.Hour,

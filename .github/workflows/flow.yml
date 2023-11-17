@@ -81,12 +81,12 @@ jobs:
           json: ${{ secrets.GCS_CREDS }}
 
       - name: create hstore extension and increase logical replication limits
-        run: |
+        run: >
           docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION hstore;"
-          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET wal_level=logical;"
-          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_replication_slots=100;"
-          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_wal_senders=100;"
-          docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "ALTER SYSTEM SET max_connections=1024;"
+          -c "ALTER SYSTEM SET wal_level=logical;"
+          -c "ALTER SYSTEM SET max_replication_slots=192;"
+          -c "ALTER SYSTEM SET max_wal_senders=256;"
+          -c "ALTER SYSTEM SET max_connections=2048;" &&
           docker restart pg_cdc
         working-directory: ./flow
         env:
@@ -95,7 +95,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 32 ./... -timeout 2400s
+          gotestsum --format testname -- -p 16 ./... -timeout 2400s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

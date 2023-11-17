@@ -1,5 +1,16 @@
 import * as z from 'zod';
 
+export const peerNameSchema = z
+  .string({
+    invalid_type_error: 'Peer name is invalid.',
+    required_error: 'Peer name is required.',
+  })
+  .min(1, { message: 'Peer name cannot be empty.' })
+  .regex(/^[a-z0-9_]*$/, {
+    message:
+      'Peer name must contain only lowercase letters, numbers and underscores',
+  });
+
 export const pgSchema = z.object({
   host: z
     .string({
@@ -184,4 +195,44 @@ export const bqSchema = z.object({
       /^[\w]+$/,
       'Dataset ID must only contain numbers, letters, and underscores'
     ),
+});
+
+export const s3Schema = z.object({
+  url: z
+    .string({
+      invalid_type_error: 'URL must be a string',
+      required_error: 'URL is required',
+    })
+    .min(1, { message: 'URL must be non-empty' })
+    .refine((url) => url.startsWith('s3://'), {
+      message: 'URL must start with s3://',
+    }),
+  accessKeyId: z
+    .string({
+      invalid_type_error: 'Access Key ID must be a string',
+      required_error: 'Access Key ID is required',
+    })
+    .min(1, { message: 'Access Key ID must be non-empty' }),
+  secretAccessKey: z
+    .string({
+      invalid_type_error: 'Secret Access Key must be a string',
+      required_error: 'Secret Access Key is required',
+    })
+    .min(1, { message: 'Secret Access Key must be non-empty' }),
+  roleArn: z
+    .string({
+      invalid_type_error: 'Role ARN must be a string',
+    })
+    .optional(),
+  region: z
+    .string({
+      invalid_type_error: 'Region must be a string',
+    })
+    .optional(),
+  endpoint: z
+    .string({
+      invalid_type_error: 'Endpoint must be a string',
+    })
+    .optional(),
+  metadataDb: pgSchema,
 });

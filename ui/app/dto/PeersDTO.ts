@@ -1,6 +1,7 @@
 import {
   BigqueryConfig,
   PostgresConfig,
+  S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
 
@@ -31,7 +32,11 @@ export type UDropPeerResponse = {
   errorMessage: string;
 };
 
-export type PeerConfig = PostgresConfig | SnowflakeConfig | BigqueryConfig;
+export type PeerConfig =
+  | PostgresConfig
+  | SnowflakeConfig
+  | BigqueryConfig
+  | S3Config;
 export type CatalogPeer = {
   id: number;
   name: string;

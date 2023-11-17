@@ -1,7 +1,8 @@
+'use client';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
 import { useEffect, useState } from 'react';
-
+import ReactSelect from 'react-select';
 type SyncStatusRow = {
   batchId: number;
   startTime: Date;
@@ -10,13 +11,6 @@ type SyncStatusRow = {
 };
 
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
-
-const aggregateTypeMap: { [key: string]: string } = {
-  '15min': ' 15 mins',
-  hour: 'Hour',
-  day: 'Day',
-  month: 'Month',
-};
 
 function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
   let [aggregateType, setAggregateType] = useState('hour');
@@ -35,21 +29,26 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
     setCounts(counts);
   }, [aggregateType, syncs]);
 
+  const timeOptions = [
+    { label: '1min', value: '1min' },
+    { label: '5min', value: '5min' },
+    { label: '15min', value: '15min' },
+    { label: 'hour', value: 'hour' },
+    { label: 'day', value: 'day' },
+    { label: 'month', value: 'month' },
+  ];
   return (
     <div>
       <div className='float-right'>
-        {['15min', 'hour', 'day', 'month'].map((type) => {
-          return (
-            <FilterButton
-              key={type}
-              aggregateType={type}
-              selectedAggregateType={aggregateType}
-              setAggregateType={setAggregateType}
-            />
-          );
-        })}
+        <ReactSelect
+          id={aggregateType}
+          placeholder='Select a timeframe'
+          options={timeOptions}
+          defaultValue={{ label: 'hour', value: 'hour' }}
+          onChange={(val, _) => val && setAggregateType(val.value)}
+        />
       </div>
-      <div>
+      <div style={{ height: '3rem' }}>
         <Label variant='body'>Sync history</Label>
       </div>
       <div className='flex space-x-2 justify-left ml-2'>
@@ -65,34 +64,11 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
   );
 }
 
-type filterButtonProps = {
-  aggregateType: string;
-  selectedAggregateType: string;
-  setAggregateType: Function;
-};
-function FilterButton({
-  aggregateType,
-  selectedAggregateType,
-  setAggregateType,
-}: filterButtonProps): React.ReactNode {
-  return (
-    <button
-      className={
-        aggregateType === selectedAggregateType
-          ? 'bg-gray-200 px-1 mx-1 rounded-md'
-          : 'px-1 mx-1'
-      }
-      onClick={() => setAggregateType(aggregateType)}
-    >
-      {aggregateTypeMap[aggregateType]}
-    </button>
-  );
-}
-
 function formatGraphLabel(date: Date, aggregateType: String): string {
   switch (aggregateType) {
+    case '1min':
+    case '5min':
     case '15min':
-      return moment(date).format('MMM Do HH:mm');
     case 'hour':
       return moment(date).format('MMM Do HH:mm');
     case 'day':

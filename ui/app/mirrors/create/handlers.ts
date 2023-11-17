@@ -61,6 +61,7 @@ interface TableMapping {
   sourceTableIdentifier: string;
   destinationTableIdentifier: string;
   partitionKey: string;
+  exclude: string[];
 }
 const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
   const mapping = tableMapping
@@ -70,6 +71,7 @@ const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
           sourceTableIdentifier: row.source,
           destinationTableIdentifier: row.destination,
           partitionKey: row.partitionKey,
+          exclude: row.exclude,
         };
       }
     })

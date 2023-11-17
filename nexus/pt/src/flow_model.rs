@@ -10,6 +10,7 @@ pub struct FlowJobTableMapping {
     pub source_table_identifier: String,
     pub destination_table_identifier: String,
     pub partition_key: Option<String>,
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

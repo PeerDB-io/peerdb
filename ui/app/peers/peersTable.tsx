@@ -2,11 +2,11 @@
 import { DropDialog } from '@/components/DropDialog';
 import PeerButton from '@/components/PeerComponent';
 import PeerTypeLabel from '@/components/PeerTypeComponent';
-import SearchBar from '@/components/Search';
 import { Peer } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
+import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 function PeerRow({ peer }: { peer: Peer }) {
   return (
@@ -30,7 +30,14 @@ function PeerRow({ peer }: { peer: Peer }) {
 }
 
 function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
-  const [rows, setRows] = useState<Peer[]>(peers);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const rows = useMemo(
+    () =>
+      peers.filter((peer) => {
+        return peer.name.toLowerCase().includes(searchQuery.toLowerCase());
+      }),
+    [peers, searchQuery]
+  );
 
   return (
     <Table
@@ -38,13 +45,10 @@ function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
       toolbar={{
         left: <></>,
         right: (
-          <SearchBar
-            allItems={peers}
-            setItems={setRows}
-            filterFunction={(query: string) =>
-              peers.filter((peer) => {
-                return peer.name.toLowerCase().includes(query.toLowerCase());
-              })
+          <SearchField
+            placeholder='Search by peer name'
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setSearchQuery(e.target.value)
             }
           />
         ),

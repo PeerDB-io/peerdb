@@ -55,6 +55,7 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 		{"Test_Composite_PKey_SF", s.Test_Composite_PKey_SF},
 		{"Test_Composite_PKey_Toast_1_SF", s.Test_Composite_PKey_Toast_1_SF},
 		{"Test_Composite_PKey_Toast_2_SF", s.Test_Composite_PKey_Toast_2_SF},
+		{"Test_Column_Exclusion", s.Test_Column_Exclusion},
 	}
 
 	// assert that there are no duplicate test names
@@ -158,7 +159,6 @@ func (s *PeerFlowE2ETestSuiteSF) TearDownSuite() {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -236,7 +236,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF_Avro_CDC(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -307,7 +306,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF_Avro_CDC(t *testin
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -396,7 +394,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Toast_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -466,7 +463,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -531,7 +527,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -608,7 +603,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -678,7 +672,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -748,7 +741,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -829,7 +821,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF_Avro_CDC(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -910,7 +901,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF_Avro_CDC(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -971,7 +961,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -1134,7 +1123,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -1210,7 +1198,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -1289,7 +1276,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF(t *testing.T) {
 
 func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF(t *testing.T) {
 	t.Parallel()
-
 	env := s.NewTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
@@ -1360,4 +1346,89 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF(t *testing.T) {
 	s.compareTableContentsSF("test_cpkey_toast2", "id,c1,c2,t,t2", false)
 
 	env.AssertExpectations(s.T())
+}
+
+func (s *PeerFlowE2ETestSuiteSF) Test_Column_Exclusion(t *testing.T) {
+	t.Parallel()
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env)
+
+	srcTableName := s.attachSchemaSuffix("test_exclude_sf")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_exclude_sf")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT GENERATED ALWAYS AS IDENTITY,
+			c1 INT GENERATED BY DEFAULT AS IDENTITY,
+			c2 INT,
+			t TEXT,
+			t2 TEXT,
+			PRIMARY KEY(id,t)
+		);
+	`, srcTableName))
+	require.NoError(t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_exclude_flow"),
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName: connectionGen.FlowJobName,
+		Destination: s.sfHelper.Peer,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"c2"},
+			},
+		},
+		Source:         e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		CdcSyncMode:    connectionGen.CDCSyncMode,
+		CdcStagingPath: connectionGen.CdcStagingPath,
+	}
+
+	limits := peerflow.CDCFlowLimits{
+		TotalSyncFlows: 2,
+		MaxBatchSize:   100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+
+		// insert 10 rows into the source table
+		for i := 0; i < 10; i++ {
+			testValue := fmt.Sprintf("test_value_%d", i)
+			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(100))
+		`, srcTableName), i, testValue)
+			require.NoError(t, err)
+		}
+		fmt.Println("Inserted 10 rows into the source table")
+
+		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
+		_, err = s.pool.Exec(context.Background(),
+			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
+		require.NoError(t, err)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
+		require.NoError(t, err)
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	require.True(t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
+
+	query := fmt.Sprintf("SELECT * FROM %s.%s.test_exclude_sf ORDER BY id",
+		s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName)
+	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(query)
+	require.NoError(t, err)
+
+	for _, field := range sfRows.Schema.Fields {
+		require.NotEqual(t, field.Name, "c2")
+	}
+	require.Equal(t, 4, len(sfRows.Schema.Fields))
+	require.Equal(t, 10, len(sfRows.Records))
 }

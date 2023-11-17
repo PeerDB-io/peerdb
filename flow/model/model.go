@@ -5,12 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
+
+type NameAndExclude struct {
+	Name    string
+	Exclude map[string]struct{}
+}
+
+func NewNameAndExclude(name string, exclude []string) NameAndExclude {
+	exset := make(map[string]struct{}, len(exclude))
+	for _, col := range exclude {
+		exset[col] = struct{}{}
+	}
+	return NameAndExclude{Name: name, Exclude: exset}
+}
 
 type PullRecordsRequest struct {
 	// FlowJobName is the name of the flow job.
@@ -24,7 +38,7 @@ type PullRecordsRequest struct {
 	//relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
-	TableNameMapping map[string]string
+	TableNameMapping map[string]NameAndExclude
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// override publication name
@@ -54,7 +68,7 @@ type RecordItems struct {
 func NewRecordItems() *RecordItems {
 	return &RecordItems{
 		colToValIdx: make(map[string]int),
-		// create a slice of 64 qvalues so that we don't have to allocate memory
+		// create a slice of 32 qvalues so that we don't have to allocate memory
 		// for each record to reduce GC pressure
 		values: make([]*qvalue.QValue, 0, 32),
 	}
@@ -373,9 +387,31 @@ func (r *CDCRecordStream) WaitAndCheckEmpty() bool {
 	return isEmpty
 }
 
-func (r *CDCRecordStream) WaitForSchemaDeltas() []*protos.TableSchemaDelta {
+func (r *CDCRecordStream) WaitForSchemaDeltas(tableMappings []*protos.TableMapping) []*protos.TableSchemaDelta {
 	schemaDeltas := make([]*protos.TableSchemaDelta, 0)
+schemaLoop:
 	for delta := range r.SchemaDeltas {
+		for _, tm := range tableMappings {
+			if delta.SrcTableName == tm.SourceTableIdentifier && delta.DstTableName == tm.DestinationTableIdentifier {
+				if len(tm.Exclude) == 0 {
+					break
+				}
+				added := make([]*protos.DeltaAddedColumn, 0, len(delta.AddedColumns))
+				for _, column := range delta.AddedColumns {
+					if !slices.Contains(tm.Exclude, column.ColumnName) {
+						added = append(added, column)
+					}
+				}
+				if len(added) != 0 {
+					schemaDeltas = append(schemaDeltas, &protos.TableSchemaDelta{
+						SrcTableName: delta.SrcTableName,
+						DstTableName: delta.DstTableName,
+						AddedColumns: added,
+					})
+				}
+				continue schemaLoop
+			}
+		}
 		schemaDeltas = append(schemaDeltas, delta)
 	}
 	return schemaDeltas

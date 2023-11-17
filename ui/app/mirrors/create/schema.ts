@@ -6,8 +6,9 @@ export const flowNameSchema = z
     required_error: 'Mirror name is required.',
   })
   .min(1, { message: 'Mirror name cannot be empty.' })
-  .regex(/^[\w]*$/, {
-    message: 'Mirror name must contain only letters, numbers and underscores',
+  .regex(/^[a-z0-9_]*$/, {
+    message:
+      'Mirror name must contain only lowercase letters, numbers and underscores',
   });
 
 export const tableMappingSchema = z
@@ -19,6 +20,7 @@ export const tableMappingSchema = z
       destination: z
         .string()
         .min(1, 'destination table names, if added, must be non-empty'),
+      exclude: z.array(z.string()).optional(),
       partitionKey: z.string().optional(),
     })
   )

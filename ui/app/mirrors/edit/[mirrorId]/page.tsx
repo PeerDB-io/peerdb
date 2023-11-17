@@ -4,9 +4,7 @@ import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import { redirect } from 'next/navigation';
-import { Suspense } from 'react';
-import { SnapshotStatusTable } from './cdc';
-import CdcDetails from './cdcDetails';
+import { CDCMirror } from './cdc';
 import SyncStatus from './syncStatus';
 
 export const dynamic = 'force-dynamic';
@@ -27,10 +25,6 @@ async function getMirrorStatus(mirrorId: string) {
   return json;
 }
 
-function Loading() {
-  return <div>Loading...</div>;
-}
-
 export default async function EditMirror({
   params: { mirrorId },
 }: EditMirrorProps) {
@@ -39,12 +33,14 @@ export default async function EditMirror({
     return <div>No mirror status found!</div>;
   }
 
-  let syncStatusChild = <></>;
-  if (mirrorStatus.cdcStatus) {
-    syncStatusChild = <SyncStatus flowJobName={mirrorId} />;
-  } else {
-    redirect(`/mirrors/status/qrep/${mirrorId}`);
-  }
+  let createdAt = await prisma.flows.findFirst({
+    select: {
+      created_at: true,
+    },
+    where: {
+      name: mirrorId,
+    },
+  });
 
   let syncs = await prisma.cdc_batches.findMany({
     where: {
@@ -58,6 +54,16 @@ export default async function EditMirror({
     },
   });
 
+  let syncStatusChild = <></>;
+  if (mirrorStatus.cdcStatus) {
+    let rowsSynced = syncs.reduce((acc, sync) => acc + sync.rows_in_batch, 0);
+    syncStatusChild = (
+      <SyncStatus rowsSynced={rowsSynced} flowJobName={mirrorId} />
+    );
+  } else {
+    redirect(`/mirrors/status/qrep/${mirrorId}`);
+  }
+
   const rows = syncs.map((sync) => ({
     batchId: sync.id,
     startTime: sync.start_time,
@@ -68,22 +74,12 @@ export default async function EditMirror({
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
       <Header variant='title2'>{mirrorId}</Header>
-      <Suspense fallback={<Loading />}>
-        {mirrorStatus.cdcStatus && (
-          <>
-            <CdcDetails
-              syncs={rows}
-              mirrorConfig={mirrorStatus.cdcStatus.config}
-            />
-            {mirrorStatus.cdcStatus.snapshotStatus && (
-              <SnapshotStatusTable
-                status={mirrorStatus.cdcStatus.snapshotStatus}
-              />
-            )}
-          </>
-        )}
-        <div className='mt-10'>{syncStatusChild}</div>
-      </Suspense>
+      <CDCMirror
+        rows={rows}
+        createdAt={createdAt?.created_at}
+        syncStatusChild={syncStatusChild}
+        cdc={mirrorStatus.cdcStatus}
+      />
     </LayoutMain>
   );
 }

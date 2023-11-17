@@ -3,20 +3,37 @@ import {
   UCreatePeerResponse,
   UValidatePeerResponse,
 } from '@/app/dto/PeersDTO';
+import { S3Config } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
-import { bqSchema, pgSchema, sfSchema } from './schema';
+import {
+  bqSchema,
+  peerNameSchema,
+  pgSchema,
+  s3Schema,
+  sfSchema,
+} from './schema';
 
-// Frontend form validation
 const validateFields = (
   type: string,
   config: PeerConfig,
   setMessage: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
   name?: string
 ): boolean => {
-  if (!name) {
-    setMessage({ ok: false, msg: 'Peer name is required' });
+  const peerNameValid = peerNameSchema.safeParse(name);
+  if (!peerNameValid.success) {
+    const peerNameErr = peerNameValid.error.issues[0].message;
+    setMessage({ ok: false, msg: peerNameErr });
     return false;
   }
+
+  if (type === 'S3') {
+    const s3Valid = S3Validation(config as S3Config);
+    if (s3Valid.length > 0) {
+      setMessage({ ok: false, msg: s3Valid });
+      return false;
+    }
+  }
+
   let validationErr: string | undefined;
   switch (type) {
     case 'POSTGRES':
@@ -30,6 +47,10 @@ const validateFields = (
     case 'BIGQUERY':
       const bqConfig = bqSchema.safeParse(config);
       if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
+      break;
+    case 'S3':
+      const s3Config = s3Schema.safeParse(config);
+      if (!s3Config.success) validationErr = s3Config.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;
@@ -68,6 +89,13 @@ export const handleValidate = async (
   }
   setMessage({ ok: true, msg: 'Peer is valid' });
   setLoading(false);
+};
+
+const S3Validation = (config: S3Config): string => {
+  if (!config.secretAccessKey && !config.accessKeyId && !config.roleArn) {
+    return 'Either both access key and secret or role ARN is required';
+  }
+  return '';
 };
 
 // API call to create peer

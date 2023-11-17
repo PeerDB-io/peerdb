@@ -36,6 +36,8 @@ pub struct TableMapping {
     pub destination_table_identifier: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub partition_key: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="4")]
+    pub exclude: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -106,6 +108,8 @@ pub struct RenameTableOption {
     pub current_name: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub new_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub table_schema: ::core::option::Option<TableSchema>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -116,6 +120,8 @@ pub struct RenameTablesInput {
     pub peer: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(message, repeated, tag="3")]
     pub rename_table_options: ::prost::alloc::vec::Vec<RenameTableOption>,
+    #[prost(string, optional, tag="4")]
+    pub soft_delete_col_name: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
