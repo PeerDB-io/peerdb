@@ -234,5 +234,4 @@ export const s3Schema = z.object({
       invalid_type_error: 'Endpoint must be a string',
     })
     .optional(),
-  metadataDb: pgSchema,
 });

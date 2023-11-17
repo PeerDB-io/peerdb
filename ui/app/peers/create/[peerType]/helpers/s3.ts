@@ -52,12 +52,5 @@ export const blankS3Setting: S3Config = {
   roleArn: undefined,
   region: undefined,
   endpoint: '',
-  metadataDb: {
-    host: '',
-    port: 5432,
-    user: 'postgres',
-    password: '',
-    database: 'postgres',
-    transactionSnapshot: '',
-  },
+  metadataDb: undefined,
 };

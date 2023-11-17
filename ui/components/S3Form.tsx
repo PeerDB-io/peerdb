@@ -1,11 +1,5 @@
 'use client';
-import { PeerConfig } from '@/app/dto/PeersDTO';
-import { postgresSetting } from '@/app/peers/create/[peerType]/helpers/pg';
-import {
-  blankS3Setting,
-  s3Setting,
-} from '@/app/peers/create/[peerType]/helpers/s3';
-import { PostgresConfig } from '@/grpc_generated/peers';
+import { s3Setting } from '@/app/peers/create/[peerType]/helpers/s3';
 import { Label } from '@/lib/Label';
 import { RowWithRadiobutton, RowWithTextField } from '@/lib/Layout';
 import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
@@ -19,9 +13,6 @@ interface S3Props {
   setter: PeerSetter;
 }
 const S3ConfigForm = ({ setter }: S3Props) => {
-  const [metadataDB, setMetadataDB] = useState<PeerConfig>(
-    blankS3Setting.metadataDb!
-  );
   const [storageType, setStorageType] = useState<'S3' | 'GCS'>('S3');
   const displayCondition = (label: string) => {
     return !(
@@ -31,23 +22,15 @@ const S3ConfigForm = ({ setter }: S3Props) => {
   };
   useEffect(() => {
     const endpoint = storageType === 'S3' ? '' : 'storage.googleapis.com';
+    const region = storageType === 'S3' ? '' : 'auto';
     setter((prev) => {
       return {
         ...prev,
-        metadataDb: metadataDB as PostgresConfig,
         endpoint,
+        region,
       };
     });
-
-    if (storageType === 'GCS') {
-      setter((prev) => {
-        return {
-          ...prev,
-          region: 'auto',
-        };
-      });
-    }
-  }, [metadataDB, storageType, setter]);
+  }, [storageType, setter]);
 
   return (
     <div>
@@ -130,75 +113,6 @@ const S3ConfigForm = ({ setter }: S3Props) => {
             />
           );
       })}
-
-      <Label
-        as='label'
-        style={{ marginTop: '1rem' }}
-        variant='subheadline'
-        colorName='lowContrast'
-      >
-        Metadata Database
-      </Label>
-      <Label>
-        For S3/GCS storage peers, PeerDB uses an external PostgreSQL database to
-        store metadata (last sync state) for mirrors.
-        <br></br>
-        More information on creation of storage peers in PeerDB{' '}
-        <a
-          style={{ color: 'teal' }}
-          href='https://docs.peerdb.io/sql/commands/create-peer#storage-peers-s3-and-gcs'
-        >
-          here.
-        </a>
-      </Label>
-      {postgresSetting.map(
-        (pgSetting, index) =>
-          pgSetting.label !== 'Transaction Snapshot' && (
-            <RowWithTextField
-              key={index}
-              label={
-                <Label>
-                  {pgSetting.label}{' '}
-                  <Tooltip
-                    style={{ width: '100%' }}
-                    content={'This is a required field.'}
-                  >
-                    <Label colorName='lowContrast' colorSet='destructive'>
-                      *
-                    </Label>
-                  </Tooltip>
-                </Label>
-              }
-              action={
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <TextField
-                    variant='simple'
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      pgSetting.stateHandler(e.target.value, setMetadataDB)
-                    }
-                    defaultValue={
-                      (metadataDB as PostgresConfig)[
-                        pgSetting.label.toLowerCase() as keyof PostgresConfig
-                      ] || ''
-                    }
-                  />
-                  {pgSetting.tips && (
-                    <InfoPopover
-                      tips={pgSetting.tips}
-                      link={pgSetting.helpfulLink}
-                    />
-                  )}
-                </div>
-              }
-            />
-          )
-      )}
     </div>
   );
 };
