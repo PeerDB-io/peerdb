@@ -121,7 +121,7 @@ func (h *HubBatches) flushAllBatches(
 
 	var numEventsPushed int32
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(int(maxParallelism)) // limit parallel merges to 8
+	g.SetLimit(int(maxParallelism))
 	tableNameRowsMapping := cmap.New[uint32]()
 	h.ForEach(func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
 		g.Go(func() error {
@@ -140,7 +140,12 @@ func (h *HubBatches) flushAllBatches(
 				rowCount = uint32(0)
 			}
 			rowCount += uint32(numEvents)
-			tableNameRowsMapping.Set(tblName.ToString(), rowCount)
+			tableNameRowsMapping.Upsert(tblName.ToString(), rowCount, func(exist bool, valueInMap, newValue uint32) uint32 {
+				if exist {
+					return valueInMap
+				}
+				return newValue
+			})
 			return nil
 		})
 	})
