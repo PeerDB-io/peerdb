@@ -84,6 +84,7 @@ message RenameTablesInput {
   peerdb_peers.Peer peer = 2;
   repeated RenameTableOption rename_table_options = 3;
   optional string soft_delete_col_name = 4;
+  optional string synced_at_col_name = 5;
 }
 
 message RenameTablesOutput {
