@@ -4008,12 +4008,18 @@ impl serde::Serialize for RenameTableOption {
         if !self.new_name.is_empty() {
             len += 1;
         }
+        if self.table_schema.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.RenameTableOption", len)?;
         if !self.current_name.is_empty() {
             struct_ser.serialize_field("currentName", &self.current_name)?;
         }
         if !self.new_name.is_empty() {
             struct_ser.serialize_field("newName", &self.new_name)?;
+        }
+        if let Some(v) = self.table_schema.as_ref() {
+            struct_ser.serialize_field("tableSchema", v)?;
         }
         struct_ser.end()
     }
@@ -4029,12 +4035,15 @@ impl<'de> serde::Deserialize<'de> for RenameTableOption {
             "currentName",
             "new_name",
             "newName",
+            "table_schema",
+            "tableSchema",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             CurrentName,
             NewName,
+            TableSchema,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4059,6 +4068,7 @@ impl<'de> serde::Deserialize<'de> for RenameTableOption {
                         match value {
                             "currentName" | "current_name" => Ok(GeneratedField::CurrentName),
                             "newName" | "new_name" => Ok(GeneratedField::NewName),
+                            "tableSchema" | "table_schema" => Ok(GeneratedField::TableSchema),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4080,6 +4090,7 @@ impl<'de> serde::Deserialize<'de> for RenameTableOption {
             {
                 let mut current_name__ = None;
                 let mut new_name__ = None;
+                let mut table_schema__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::CurrentName => {
@@ -4094,6 +4105,12 @@ impl<'de> serde::Deserialize<'de> for RenameTableOption {
                             }
                             new_name__ = Some(map.next_value()?);
                         }
+                        GeneratedField::TableSchema => {
+                            if table_schema__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tableSchema"));
+                            }
+                            table_schema__ = map.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4102,6 +4119,7 @@ impl<'de> serde::Deserialize<'de> for RenameTableOption {
                 Ok(RenameTableOption {
                     current_name: current_name__.unwrap_or_default(),
                     new_name: new_name__.unwrap_or_default(),
+                    table_schema: table_schema__,
                 })
             }
         }
@@ -4125,6 +4143,9 @@ impl serde::Serialize for RenameTablesInput {
         if !self.rename_table_options.is_empty() {
             len += 1;
         }
+        if self.soft_delete_col_name.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.RenameTablesInput", len)?;
         if !self.flow_job_name.is_empty() {
             struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
@@ -4134,6 +4155,9 @@ impl serde::Serialize for RenameTablesInput {
         }
         if !self.rename_table_options.is_empty() {
             struct_ser.serialize_field("renameTableOptions", &self.rename_table_options)?;
+        }
+        if let Some(v) = self.soft_delete_col_name.as_ref() {
+            struct_ser.serialize_field("softDeleteColName", v)?;
         }
         struct_ser.end()
     }
@@ -4150,6 +4174,8 @@ impl<'de> serde::Deserialize<'de> for RenameTablesInput {
             "peer",
             "rename_table_options",
             "renameTableOptions",
+            "soft_delete_col_name",
+            "softDeleteColName",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4157,6 +4183,7 @@ impl<'de> serde::Deserialize<'de> for RenameTablesInput {
             FlowJobName,
             Peer,
             RenameTableOptions,
+            SoftDeleteColName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4182,6 +4209,7 @@ impl<'de> serde::Deserialize<'de> for RenameTablesInput {
                             "flowJobName" | "flow_job_name" => Ok(GeneratedField::FlowJobName),
                             "peer" => Ok(GeneratedField::Peer),
                             "renameTableOptions" | "rename_table_options" => Ok(GeneratedField::RenameTableOptions),
+                            "softDeleteColName" | "soft_delete_col_name" => Ok(GeneratedField::SoftDeleteColName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4204,6 +4232,7 @@ impl<'de> serde::Deserialize<'de> for RenameTablesInput {
                 let mut flow_job_name__ = None;
                 let mut peer__ = None;
                 let mut rename_table_options__ = None;
+                let mut soft_delete_col_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::FlowJobName => {
@@ -4224,6 +4253,12 @@ impl<'de> serde::Deserialize<'de> for RenameTablesInput {
                             }
                             rename_table_options__ = Some(map.next_value()?);
                         }
+                        GeneratedField::SoftDeleteColName => {
+                            if soft_delete_col_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("softDeleteColName"));
+                            }
+                            soft_delete_col_name__ = map.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4233,6 +4268,7 @@ impl<'de> serde::Deserialize<'de> for RenameTablesInput {
                     flow_job_name: flow_job_name__.unwrap_or_default(),
                     peer: peer__,
                     rename_table_options: rename_table_options__.unwrap_or_default(),
+                    soft_delete_col_name: soft_delete_col_name__,
                 })
             }
         }

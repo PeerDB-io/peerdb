@@ -156,12 +156,14 @@ export interface FlowConnectionConfigs_TableNameSchemaMappingEntry {
 export interface RenameTableOption {
   currentName: string;
   newName: string;
+  tableSchema: TableSchema | undefined;
 }
 
 export interface RenameTablesInput {
   flowJobName: string;
   peer: Peer | undefined;
   renameTableOptions: RenameTableOption[];
+  softDeleteColName?: string | undefined;
 }
 
 export interface RenameTablesOutput {
@@ -1483,7 +1485,7 @@ export const FlowConnectionConfigs_TableNameSchemaMappingEntry = {
 };
 
 function createBaseRenameTableOption(): RenameTableOption {
-  return { currentName: "", newName: "" };
+  return { currentName: "", newName: "", tableSchema: undefined };
 }
 
 export const RenameTableOption = {
@@ -1493,6 +1495,9 @@ export const RenameTableOption = {
     }
     if (message.newName !== "") {
       writer.uint32(18).string(message.newName);
+    }
+    if (message.tableSchema !== undefined) {
+      TableSchema.encode(message.tableSchema, writer.uint32(26).fork()).ldelim();
     }
     return writer;
   },
@@ -1518,6 +1523,13 @@ export const RenameTableOption = {
 
           message.newName = reader.string();
           continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.tableSchema = TableSchema.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1531,6 +1543,7 @@ export const RenameTableOption = {
     return {
       currentName: isSet(object.currentName) ? String(object.currentName) : "",
       newName: isSet(object.newName) ? String(object.newName) : "",
+      tableSchema: isSet(object.tableSchema) ? TableSchema.fromJSON(object.tableSchema) : undefined,
     };
   },
 
@@ -1542,6 +1555,9 @@ export const RenameTableOption = {
     if (message.newName !== "") {
       obj.newName = message.newName;
     }
+    if (message.tableSchema !== undefined) {
+      obj.tableSchema = TableSchema.toJSON(message.tableSchema);
+    }
     return obj;
   },
 
@@ -1552,12 +1568,15 @@ export const RenameTableOption = {
     const message = createBaseRenameTableOption();
     message.currentName = object.currentName ?? "";
     message.newName = object.newName ?? "";
+    message.tableSchema = (object.tableSchema !== undefined && object.tableSchema !== null)
+      ? TableSchema.fromPartial(object.tableSchema)
+      : undefined;
     return message;
   },
 };
 
 function createBaseRenameTablesInput(): RenameTablesInput {
-  return { flowJobName: "", peer: undefined, renameTableOptions: [] };
+  return { flowJobName: "", peer: undefined, renameTableOptions: [], softDeleteColName: undefined };
 }
 
 export const RenameTablesInput = {
@@ -1570,6 +1589,9 @@ export const RenameTablesInput = {
     }
     for (const v of message.renameTableOptions) {
       RenameTableOption.encode(v!, writer.uint32(26).fork()).ldelim();
+    }
+    if (message.softDeleteColName !== undefined) {
+      writer.uint32(34).string(message.softDeleteColName);
     }
     return writer;
   },
@@ -1602,6 +1624,13 @@ export const RenameTablesInput = {
 
           message.renameTableOptions.push(RenameTableOption.decode(reader, reader.uint32()));
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.softDeleteColName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1618,6 +1647,7 @@ export const RenameTablesInput = {
       renameTableOptions: Array.isArray(object?.renameTableOptions)
         ? object.renameTableOptions.map((e: any) => RenameTableOption.fromJSON(e))
         : [],
+      softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : undefined,
     };
   },
 
@@ -1632,6 +1662,9 @@ export const RenameTablesInput = {
     if (message.renameTableOptions?.length) {
       obj.renameTableOptions = message.renameTableOptions.map((e) => RenameTableOption.toJSON(e));
     }
+    if (message.softDeleteColName !== undefined) {
+      obj.softDeleteColName = message.softDeleteColName;
+    }
     return obj;
   },
 
@@ -1643,6 +1676,7 @@ export const RenameTablesInput = {
     message.flowJobName = object.flowJobName ?? "";
     message.peer = (object.peer !== undefined && object.peer !== null) ? Peer.fromPartial(object.peer) : undefined;
     message.renameTableOptions = object.renameTableOptions?.map((e) => RenameTableOption.fromPartial(e)) || [];
+    message.softDeleteColName = object.softDeleteColName ?? undefined;
     return message;
   },
 };

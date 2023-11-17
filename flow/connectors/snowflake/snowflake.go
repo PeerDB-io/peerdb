@@ -1228,6 +1228,30 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 		}
 	}()
 
+	if req.SoftDeleteColName != nil {
+		for _, renameRequest := range req.RenameTableOptions {
+			src := renameRequest.CurrentName
+			dst := renameRequest.NewName
+			allCols := strings.Join(maps.Keys(renameRequest.TableSchema.Columns), ",")
+			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
+
+			log.WithFields(log.Fields{
+				"flowName": req.FlowJobName,
+			}).Infof("handling soft-deletes for table '%s'...", dst)
+
+			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
+
+			_, err = renameTablesTx.ExecContext(c.ctx,
+				fmt.Sprintf("INSERT INTO %s(%s) SELECT %s,true AS %s FROM %s WHERE (%s) NOT IN (SELECT %s FROM %s)",
+					src, fmt.Sprintf("%s,%s", allCols, *req.SoftDeleteColName), allCols, *req.SoftDeleteColName,
+					dst, pkeyCols, pkeyCols, src))
+			if err != nil {
+				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dst, err)
+			}
+		}
+	}
+
+	// renaming and dropping such that the _resync table is the new destination
 	for _, renameRequest := range req.RenameTableOptions {
 		src := renameRequest.CurrentName
 		dst := renameRequest.NewName
