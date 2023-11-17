@@ -267,10 +267,9 @@ func CDCFlowWorkflowWithConfig(
 
 	heartbeatCancelCtx, cancelHeartbeat := workflow.WithCancel(ctx)
 	walHeartbeatCtx := workflow.WithActivityOptions(heartbeatCancelCtx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		StartToCloseTimeout: 7 * 24 * time.Hour,
 	})
 	workflow.ExecuteActivity(walHeartbeatCtx, flowable.SendWALHeartbeat, cfg)
-	//walHeartbeatFuture.Get(ctx, nil)
 
 	syncFlowOptions := &protos.SyncFlowOptions{
 		BatchSize: int32(limits.MaxBatchSize),
