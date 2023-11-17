@@ -389,8 +389,8 @@ func CDCFlowWorkflowWithConfig(
 
 		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
 		if tableSchemaDeltas != nil {
-			modifiedSrcTables := make([]string, 0)
-			modifiedDstTables := make([]string, 0)
+			modifiedSrcTables := make([]string, 0, len(tableSchemaDeltas))
+			modifiedDstTables := make([]string, 0, len(tableSchemaDeltas))
 
 			for _, tableSchemaDelta := range tableSchemaDeltas {
 				modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
