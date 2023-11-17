@@ -202,6 +202,8 @@ func (p *PostgresCDCSource) consumeStream(
 	}()
 
 	tablePKeyLastSeen := make(map[model.TableWithPkey]int)
+	standbyMessageTimeout := req.IdleTimeout
+	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
 	addRecord := func(rec model.Record) {
 		records.AddRecord(rec)
@@ -209,11 +211,12 @@ func (p *PostgresCDCSource) consumeStream(
 
 		if len(localRecords) == 1 {
 			records.SignalAsNotEmpty()
+			log.Infof("pushing the standby deadline to %s", time.Now().Add(standbyMessageTimeout))
+			log.Infof("num records accumulated: %d", len(localRecords))
+			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 	}
 
-	standbyMessageTimeout := req.IdleTimeout
-	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 	pkmRequiresResponse := false
 
 	for {
@@ -233,12 +236,6 @@ func (p *PostgresCDCSource) consumeStream(
 			}
 
 			pkmRequiresResponse = false
-		}
-
-		if len(localRecords) == 0 {
-			log.Infof("pushing the standby deadline to %s", time.Now().Add(standbyMessageTimeout))
-			log.Infof("num records accumulated: %d", len(localRecords))
-			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
 
 		if (len(localRecords) >= int(req.MaxBatchSize)) && !p.commitLock {
