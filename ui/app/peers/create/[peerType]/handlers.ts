@@ -5,7 +5,13 @@ import {
 } from '@/app/dto/PeersDTO';
 import { S3Config } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
-import { bqSchema, peerNameSchema, pgSchema, s3Schema, sfSchema } from './schema';
+import {
+  bqSchema,
+  peerNameSchema,
+  pgSchema,
+  s3Schema,
+  sfSchema,
+} from './schema';
 
 const validateFields = (
   type: string,
