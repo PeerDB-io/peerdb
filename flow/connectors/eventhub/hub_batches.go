@@ -140,12 +140,13 @@ func (h *HubBatches) flushAllBatches(
 				rowCount = uint32(0)
 			}
 			rowCount += uint32(numEvents)
-			tableNameRowsMapping.Upsert(tblName.ToString(), rowCount, func(exist bool, valueInMap, newValue uint32) uint32 {
-				if exist {
-					return valueInMap
-				}
-				return newValue
-			})
+			tableNameRowsMapping.Upsert(tblName.ToString(), rowCount,
+				func(exist bool, valueInMap, newValue uint32) uint32 {
+					if exist {
+						return valueInMap
+					}
+					return newValue
+				})
 			return nil
 		})
 	})
