@@ -41,8 +41,8 @@ export const s3Setting: PeerSetting[] = [
     tips: 'If set, the role ARN will be used to assume the role before accessing the bucket.',
     helpfulLink:
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-arns',
-    optional: true
-  }
+    optional: true,
+  },
 ];
 
 export const blankS3Setting: S3Config = {
