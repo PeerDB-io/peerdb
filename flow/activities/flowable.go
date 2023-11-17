@@ -672,12 +672,20 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, config *protos.
 	}
 	defer connectors.CloseConnector(srcConn)
 
-	err = srcConn.SendWALHeartbeat()
-	if err != nil {
-		return fmt.Errorf("failed to send WAL heartbeat: %w", err)
+	ticker := time.NewTicker(10 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("context is done, exiting wal heartbeat send loop")
+			return nil
+		case <-ticker.C:
+			err = srcConn.SendWALHeartbeat()
+			if err != nil {
+				return fmt.Errorf("failed to send WAL heartbeat: %w", err)
+			}
+			log.Info("sent wal heartbeat")
+		}
 	}
-
-	return nil
 }
 
 func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
