@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
@@ -23,18 +24,30 @@ type PostgresMetadataStore struct {
 
 func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
 	schemaName string) (*PostgresMetadataStore, error) {
-	connectionString := utils.GetPGConnectionString(pgConfig)
-	pool, err := pgxpool.New(ctx, connectionString)
-	if err != nil {
-		log.Errorf("failed to create connection pool: %v", err)
-		return nil, err
+	var storePool *pgxpool.Pool
+	var poolErr error
+	if pgConfig == nil {
+		storePool, poolErr = cc.GetCatalogConnectionPoolFromEnv()
+		if poolErr != nil {
+			return nil, fmt.Errorf("failed to create catalog connection pool: %v", poolErr)
+		}
+
+		log.Info("obtained catalog connection pool for metadata store")
+	} else {
+		connectionString := utils.GetPGConnectionString(pgConfig)
+		storePool, poolErr = pgxpool.New(ctx, connectionString)
+		if poolErr != nil {
+			log.Errorf("failed to create connection pool: %v", poolErr)
+			return nil, poolErr
+		}
+
+		log.Info("created connection pool for metadata store")
 	}
-	log.Info("created connection pool for metadata store")
 
 	return &PostgresMetadataStore{
 		ctx:        ctx,
 		config:     pgConfig,
-		pool:       pool,
+		pool:       storePool,
 		schemaName: schemaName,
 	}, nil
 }
