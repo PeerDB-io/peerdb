@@ -66,6 +66,10 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 
 		t.Run(tt.name, tt.test)
 	}
+
+	t.Cleanup(func() {
+		s.TearDownSuite()
+	})
 }
 
 func (s *PeerFlowE2ETestSuiteSF) attachSchemaSuffix(tableName string) string {
