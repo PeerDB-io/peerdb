@@ -36,6 +36,8 @@ pub struct TableMapping {
     pub destination_table_identifier: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub partition_key: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="4")]
+    pub exclude: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

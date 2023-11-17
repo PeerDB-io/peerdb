@@ -20,6 +20,7 @@ export const tableMappingSchema = z
       destination: z
         .string()
         .min(1, 'destination table names, if added, must be non-empty'),
+      exclude: z.array(z.string()).optional(),
       partitionKey: z.string().optional(),
     })
   )

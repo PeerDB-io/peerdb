@@ -185,9 +185,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
 	}).Info("pulling records...")
 
-	tblNameMapping := make(map[string]string)
+	tblNameMapping := make(map[string]model.NameAndExclude)
 	for _, v := range input.FlowConnectionConfigs.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
+		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
 	idleTimeout := utils.GetEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 10)
@@ -254,7 +254,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		log.WithFields(log.Fields{"flowName": input.FlowConnectionConfigs.FlowJobName}).Info("no records to push")
 		syncResponse := &model.SyncResponse{}
 		syncResponse.RelationMessageMapping = <-recordBatch.RelationMessageMapping
-		syncResponse.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas()
+		syncResponse.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
 		return syncResponse, nil
 	}
 
@@ -323,7 +323,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	res.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas()
+	res.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
 	res.RelationMessageMapping = <-recordBatch.RelationMessageMapping
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
@@ -523,7 +523,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
 	var wg sync.WaitGroup
-	var numRecords int64
 
 	var goroutineErr error = nil
 	if config.SourcePeer.Type == protos.DBType_POSTGRES {
@@ -533,7 +532,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		pullPgRecords := func() {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
 			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
-			numRecords = int64(tmp)
+			numRecords := int64(tmp)
 			if err != nil {
 				log.WithFields(log.Fields{
 					"flowName": config.FlowJobName,
@@ -554,7 +553,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("failed to pull records: %w", err)
 		}
-		numRecords = int64(recordBatch.NumRecords)
+		numRecords := int64(recordBatch.NumRecords)
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
 		}).Infof("pulled %d records\n", len(recordBatch.Records))

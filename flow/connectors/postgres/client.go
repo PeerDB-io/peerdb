@@ -9,6 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
@@ -206,7 +207,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	s *SlotCheckResult,
 	slot string,
 	publication string,
-	tableNameMapping map[string]string,
+	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
 ) error {
 	/*

@@ -197,7 +197,24 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	for _, srcTableName := range sortedSourceTables {
 		tableSchema := tableNameSchemaMapping[srcTableName]
 		normalizedTableName := s.tableNameMapping[srcTableName]
+		for _, mapping := range flowConnectionConfigs.TableMappings {
+			if mapping.SourceTableIdentifier == srcTableName {
+				if len(mapping.Exclude) != 0 {
+					tableSchema = &protos.TableSchema{
+						TableIdentifier:       tableSchema.TableIdentifier,
+						Columns:               maps.Clone(tableSchema.Columns),
+						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
+						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
+					}
+					for _, exclude := range mapping.Exclude {
+						delete(tableSchema.Columns, exclude)
+					}
+				}
+				break
+			}
+		}
 		normalizedTableMapping[normalizedTableName] = tableSchema
+
 		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)
 	}
 

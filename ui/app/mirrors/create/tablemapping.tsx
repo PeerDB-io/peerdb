@@ -103,6 +103,7 @@ const TableMapping = ({
               source: `${schemaName}.${tableName}`,
               destination: dstName,
               partitionKey: '',
+              exclude: [],
               selected: false,
             });
           }

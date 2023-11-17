@@ -26,6 +26,7 @@ message TableMapping {
   string source_table_identifier = 1;
   string destination_table_identifier = 2;
   string partition_key = 3;
+  repeated string exclude = 4;
 }
 
 message FlowConnectionConfigs {
