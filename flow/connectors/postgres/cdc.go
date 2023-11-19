@@ -224,6 +224,7 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 
 	pkmRequiresResponse := false
+	waitingForCommit := false
 
 	for {
 		if pkmRequiresResponse {
@@ -246,6 +247,31 @@ func (p *PostgresCDCSource) consumeStream(
 
 		if (len(localRecords) >= int(req.MaxBatchSize)) && !p.commitLock {
 			return nil
+		}
+
+		if waitingForCommit && !p.commitLock {
+			log.Infof(
+				"[%s] commit received, returning currently accumulated records - %d",
+				req.FlowJobName,
+				len(localRecords),
+			)
+			return nil
+		}
+
+		// if we are past the next standby deadline (?)
+		if time.Now().After(nextStandbyMessageDeadline) {
+			if !p.commitLock {
+				log.Infof(
+					"[%s] Stand-by deadline exceeded, returning currently accumulated records - %d",
+					req.FlowJobName,
+					len(localRecords),
+				)
+				return nil
+			} else {
+				// we need to wait for next commit.
+				waitingForCommit = true
+				nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
+			}
 		}
 
 		var ctx context.Context
