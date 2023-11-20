@@ -145,7 +145,7 @@ func (c *EventHubConnector) processBatch(
 			return 0, err
 		}
 
-		err = batchPerTopic.AddEvent(ctx, topicName, json)
+		err = batchPerTopic.AddEvent(ctx, topicName, json, false)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"flowName": flowJobName,
