@@ -220,6 +220,12 @@ func (p *PostgresCDCSource) consumeStream(
 	pkmRequiresResponse := false
 	waitingForCommit := false
 
+	err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
+		pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
+	if err != nil {
+		return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
+	}
+
 	for {
 		if pkmRequiresResponse {
 			// Update XLogPos to the last processed position, we can only confirm
