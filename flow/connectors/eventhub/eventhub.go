@@ -126,54 +126,70 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
+	eventHubFlushTimeout :=
+		time.Duration(utils.GetEnvInt("PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS", 10)) *
+			time.Second
+
+	ticker := time.NewTicker(eventHubFlushTimeout)
+	defer ticker.Stop()
+
 	numRecords := 0
-	for record := range batch.GetRecords() {
-		numRecords++
-		json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Infof("failed to convert record to json: %v", err)
-			return 0, err
-		}
+	for {
+		select {
+		case record, ok := <-batch.GetRecords():
+			if !ok {
+				err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+				if err != nil {
+					return 0, err
+				}
 
-		topicName, err := NewScopedEventhub(record.GetTableName())
-		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Infof("failed to get topic name: %v", err)
-			return 0, err
-		}
+				log.WithFields(log.Fields{
+					"flowName": flowJobName,
+				}).Infof("[total] successfully sent %d records to event hub", numRecords)
+				return uint32(numRecords), nil
+			}
 
-		err = batchPerTopic.AddEvent(ctx, topicName, json, false)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Infof("failed to add event to batch: %v", err)
-			return 0, err
-		}
+			numRecords++
+			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"flowName": flowJobName,
+				}).Infof("failed to convert record to json: %v", err)
+				return 0, err
+			}
 
-		if numRecords%1000 == 0 {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Infof("processed %d records for sending", numRecords)
+			topicName, err := NewScopedEventhub(record.GetTableName())
+			if err != nil {
+				log.WithFields(log.Fields{
+					"flowName": flowJobName,
+				}).Infof("failed to get topic name: %v", err)
+				return 0, err
+			}
+
+			err = batchPerTopic.AddEvent(ctx, topicName, json, false)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"flowName": flowJobName,
+				}).Infof("failed to add event to batch: %v", err)
+				return 0, err
+			}
+
+			if numRecords%1000 == 0 {
+				log.WithFields(log.Fields{
+					"flowName": flowJobName,
+				}).Infof("processed %d records for sending", numRecords)
+			}
+
+		case <-ticker.C:
+			err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+			if err != nil {
+				return 0, err
+			}
+
+			ticker.Stop()
+			ticker = time.NewTicker(eventHubFlushTimeout)
 		}
 	}
-
-	log.WithFields(log.Fields{
-		"flowName": flowJobName,
-	}).Infof("processed %d records for sending", numRecords)
-
-	flushErr := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
-	if flushErr != nil {
-		return 0, flushErr
-	}
-	batchPerTopic.Clear()
-
-	log.WithFields(log.Fields{
-		"flowName": flowJobName,
-	}).Infof("[total] successfully flushed %d records to event hub", numRecords)
-	return uint32(numRecords), nil
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
