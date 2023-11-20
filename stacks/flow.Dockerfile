@@ -5,8 +5,7 @@ RUN apt-get update && apt-get install -y gcc libgeos-dev
 WORKDIR /root/flow
 
 # first copy only go.mod and go.sum to cache dependencies
-COPY flow/go.mod .
-COPY flow/go.sum .
+COPY flow/go.mod flow/go.sum .
 
 # download all the dependencies
 RUN go mod download
@@ -25,8 +24,7 @@ WORKDIR /root
 COPY --from=builder /root/peer-flow .
 
 FROM flow-base AS flow-api
-EXPOSE 8112
-EXPOSE 8113
+EXPOSE 8112-8113
 ENTRYPOINT [\
   "./peer-flow",\
   "api",\
