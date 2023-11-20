@@ -20,14 +20,14 @@ COPY --from=planner /root/nexus/recipe.json recipe.json
 # Build dependencies - this is the caching Docker layer!
 RUN cargo chef cook --release --recipe-path recipe.json
 WORKDIR /root
-COPY nexus nexus
-COPY protos protos
+COPY nexus protos ./
 WORKDIR /root/nexus
 RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release --bin peerdb-server
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates postgresql-client curl iputils-ping
-RUN mkdir -p /var/log/peerdb
+RUN apt-get update && \
+  apt-get install -y ca-certificates postgresql-client curl iputils-ping && \
+  mkdir -p /var/log/peerdb
 WORKDIR /root
 COPY --from=builder /root/nexus/target/release/peerdb-server .
 CMD ["./peerdb-server"]
