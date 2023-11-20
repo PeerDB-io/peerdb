@@ -135,9 +135,9 @@ func (h *HubBatches) flushAllBatches(
 		})
 	})
 
+	err := g.Wait()
 	log.Infof("[flush] successfully sent %d events in total to event hub",
 		numEventsPushed)
-	err := g.Wait()
 
 	// clear the batches after flushing them.
 	h.Clear()
