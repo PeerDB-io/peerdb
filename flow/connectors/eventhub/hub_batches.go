@@ -135,9 +135,14 @@ func (h *HubBatches) flushAllBatches(
 		})
 	})
 
-	log.Infof("[sendEventBatch] successfully sent %d events in total to event hub",
+	log.Infof("[flush] successfully sent %d events in total to event hub",
 		numEventsPushed)
-	return g.Wait()
+	err := g.Wait()
+
+	// clear the batches after flushing them.
+	h.Clear()
+
+	return err
 }
 
 // Clear removes all batches from the HubBatches
