@@ -53,7 +53,7 @@ func (h *HubBatches) AddEvent(
 		if retryForBatchSizeExceed {
 			// if we are already retrying, then we should just return the error
 			// as we have already tried to send the event to the batch.
-			return err
+			return fmt.Errorf("[retry-failed] event too large to add to batch: %v", err)
 		}
 
 		// if the event is too large, send the current batch and
