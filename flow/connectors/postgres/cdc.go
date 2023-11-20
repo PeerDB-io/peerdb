@@ -260,7 +260,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
-			if !p.commitLock {
+			if !p.commitLock && len(localRecords) > 0 {
 				log.Infof(
 					"[%s] Stand-by deadline exceeded, returning currently accumulated records - %d",
 					req.FlowJobName,
@@ -269,7 +269,7 @@ func (p *PostgresCDCSource) consumeStream(
 				return nil
 			} else {
 				// we need to wait for next commit.
-				waitingForCommit = true
+				waitingForCommit = p.commitLock
 				nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 			}
 		}
