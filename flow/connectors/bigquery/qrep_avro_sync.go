@@ -331,7 +331,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			avro.CompressNone, qvalue.QDWHTypeBigQuery)
 		if s.gcsBucket != "" {
 			bucket := s.connector.storageClient.Bucket(s.gcsBucket)
-			avroFilePath = fmt.Sprintf("%s/%s.avro", objectFolder, syncID)
+			avroFilePath = fmt.Sprintf("%s/%s.avro.snappy", objectFolder, syncID)
 			obj := bucket.Object(avroFilePath)
 			w := obj.NewWriter(s.connector.ctx)
 
@@ -346,7 +346,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 				return 0, fmt.Errorf("failed to create temp dir: %w", err)
 			}
 
-			avroFilePath = fmt.Sprintf("%s/%s.avro", tmpDir, syncID)
+			avroFilePath = fmt.Sprintf("%s/%s.avro.snappy", tmpDir, syncID)
 			log.WithFields(log.Fields{
 				"batchOrPartitionID": syncID,
 			}).Infof("writing records to local file %s", avroFilePath)
