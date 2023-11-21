@@ -265,6 +265,12 @@ func (p *PostgresCDCSource) consumeStream(
 					req.FlowJobName,
 					len(localRecords),
 				)
+
+				if !p.commitLock {
+					// immediate return if we are not waiting for a commit
+					return nil
+				}
+
 				waitingForCommit = true
 			} else {
 				log.Infof("[%s] standby deadline reached, no records accumulated, continuing to wait",
