@@ -94,6 +94,20 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("failed to create e2e_test schema: %w", err)
 	}
 
+	_, err = pool.Exec(context.Background(), `
+		CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
+			SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
+			round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
+		$$ language sql;
+		CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
+		RETURNS bytea AS $body$
+			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
+			FROM generate_series(1, $1);
+		$body$
+		LANGUAGE 'sql'
+		VOLATILE
+		SET search_path = 'pg_catalog';
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create utility functions: %w", err)
 	}
