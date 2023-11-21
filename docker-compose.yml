@@ -9,6 +9,8 @@ x-catalog-config: &catalog-config
 
 x-flow-worker-env: &flow-worker-env
   TEMPORAL_HOST_PORT: temporal:7233
+  TEMPORAL_CLIENT_CERT:
+  TEMPORAL_CLIENT_KEY:
   # For GCS, these will be your HMAC keys instead
   # For more information:
   # https://cloud.google.com/storage/docs/authentication/managing-hmackeys

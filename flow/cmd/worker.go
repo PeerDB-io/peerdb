@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"os"
 	"os/signal"
@@ -31,6 +32,8 @@ type WorkerOptions struct {
 	PyroscopeServer   string
 	MetricsServer     string
 	TemporalNamespace string
+	TemporalCert      string
+	TemporalKey       string
 }
 
 func setupPyroscope(opts *WorkerOptions) {
@@ -91,10 +94,27 @@ func WorkerMain(opts *WorkerOptions) error {
 		}
 	}()
 
+	log.Info("Temporal Host Port: ", opts.TemporalHostPort)
+	log.Info("Temporal Namespace: ", opts.TemporalNamespace)
+	log.Info("Temporal Cert: ", opts.TemporalCert)
+	log.Info("Temporal Key: ", opts.TemporalKey)
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
 	}
+
+	if opts.TemporalCert != "" && opts.TemporalKey != "" {
+		cert, err := tls.X509KeyPair([]byte(opts.TemporalCert), []byte(opts.TemporalKey))
+		if err != nil {
+			log.Fatalln("Unable to load cert and key pair.", err)
+		}
+
+		connOptions := client.ConnectionOptions{
+			TLS: &tls.Config{Certificates: []tls.Certificate{cert}},
+		}
+		clientOptions.ConnectionOptions = connOptions
+	}
+
 	if opts.EnableMetrics {
 		clientOptions.MetricsHandler = sdktally.NewMetricsHandler(newPrometheusScope(
 			prometheus.Configuration{
@@ -115,6 +135,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
+	log.Info("Created temporal client")
 	defer c.Close()
 
 	w := worker.New(c, shared.PeerFlowTaskQueue, worker.Options{})

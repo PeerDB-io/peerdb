@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -26,6 +27,8 @@ type APIServerParams struct {
 	GatewayPort       uint
 	TemporalHostPort  string
 	TemporalNamespace string
+	TemporalCert      string
+	TemporalKey       string
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
@@ -57,11 +60,23 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 
 func APIMain(args *APIServerParams) error {
 	ctx := args.ctx
-
-	tc, err := client.Dial(client.Options{
+	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
-	})
+	}
+	if args.TemporalCert != "" && args.TemporalKey != "" {
+		cert, err := tls.X509KeyPair([]byte(args.TemporalCert), []byte(args.TemporalKey))
+		if err != nil {
+			log.Fatalln("Unable to load cert and key pair.", err)
+		}
+
+		connOptions := client.ConnectionOptions{
+			TLS: &tls.Config{Certificates: []tls.Certificate{cert}},
+		}
+		clientOptions.ConnectionOptions = connOptions
+	}
+
+	tc, err := client.Dial(clientOptions)
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
