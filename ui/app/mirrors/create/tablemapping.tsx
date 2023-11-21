@@ -1,10 +1,10 @@
 'use client';
-import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
+import { Checkbox } from '@/lib/Checkbox';
+import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
+import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
-import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import {
   Dispatch,
@@ -13,11 +13,10 @@ import {
   useEffect,
   useState,
 } from 'react';
-import ReactSelect from 'react-select';
 import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../dto/MirrorsDTO';
-import ColumnsDisplay from './columns';
 import { fetchSchemas, fetchTables } from './handlers';
+import { expandableStyle, schemaBoxStyle, tableBoxStyle } from './styles';
 
 interface TableMappingProps {
   sourcePeerName: string;
@@ -56,17 +55,7 @@ const TableMapping = ({
     setRows(newRows);
   };
 
-  const handleSelectAll = (
-    e: React.MouseEvent<HTMLInputElement, MouseEvent>
-  ) => {
-    const newRows = [...rows];
-    for (const row of newRows) {
-      row.selected = e.currentTarget.checked;
-    }
-    setRows(newRows);
-  };
-
-  const handleSwitch = (on: boolean, source: string) => {
+  const handleTableSelect = (on: boolean, source: string) => {
     if (on) {
       handleAddRow(source);
     } else {
@@ -79,13 +68,6 @@ const TableMapping = ({
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
     newRows[index] = { ...newRows[index], destination: dest };
-    setRows(newRows);
-  };
-
-  const updatePartitionKey = (source: string, pkey: string) => {
-    const newRows = [...rows];
-    const index = newRows.findIndex((row) => row.source === source);
-    newRows[index] = { ...newRows[index], partitionKey: pkey };
     setRows(newRows);
   };
 
@@ -155,25 +137,6 @@ const TableMapping = ({
   return (
     <div style={{ marginTop: '1rem' }}>
       <Label colorName='lowContrast'>Select tables to sync</Label>
-      <RowWithSelect
-        label={<Label>Source Schema</Label>}
-        action={
-          <ReactSelect
-            placeholder='Select a schema'
-            onChange={(val, action) => {
-              if (val) {
-                setSchema(val.value || '');
-                getTablesOfSchema(val.value || '');
-              }
-            }}
-            defaultInputValue={schema.length > 0 ? schema : 'Loading...'}
-            isLoading={loading}
-            options={allSchemas?.map((schemaName) => {
-              return { value: schemaName, label: schemaName };
-            })}
-          />
-        }
-      />
       <div
         style={{
           display: 'flex',
@@ -182,13 +145,10 @@ const TableMapping = ({
           padding: '0.5rem',
         }}
       >
-        <div style={{ display: 'flex' }}>
-          <input type='checkbox' onClick={(e) => handleSelectAll(e)} />
-          <Label>Select All</Label>
-        </div>
         <div style={{ width: '30%' }}>
           <SearchField
-            placeholder='Search'
+            style={{ fontSize: 13 }}
+            placeholder='Search for schema'
             value={searchQuery}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setSearchQuery(e.target.value)
@@ -197,139 +157,89 @@ const TableMapping = ({
         </div>
       </div>
       <div style={{ maxHeight: '40vh', overflow: 'scroll' }}>
-        {rows ? (
-          rows
-            ?.filter((row) => {
-              return row.source
-                .toLowerCase()
-                .includes(searchQuery.toLowerCase());
+        {allSchemas ? (
+          allSchemas
+            ?.filter((schema) => {
+              return schema.toLowerCase().includes(searchQuery.toLowerCase());
             })
-            .map((row, index) => (
-              <div
-                key={index}
-                style={{
-                  width: '100%',
-                  marginTop: '0.5rem',
-                  padding: '0.5rem',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  border: '1px solid #e9ecf2',
-                  boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
-                  borderRadius: '0.8rem',
-                  background:
-                    'linear-gradient(135deg, #FFFFFF 40%, #F5F5F5 60%)',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'start',
-                  }}
-                >
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <Switch
-                        checked={row.selected}
-                        onCheckedChange={(state: boolean) =>
-                          handleSwitch(state, row.source)
-                        }
-                      />
-                      <div
-                        style={{
-                          fontSize: 14,
-                          overflow: 'hidden',
-                          fontWeight: 'bold',
-                          color: 'rgba(0,0,0,0.7)',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {row.source}
-                      </div>
-                    </div>
-                    {row.selected && (
-                      <div style={{ padding: '0.5rem' }}>
-                        <RowWithTextField
-                          key={row.source}
-                          label={
-                            <div
-                              style={{
-                                marginTop: '0.5rem',
-                                fontSize: 14,
-                              }}
-                            >
-                              Destination Table Name
-                              {RequiredIndicator(true)}
-                            </div>
-                          }
-                          action={
-                            <div
-                              style={{
-                                marginTop: '0.5rem',
-                                display: 'flex',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <TextField
-                                variant='simple'
-                                defaultValue={row.destination}
-                                onChange={(
-                                  e: React.ChangeEvent<HTMLInputElement>
-                                ) =>
-                                  updateDestination(row.source, e.target.value)
-                                }
-                              />
-                            </div>
-                          }
-                        />
-                        <RowWithTextField
-                          label={
-                            <div
-                              style={{
-                                marginTop: '0.5rem',
-                                fontSize: 14,
-                              }}
-                            >
-                              Partition Key
-                            </div>
-                          }
-                          action={
-                            <div
-                              style={{
-                                marginTop: '0.5rem',
-                                display: 'flex',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <TextField
-                                variant='simple'
-                                onChange={(
-                                  e: React.ChangeEvent<HTMLInputElement>
-                                ) =>
-                                  updatePartitionKey(row.source, e.target.value)
-                                }
-                              />
-                            </div>
-                          }
-                        />
-                        <div style={{ fontSize: 14 }}>
-                          This is used only if you enable initial load, and
-                          specifies its watermark.
-                        </div>
-                      </div>
-                    )}
+            .map((schema, index) => (
+              <div key={index} style={schemaBoxStyle}>
+                <div>
+                  <div style={{ ...expandableStyle, whiteSpace: 'nowrap' }}>
+                    <Icon name='arrow_right' />
+                    <p>{schema}</p>
                   </div>
-                  <ColumnsDisplay
+                  <div className='ml-5 mt-3' style={{ width: '90%' }}>
+                    {['oss1', 'oss2'].map((table, index) => {
+                      return (
+                        <div style={tableBoxStyle}>
+                          <div
+                            key={index}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                            }}
+                          >
+                            <RowWithCheckbox
+                              label={
+                                <Label as='label' style={{ fontSize: 13 }}>
+                                  {table}
+                                </Label>
+                              }
+                              action={
+                                <Checkbox
+                                  onCheckedChange={(state: boolean) =>
+                                    handleTableSelect(state, table)
+                                  }
+                                />
+                              }
+                            />
+
+                            <div style={{ width: '40%' }}>
+                              <TextField
+                                style={{ fontSize: 12 }}
+                                variant='simple'
+                                placeholder={'Enter target table'}
+                                //defaultValue={row.destination}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) => updateDestination(table, e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div className='ml-5' style={{ width: '100%' }}>
+                            <Label
+                              as='label'
+                              colorName='lowContrast'
+                              style={{ fontSize: 13 }}
+                            >
+                              Columns
+                            </Label>
+                            {['id', 'name'].map((column, index) => (
+                              <RowWithCheckbox
+                                key={index}
+                                label={
+                                  <Label as='label' style={{ fontSize: 13 }}>
+                                    {column}
+                                  </Label>
+                                }
+                                action={<Checkbox />}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* <ColumnsDisplay
                     peerName={sourcePeerName}
                     schemaName={schema}
                     tableName={row.source.split('.')[1]}
                     setColumns={setTableColumns}
                     columns={tableColumns}
-                  />
-                </div>
+                  /> */}
               </div>
             ))
         ) : (
