@@ -193,15 +193,6 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf("syncing records to eventhub with"+
-			" push parallelism %d and push batch size %d",
-			req.PushParallelism, req.PushBatchSize)
-	})
-	defer func() {
-		shutdown <- true
-	}()
-
 	maxParallelism := req.PushParallelism
 	if maxParallelism <= 0 {
 		maxParallelism = 10
@@ -210,6 +201,16 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	var err error
 	batch := req.Records
 	var numRecords uint32
+
+	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
+		return fmt.Sprintf(
+			"processed %d records for flow %s",
+			numRecords, req.FlowJobName,
+		)
+	})
+	defer func() {
+		shutdown <- true
+	}()
 
 	// if env var PEERDB_BETA_EVENTHUB_PUSH_ASYNC=true
 	// we kick off processBatch in a goroutine and return immediately.
