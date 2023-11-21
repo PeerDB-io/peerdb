@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM lukemathwalker/cargo-chef:latest-rust-1.70-slim-bookworm as chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.74-slim-bookworm as chef
 WORKDIR /root
 
 FROM chef as planner
