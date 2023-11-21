@@ -324,9 +324,9 @@ func (p *PostgresCDCSource) consumeStream(
 				clientXLogPos = pkm.ServerWALEnd
 			}
 
-			if pkm.ReplyRequested {
-				pkmRequiresResponse = true
-			}
+			// always reply to keepalive messages
+			// instead of `pkm.ReplyRequested`
+			pkmRequiresResponse = true
 
 		case pglogrepl.XLogDataByteID:
 			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
