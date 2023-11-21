@@ -8,7 +8,14 @@ x-catalog-config: &catalog-config
   PEERDB_CATALOG_DATABASE: postgres
 
 x-flow-worker-env: &flow-worker-env
+  # For Temporal Cloud, this will look like: 
+  # <yournamespace>.<id>.tmprl.cloud:7233
   TEMPORAL_HOST_PORT: temporal:7233
+  PEERDB_TEMPORAL_NAMESPACE: default
+  # For the below 2 cert and key variables,
+  # use yml multiline syntax with '|'
+  TEMPORAL_CLIENT_CERT:
+  TEMPORAL_CLIENT_KEY:
   # For GCS, these will be your HMAC keys instead
   # For more information:
   # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
@@ -109,8 +116,7 @@ services:
       - 8112:8112
       - 8113:8113
     environment:
-      <<: [*catalog-config]
-      TEMPORAL_HOST_PORT: temporal:7233
+      <<: [*catalog-config, *flow-worker-env]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -122,7 +128,7 @@ services:
       dockerfile: stacks/flow.Dockerfile
       target: flow-snapshot-worker
     environment:
-      TEMPORAL_HOST_PORT: temporal:7233
+      <<: [*flow-worker-env]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy

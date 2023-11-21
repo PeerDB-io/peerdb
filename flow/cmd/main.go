@@ -30,6 +30,18 @@ func main() {
 		EnvVars: []string{"TEMPORAL_HOST_PORT"},
 	}
 
+	temporalCertFlag := cli.StringFlag{
+		Name:    "temporal-cert",
+		Value:   "", // default: no cert needed
+		EnvVars: []string{"TEMPORAL_CLIENT_CERT"},
+	}
+
+	temporalKeyFlag := cli.StringFlag{
+		Name:    "temporal-key",
+		Value:   "", // default: no key needed
+		EnvVars: []string{"TEMPORAL_CLIENT_KEY"},
+	}
+
 	profilingFlag := &cli.BoolFlag{
 		Name:    "enable-profiling",
 		Value:   false, // Default is off
@@ -79,6 +91,8 @@ func main() {
 						PyroscopeServer:   ctx.String("pyroscope-server-address"),
 						MetricsServer:     ctx.String("metrics-server"),
 						TemporalNamespace: ctx.String("temporal-namespace"),
+						TemporalCert:      ctx.String("temporal-cert"),
+						TemporalKey:       ctx.String("temporal-key"),
 					})
 				},
 				Flags: []cli.Flag{
@@ -88,6 +102,8 @@ func main() {
 					pyroscopeServerFlag,
 					metricsServerFlag,
 					temporalNamespaceFlag,
+					&temporalCertFlag,
+					&temporalKeyFlag,
 				},
 			},
 			{
@@ -97,11 +113,15 @@ func main() {
 					return SnapshotWorkerMain(&SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: ctx.String("temporal-namespace"),
+						TemporalCert:      ctx.String("temporal-cert"),
+						TemporalKey:       ctx.String("temporal-key"),
 					})
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
+					&temporalCertFlag,
+					&temporalKeyFlag,
 				},
 			},
 			{
@@ -119,6 +139,8 @@ func main() {
 					},
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
+					&temporalCertFlag,
+					&temporalKeyFlag,
 				},
 				Action: func(ctx *cli.Context) error {
 					temporalHostPort := ctx.String("temporal-host-port")
@@ -129,6 +151,8 @@ func main() {
 						TemporalHostPort:  temporalHostPort,
 						GatewayPort:       ctx.Uint("gateway-port"),
 						TemporalNamespace: ctx.String("temporal-namespace"),
+						TemporalCert:      ctx.String("temporal-cert"),
+						TemporalKey:       ctx.String("temporal-key"),
 					})
 				},
 			},
