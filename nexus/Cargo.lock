@@ -56,7 +56,6 @@ dependencies = [
  "async-trait",
  "catalog",
  "flow-rs",
- "lazy_static",
  "pem 3.0.2",
  "pt",
  "serde_json",
