@@ -67,7 +67,7 @@ func APIMain(args *APIServerParams) error {
 	if args.TemporalCert != "" && args.TemporalKey != "" {
 		cert, err := tls.X509KeyPair([]byte(args.TemporalCert), []byte(args.TemporalKey))
 		if err != nil {
-			log.Fatalln("Unable to load cert and key pair.", err)
+			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{

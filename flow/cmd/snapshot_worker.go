@@ -7,7 +7,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	log "github.com/sirupsen/logrus"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -29,7 +28,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		cert, err := tls.X509KeyPair([]byte(opts.TemporalCert), []byte(opts.TemporalKey))
 		if err != nil {
-			log.Fatalln("Unable to load cert and key pair.", err)
+			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
