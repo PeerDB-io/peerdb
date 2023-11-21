@@ -94,10 +94,6 @@ func WorkerMain(opts *WorkerOptions) error {
 		}
 	}()
 
-	log.Info("Temporal Host Port: ", opts.TemporalHostPort)
-	log.Info("Temporal Namespace: ", opts.TemporalNamespace)
-	log.Info("Temporal Cert: ", opts.TemporalCert)
-	log.Info("Temporal Key: ", opts.TemporalKey)
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
@@ -106,7 +102,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		cert, err := tls.X509KeyPair([]byte(opts.TemporalCert), []byte(opts.TemporalKey))
 		if err != nil {
-			log.Fatalln("Unable to load cert and key pair.", err)
+			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
