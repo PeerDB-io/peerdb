@@ -141,7 +141,7 @@ impl NexusBackend {
                     }
                     peer_cursor::CursorModification::Closed(cursors) => {
                         for cursor_name in cursors {
-                            peer_cursors.remove_cursor(cursor_name);
+                            peer_cursors.remove_cursor(&cursor_name);
                         }
                         Ok(vec![Response::Execution(Tag::new_for_execution(
                             "CLOSE CURSOR",

@@ -20,8 +20,8 @@ impl PeerCursors {
         self.cursors.insert(name, peer);
     }
 
-    pub fn remove_cursor(&mut self, name: String) {
-        self.cursors.remove(&name);
+    pub fn remove_cursor(&mut self, name: &str) {
+        self.cursors.remove(name);
     }
 
     pub fn get_peer(&self, name: &str) -> Option<&Peer> {
