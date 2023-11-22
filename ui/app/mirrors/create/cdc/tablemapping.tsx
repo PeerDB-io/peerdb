@@ -14,9 +14,14 @@ import {
   useState,
 } from 'react';
 import { BarLoader } from 'react-spinners/';
-import { TableMapRow } from '../../dto/MirrorsDTO';
-import { fetchColumns, fetchSchemas, fetchTables } from './handlers';
-import { expandableStyle, schemaBoxStyle, tableBoxStyle } from './styles';
+import { TableMapRow } from '../../../dto/MirrorsDTO';
+import { fetchColumns, fetchSchemas, fetchTables } from '../handlers';
+import {
+  expandableStyle,
+  loaderContainer,
+  schemaBoxStyle,
+  tableBoxStyle,
+} from './styles';
 
 interface TableMappingProps {
   sourcePeerName: string;
@@ -75,14 +80,15 @@ const TableMapping = ({
     include: boolean
   ) => {
     const currRows = [...rows];
-    const rowWeNeed = currRows.find((row) => row.source === source);
-    if (rowWeNeed) {
-      const { exclude } = rowWeNeed;
+    const rowOfSource = currRows.find((row) => row.source === source);
+    if (rowOfSource) {
       if (include) {
-        const updatedExclude = exclude.filter((col) => col !== column);
-        rowWeNeed.exclude = updatedExclude;
+        const updatedExclude = rowOfSource.exclude.filter(
+          (col) => col !== column
+        );
+        rowOfSource.exclude = updatedExclude;
       } else {
-        rowWeNeed.exclude.push(column);
+        rowOfSource.exclude.push(column);
       }
     }
     setRows(currRows);
@@ -172,7 +178,7 @@ const TableMapping = ({
               <div key={index} style={schemaBoxStyle}>
                 <div>
                   <div
-                    style={{ ...expandableStyle, whiteSpace: 'nowrap' }}
+                    style={expandableStyle}
                     onClick={() => handleSchemaClick(schema)}
                   >
                     <Icon
@@ -333,15 +339,7 @@ const TableMapping = ({
               </div>
             ))
         ) : (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-            }}
-          >
+          <div style={loaderContainer}>
             <BarLoader color='#36d7b7' width='40%' />
           </div>
         )}

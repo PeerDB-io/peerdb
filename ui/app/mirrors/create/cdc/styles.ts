@@ -27,3 +27,11 @@ export const tableBoxStyle: CSSProperties = {
   width: '90%',
   padding: '0.5rem',
 };
+
+export const loaderContainer: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: '100%',
+};

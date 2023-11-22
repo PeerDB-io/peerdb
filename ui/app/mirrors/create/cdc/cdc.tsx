@@ -8,9 +8,9 @@ import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Dispatch, SetStateAction } from 'react';
 import ReactSelect from 'react-select';
-import { InfoPopover } from '../../../components/InfoPopover';
-import { CDCConfig, MirrorSetter, TableMapRow } from '../../dto/MirrorsDTO';
-import { MirrorSetting } from './helpers/common';
+import { InfoPopover } from '../../../../components/InfoPopover';
+import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
+import { MirrorSetting } from '../helpers/common';
 import TableMapping from './tablemapping';
 
 interface MirrorConfigProps {

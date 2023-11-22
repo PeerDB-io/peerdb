@@ -22,13 +22,13 @@ import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
-import CDCConfigForm from './cdc';
+import CDCConfigForm from './cdc/cdc';
 import { handleCreateCDC, handleCreateQRep } from './handlers';
 import { cdcSettings } from './helpers/cdc';
 import { blankCDCSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
-import QRepConfigForm from './qrep';
-import QRepQuery from './query';
+import QRepConfigForm from './qrep/qrep';
+import QRepQuery from './qrep/query';
 
 function getPeerValue(peer: Peer) {
   return peer.name;
