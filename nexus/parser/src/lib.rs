@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use analyzer::{
     CursorEvent, PeerCursorAnalyzer, PeerDDL, PeerDDLAnalyzer, PeerExistanceAnalyzer,
-    QueryAssocation, StatementAnalyzer,
+    QueryAssociation, StatementAnalyzer,
 };
 use async_trait::async_trait;
 use catalog::Catalog;
@@ -27,7 +27,7 @@ pub enum NexusStatement {
     },
     PeerQuery {
         stmt: Statement,
-        assoc: QueryAssocation,
+        assoc: QueryAssociation,
     },
     PeerCursor {
         stmt: Statement,
@@ -96,13 +96,9 @@ impl NexusQueryParser {
         Self { catalog }
     }
 
-    pub fn get_peers_bridge(&self) -> PgWireResult<HashMap<String, pt::peerdb_peers::Peer>> {
-        let peers = tokio::task::block_in_place(move || {
-            tokio::runtime::Handle::current().block_on(async move {
-                let catalog = self.catalog.lock().await;
-                catalog.get_peers().await
-            })
-        });
+    pub async fn get_peers_bridge(&self) -> PgWireResult<HashMap<String, pt::peerdb_peers::Peer>> {
+        let catalog = self.catalog.lock().await;
+        let peers = catalog.get_peers().await;
 
         peers.map_err(|e| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
@@ -113,7 +109,7 @@ impl NexusQueryParser {
         })
     }
 
-    pub fn parse_simple_sql(&self, sql: &str) -> PgWireResult<NexusParsedStatement> {
+    pub async fn parse_simple_sql(&self, sql: &str) -> PgWireResult<NexusParsedStatement> {
         let mut stmts =
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         if stmts.len() > 1 {
@@ -131,7 +127,7 @@ impl NexusQueryParser {
             })
         } else {
             let stmt = stmts.remove(0);
-            let peers = self.get_peers_bridge()?;
+            let peers = self.get_peers_bridge().await?;
             let nexus_stmt = NexusStatement::new(peers, &stmt)?;
             Ok(NexusParsedStatement {
                 statement: nexus_stmt,
@@ -162,7 +158,7 @@ impl QueryParser for NexusQueryParser {
             })
         } else {
             let stmt = stmts.remove(0);
-            let peers = self.get_peers_bridge()?;
+            let peers = self.get_peers_bridge().await?;
             let nexus_stmt = NexusStatement::new(peers, &stmt)?;
             Ok(NexusParsedStatement {
                 statement: nexus_stmt,
