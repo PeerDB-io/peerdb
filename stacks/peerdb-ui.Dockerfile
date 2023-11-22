@@ -7,6 +7,7 @@ RUN apt-get update && \
   apt-get install -y openssl && \
   mkdir /app && \
   chown -R node:node /app
+ENV NEXT_TELEMETRY_DISABLED 1
 USER node
 WORKDIR /app
 
@@ -16,16 +17,11 @@ COPY --chown=node:node ui/package.json ui/package-lock.json .
 RUN npm ci
 COPY --chown=node:node ui/ .
 
-# Prisma
-RUN npx prisma generate
-
-ENV NEXT_TELEMETRY_DISABLED 1
-RUN npm run build
+RUN npx prisma generate && npm run build
 
 # Builder stage
 FROM base AS runner
 ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
 
 COPY --from=builder /app/public ./public
 
