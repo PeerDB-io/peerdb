@@ -217,6 +217,7 @@ const TableMapping = ({
                                     }
                                     action={
                                       <Checkbox
+                                        checked={row.selected}
                                         onCheckedChange={(state: boolean) =>
                                           handleTableSelect(state, row.source)
                                         }
