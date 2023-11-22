@@ -39,9 +39,9 @@ func (s *PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsSt
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
-	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName),
-	)
+	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
+	fmt.Printf("running query on bigquery: %s\n", bqSelQuery)
+	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
 	s.NoError(err)
 
 	s.True(pgRows.Equals(bqRows), "rows from source and destination tables are not equal")

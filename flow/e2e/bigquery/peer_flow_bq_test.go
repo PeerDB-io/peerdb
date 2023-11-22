@@ -253,7 +253,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 3,
+		TotalSyncFlows: 2,
 		MaxBatchSize:   100,
 	}
 

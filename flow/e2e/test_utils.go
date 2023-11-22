@@ -71,7 +71,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 				log.Errorln(err)
 			}
 
-			if state.SetupComplete {
+			if state.SnapshotComplete {
 				break
 			}
 		} else {
