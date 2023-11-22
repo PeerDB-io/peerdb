@@ -1,18 +1,13 @@
 'use client';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
-import { QRepConfig, QRepSyncMode } from '@/grpc_generated/flow';
+import { QRepConfig } from '@/grpc_generated/flow';
 import { DBType, Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
-import {
-  RowWithRadiobutton,
-  RowWithSelect,
-  RowWithTextField,
-} from '@/lib/Layout';
+import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
-import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
 import { TextField } from '@/lib/TextField';
 import { Divider } from '@tremor/react';
 import Image from 'next/image';
@@ -23,10 +18,11 @@ import ReactSelect from 'react-select';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
-import { handleCreateCDC, handleCreateQRep } from './handlers';
+import { handleCreateCDC, handleCreateQRep, handlePeer } from './handlers';
 import { cdcSettings } from './helpers/cdc';
 import { blankCDCSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
+import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
 import QRepQuery from './qrep/query';
 
@@ -92,45 +88,6 @@ export default function CreateMirrors() {
     router.push('/mirrors');
   };
 
-  const handlePeer = (peer: Peer | null, peerEnd: 'src' | 'dst') => {
-    if (!peer) return;
-    if (peerEnd === 'dst') {
-      if (peer.type === DBType.POSTGRES) {
-        setConfig((curr) => {
-          return {
-            ...curr,
-            cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-            snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-            syncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-          };
-        });
-      } else if (
-        peer.type === DBType.SNOWFLAKE ||
-        peer.type === DBType.BIGQUERY
-      ) {
-        setConfig((curr) => {
-          return {
-            ...curr,
-            cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-            snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-            syncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
-          };
-        });
-      }
-      setConfig((curr) => ({
-        ...curr,
-        destination: peer,
-        destinationPeer: peer,
-      }));
-    } else {
-      setConfig((curr) => ({
-        ...curr,
-        source: peer,
-        sourcePeer: peer,
-      }));
-    }
-  };
-
   return (
     <div style={{ width: '60%', alignSelf: 'center', justifySelf: 'center' }}>
       <Panel>
@@ -149,135 +106,7 @@ export default function CreateMirrors() {
         >
           Mirror type
         </Label>
-        <RadioButtonGroup
-          onValueChange={(value: string) => setMirrorType(value)}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'start',
-              marginBottom: '1rem',
-            }}
-          >
-            <div
-              style={{
-                padding: '0.5rem',
-                width: '35%',
-                height: '22vh',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                border: '2px solid rgba(0, 0, 0, 0.07)',
-                borderRadius: '1rem',
-              }}
-            >
-              <div>
-                <RowWithRadiobutton
-                  label={
-                    <Label>
-                      <div style={{ fontWeight: 'bold' }}>CDC</div>
-                    </Label>
-                  }
-                  action={<RadioButton value='CDC' />}
-                />
-                <Label>
-                  <div style={{ fontSize: 14 }}>
-                    Change-data Capture or CDC refers to replication of changes
-                    on the source table to the target table with initial load.
-                    This is recommended.
-                  </div>
-                </Label>
-              </div>
-              <Label
-                as={Link}
-                target='_blank'
-                style={{ color: 'teal', cursor: 'pointer' }}
-                href='https://docs.peerdb.io/usecases/Real-time%20CDC/overview'
-              >
-                Learn more
-              </Label>
-            </div>
-
-            <div
-              style={{
-                padding: '1rem',
-                width: '35%',
-                marginLeft: '0.5rem',
-                marginRight: '0.5rem',
-                height: '22vh',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                border: '2px solid rgba(0, 0, 0, 0.07)',
-                borderRadius: '1rem',
-              }}
-            >
-              <div>
-                <RowWithRadiobutton
-                  label={
-                    <Label>
-                      <div style={{ fontWeight: 'bold' }}>
-                        Query Replication
-                      </div>
-                    </Label>
-                  }
-                  action={<RadioButton value='Query Replication' />}
-                />
-                <Label>
-                  <div style={{ fontSize: 14 }}>
-                    Query Replication or QRep allows you to specify a set of
-                    rows to be synced via a SELECT query.
-                  </div>
-                </Label>
-              </div>
-              <Label
-                as={Link}
-                target='_blank'
-                style={{ color: 'teal', cursor: 'pointer' }}
-                href='https://docs.peerdb.io/usecases/Streaming%20Query%20Replication/overview'
-              >
-                Learn more
-              </Label>
-            </div>
-
-            <div
-              style={{
-                padding: '1rem',
-                width: '35%',
-                height: '22vh',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                border: '2px solid rgba(0, 0, 0, 0.07)',
-                borderRadius: '1rem',
-              }}
-            >
-              <RowWithRadiobutton
-                label={
-                  <Label>
-                    <div style={{ fontWeight: 'bold' }}>XMIN</div>
-                  </Label>
-                }
-                action={<RadioButton value='XMIN' />}
-              />
-              <Label>
-                <div style={{ fontSize: 14 }}>
-                  XMIN mode uses the xmin system column of PostgreSQL as a
-                  watermark column for replication.
-                </div>
-              </Label>
-              <Label
-                as={Link}
-                target='_blank'
-                style={{ color: 'teal', cursor: 'pointer' }}
-                href='https://docs.peerdb.io/sql/commands/create-mirror#xmin-query-replication'
-              >
-                Learn more
-              </Label>
-            </div>
-          </div>
-        </RadioButtonGroup>
-
+        <MirrorCards setMirrorType={setMirrorType} />
         <RowWithTextField
           label={<Label>Mirror Name</Label>}
           action={
@@ -290,76 +119,53 @@ export default function CreateMirrors() {
             />
           }
         />
+        {['src', 'dst'].map((peerEnd, index) => {
+          return (
+            <RowWithSelect
+              key={index}
+              label={
+                <Label>
+                  {peerEnd === 'src' ? 'Source Peer' : 'Destination Peer'}
+                  {RequiredIndicator(true)}
+                </Label>
+              }
+              action={
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <ReactSelect
+                    placeholder={`Select the ${
+                      peerEnd === 'src' ? 'source' : 'destination'
+                    } peer`}
+                    onChange={(val, action) =>
+                      handlePeer(val, peerEnd as 'src' | 'dst', setConfig)
+                    }
+                    options={
+                      (peerEnd === 'src'
+                        ? peers.filter((peer) => peer.type == DBType.POSTGRES)
+                        : peers) ?? []
+                    }
+                    getOptionValue={getPeerValue}
+                    formatOptionLabel={getPeerLabel}
+                  />
+                  <InfoPopover
+                    tips={
+                      'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
+                    }
+                    link={
+                      'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'
+                    }
+                  />
+                </div>
+              }
+            />
+          );
+        })}
 
-        <RowWithSelect
-          label={
-            <Label>
-              Source Peer
-              {RequiredIndicator(true)}
-            </Label>
-          }
-          action={
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-              }}
-            >
-              <ReactSelect
-                placeholder='Select the source peer'
-                onChange={(val, action) => handlePeer(val, 'src')}
-                options={
-                  peers.filter((peer) => peer.type == DBType.POSTGRES) ?? []
-                }
-                getOptionValue={getPeerValue}
-                formatOptionLabel={getPeerLabel}
-              />
-              <InfoPopover
-                tips={
-                  'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
-                }
-                link={
-                  'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'
-                }
-              />
-            </div>
-          }
-        />
-
-        <RowWithSelect
-          label={
-            <Label>
-              Destination Peer
-              {RequiredIndicator(true)}
-            </Label>
-          }
-          action={
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-              }}
-            >
-              <ReactSelect
-                placeholder='Select the destination peer'
-                onChange={(val, action) => handlePeer(val, 'dst')}
-                options={peers ?? []}
-                getOptionValue={getPeerValue}
-                formatOptionLabel={getPeerLabel}
-              />
-              <InfoPopover
-                tips={
-                  'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
-                }
-                link={
-                  'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites'
-                }
-              />
-            </div>
-          }
-        />
         <Divider style={{ marginTop: '1rem', marginBottom: '1rem' }} />
 
         {mirrorType === 'Query Replication' && (

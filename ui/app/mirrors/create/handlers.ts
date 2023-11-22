@@ -4,8 +4,13 @@ import {
   USchemasResponse,
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
-import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
-import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
+import {
+  FlowConnectionConfigs,
+  QRepConfig,
+  QRepSyncMode,
+  QRepWriteType,
+} from '@/grpc_generated/flow';
+import { DBType, Peer, dBTypeToJSON } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import {
@@ -14,6 +19,49 @@ import {
   qrepSchema,
   tableMappingSchema,
 } from './schema';
+
+export const handlePeer = (
+  peer: Peer | null,
+  peerEnd: 'src' | 'dst',
+  setConfig: (value: SetStateAction<FlowConnectionConfigs | QRepConfig>) => void
+) => {
+  if (!peer) return;
+  if (peerEnd === 'dst') {
+    if (peer.type === DBType.POSTGRES) {
+      setConfig((curr) => {
+        return {
+          ...curr,
+          cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+          snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+          syncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+        };
+      });
+    } else if (
+      peer.type === DBType.SNOWFLAKE ||
+      peer.type === DBType.BIGQUERY
+    ) {
+      setConfig((curr) => {
+        return {
+          ...curr,
+          cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+          snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+          syncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+        };
+      });
+    }
+    setConfig((curr) => ({
+      ...curr,
+      destination: peer,
+      destinationPeer: peer,
+    }));
+  } else {
+    setConfig((curr) => ({
+      ...curr,
+      source: peer,
+      sourcePeer: peer,
+    }));
+  }
+};
 
 const validateCDCFields = (
   tableMapping: TableMapRow[],
