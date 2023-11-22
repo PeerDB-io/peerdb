@@ -1,5 +1,5 @@
 'use client';
-import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
+import { DBType } from '@/grpc_generated/peers';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -15,15 +15,13 @@ import {
 } from 'react';
 import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../dto/MirrorsDTO';
-import { fetchSchemas, fetchTables } from './handlers';
+import { fetchColumns, fetchSchemas, fetchTables } from './handlers';
 import { expandableStyle, schemaBoxStyle, tableBoxStyle } from './styles';
 
 interface TableMappingProps {
   sourcePeerName: string;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
-  schema: string;
-  setSchema: Dispatch<SetStateAction<string>>;
   peerType?: DBType;
 }
 
@@ -31,21 +29,71 @@ const TableMapping = ({
   sourcePeerName,
   rows,
   setRows,
-  schema,
-  setSchema,
   peerType,
 }: TableMappingProps) => {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [tableColumns, setTableColumns] = useState<
     { tableName: string; columns: string[] }[]
   >([]);
-  const [loading, setLoading] = useState(false);
+  const [tablesLoading, setTablesLoading] = useState(false);
+  const [columnsLoading, setColumnsLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
+
+  const schemaIsExpanded = useCallback(
+    (schema: string) => {
+      return !!expandedSchemas.find((schemaName) => schemaName === schema);
+    },
+    [expandedSchemas]
+  );
+
+  const addTableColumns = (table: string) => {
+    const schemaName = table.split('.')[0];
+    const tableName = table.split('.')[1];
+    fetchColumns(sourcePeerName, schemaName, tableName, setColumnsLoading).then(
+      (res) =>
+        setTableColumns((prev) => {
+          return [...prev, { tableName: table, columns: res }];
+        })
+    );
+  };
+
+  const removeTableColumns = (table: string) => {
+    setTableColumns((prev) => {
+      return prev.filter((column) => column.tableName !== table);
+    });
+  };
+
+  const getTableColumns = (tableName: string) => {
+    return tableColumns?.find((column) => column.tableName === tableName)
+      ?.columns;
+  };
+
+  const handleColumnExclusion = (
+    source: string,
+    column: string,
+    include: boolean
+  ) => {
+    const currRows = [...rows];
+    const rowWeNeed = currRows.find((row) => row.source === source);
+    if (rowWeNeed) {
+      const { exclude } = rowWeNeed;
+      if (include) {
+        const updatedExclude = exclude.filter((col) => col !== column);
+        rowWeNeed.exclude = updatedExclude;
+      } else {
+        rowWeNeed.exclude.push(column);
+      }
+    }
+    setRows(currRows);
+  };
 
   const handleAddRow = (source: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
     if (index >= 0) newRows[index] = { ...newRows[index], selected: true };
     setRows(newRows);
+    addTableColumns(source);
   };
 
   const handleRemoveRow = (source: string) => {
@@ -53,90 +101,48 @@ const TableMapping = ({
     const index = newRows.findIndex((row) => row.source === source);
     if (index >= 0) newRows[index] = { ...newRows[index], selected: false };
     setRows(newRows);
+    removeTableColumns(source);
   };
 
   const handleTableSelect = (on: boolean, source: string) => {
-    if (on) {
-      handleAddRow(source);
-    } else {
-      handleRemoveRow(source);
-    }
+    on ? handleAddRow(source) : handleRemoveRow(source);
   };
 
   const updateDestination = (source: string, dest: string) => {
-    // find the row with source and update the destination
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
     newRows[index] = { ...newRows[index], destination: dest };
     setRows(newRows);
   };
 
-  const getTablesOfSchema = useCallback(
-    (schemaName: string) => {
-      fetchTables(sourcePeerName, schemaName, setLoading).then((tableNames) => {
-        if (tableNames) {
-          const newRows = [];
-          for (const tableName of tableNames) {
-            const dstName =
-              peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY'
-                ? tableName
-                : `${schemaName}.${tableName}`;
-            newRows.push({
-              source: `${schemaName}.${tableName}`,
-              destination: dstName,
-              partitionKey: '',
-              exclude: [],
-              selected: false,
-            });
-          }
-          setRows(newRows);
-        }
-      });
-    },
-    [sourcePeerName, setRows, peerType]
-  );
-
-  const [searchQuery, setSearchQuery] = useState('');
-
-  useEffect(() => {
-    if (peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY') {
-      setRows((rows) => {
-        const newRows = [...rows];
-        newRows.forEach((_, i) => {
-          const row = newRows[i];
-          newRows[i] = {
-            ...row,
-            destination: row.destination?.split('.')[1],
-          };
-        });
-        return newRows;
+  const handleSchemaClick = (schemaName: string) => {
+    if (!schemaIsExpanded(schemaName)) {
+      setTablesLoading(true);
+      setExpandedSchemas((curr) => [...curr, schemaName]);
+      fetchTables(sourcePeerName, schemaName, peerType).then((tableRows) => {
+        const newRows = [...rows, ...tableRows];
+        setRows(newRows);
+        setTablesLoading(false);
       });
     } else {
-      setRows((rows) => {
-        const newRows = [...rows];
-        newRows.forEach((_, i) => {
-          const row = newRows[i];
-          newRows[i] = {
-            ...row,
-            destination: `${schema}.${
-              row.destination?.split('.')[1] || row.destination
-            }`,
-          };
-        });
-        return newRows;
-      });
+      setExpandedSchemas((curr) =>
+        curr.filter((expandedSchema) => expandedSchema != schemaName)
+      );
+      setRows((curr) => curr.filter((row) => row.schema !== schemaName));
     }
-  }, [peerType, setRows, schema]);
+  };
 
   useEffect(() => {
-    fetchSchemas(sourcePeerName, setLoading).then((res) => setAllSchemas(res));
-    setSchema('public');
-    getTablesOfSchema('public');
-  }, [sourcePeerName, setSchema, getTablesOfSchema]);
+    fetchSchemas(sourcePeerName, setTablesLoading).then((res) =>
+      setAllSchemas(res)
+    );
+  }, [sourcePeerName]);
 
   return (
     <div style={{ marginTop: '1rem' }}>
-      <Label colorName='lowContrast'>Select tables to sync</Label>
+      <Label as='label' colorName='lowContrast' style={{ fontSize: 14 }}>
+        Select tables to sync
+      </Label>
       <div
         style={{
           display: 'flex',
@@ -165,81 +171,165 @@ const TableMapping = ({
             .map((schema, index) => (
               <div key={index} style={schemaBoxStyle}>
                 <div>
-                  <div style={{ ...expandableStyle, whiteSpace: 'nowrap' }}>
-                    <Icon name='arrow_right' />
+                  <div
+                    style={{ ...expandableStyle, whiteSpace: 'nowrap' }}
+                    onClick={() => handleSchemaClick(schema)}
+                  >
+                    <Icon
+                      name={
+                        schemaIsExpanded(schema)
+                          ? 'arrow_drop_down'
+                          : 'arrow_right'
+                      }
+                    />
                     <p>{schema}</p>
                   </div>
-                  <div className='ml-5 mt-3' style={{ width: '90%' }}>
-                    {['oss1', 'oss2'].map((table, index) => {
-                      return (
-                        <div style={tableBoxStyle}>
-                          <div
-                            key={index}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                            }}
-                          >
-                            <RowWithCheckbox
-                              label={
-                                <Label as='label' style={{ fontSize: 13 }}>
-                                  {table}
-                                </Label>
-                              }
-                              action={
-                                <Checkbox
-                                  onCheckedChange={(state: boolean) =>
-                                    handleTableSelect(state, table)
-                                  }
-                                />
-                              }
-                            />
+                  {schemaIsExpanded(schema) && (
+                    <div className='ml-5 mt-3' style={{ width: '90%' }}>
+                      {rows.filter((row) => row.schema === schema).length ? (
+                        rows
+                          .filter((row) => row.schema === schema)
+                          .map((row, index) => {
+                            const columns = getTableColumns(row.source);
+                            return (
+                              <div key={index} style={tableBoxStyle}>
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                  }}
+                                >
+                                  <RowWithCheckbox
+                                    label={
+                                      <Label
+                                        as='label'
+                                        style={{ fontSize: 13 }}
+                                      >
+                                        {row.source}
+                                      </Label>
+                                    }
+                                    action={
+                                      <Checkbox
+                                        onCheckedChange={(state: boolean) =>
+                                          handleTableSelect(state, row.source)
+                                        }
+                                      />
+                                    }
+                                  />
 
-                            <div style={{ width: '40%' }}>
-                              <TextField
-                                style={{ fontSize: 12 }}
-                                variant='simple'
-                                placeholder={'Enter target table'}
-                                //defaultValue={row.destination}
-                                onChange={(
-                                  e: React.ChangeEvent<HTMLInputElement>
-                                ) => updateDestination(table, e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          <div className='ml-5' style={{ width: '100%' }}>
-                            <Label
-                              as='label'
-                              colorName='lowContrast'
-                              style={{ fontSize: 13 }}
-                            >
-                              Columns
-                            </Label>
-                            {['id', 'name'].map((column, index) => (
-                              <RowWithCheckbox
-                                key={index}
-                                label={
-                                  <Label as='label' style={{ fontSize: 13 }}>
-                                    {column}
-                                  </Label>
-                                }
-                                action={<Checkbox />}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                                  <div style={{ width: '40%' }}>
+                                    <p style={{ fontSize: 12 }}>
+                                      Target Table:
+                                    </p>
+                                    <TextField
+                                      style={{
+                                        fontSize: 12,
+                                        marginTop: '0.5rem',
+                                      }}
+                                      variant='simple'
+                                      placeholder={'Enter target table'}
+                                      defaultValue={row.destination}
+                                      onChange={(
+                                        e: React.ChangeEvent<HTMLInputElement>
+                                      ) =>
+                                        updateDestination(
+                                          row.source,
+                                          e.target.value
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                                {row.selected && (
+                                  <div
+                                    className='ml-5'
+                                    style={{ width: '100%' }}
+                                  >
+                                    <Label
+                                      as='label'
+                                      colorName='lowContrast'
+                                      style={{ fontSize: 13 }}
+                                    >
+                                      Columns
+                                    </Label>
+                                    {columns ? (
+                                      columns.map((column, index) => {
+                                        const columnName = column.split(':')[0];
+                                        const columnType = column.split(':')[1];
+                                        return (
+                                          <RowWithCheckbox
+                                            key={index}
+                                            label={
+                                              <Label
+                                                as='label'
+                                                style={{
+                                                  fontSize: 13,
+                                                  display: 'flex',
+                                                }}
+                                              >
+                                                {columnName}{' '}
+                                                <p
+                                                  style={{
+                                                    marginLeft: '0.5rem',
+                                                    color: 'gray',
+                                                  }}
+                                                >
+                                                  {columnType}
+                                                </p>
+                                              </Label>
+                                            }
+                                            action={
+                                              <Checkbox
+                                                checked={
+                                                  !row.exclude.find(
+                                                    (col) => col == columnName
+                                                  )
+                                                }
+                                                onCheckedChange={(
+                                                  state: boolean
+                                                ) =>
+                                                  handleColumnExclusion(
+                                                    row.source,
+                                                    columnName,
+                                                    state
+                                                  )
+                                                }
+                                              />
+                                            }
+                                          />
+                                        );
+                                      })
+                                    ) : columnsLoading ? (
+                                      <BarLoader />
+                                    ) : (
+                                      <Label
+                                        as='label'
+                                        colorName='lowContrast'
+                                        style={{ fontSize: 13 }}
+                                      >
+                                        No columns in {row.source}
+                                      </Label>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                      ) : tablesLoading ? (
+                        <BarLoader />
+                      ) : (
+                        <Label
+                          as='label'
+                          colorName='lowContrast'
+                          style={{ fontSize: 13 }}
+                        >
+                          No tables in {schema}
+                        </Label>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {/* <ColumnsDisplay
-                    peerName={sourcePeerName}
-                    schemaName={schema}
-                    tableName={row.source.split('.')[1]}
-                    setColumns={setTableColumns}
-                    columns={tableColumns}
-                  /> */}
               </div>
             ))
         ) : (

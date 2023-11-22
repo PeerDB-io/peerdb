@@ -19,8 +19,6 @@ interface MirrorConfigProps {
   setter: MirrorSetter;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
-  schema: string;
-  setSchema: Dispatch<SetStateAction<string>>;
 }
 
 const SyncModeOptions = ['AVRO', 'Copy with Binary'].map((value) => ({
@@ -46,8 +44,6 @@ export default function CDCConfigForm({
   setter,
   rows,
   setRows,
-  schema,
-  setSchema,
 }: MirrorConfigProps) {
   const setToDefault = (setting: MirrorSetting) => {
     const destinationPeerType = mirrorConfig.destination?.type;
@@ -81,15 +77,13 @@ export default function CDCConfigForm({
     return true;
   };
 
-  if (mirrorConfig.source != undefined)
+  if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
     return (
       <>
         <TableMapping
           sourcePeerName={mirrorConfig.source?.name}
           rows={rows}
           setRows={setRows}
-          setSchema={setSchema}
-          schema={schema}
           peerType={mirrorConfig.destination?.type}
         />
         {settings.map((setting, id) => {

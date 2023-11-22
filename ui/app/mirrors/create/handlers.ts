@@ -5,6 +5,7 @@ import {
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
+import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import {
@@ -201,10 +202,9 @@ export const fetchSchemas = async (
 export const fetchTables = async (
   peerName: string,
   schemaName: string,
-  setLoading: Dispatch<SetStateAction<boolean>>
+  peerType?: DBType
 ) => {
   if (schemaName.length === 0) return [];
-  setLoading(true);
   const tablesRes: UTablesResponse = await fetch('/api/peers/tables', {
     method: 'POST',
     body: JSON.stringify({
@@ -212,8 +212,29 @@ export const fetchTables = async (
       schemaName,
     }),
   }).then((res) => res.json());
-  setLoading(false);
-  return tablesRes.tables;
+
+  let tables = [];
+  const tableNames = tablesRes.tables;
+  if (tableNames) {
+    for (const tableName of tableNames) {
+      // setting defaults:
+      // for bigquery, tables are not schema-qualified
+      const dstName =
+        peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY'
+          ? tableName
+          : `${schemaName}.${tableName}`;
+
+      tables.push({
+        schema: schemaName,
+        source: `${schemaName}.${tableName}`,
+        destination: dstName,
+        partitionKey: '',
+        exclude: [],
+        selected: false,
+      });
+    }
+  }
+  return tables;
 };
 
 export const fetchColumns = async (

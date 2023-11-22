@@ -63,7 +63,6 @@ export default function CreateMirrors() {
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
-  const [sourceSchema, setSourceSchema] = useState('public');
   const [qrepQuery, setQrepQuery] =
     useState<string>(`-- Here's a sample template:
     SELECT * FROM <table_name> 
@@ -394,8 +393,6 @@ export default function CreateMirrors() {
             setter={setConfig}
             rows={rows}
             setRows={setRows}
-            setSchema={setSourceSchema}
-            schema={sourceSchema}
           />
         ) : (
           <QRepConfigForm
