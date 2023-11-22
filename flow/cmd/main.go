@@ -49,25 +49,11 @@ func main() {
 		EnvVars: []string{"ENABLE_PROFILING"},
 	}
 
-	metricsFlag := &cli.BoolFlag{
-		Name:    "enable-metrics",
-		Value:   false, // Default is off
-		Usage:   "Enable metrics collection for the application",
-		EnvVars: []string{"ENABLE_METRICS"},
-	}
-
 	pyroscopeServerFlag := &cli.StringFlag{
 		Name:    "pyroscope-server-address",
 		Value:   "http://pyroscope:4040",
 		Usage:   "HTTP server address for pyroscope",
 		EnvVars: []string{"PYROSCOPE_SERVER_ADDRESS"},
-	}
-
-	metricsServerFlag := &cli.StringFlag{
-		Name:    "metrics-server",
-		Value:   "localhost:6061", // Default is localhost:6061
-		Usage:   "HTTP server address for metrics collection",
-		EnvVars: []string{"METRICS_SERVER"},
 	}
 
 	temporalNamespaceFlag := &cli.StringFlag{
@@ -87,9 +73,7 @@ func main() {
 					return WorkerMain(&WorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						EnableProfiling:   ctx.Bool("enable-profiling"),
-						EnableMetrics:     ctx.Bool("enable-metrics"),
 						PyroscopeServer:   ctx.String("pyroscope-server-address"),
-						MetricsServer:     ctx.String("metrics-server"),
 						TemporalNamespace: ctx.String("temporal-namespace"),
 						TemporalCert:      ctx.String("temporal-cert"),
 						TemporalKey:       ctx.String("temporal-key"),
@@ -98,9 +82,7 @@ func main() {
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					profilingFlag,
-					metricsFlag,
 					pyroscopeServerFlag,
-					metricsServerFlag,
 					temporalNamespaceFlag,
 					&temporalCertFlag,
 					&temporalKeyFlag,

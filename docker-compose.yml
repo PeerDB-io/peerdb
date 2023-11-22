@@ -21,8 +21,6 @@ x-flow-worker-env: &flow-worker-env
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
-  # enables exporting of mirror metrics to Prometheus for visualization using Grafana
-  ENABLE_METRICS: "true"
 
 services:
   catalog:
@@ -119,10 +117,6 @@ services:
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      METRICS_SERVER: 0.0.0.0:6061
-    ports:
-      - 6060:6060
-      - 6061:6061
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -132,13 +126,8 @@ services:
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      METRICS_SERVER: 0.0.0.0:6063
-    ports:
-      - 6062:6062
-      - 6063:6063
     profiles:
       - multi
-      - multi-metrics
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -148,13 +137,8 @@ services:
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      METRICS_SERVER: 0.0.0.0:6065
-    ports:
-      - 6064:6064
-      - 6065:6065
     profiles:
       - multi
-      - multi-metrics
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -174,33 +158,6 @@ services:
     depends_on:
       catalog:
         condition: service_healthy
-
-  peerdb-prometheus:
-    container_name: peerdb-prometheus
-    build:
-      context: .
-      dockerfile: stacks/prometheus.Dockerfile
-    volumes:
-      - prometheusdata:/prometheus
-    ports:
-      - 9090:9090
-    profiles:
-      - multi-metrics
-      - metrics
-
-  peerdb-grafana:
-    container_name: peerdb-grafana
-    build:
-      context: .
-      dockerfile: stacks/grafana.Dockerfile
-    ports:
-      - 3000:3000
-    environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: peerdb
-    profiles:
-      - multi-metrics
-      - metrics
 
   peerdb-ui:
     container_name: peerdb-ui

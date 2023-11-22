@@ -11,7 +11,6 @@ import (
 )
 
 type SnapshotActivity struct {
-	EnableMetrics       bool
 	SnapshotConnections map[string]*SlotSnapshotSignal
 }
 

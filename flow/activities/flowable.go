@@ -35,7 +35,6 @@ type SlotSnapshotSignal struct {
 }
 
 type FlowableActivity struct {
-	EnableMetrics        bool
 	CatalogMirrorMonitor *monitoring.CatalogMirrorMonitor
 }
 
@@ -163,7 +162,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	activity.RecordHeartbeat(ctx, "starting flow...")
 	conn := input.FlowConnectionConfigs
 
-	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
 
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
@@ -338,7 +336,6 @@ func (a *FlowableActivity) StartNormalize(
 ) (*model.NormalizeResponse, error) {
 	conn := input.FlowConnectionConfigs
 
-	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	dstConn, err := connectors.GetCDCNormalizeConnector(ctx, conn.Destination)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
@@ -505,7 +502,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		return fmt.Errorf("failed to update start time for partition: %w", err)
 	}
 
-	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
@@ -606,7 +602,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
 	runUUID string) error {
-	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		return a.CatalogMirrorMonitor.UpdateEndTimeForQRepRun(ctx, runUUID)
