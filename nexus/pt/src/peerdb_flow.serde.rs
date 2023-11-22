@@ -1820,12 +1820,18 @@ impl serde::Serialize for GetTableSchemaBatchInput {
         if !self.table_identifiers.is_empty() {
             len += 1;
         }
+        if self.ignore_pkey_requirements {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetTableSchemaBatchInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
         }
         if !self.table_identifiers.is_empty() {
             struct_ser.serialize_field("tableIdentifiers", &self.table_identifiers)?;
+        }
+        if self.ignore_pkey_requirements {
+            struct_ser.serialize_field("ignorePkeyRequirements", &self.ignore_pkey_requirements)?;
         }
         struct_ser.end()
     }
@@ -1841,12 +1847,15 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
             "peerConnectionConfig",
             "table_identifiers",
             "tableIdentifiers",
+            "ignore_pkey_requirements",
+            "ignorePkeyRequirements",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             PeerConnectionConfig,
             TableIdentifiers,
+            IgnorePkeyRequirements,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1871,6 +1880,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                         match value {
                             "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
                             "tableIdentifiers" | "table_identifiers" => Ok(GeneratedField::TableIdentifiers),
+                            "ignorePkeyRequirements" | "ignore_pkey_requirements" => Ok(GeneratedField::IgnorePkeyRequirements),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1892,6 +1902,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
             {
                 let mut peer_connection_config__ = None;
                 let mut table_identifiers__ = None;
+                let mut ignore_pkey_requirements__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -1906,6 +1917,12 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                             }
                             table_identifiers__ = Some(map.next_value()?);
                         }
+                        GeneratedField::IgnorePkeyRequirements => {
+                            if ignore_pkey_requirements__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ignorePkeyRequirements"));
+                            }
+                            ignore_pkey_requirements__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1914,6 +1931,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                 Ok(GetTableSchemaBatchInput {
                     peer_connection_config: peer_connection_config__,
                     table_identifiers: table_identifiers__.unwrap_or_default(),
+                    ignore_pkey_requirements: ignore_pkey_requirements__.unwrap_or_default(),
                 })
             }
         }

@@ -314,13 +314,15 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 	}
 
 	// add composite primary key to the table
-	primaryKeyColsQuoted := make([]string, 0)
-	for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
-		primaryKeyColsQuoted = append(primaryKeyColsQuoted,
-			fmt.Sprintf(`"%s"`, primaryKeyCol))
+	if len(sourceTableSchema.PrimaryKeyColumns) > 0 {
+		primaryKeyColsQuoted := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
+		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
+			primaryKeyColsQuoted = append(primaryKeyColsQuoted,
+				fmt.Sprintf(`"%s"`, primaryKeyCol))
+		}
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
+			strings.TrimSuffix(strings.Join(primaryKeyColsQuoted, ","), ",")))
 	}
-	createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
-		strings.TrimSuffix(strings.Join(primaryKeyColsQuoted, ","), ",")))
 
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))

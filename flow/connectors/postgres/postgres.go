@@ -547,7 +547,7 @@ func (c *PostgresConnector) GetTableSchema(
 	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName)
+		tableSchema, err := c.getTableSchemaForTable(tableName, req.IgnorePkeyRequirements)
 		if err != nil {
 			return nil, err
 		}
@@ -562,6 +562,7 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	tableName string,
+	ignorePkeyRequirements bool,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
@@ -584,7 +585,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
 	if err != nil {
-		if !isFullReplica {
+		if !(isFullReplica || ignorePkeyRequirements) {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
 	}

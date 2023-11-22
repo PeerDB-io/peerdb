@@ -314,6 +314,8 @@ pub struct GetTableSchemaBatchInput {
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(string, repeated, tag="2")]
     pub table_identifiers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag="3")]
+    pub ignore_pkey_requirements: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
