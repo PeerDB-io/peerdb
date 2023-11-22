@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use analyzer::{PeerDDL, QueryAssocation};
+use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
 use catalog::{Catalog, CatalogConfig, WorkflowDetails};
@@ -141,7 +141,7 @@ impl NexusBackend {
                     }
                     peer_cursor::CursorModification::Closed(cursors) => {
                         for cursor_name in cursors {
-                            peer_cursors.remove_cursor(cursor_name);
+                            peer_cursors.remove_cursor(&cursor_name);
                         }
                         Ok(vec![Response::Execution(Tag::new_for_execution(
                             "CLOSE CURSOR",
@@ -826,7 +826,7 @@ impl NexusBackend {
             NexusStatement::PeerQuery { stmt, assoc } => {
                 // get the query executor
                 let executor = match assoc {
-                    QueryAssocation::Peer(peer) => {
+                    QueryAssociation::Peer(peer) => {
                         tracing::info!("handling peer[{}] query: {}", peer.name, stmt);
                         peer_holder = Some(peer.clone());
                         self.get_peer_executor(&peer).await.map_err(|err| {
@@ -835,7 +835,7 @@ impl NexusBackend {
                             }))
                         })?
                     }
-                    QueryAssocation::Catalog => {
+                    QueryAssociation::Catalog => {
                         tracing::info!("handling catalog query: {}", stmt);
                         let catalog = self.catalog.lock().await;
                         catalog.get_executor()
@@ -961,7 +961,7 @@ impl SimpleQueryHandler for NexusBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let parsed = self.query_parser.parse_simple_sql(sql)?;
+        let parsed = self.query_parser.parse_simple_sql(sql).await?;
         let nexus_stmt = parsed.statement;
         self.handle_query(nexus_stmt).await
     }
@@ -1039,7 +1039,7 @@ impl ExtendedQueryHandler for NexusBackend {
             sql = sql.replace(&format!("${}", i + 1), &parameter_to_string(portal, i)?);
         }
 
-        let parsed = self.query_parser.parse_simple_sql(&sql)?;
+        let parsed = self.query_parser.parse_simple_sql(&sql).await?;
         let nexus_stmt = parsed.statement;
         let result = self.handle_query(nexus_stmt).await?;
         if result.is_empty() {
@@ -1077,7 +1077,7 @@ impl ExtendedQueryHandler for NexusBackend {
             NexusStatement::Empty => Ok(DescribeResponse::no_data()),
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<SchemaRef> = match assoc {
-                    QueryAssocation::Peer(peer) => {
+                    QueryAssociation::Peer(peer) => {
                         // if the peer is of type bigquery, let us route the query to bq.
                         match &peer.config {
                             Some(Config::BigqueryConfig(_)) => {
@@ -1124,7 +1124,7 @@ impl ExtendedQueryHandler for NexusBackend {
                             }
                         }
                     }
-                    QueryAssocation::Catalog => {
+                    QueryAssociation::Catalog => {
                         let catalog = self.catalog.lock().await;
                         let executor = catalog.get_executor();
                         executor.describe(stmt).await?
