@@ -4,7 +4,13 @@ import {
   USchemasResponse,
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
-import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
+import {
+  FlowConnectionConfigs,
+  QRepConfig,
+  QRepSyncMode,
+  QRepWriteType,
+} from '@/grpc_generated/flow';
+import { DBType, Peer, dBTypeToJSON } from '@/grpc_generated/peers';
 import { Dispatch, SetStateAction } from 'react';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import {
@@ -14,8 +20,59 @@ import {
   tableMappingSchema,
 } from './schema';
 
+export const handlePeer = (
+  peer: Peer | null,
+  peerEnd: 'src' | 'dst',
+  setConfig: (value: SetStateAction<FlowConnectionConfigs | QRepConfig>) => void
+) => {
+  if (!peer) return;
+  if (peerEnd === 'dst') {
+    if (peer.type === DBType.POSTGRES) {
+      setConfig((curr) => {
+        return {
+          ...curr,
+          cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+          snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+          syncMode: QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
+        };
+      });
+    } else if (
+      peer.type === DBType.SNOWFLAKE ||
+      peer.type === DBType.BIGQUERY
+    ) {
+      setConfig((curr) => {
+        return {
+          ...curr,
+          cdcSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+          snapshotSyncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+          syncMode: QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO,
+        };
+      });
+    }
+    setConfig((curr) => ({
+      ...curr,
+      destination: peer,
+      destinationPeer: peer,
+    }));
+  } else {
+    setConfig((curr) => ({
+      ...curr,
+      source: peer,
+      sourcePeer: peer,
+    }));
+  }
+};
+
 const validateCDCFields = (
-  tableMapping: TableMapRow[],
+  tableMapping: (
+    | {
+        sourceTableIdentifier: string;
+        destinationTableIdentifier: string;
+        partitionKey: string;
+        exclude: string[];
+      }
+    | undefined
+  )[],
   setMsg: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
   config: CDCConfig
 ): boolean => {
@@ -66,7 +123,7 @@ interface TableMapping {
 const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
   const mapping = tableMapping
     .map((row) => {
-      if (row.selected === true) {
+      if (row?.selected === true) {
         return {
           sourceTableIdentifier: row.source,
           destinationTableIdentifier: row.destination,
@@ -98,10 +155,10 @@ export const handleCreateCDC = async (
     setMsg({ ok: false, msg: flowNameErr });
     return;
   }
-
-  const isValid = validateCDCFields(rows, setMsg, config);
-  if (!isValid) return;
   const tableNameMapping = reformattedTableMapping(rows);
+  const isValid = validateCDCFields(tableNameMapping, setMsg, config);
+  if (!isValid) return;
+
   config['tableMappings'] = tableNameMapping as TableMapping[];
   config['flowJobName'] = flowJobName;
   setLoading(true);
@@ -183,28 +240,22 @@ export const handleCreateQRep = async (
   setLoading(false);
 };
 
-export const fetchSchemas = async (
-  peerName: string,
-  setLoading: Dispatch<SetStateAction<boolean>>
-) => {
-  setLoading(true);
+export const fetchSchemas = async (peerName: string) => {
   const schemasRes: USchemasResponse = await fetch('/api/peers/schemas', {
     method: 'POST',
     body: JSON.stringify({
       peerName,
     }),
   }).then((res) => res.json());
-  setLoading(false);
   return schemasRes.schemas;
 };
 
 export const fetchTables = async (
   peerName: string,
   schemaName: string,
-  setLoading: Dispatch<SetStateAction<boolean>>
+  peerType?: DBType
 ) => {
   if (schemaName.length === 0) return [];
-  setLoading(true);
   const tablesRes: UTablesResponse = await fetch('/api/peers/tables', {
     method: 'POST',
     body: JSON.stringify({
@@ -212,8 +263,29 @@ export const fetchTables = async (
       schemaName,
     }),
   }).then((res) => res.json());
-  setLoading(false);
-  return tablesRes.tables;
+
+  let tables = [];
+  const tableNames = tablesRes.tables;
+  if (tableNames) {
+    for (const tableName of tableNames) {
+      // setting defaults:
+      // for bigquery, tables are not schema-qualified
+      const dstName =
+        peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY'
+          ? tableName
+          : `${schemaName}.${tableName}`;
+
+      tables.push({
+        schema: schemaName,
+        source: `${schemaName}.${tableName}`,
+        destination: dstName,
+        partitionKey: '',
+        exclude: [],
+        selected: false,
+      });
+    }
+  }
+  return tables;
 };
 
 export const fetchColumns = async (
