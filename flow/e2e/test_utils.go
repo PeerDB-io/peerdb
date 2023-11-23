@@ -71,7 +71,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 				log.Errorln(err)
 			}
 
-			if state.SetupComplete {
+			if state.SnapshotComplete {
 				break
 			}
 		} else {
@@ -293,7 +293,6 @@ func CreateQRepWorkflowConfig(
 	if err != nil {
 		return nil, err
 	}
-
 	qrepConfig.InitialCopyOnly = true
 
 	return qrepConfig, nil
@@ -301,6 +300,7 @@ func CreateQRepWorkflowConfig(
 
 func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
 	state := peerflow.NewQRepFlowState()
+	time.Sleep(5 * time.Second)
 	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
 }
 
