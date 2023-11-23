@@ -1,3 +1,4 @@
+import Logout from '@/components/Logout';
 import Password from '@/components/Password';
 import SidebarComponent from '@/components/SidebarComponent';
 import { Header } from '@/lib/Header';
@@ -9,7 +10,7 @@ export default function Home() {
     <Layout sidebar={<SidebarComponent />}>
       <LayoutMain alignSelf='center' justifySelf='center' width='xxLarge'>
         <Header variant='largeTitle'>PeerDB Home Page</Header>
-        <>PEERDB_PASSWORD <Password /></>
+        {cookies().get('auth') && <Logout />}
       </LayoutMain>
     </Layout>
   );
