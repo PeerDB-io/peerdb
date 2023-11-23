@@ -9,11 +9,11 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import { InfoPopover } from '../../../components/InfoPopover';
-import { MirrorSetter } from '../../dto/MirrorsDTO';
-import { defaultSyncMode } from './cdc';
-import { fetchAllTables, fetchColumns } from './handlers';
-import { MirrorSetting, blankQRepSetting } from './helpers/common';
+import { InfoPopover } from '../../../../components/InfoPopover';
+import { MirrorSetter } from '../../../dto/MirrorsDTO';
+import { defaultSyncMode } from '../cdc/cdc';
+import { fetchAllTables, fetchColumns } from '../handlers';
+import { MirrorSetting, blankQRepSetting } from '../helpers/common';
 
 interface QRepConfigProps {
   settings: MirrorSetting[];

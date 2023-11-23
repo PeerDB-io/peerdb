@@ -203,7 +203,7 @@ impl Value {
                 }
             }
             serde_json::Value::Object(map) => {
-                let mut hstore = HashMap::new();
+                let mut hstore = HashMap::with_capacity(map.len());
                 for (key, value) in map {
                     hstore.insert(key.clone(), value.to_string());
                 }
@@ -253,7 +253,7 @@ impl Value {
             Value::Uuid(u) => serde_json::Value::String(u.to_string()),
             Value::Enum(s) => serde_json::Value::String(s.clone()),
             Value::Hstore(map) => {
-                let mut object = serde_json::Map::new();
+                let mut object = serde_json::Map::with_capacity(map.len());
                 for (key, value) in map {
                     object.insert(key.clone(), serde_json::Value::String(value.clone()));
                 }

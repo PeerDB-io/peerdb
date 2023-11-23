@@ -101,7 +101,7 @@ impl BqRecordStream {
     }
 
     pub fn convert_result_set_item(&self, result_set: &ResultSet) -> anyhow::Result<Record> {
-        let mut values = Vec::new();
+        let mut values = Vec::with_capacity(self.schema.fields.len());
         for field in &self.schema.fields {
             let field_type = &field.r#type;
             let field_name = &field.name;

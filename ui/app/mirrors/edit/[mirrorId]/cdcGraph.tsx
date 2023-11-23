@@ -1,5 +1,6 @@
 'use client';
 import { Label } from '@/lib/Label';
+import { BarChart } from '@tremor/react';
 import moment from 'moment';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
@@ -51,15 +52,15 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
       <div style={{ height: '3rem' }}>
         <Label variant='body'>Sync history</Label>
       </div>
-      <div className='flex space-x-2 justify-left ml-2'>
-        {counts.map((count, i) => (
-          <GraphBar
-            key={i}
-            label={formatGraphLabel(new Date(count[0]), aggregateType)}
-            count={count[1]}
-          />
-        ))}
-      </div>
+      <BarChart
+        className='mt-3'
+        data={counts.map((count) => ({
+          name: formatGraphLabel(new Date(count[0]), aggregateType),
+          'Rows synced at a point in time': count[1],
+        }))}
+        index='name'
+        categories={['Rows synced at a point in time']}
+      />
     </div>
   );
 }
@@ -78,34 +79,6 @@ function formatGraphLabel(date: Date, aggregateType: String): string {
     default:
       return 'Unknown aggregate type: ' + aggregateType;
   }
-}
-
-type GraphBarProps = {
-  count: number;
-  label: string;
-};
-
-function GraphBar({ label, count }: GraphBarProps) {
-  let color =
-    count && count > 0 ? 'bg-positive-fill-normal' : 'bg-base-border-subtle';
-  let classNames = `relative w-10 h-24 rounded  ${color}`;
-  return (
-    <div className={'group'}>
-      <div className={classNames}>
-        <div
-          className='group-hover:opacity-100 transition-opacity bg-gray-800 px-1 text-sm text-gray-100 rounded-md absolute left-1/2 
-        -translate-x-1/2 translate-y-full opacity-0 m-4 mx-auto w-28 z-10 text-center'
-        >
-          <div>{label}</div>
-          <div>{numberWithCommas(count)}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function numberWithCommas(x: number): string {
-  return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 export default CdcGraph;

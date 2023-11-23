@@ -135,9 +135,40 @@ func (h *FlowRequestHandler) GetColumns(
 	}
 
 	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, "SELECT column_name, data_type"+
-		" FROM information_schema.columns"+
-		" WHERE table_schema = $1 AND table_name = $2;", req.SchemaName, req.TableName)
+	rows, err := peerPool.Query(ctx, `
+		SELECT 
+			cols.column_name,
+			cols.data_type,
+			CASE 
+				WHEN constraint_type = 'PRIMARY KEY' THEN true
+				ELSE false
+			END AS is_primary_key
+		FROM 
+			information_schema.columns cols
+		LEFT JOIN 
+			(
+				SELECT 
+					kcu.column_name,
+					tc.constraint_type
+				FROM 
+					information_schema.key_column_usage kcu
+				JOIN 
+					information_schema.table_constraints tc
+				ON 
+					kcu.constraint_name = tc.constraint_name
+					AND kcu.constraint_schema = tc.constraint_schema
+					AND kcu.constraint_name = tc.constraint_name
+				WHERE 
+					tc.constraint_type = 'PRIMARY KEY'
+					AND kcu.table_schema = $1
+					AND kcu.table_name = $2
+			) AS pk
+		ON 
+			cols.column_name = pk.column_name
+		WHERE 
+			cols.table_schema = $3
+			AND cols.table_name = $4;
+	`, req.SchemaName, req.TableName, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
 	}
@@ -147,11 +178,12 @@ func (h *FlowRequestHandler) GetColumns(
 	for rows.Next() {
 		var columnName string
 		var datatype string
-		err := rows.Scan(&columnName, &datatype)
+		var isPkey bool
+		err := rows.Scan(&columnName, &datatype, &isPkey)
 		if err != nil {
 			return &protos.TableColumnsResponse{Columns: nil}, err
 		}
-		column := fmt.Sprintf("%s:%s", columnName, datatype)
+		column := fmt.Sprintf("%s:%s:%v", columnName, datatype, isPkey)
 		columns = append(columns, column)
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil

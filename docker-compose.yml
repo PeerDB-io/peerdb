@@ -21,8 +21,6 @@ x-flow-worker-env: &flow-worker-env
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
-  # enables exporting of mirror metrics to Prometheus for visualization using Grafana
-  ENABLE_METRICS: "true"
 
 services:
   catalog:
@@ -57,7 +55,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.22.1
+    image: temporalio/auto-setup:1.22
     ports:
       - 7233:7233
     volumes:
@@ -72,7 +70,7 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
-    image: temporalio/admin-tools:1.22.1
+    image: temporalio/admin-tools:1.22
     stdin_open: true
     tty: true
     healthcheck:
@@ -89,7 +87,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.17.2
+    image: temporalio/ui:2.21.3
     ports:
       - 8085:8080
 
@@ -119,10 +117,6 @@ services:
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      METRICS_SERVER: 0.0.0.0:6061
-    ports:
-      - 6060:6060
-      - 6061:6061
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -132,13 +126,8 @@ services:
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      METRICS_SERVER: 0.0.0.0:6063
-    ports:
-      - 6062:6062
-      - 6063:6063
     profiles:
       - multi
-      - multi-metrics
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -148,13 +137,8 @@ services:
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
     environment:
       <<: [*catalog-config, *flow-worker-env]
-      METRICS_SERVER: 0.0.0.0:6065
-    ports:
-      - 6064:6064
-      - 6065:6065
     profiles:
       - multi
-      - multi-metrics
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -175,38 +159,11 @@ services:
       catalog:
         condition: service_healthy
 
-  peerdb-prometheus:
-    container_name: peerdb-prometheus
-    build:
-      context: .
-      dockerfile: stacks/prometheus.Dockerfile
-    volumes:
-      - prometheusdata:/prometheus
-    ports:
-      - 9090:9090
-    profiles:
-      - multi-metrics
-      - metrics
-
-  peerdb-grafana:
-    container_name: peerdb-grafana
-    build:
-      context: .
-      dockerfile: stacks/grafana.Dockerfile
-    ports:
-      - 3000:3000
-    environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: peerdb
-    profiles:
-      - multi-metrics
-      - metrics
-
   peerdb-ui:
     container_name: peerdb-ui
     image: ghcr.io/peerdb-io/peerdb-ui:latest-dev
     ports:
-      - 3001:3000
+      - 3000:3000
     environment:
       <<: *catalog-config
       DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres

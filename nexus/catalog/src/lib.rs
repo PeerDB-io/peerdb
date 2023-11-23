@@ -211,7 +211,7 @@ impl Catalog {
 
         let rows = self.pg.query(&stmt, &[]).await?;
 
-        let mut peers = HashMap::new();
+        let mut peers = HashMap::with_capacity(rows.len());
 
         for row in rows {
             let name: &str = row.get(1);
