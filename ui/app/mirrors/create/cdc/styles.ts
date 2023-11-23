@@ -1,12 +1,11 @@
 import { CSSProperties } from 'styled-components';
 
 export const expandableStyle = {
-  fontSize: 13,
-  overflow: 'hidden',
+  fontSize: 14,
   display: 'flex',
   alignItems: 'center',
+  justifyContent: 'space-between',
   color: 'rgba(0,0,0,0.7)',
-  textOverflow: 'ellipsis',
   cursor: 'pointer',
 };
 

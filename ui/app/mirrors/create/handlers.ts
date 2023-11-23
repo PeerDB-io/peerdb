@@ -64,7 +64,15 @@ export const handlePeer = (
 };
 
 const validateCDCFields = (
-  tableMapping: TableMapRow[],
+  tableMapping: (
+    | {
+        sourceTableIdentifier: string;
+        destinationTableIdentifier: string;
+        partitionKey: string;
+        exclude: string[];
+      }
+    | undefined
+  )[],
   setMsg: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
   config: CDCConfig
 ): boolean => {
@@ -115,7 +123,7 @@ interface TableMapping {
 const reformattedTableMapping = (tableMapping: TableMapRow[]) => {
   const mapping = tableMapping
     .map((row) => {
-      if (row.selected === true) {
+      if (row?.selected === true) {
         return {
           sourceTableIdentifier: row.source,
           destinationTableIdentifier: row.destination,
@@ -147,10 +155,10 @@ export const handleCreateCDC = async (
     setMsg({ ok: false, msg: flowNameErr });
     return;
   }
-
-  const isValid = validateCDCFields(rows, setMsg, config);
-  if (!isValid) return;
   const tableNameMapping = reformattedTableMapping(rows);
+  const isValid = validateCDCFields(tableNameMapping, setMsg, config);
+  if (!isValid) return;
+
   config['tableMappings'] = tableNameMapping as TableMapping[];
   config['flowJobName'] = flowJobName;
   setLoading(true);
@@ -232,18 +240,13 @@ export const handleCreateQRep = async (
   setLoading(false);
 };
 
-export const fetchSchemas = async (
-  peerName: string,
-  setLoading: Dispatch<SetStateAction<boolean>>
-) => {
-  setLoading(true);
+export const fetchSchemas = async (peerName: string) => {
   const schemasRes: USchemasResponse = await fetch('/api/peers/schemas', {
     method: 'POST',
     body: JSON.stringify({
       peerName,
     }),
   }).then((res) => res.json());
-  setLoading(false);
   return schemasRes.schemas;
 };
 
