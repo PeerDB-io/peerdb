@@ -126,19 +126,15 @@ func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *utils.SchemaTable)
 		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 	}
 	defer rows.Close()
-	// 0 rows returned, table has no primary keys
-	if !rows.Next() {
-		return nil, fmt.Errorf("table %s has no primary keys", schemaTable)
-	}
 	for {
+		if !rows.Next() {
+			break
+		}
 		err = rows.Scan(&pkCol)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning primary key column for table %s: %w", schemaTable, err)
 		}
 		pkCols = append(pkCols, pkCol)
-		if !rows.Next() {
-			break
-		}
 	}
 
 	return pkCols, nil

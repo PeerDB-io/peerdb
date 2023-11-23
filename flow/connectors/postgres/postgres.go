@@ -547,7 +547,7 @@ func (c *PostgresConnector) GetTableSchema(
 	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName, req.IgnorePkeyRequirements)
+		tableSchema, err := c.getTableSchemaForTable(tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -562,7 +562,6 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	tableName string,
-	ignorePkeyRequirements bool,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
@@ -574,6 +573,11 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 	}
 
+	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+	if err != nil {
+		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+	}
+
 	// Get the column names and types
 	rows, err := c.pool.Query(c.ctx,
 		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, schemaTable.String()),
@@ -582,13 +586,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
 	defer rows.Close()
-
-	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
-	if err != nil {
-		if !(isFullReplica || ignorePkeyRequirements) {
-			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
-		}
-	}
 
 	res := &protos.TableSchema{
 		TableIdentifier:       tableName,
@@ -743,6 +740,21 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 		relID, err := c.getRelIDForTable(schemaTable)
 		if err != nil {
 			return nil, err
+		}
+
+		isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+		if replErr != nil {
+			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
+		}
+
+		pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+		if err != nil {
+			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		}
+
+		// we only allow no primary key if the table has REPLICA IDENTITY FULL
+		if len(pKeyCols) == 0 && !isFullReplica {
+			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
 		tableIdentifierMapping[tableName] = &protos.TableIdentifier{

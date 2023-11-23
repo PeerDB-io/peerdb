@@ -316,7 +316,6 @@ export interface TableSchema_ColumnsEntry {
 export interface GetTableSchemaBatchInput {
   peerConnectionConfig: Peer | undefined;
   tableIdentifiers: string[];
-  ignorePkeyRequirements: boolean;
 }
 
 export interface GetTableSchemaBatchOutput {
@@ -4029,7 +4028,7 @@ export const TableSchema_ColumnsEntry = {
 };
 
 function createBaseGetTableSchemaBatchInput(): GetTableSchemaBatchInput {
-  return { peerConnectionConfig: undefined, tableIdentifiers: [], ignorePkeyRequirements: false };
+  return { peerConnectionConfig: undefined, tableIdentifiers: [] };
 }
 
 export const GetTableSchemaBatchInput = {
@@ -4039,9 +4038,6 @@ export const GetTableSchemaBatchInput = {
     }
     for (const v of message.tableIdentifiers) {
       writer.uint32(18).string(v!);
-    }
-    if (message.ignorePkeyRequirements === true) {
-      writer.uint32(24).bool(message.ignorePkeyRequirements);
     }
     return writer;
   },
@@ -4067,13 +4063,6 @@ export const GetTableSchemaBatchInput = {
 
           message.tableIdentifiers.push(reader.string());
           continue;
-        case 3:
-          if (tag !== 24) {
-            break;
-          }
-
-          message.ignorePkeyRequirements = reader.bool();
-          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4089,7 +4078,6 @@ export const GetTableSchemaBatchInput = {
       tableIdentifiers: Array.isArray(object?.tableIdentifiers)
         ? object.tableIdentifiers.map((e: any) => String(e))
         : [],
-      ignorePkeyRequirements: isSet(object.ignorePkeyRequirements) ? Boolean(object.ignorePkeyRequirements) : false,
     };
   },
 
@@ -4100,9 +4088,6 @@ export const GetTableSchemaBatchInput = {
     }
     if (message.tableIdentifiers?.length) {
       obj.tableIdentifiers = message.tableIdentifiers;
-    }
-    if (message.ignorePkeyRequirements === true) {
-      obj.ignorePkeyRequirements = message.ignorePkeyRequirements;
     }
     return obj;
   },
@@ -4116,7 +4101,6 @@ export const GetTableSchemaBatchInput = {
       ? Peer.fromPartial(object.peerConnectionConfig)
       : undefined;
     message.tableIdentifiers = object.tableIdentifiers?.map((e) => e) || [];
-    message.ignorePkeyRequirements = object.ignorePkeyRequirements ?? false;
     return message;
   },
 };

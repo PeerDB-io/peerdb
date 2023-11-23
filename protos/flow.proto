@@ -198,7 +198,6 @@ message TableSchema {
 message GetTableSchemaBatchInput {
   peerdb_peers.Peer peer_connection_config = 1;
   repeated string table_identifiers = 2;
-  bool ignore_pkey_requirements = 3;
 }
 
 message GetTableSchemaBatchOutput {
