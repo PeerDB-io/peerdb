@@ -21,31 +21,32 @@ type QRecordBatch struct {
 // Equals checks if two QRecordBatches are identical.
 func (q *QRecordBatch) Equals(other *QRecordBatch) bool {
 	if other == nil {
+		fmt.Printf("other is nil")
 		return q == nil
 	}
 
 	// First check simple attributes
 	if q.NumRecords != other.NumRecords {
 		// print num records
-		log.Infof("q.NumRecords: %d\n", q.NumRecords)
-		log.Infof("other.NumRecords: %d\n", other.NumRecords)
+		fmt.Printf("q.NumRecords: %d\n", q.NumRecords)
+		fmt.Printf("other.NumRecords: %d\n", other.NumRecords)
 		return false
 	}
 
 	// Compare column names
 	if !q.Schema.EqualNames(other.Schema) {
-		log.Infof("Column names are not equal")
-		log.Infof("Schema 1: %v", q.Schema.GetColumnNames())
-		log.Infof("Schema 2: %v", other.Schema.GetColumnNames())
+		fmt.Printf("Column names are not equal\n")
+		fmt.Printf("Schema 1: %v\n", q.Schema.GetColumnNames())
+		fmt.Printf("Schema 2: %v\n", other.Schema.GetColumnNames())
 		return false
 	}
 
 	// Compare records
 	for i, record := range q.Records {
 		if !record.equals(other.Records[i]) {
-			log.Infof("Record %d is not equal", i)
-			log.Infof("Record 1: %v", record)
-			log.Infof("Record 2: %v", other.Records[i])
+			fmt.Printf("Record %d is not equal\n", i)
+			fmt.Printf("Record 1: %v\n", record)
+			fmt.Printf("Record 2: %v\n", other.Records[i])
 			return false
 		}
 	}

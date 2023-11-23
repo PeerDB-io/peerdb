@@ -3004,6 +3004,9 @@ impl serde::Serialize for QRepFlowState {
         if self.needs_resync {
             len += 1;
         }
+        if self.disable_wait_for_new_rows {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.QRepFlowState", len)?;
         if let Some(v) = self.last_partition.as_ref() {
             struct_ser.serialize_field("lastPartition", v)?;
@@ -3013,6 +3016,9 @@ impl serde::Serialize for QRepFlowState {
         }
         if self.needs_resync {
             struct_ser.serialize_field("needsResync", &self.needs_resync)?;
+        }
+        if self.disable_wait_for_new_rows {
+            struct_ser.serialize_field("disableWaitForNewRows", &self.disable_wait_for_new_rows)?;
         }
         struct_ser.end()
     }
@@ -3030,6 +3036,8 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
             "numPartitionsProcessed",
             "needs_resync",
             "needsResync",
+            "disable_wait_for_new_rows",
+            "disableWaitForNewRows",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3037,6 +3045,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
             LastPartition,
             NumPartitionsProcessed,
             NeedsResync,
+            DisableWaitForNewRows,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3062,6 +3071,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                             "lastPartition" | "last_partition" => Ok(GeneratedField::LastPartition),
                             "numPartitionsProcessed" | "num_partitions_processed" => Ok(GeneratedField::NumPartitionsProcessed),
                             "needsResync" | "needs_resync" => Ok(GeneratedField::NeedsResync),
+                            "disableWaitForNewRows" | "disable_wait_for_new_rows" => Ok(GeneratedField::DisableWaitForNewRows),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3084,6 +3094,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                 let mut last_partition__ = None;
                 let mut num_partitions_processed__ = None;
                 let mut needs_resync__ = None;
+                let mut disable_wait_for_new_rows__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::LastPartition => {
@@ -3106,6 +3117,12 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                             }
                             needs_resync__ = Some(map.next_value()?);
                         }
+                        GeneratedField::DisableWaitForNewRows => {
+                            if disable_wait_for_new_rows__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("disableWaitForNewRows"));
+                            }
+                            disable_wait_for_new_rows__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3115,6 +3132,7 @@ impl<'de> serde::Deserialize<'de> for QRepFlowState {
                     last_partition: last_partition__,
                     num_partitions_processed: num_partitions_processed__.unwrap_or_default(),
                     needs_resync: needs_resync__.unwrap_or_default(),
+                    disable_wait_for_new_rows: disable_wait_for_new_rows__.unwrap_or_default(),
                 })
             }
         }
