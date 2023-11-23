@@ -163,7 +163,7 @@ services:
     container_name: peerdb-ui
     image: ghcr.io/peerdb-io/peerdb-ui:latest-dev
     ports:
-      - 3001:3000
+      - 3000:3000
     environment:
       <<: *catalog-config
       DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
