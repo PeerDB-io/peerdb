@@ -211,7 +211,7 @@ impl Catalog {
 
         let rows = self.pg.query(&stmt, &[]).await?;
 
-        let mut peers = HashMap::new();
+        let mut peers = HashMap::with_capacity(rows.len());
 
         for row in rows {
             let name: &str = row.get(1);
@@ -426,13 +426,9 @@ impl Catalog {
             .await?;
 
         let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
-            let flow_opts_opt: Option<Value> = row.get("flow_metadata");
-            let flow_opts: HashMap<String, Value> = match flow_opts_opt {
-                Some(flow_opts) => serde_json::from_value(flow_opts)
-                    .context("unable to deserialize flow options")
-                    .unwrap_or_default(),
-                None => HashMap::new(),
-            };
+            let flow_opts: HashMap<String, Value> = row.get::<&str, Option<Value>>("flow_metadata")
+                .and_then(|flow_opts| serde_json::from_value(flow_opts).ok())
+                .unwrap_or_default();
 
             QRepFlowJob {
                 name: row.get("name"),

@@ -94,8 +94,8 @@ func (c *S3Connector) InitializeTableSchema(req map[string]*protos.TableSchema) 
 }
 
 func (c *S3Connector) Close() error {
-	log.Debugf("Closing s3 connector is a noop")
-	return nil
+	log.Debugf("Closing metadata store connection")
+	return c.pgMetadata.Close()
 }
 
 func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.PostgresMetadataStore) error {

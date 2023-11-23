@@ -8,7 +8,7 @@ enum QRepOptionType {
         name: &'static str,
         default_val: Option<&'static str>,
         required: bool,
-        accepted_values: Option<Vec<&'static str>>,
+        accepted_values: Option<&'static [&'static str]>,
     },
     Int {
         name: &'static str,
@@ -26,90 +26,87 @@ enum QRepOptionType {
     },
 }
 
-lazy_static::lazy_static! {
-    static ref QREP_OPTIONS: Vec<QRepOptionType> = {
-        vec![
-            QRepOptionType::String {
-            name: "destination_table_name",
-            default_val: None,
-            required: true,
-            accepted_values: None,
-        },
-        QRepOptionType::String {
-            name: "watermark_column",
-            default_val: None,
-            required: false,
-            accepted_values: None,
-        },
-        QRepOptionType::String {
-            name: "watermark_table_name",
-            default_val: None,
-            required: false,
-            accepted_values: None,
-        },
-        QRepOptionType::String {
-            name: "mode",
-            default_val: Some("append"),
-            required: false,
-            accepted_values: Some(vec!["upsert", "append", "overwrite"]),
-        },
-        QRepOptionType::StringArray {
-            name: "unique_key_columns",
-        },
-        QRepOptionType::String {
-            name: "sync_data_format",
-            default_val: Some("default"),
-            required: false,
-            accepted_values: Some(vec!["default", "avro"]),
-        },
-        QRepOptionType::String {
-            name: "staging_path",
-            default_val: None,
-            required: false,
-            accepted_values: None,
-        },
-        QRepOptionType::Int {
-            name: "parallelism",
-            min_value: Some(1),
-            default_value: 2,
-            required: false,
-        },
-        QRepOptionType::Int {
-            name: "refresh_interval",
-            min_value: Some(10),
-            default_value: 10,
-            required: false,
-        },
-        QRepOptionType::Int {
-            name: "num_rows_per_partition",
-            min_value: Some(1),
-            default_value: 50000,
-            required: true,
-        },
-        QRepOptionType::Boolean {
-            name: "initial_copy_only",
-            default_value: false,
-            required: false,
-        },
-        QRepOptionType::Boolean {
-            name: "setup_watermark_table_on_destination",
-            default_value: false,
-            required: false
-        },
-        QRepOptionType::Boolean {
-            name: "dst_table_full_resync",
-            default_value: false,
-            required: false
-        }]
-    };
-}
+const QREP_OPTIONS: &[QRepOptionType] = &[
+    QRepOptionType::String {
+        name: "destination_table_name",
+        default_val: None,
+        required: true,
+        accepted_values: None,
+    },
+    QRepOptionType::String {
+        name: "watermark_column",
+        default_val: None,
+        required: false,
+        accepted_values: None,
+    },
+    QRepOptionType::String {
+        name: "watermark_table_name",
+        default_val: None,
+        required: false,
+        accepted_values: None,
+    },
+    QRepOptionType::String {
+        name: "mode",
+        default_val: Some("append"),
+        required: false,
+        accepted_values: Some(&["upsert", "append", "overwrite"]),
+    },
+    QRepOptionType::StringArray {
+        name: "unique_key_columns",
+    },
+    QRepOptionType::String {
+        name: "sync_data_format",
+        default_val: Some("default"),
+        required: false,
+        accepted_values: Some(&["default", "avro"]),
+    },
+    QRepOptionType::String {
+        name: "staging_path",
+        default_val: None,
+        required: false,
+        accepted_values: None,
+    },
+    QRepOptionType::Int {
+        name: "parallelism",
+        min_value: Some(1),
+        default_value: 2,
+        required: false,
+    },
+    QRepOptionType::Int {
+        name: "refresh_interval",
+        min_value: Some(10),
+        default_value: 10,
+        required: false,
+    },
+    QRepOptionType::Int {
+        name: "num_rows_per_partition",
+        min_value: Some(1),
+        default_value: 50000,
+        required: true,
+    },
+    QRepOptionType::Boolean {
+        name: "initial_copy_only",
+        default_value: false,
+        required: false,
+    },
+    QRepOptionType::Boolean {
+        name: "setup_watermark_table_on_destination",
+        default_value: false,
+        required: false
+    },
+    QRepOptionType::Boolean {
+        name: "dst_table_full_resync",
+        default_value: false,
+        required: false
+    }
+];
 
 pub fn process_options(
     mut raw_opts: HashMap<&str, &SqlValue>,
 ) -> anyhow::Result<HashMap<String, Value>> {
     let mut opts: HashMap<String, Value> = HashMap::new();
 
-    for opt_type in &*QREP_OPTIONS {
+    for opt_type in QREP_OPTIONS {
         match opt_type {
             QRepOptionType::String {
                 name,

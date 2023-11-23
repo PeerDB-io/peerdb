@@ -7,6 +7,7 @@ import (
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -62,7 +63,7 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
-	writer := avro.NewPeerDBOCFWriter(c.ctx, stream, avroSchema)
+	writer := avro.NewPeerDBOCFWriter(c.ctx, stream, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
 	numRecords, err := writer.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, c.creds)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)

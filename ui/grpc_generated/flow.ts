@@ -416,8 +416,8 @@ export interface QRepConfig {
    * This is only used when sync_mode is AVRO
    * this is the location where the avro files will be written
    * if this starts with gs:// then it will be written to GCS
-   * if this starts with s3:// then it will be written to S3
-   * if nothing is specified then it will be written to local disk, only supported in Snowflake
+   * if this starts with s3:// then it will be written to S3, only supported in Snowflake
+   * if nothing is specified then it will be written to local disk
    * if using GCS or S3 make sure your instance has the correct permissions.
    */
   stagingPath: string;
@@ -475,6 +475,7 @@ export interface QRepFlowState {
   lastPartition: QRepPartition | undefined;
   numPartitionsProcessed: number;
   needsResync: boolean;
+  disableWaitForNewRows: boolean;
 }
 
 function createBaseTableNameMapping(): TableNameMapping {
@@ -6155,7 +6156,7 @@ export const ReplayTableSchemaDeltaInput = {
 };
 
 function createBaseQRepFlowState(): QRepFlowState {
-  return { lastPartition: undefined, numPartitionsProcessed: 0, needsResync: false };
+  return { lastPartition: undefined, numPartitionsProcessed: 0, needsResync: false, disableWaitForNewRows: false };
 }
 
 export const QRepFlowState = {
@@ -6168,6 +6169,9 @@ export const QRepFlowState = {
     }
     if (message.needsResync === true) {
       writer.uint32(24).bool(message.needsResync);
+    }
+    if (message.disableWaitForNewRows === true) {
+      writer.uint32(32).bool(message.disableWaitForNewRows);
     }
     return writer;
   },
@@ -6200,6 +6204,13 @@ export const QRepFlowState = {
 
           message.needsResync = reader.bool();
           continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.disableWaitForNewRows = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -6214,6 +6225,7 @@ export const QRepFlowState = {
       lastPartition: isSet(object.lastPartition) ? QRepPartition.fromJSON(object.lastPartition) : undefined,
       numPartitionsProcessed: isSet(object.numPartitionsProcessed) ? Number(object.numPartitionsProcessed) : 0,
       needsResync: isSet(object.needsResync) ? Boolean(object.needsResync) : false,
+      disableWaitForNewRows: isSet(object.disableWaitForNewRows) ? Boolean(object.disableWaitForNewRows) : false,
     };
   },
 
@@ -6228,6 +6240,9 @@ export const QRepFlowState = {
     if (message.needsResync === true) {
       obj.needsResync = message.needsResync;
     }
+    if (message.disableWaitForNewRows === true) {
+      obj.disableWaitForNewRows = message.disableWaitForNewRows;
+    }
     return obj;
   },
 
@@ -6241,6 +6256,7 @@ export const QRepFlowState = {
       : undefined;
     message.numPartitionsProcessed = object.numPartitionsProcessed ?? 0;
     message.needsResync = object.needsResync ?? false;
+    message.disableWaitForNewRows = object.disableWaitForNewRows ?? false;
     return message;
   },
 };

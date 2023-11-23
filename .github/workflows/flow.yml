@@ -95,7 +95,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 16 ./... -timeout 2400s
+          gotestsum --format testname -- -p 8 ./... -timeout 2400s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -120,4 +120,4 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
-          PEERDB_CDC_IDLE_TIMEOUT_SECONDS: 3
+          PEERDB_CDC_IDLE_TIMEOUT_SECONDS: 10

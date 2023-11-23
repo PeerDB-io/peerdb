@@ -8,7 +8,14 @@ x-catalog-config: &catalog-config
   PEERDB_CATALOG_DATABASE: postgres
 
 x-flow-worker-env: &flow-worker-env
+  # For Temporal Cloud, this will look like: 
+  # <yournamespace>.<id>.tmprl.cloud:7233
   TEMPORAL_HOST_PORT: temporal:7233
+  PEERDB_TEMPORAL_NAMESPACE: default
+  # For the below 2 cert and key variables,
+  # use yml multiline syntax with '|'
+  TEMPORAL_CLIENT_CERT:
+  TEMPORAL_CLIENT_KEY:
   # For GCS, these will be your HMAC keys instead
   # For more information:
   # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
@@ -57,7 +64,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.22.1
+    image: temporalio/auto-setup:1.22
     ports:
       - 7233:7233
     volumes:
@@ -78,7 +85,7 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
-    image: temporalio/admin-tools:1.22.1
+    image: temporalio/admin-tools:1.22
     stdin_open: true
     tty: true
     healthcheck:
@@ -95,7 +102,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.17.2
+    image: temporalio/ui:2.21.3
     ports:
       - 8085:8080
 
@@ -109,8 +116,7 @@ services:
       - 8112:8112
       - 8113:8113
     environment:
-      <<: [*catalog-config]
-      TEMPORAL_HOST_PORT: temporal:7233
+      <<: [*catalog-config, *flow-worker-env]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
@@ -122,7 +128,7 @@ services:
       dockerfile: stacks/flow.Dockerfile
       target: flow-snapshot-worker
     environment:
-      TEMPORAL_HOST_PORT: temporal:7233
+      <<: [*flow-worker-env]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy

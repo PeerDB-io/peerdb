@@ -457,8 +457,8 @@ pub struct QRepConfig {
     /// This is only used when sync_mode is AVRO
     /// this is the location where the avro files will be written
     /// if this starts with gs:// then it will be written to GCS
-    /// if this starts with s3:// then it will be written to S3
-    /// if nothing is specified then it will be written to local disk, only supported in Snowflake
+    /// if this starts with s3:// then it will be written to S3, only supported in Snowflake
+    /// if nothing is specified then it will be written to local disk
     /// if using GCS or S3 make sure your instance has the correct permissions.
     #[prost(string, tag="15")]
     pub staging_path: ::prost::alloc::string::String,
@@ -540,6 +540,8 @@ pub struct QRepFlowState {
     pub num_partitions_processed: u64,
     #[prost(bool, tag="3")]
     pub needs_resync: bool,
+    #[prost(bool, tag="4")]
+    pub disable_wait_for_new_rows: bool,
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
