@@ -145,6 +145,7 @@ services:
 
   peerdb:
     container_name: peerdb-server
+    stop_signal: SIGINT
     image: ghcr.io/peerdb-io/peerdb-server:latest-dev
     environment:
       <<: *catalog-config

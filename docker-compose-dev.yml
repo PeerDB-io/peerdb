@@ -173,6 +173,7 @@ services:
 
   peerdb:
     container_name: peerdb-server
+    stop_signal: SIGINT
     build:
       context: .
       dockerfile: stacks/peerdb-server.Dockerfile
