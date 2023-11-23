@@ -66,16 +66,6 @@ You can use Postgres’ eco-system to manage your ETL —
 
 We support multiple target connectors to move data from Postgres and a couple of source connectors to move data into Postgres. Check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors)
 
-#### Metrics for MIRROR
-
-Both types of MIRRORs export some crucial metrics with regards to the health of the MIRROR. By default, our development Docker stack does not capture or visualize these metrics. They are available in a Docker Compose profile called `metrics`, which can be enabled by:
-
-```bash
-# add --profile metrics like this in front of any docker compose command being used.
-docker compose --profile metrics up --build
-```
-
-This sets up both a Prometheus instance on port 9090 that scrapes the metrics from the flow workers, and also a Grafana instance on port 3000 that reads and visualizes the metrics from mirrors in a preconfigured dashboard. To view the dashboard, access the Grafana instance on `localhost:3000` with the user `admin` and the password `peerdb`.
 
 ## License
 

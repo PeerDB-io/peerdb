@@ -14,7 +14,6 @@ const (
 	ShutdownSignal
 	PauseSignal
 
-	EnableMetricsKey    ContextKey = "enableMetrics"
 	CDCMirrorMonitorKey ContextKey = "cdcMirrorMonitor"
 )
 

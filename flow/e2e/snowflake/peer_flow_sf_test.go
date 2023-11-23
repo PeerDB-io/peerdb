@@ -63,6 +63,13 @@ func (s *PeerFlowE2ETestSuiteSF) setupTemporalLogger() {
 	s.SetLogger(tlogger)
 }
 
+type logWriterType struct{ t *testing.T }
+
+func (l logWriterType) Write(p []byte) (n int, err error) {
+	l.t.Logf(string(p))
+	return len(p), nil
+}
+
 func (s *PeerFlowE2ETestSuiteSF) SetupSuite() {
 	err := godotenv.Load()
 	if err != nil {
@@ -73,6 +80,7 @@ func (s *PeerFlowE2ETestSuiteSF) SetupSuite() {
 
 	log.SetReportCaller(true)
 	log.SetLevel(log.WarnLevel)
+	log.SetOutput(logWriterType{t: s.T()})
 
 	s.setupTemporalLogger()
 
