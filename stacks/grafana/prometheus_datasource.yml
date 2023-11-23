@@ -1,7 +1,0 @@
-datasources:
-  - name: peerdb_prometheus
-    type: prometheus
-    access: proxy
-    orgId: 1
-    url: http://host.docker.internal:9090
-    uid: peerdb_prometheus
