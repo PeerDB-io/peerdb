@@ -40,13 +40,13 @@ impl<'a> PeerExistanceAnalyzer<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub enum QueryAssocation {
+pub enum QueryAssociation {
     Peer(Box<Peer>),
     Catalog,
 }
 
 impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
-    type Output = QueryAssocation;
+    type Output = QueryAssociation;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
         let mut peers_touched: HashSet<String> = HashSet::new();
@@ -78,9 +78,9 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
             anyhow::bail!("queries touching multiple peers are not supported")
         } else if let Some(peer_name) = peers_touched.iter().next() {
             let peer = self.peers.get(peer_name).unwrap();
-            Ok(QueryAssocation::Peer(Box::new(peer.clone())))
+            Ok(QueryAssociation::Peer(Box::new(peer.clone())))
         } else {
-            Ok(QueryAssocation::Catalog)
+            Ok(QueryAssociation::Catalog)
         }
     }
 }
@@ -785,14 +785,9 @@ fn parse_db_options(
                 })
                 .unwrap_or_default();
 
-            let keys_to_ignore: HashSet<String> = vec!["metadata_db", "unnest_columns"]
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect();
-
             let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
             for (key, _) in opts {
-                if keys_to_ignore.contains(key) {
+                if matches!(key, "metadata_db" | "unnest_columns") {
                     continue;
                 }
 
