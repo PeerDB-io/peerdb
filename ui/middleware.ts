@@ -6,6 +6,7 @@ export default function middleware(req: NextRequest) {
   if (req.nextUrl.pathname !== '/favicon.ico' &&
       req.nextUrl.pathname !== '/login' &&
       req.nextUrl.pathname !== '/api/login' &&
+      !req.nextUrl.pathname.startsWith("/public/") &&
       !req.nextUrl.pathname.startsWith("/_next/static/") &&
       process.env.PEERDB_PASSWORD &&
       req.cookies.get('auth')?.value !== process.env.PEERDB_PASSWORD) {
