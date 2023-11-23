@@ -155,11 +155,11 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert 15 rows into the source table
+	// and then insert 20 rows into the source table
 	go func() {
 		e2e.SetupCDCFlowStateQuery(env, connectionGen)
-		// insert 10 rows into the source table
-		for i := 0; i < 10; i++ {
+		// insert 20 rows into the source table
+		for i := 0; i < 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1208,7 +1208,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStateQuery(env, connectionGen)
 
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
