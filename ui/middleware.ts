@@ -13,7 +13,7 @@ export default function middleware(req: NextRequest) {
     req.cookies.get('auth')?.value !== process.env.PEERDB_PASSWORD
   ) {
     req.cookies.delete('auth');
-    return NextResponse.redirect(new URL('/login', req.url));
+    return NextResponse.redirect(new URL('/login?reject', req.url));
   }
   return NextResponse.next();
 }
