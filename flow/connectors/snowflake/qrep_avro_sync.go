@@ -274,7 +274,8 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 ) (int, string, error) {
 	var numRecords int
 	if s.config.StagingPath == "" {
-		ocfWriter := avro.NewPeerDBOCFWriterWithCompression(s.connector.ctx, stream, avroSchema)
+		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
+			qvalue.QDWHTypeSnowflake)
 		tmpDir, err := os.MkdirTemp("", "peerdb-avro")
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to create temp dir: %w", err)
@@ -292,13 +293,14 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 
 		return numRecords, localFilePath, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema)
+		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
+			qvalue.QDWHTypeSnowflake)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
 			return 0, "", fmt.Errorf("failed to parse staging path: %w", err)
 		}
 
-		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
+		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
 		log.WithFields(log.Fields{
 			"flowName":    flowJobName,
 			"partitionID": partitionID,

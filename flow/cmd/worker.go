@@ -7,30 +7,23 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
-	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
-	"github.com/uber-go/tally/v4"
-	"github.com/uber-go/tally/v4/prometheus"
 
 	"github.com/grafana/pyroscope-go"
-	prom "github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
-	sdktally "go.temporal.io/sdk/contrib/tally"
 	"go.temporal.io/sdk/worker"
 )
 
 type WorkerOptions struct {
 	TemporalHostPort  string
 	EnableProfiling   bool
-	EnableMetrics     bool
 	PyroscopeServer   string
-	MetricsServer     string
 	TemporalNamespace string
 	TemporalCert      string
 	TemporalKey       string
@@ -111,15 +104,6 @@ func WorkerMain(opts *WorkerOptions) error {
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	if opts.EnableMetrics {
-		clientOptions.MetricsHandler = sdktally.NewMetricsHandler(newPrometheusScope(
-			prometheus.Configuration{
-				ListenAddress: opts.MetricsServer,
-				TimerType:     "histogram",
-			},
-		))
-	}
-
 	conn, err := utils.GetCatalogConnectionPoolFromEnv()
 	if err != nil {
 		return fmt.Errorf("unable to create catalog connection pool: %w", err)
@@ -143,7 +127,6 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterActivity(&activities.FlowableActivity{
-		EnableMetrics:        opts.EnableMetrics,
 		CatalogMirrorMonitor: catalogMirrorMonitor,
 	})
 
@@ -153,29 +136,4 @@ func WorkerMain(opts *WorkerOptions) error {
 	}
 
 	return nil
-}
-
-func newPrometheusScope(c prometheus.Configuration) tally.Scope {
-	reporter, err := c.NewReporter(
-		prometheus.ConfigurationOptions{
-			Registry: prom.NewRegistry(),
-			OnError: func(err error) {
-				log.Println("error in prometheus reporter", err)
-			},
-		},
-	)
-	if err != nil {
-		log.Fatalln("error creating prometheus reporter", err)
-	}
-	scopeOpts := tally.ScopeOptions{
-		CachedReporter:  reporter,
-		Separator:       prometheus.DefaultSeparator,
-		SanitizeOptions: &sdktally.PrometheusSanitizeOptions,
-		Prefix:          "flow_worker",
-	}
-	scope, _ := tally.NewRootScope(scopeOpts, time.Second)
-	scope = sdktally.NewPrometheusNamingScope(scope)
-
-	log.Println("prometheus metrics scope created")
-	return scope
 }

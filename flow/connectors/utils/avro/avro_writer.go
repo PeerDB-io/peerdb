@@ -13,56 +13,67 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/klauspost/compress/flate"
+	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zstd"
 	"github.com/linkedin/goavro/v2"
 	log "github.com/sirupsen/logrus"
 	uber_atomic "go.uber.org/atomic"
 )
 
+type AvroCompressionCodec int64
+
+const (
+	CompressNone AvroCompressionCodec = iota
+	CompressZstd
+	CompressDeflate
+	CompressSnappy
+)
+
 type PeerDBOCFWriter struct {
-	ctx        context.Context
-	stream     *model.QRecordStream
-	avroSchema *model.QRecordAvroSchemaDefinition
-	compress   bool
-	writer     io.WriteCloser
+	ctx                  context.Context
+	stream               *model.QRecordStream
+	avroSchema           *model.QRecordAvroSchemaDefinition
+	avroCompressionCodec AvroCompressionCodec
+	writer               io.WriteCloser
+	targetDWH            qvalue.QDWHType
 }
 
 func NewPeerDBOCFWriter(
 	ctx context.Context,
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
+	avroCompressionCodec AvroCompressionCodec,
+	targetDWH qvalue.QDWHType,
 ) *PeerDBOCFWriter {
 	return &PeerDBOCFWriter{
-		ctx:        ctx,
-		stream:     stream,
-		avroSchema: avroSchema,
-		compress:   false,
-	}
-}
-
-func NewPeerDBOCFWriterWithCompression(
-	ctx context.Context,
-	stream *model.QRecordStream,
-	avroSchema *model.QRecordAvroSchemaDefinition,
-) *PeerDBOCFWriter {
-	return &PeerDBOCFWriter{
-		ctx:        ctx,
-		stream:     stream,
-		avroSchema: avroSchema,
-		compress:   true,
+		ctx:                  ctx,
+		stream:               stream,
+		avroSchema:           avroSchema,
+		avroCompressionCodec: avroCompressionCodec,
+		targetDWH:            targetDWH,
 	}
 }
 
 func (p *PeerDBOCFWriter) initWriteCloser(w io.Writer) error {
 	var err error
-	if p.compress {
+	switch p.avroCompressionCodec {
+	case CompressNone:
+		p.writer = &nopWriteCloser{w}
+	case CompressZstd:
 		p.writer, err = zstd.NewWriter(w)
 		if err != nil {
 			return fmt.Errorf("error while initializing zstd encoding writer: %w", err)
 		}
-	} else {
-		p.writer = &nopWriteCloser{w}
+	case CompressDeflate:
+		p.writer, err = flate.NewWriter(w, -1)
+		if err != nil {
+			return fmt.Errorf("error while initializing deflate encoding writer: %w", err)
+		}
+	case CompressSnappy:
+		p.writer = snappy.NewBufferedWriter(w)
 	}
+
 	return nil
 }
 
@@ -115,7 +126,7 @@ func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 		qRecord := qRecordOrErr.Record
 		avroConverter := model.NewQRecordAvroConverter(
 			qRecord,
-			qvalue.QDWHTypeSnowflake,
+			p.targetDWH,
 			&p.avroSchema.NullableFields,
 			colNames,
 		)

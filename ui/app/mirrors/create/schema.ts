@@ -14,10 +14,10 @@ export const flowNameSchema = z
 export const tableMappingSchema = z
   .array(
     z.object({
-      source: z
+      sourceTableIdentifier: z
         .string()
         .min(1, 'source table names, if added, must be non-empty'),
-      destination: z
+      destinationTableIdentifier: z
         .string()
         .min(1, 'destination table names, if added, must be non-empty'),
       exclude: z.array(z.string()).optional(),

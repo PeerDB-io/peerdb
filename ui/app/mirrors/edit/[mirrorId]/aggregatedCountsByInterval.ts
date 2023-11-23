@@ -36,7 +36,7 @@ function aggregateCountsByInterval(
 
   // Iterate through the timestamps and populate the aggregatedCounts object
   for (let { timestamp, count } of timestamps) {
-    const date = roundUpToNearestNMinutes(timestamp, 15);
+    const date = roundUpToNearestNMinutes(timestamp, 1);
     const formattedTimestamp = moment(date).format(timeUnit);
 
     if (!aggregatedCounts[formattedTimestamp]) {
@@ -64,6 +64,10 @@ function aggregateCountsByInterval(
       currentTimestamp.setHours(currentTimestamp.getHours() - 1);
     } else if (interval === '15min') {
       currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 15);
+    } else if (interval === '1min') {
+      currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 1);
+    } else if (interval === '5min') {
+      currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 5);
     } else if (interval === 'month') {
       currentTimestamp.setMonth(currentTimestamp.getMonth() - 1);
     } else if (interval === 'day') {
