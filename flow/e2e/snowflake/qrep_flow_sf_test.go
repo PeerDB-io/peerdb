@@ -75,7 +75,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
 		"",
 	)
@@ -116,7 +115,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple()
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
 		"",
 	)
@@ -161,7 +159,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
 		"",
 	)
@@ -201,7 +198,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
 		"",
 	)
@@ -249,7 +245,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+
 		sfPeer,
 		"",
 	)

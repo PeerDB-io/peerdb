@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
@@ -107,7 +106,6 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		schemaQualifiedName,
 		"e2e_dest_1",
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.s3Helper.GetPeer(),
 		"stage",
 	)
@@ -154,7 +152,6 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		schemaQualifiedName,
 		"e2e_dest_ctid",
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.s3Helper.GetPeer(),
 		"stage",
 	)

@@ -186,17 +186,7 @@ impl FlowGrpcClient {
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
             snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
             snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
-            snapshot_sync_mode: job
-                .snapshot_sync_mode
-                .clone()
-                .map(|s| s.as_proto_sync_mode())
-                .unwrap_or(0),
             snapshot_staging_path: job.snapshot_staging_path.clone().unwrap_or_default(),
-            cdc_sync_mode: job
-                .cdc_sync_mode
-                .clone()
-                .map(|s| s.as_proto_sync_mode())
-                .unwrap_or(0),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
@@ -232,12 +222,6 @@ impl FlowGrpcClient {
                     "destination_table_name" => cfg.destination_table_identifier = s.clone(),
                     "watermark_column" => cfg.watermark_column = s.clone(),
                     "watermark_table_name" => cfg.watermark_table = s.clone(),
-                    "sync_data_format" => {
-                        cfg.sync_mode = match s.as_str() {
-                            "avro" => pt::peerdb_flow::QRepSyncMode::QrepSyncModeStorageAvro as i32,
-                            _ => pt::peerdb_flow::QRepSyncMode::QrepSyncModeMultiInsert as i32,
-                        }
-                    }
                     "mode" => {
                         let mut wm = QRepWriteMode {
                             write_type: QRepWriteType::QrepWriteModeAppend as i32,

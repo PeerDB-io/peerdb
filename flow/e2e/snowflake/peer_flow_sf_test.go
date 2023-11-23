@@ -143,7 +143,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -220,7 +219,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -308,7 +306,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -379,7 +376,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -442,7 +438,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -517,7 +512,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -587,7 +581,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -657,7 +650,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -733,7 +725,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -793,7 +784,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -958,7 +948,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -1034,7 +1023,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -1112,7 +1100,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -1196,7 +1183,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 			},
 		},
 		Source:         e2e.GeneratePostgresPeer(e2e.PostgresPort),
-		CdcSyncMode:    connectionGen.CDCSyncMode,
 		CdcStagingPath: connectionGen.CdcStagingPath,
 	}
 

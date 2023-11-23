@@ -169,7 +169,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		InitialCopyOnly:            true,
 		DestinationTableIdentifier: dstName,
 		NumRowsPerPartition:        numRowsPerPartition,
-		SyncMode:                   s.config.SnapshotSyncMode,
 		MaxParallelWorkers:         numWorkers,
 		StagingPath:                s.config.SnapshotStagingPath,
 		WriteMode: &protos.QRepWriteMode{
