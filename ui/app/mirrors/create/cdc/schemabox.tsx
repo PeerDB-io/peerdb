@@ -138,7 +138,6 @@ const SchemaBox = ({
       setExpandedSchemas((curr) =>
         curr.filter((expandedSchema) => expandedSchema != schemaName)
       );
-      setRows((curr) => curr.filter((row) => row.schema !== schemaName));
     }
   };
 
