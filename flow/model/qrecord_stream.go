@@ -2,8 +2,6 @@ package model
 
 import (
 	"fmt"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type QRecordOrError struct {
@@ -73,7 +71,6 @@ func (s *QRecordStream) SetSchema(schema *QRecordSchema) error {
 		return fmt.Errorf("Schema already set")
 	}
 
-	log.Warnf("setting the schema bois")
 	s.schema <- &QRecordSchemaOrError{
 		Schema: schema,
 	}
