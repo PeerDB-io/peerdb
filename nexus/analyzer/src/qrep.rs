@@ -56,7 +56,7 @@ const QREP_OPTIONS: &[QRepOptionType] = &[
     },
     QRepOptionType::String {
         name: "staging_path",
-        default_val: None,
+        default_val: Some(""),
         required: false,
         accepted_values: None,
     },
