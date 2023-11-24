@@ -663,7 +663,7 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 	return nil
 }
 
-func GetPostgresPeerConfigs(ctx context.Context) ([]*protos.PostgresConfig, error) {
+func getPostgresPeerConfigs(ctx context.Context) ([]*protos.PostgresConfig, error) {
 	var peerOptions sql.RawBytes
 	catalogPool, catalogErr := catalog.GetCatalogConnectionPoolFromEnv()
 	if catalogErr != nil {
@@ -671,7 +671,7 @@ func GetPostgresPeerConfigs(ctx context.Context) ([]*protos.PostgresConfig, erro
 	}
 	defer catalogPool.Close()
 
-	optionRows, err := catalogPool.Query(ctx, "SELECT options FROM peers WHERE type=3")
+	optionRows, err := catalogPool.Query(ctx, "SELECT options FROM peers WHERE type=$1", protos.DBType_POSTGRES)
 	if err != nil {
 		return nil, err
 	}
@@ -697,7 +697,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	ticker := time.NewTicker(sendTimeout)
 	defer ticker.Stop()
 
-	pgConfigs, err := GetPostgresPeerConfigs(ctx)
+	pgConfigs, err := getPostgresPeerConfigs(ctx)
 	if err != nil {
 		return fmt.Errorf("error getting postgres peer configs: %w", err)
 	}

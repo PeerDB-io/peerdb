@@ -62,7 +62,7 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 	return server, nil
 }
 
-func KillExistingHeartbeatFlows(ctx context.Context, tc client.Client, namespace string) error {
+func killExistingHeartbeatFlows(ctx context.Context, tc client.Client, namespace string) error {
 	listRes, err := tc.ListWorkflow(ctx,
 		&workflowservice.ListWorkflowExecutionsRequest{
 			Namespace: namespace,
@@ -116,7 +116,7 @@ func APIMain(args *APIServerParams) error {
 	flowHandler := NewFlowRequestHandler(tc, catalogConn)
 	defer flowHandler.Close()
 
-	err = KillExistingHeartbeatFlows(ctx, tc, args.TemporalNamespace)
+	err = killExistingHeartbeatFlows(ctx, tc, args.TemporalNamespace)
 	if err != nil {
 		return fmt.Errorf("unable to kill existing heartbeat flows: %w", err)
 	}
