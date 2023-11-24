@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -150,7 +149,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -196,7 +194,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -245,7 +242,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -315,7 +311,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -385,7 +380,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -448,7 +442,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -523,7 +516,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -593,7 +585,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -662,7 +653,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -740,7 +730,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -803,7 +792,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -908,7 +896,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -984,7 +971,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 
@@ -1063,7 +1049,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "",
 	}
 

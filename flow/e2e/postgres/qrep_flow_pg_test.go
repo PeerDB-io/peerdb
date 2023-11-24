@@ -165,7 +165,6 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
 		postgresPeer,
 		"",
 	)

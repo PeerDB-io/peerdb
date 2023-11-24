@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Context;
 use pt::{
-    flow_model::{FlowJob, FlowJobTableMapping, FlowSyncMode, QRepFlowJob},
+    flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
         peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
         S3Config, SnowflakeConfig, SqlServerConfig,
@@ -181,7 +181,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                     .exclude
                                     .as_ref()
                                     .map(|ss| ss.iter().map(|s| s.to_string()).collect())
-                                    .unwrap_or_default()
+                                    .unwrap_or_default(),
                             });
                         }
 
@@ -248,28 +248,12 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
-                        let snapshot_sync_mode: Option<FlowSyncMode> =
-                            match raw_options.remove("snapshot_sync_mode") {
-                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
-                                    let s = s.to_lowercase();
-                                    FlowSyncMode::parse_string(&s).ok()
-                                }
-                                _ => None,
-                            };
                         let snapshot_staging_path = match raw_options
                             .remove("snapshot_staging_path")
                         {
                             Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
-                            _ => None,
+                            _ => Some("".to_string()),
                         };
-                        let cdc_sync_mode: Option<FlowSyncMode> =
-                            match raw_options.remove("cdc_sync_mode") {
-                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
-                                    let s = s.to_lowercase();
-                                    FlowSyncMode::parse_string(&s).ok()
-                                }
-                                _ => None,
-                            };
 
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
@@ -280,7 +264,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
 
                         let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
                             Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
-                            _ => None,
+                            _ => Some("".to_string()),
                         };
 
                         let soft_delete = match raw_options.remove("soft_delete") {
@@ -333,9 +317,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             snapshot_num_rows_per_partition,
                             snapshot_max_parallel_workers,
                             snapshot_num_tables_in_parallel,
-                            snapshot_sync_mode,
                             snapshot_staging_path,
-                            cdc_sync_mode,
                             cdc_staging_path,
                             soft_delete,
                             replication_slot_name,
@@ -346,15 +328,6 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             soft_delete_col_name,
                             synced_at_col_name,
                         };
-
-                        // Error reporting
-                        if Some(FlowSyncMode::Avro) == flow_job.snapshot_sync_mode
-                            && flow_job.snapshot_staging_path.is_none()
-                        {
-                            return Err(anyhow::anyhow!(
-                                "snapshot_staging_path must be set for AVRO snapshot mode."
-                            ));
-                        }
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC {
                             if_not_exists: *if_not_exists,
@@ -516,7 +489,13 @@ fn parse_db_options(
         let val = match opt.value {
             sqlparser::ast::Value::SingleQuotedString(ref str) => str,
             sqlparser::ast::Value::Number(ref v, _) => v,
-            sqlparser::ast::Value::Boolean(v) => if v { "true" } else { "false" },
+            sqlparser::ast::Value::Boolean(v) => {
+                if v {
+                    "true"
+                } else {
+                    "false"
+                }
+            }
             _ => panic!("invalid option type for peer"),
         };
         opts.insert(&opt.name.value, val);

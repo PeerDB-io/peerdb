@@ -274,7 +274,6 @@ func CreateQRepWorkflowConfig(
 	sourceTable string,
 	dstTable string,
 	query string,
-	syncMode protos.QRepSyncMode,
 	dest *protos.Peer,
 	stagingPath string,
 ) (*protos.QRepConfig, error) {
@@ -289,7 +288,7 @@ func CreateQRepWorkflowConfig(
 
 	watermark := "updated_at"
 
-	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark, syncMode)
+	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark)
 	if err != nil {
 		return nil, err
 	}

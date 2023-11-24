@@ -55,14 +55,8 @@ const QREP_OPTIONS: &[QRepOptionType] = &[
         name: "unique_key_columns",
     },
     QRepOptionType::String {
-        name: "sync_data_format",
-        default_val: Some("default"),
-        required: false,
-        accepted_values: Some(&["default", "avro"]),
-    },
-    QRepOptionType::String {
         name: "staging_path",
-        default_val: None,
+        default_val: Some(""),
         required: false,
         accepted_values: None,
     },

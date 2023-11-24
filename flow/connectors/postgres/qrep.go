@@ -85,8 +85,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
 	if config.WatermarkColumn == "xmin" {
-		quotedWatermarkColumn = fmt.Sprintf("%s::text::bigint", quotedWatermarkColumn)
-
 		minVal, maxVal, err := c.getMinMaxValues(tx, config, last)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get min max values for xmin: %w", err)
@@ -98,7 +96,8 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 		// we will only return 1 partition for xmin:
 		// if there is no last partition, we will return a partition with the min and max values
-		// if there is a last partition, we will return a partition with the last partition's end value + 1 and the max value
+		// if there is a last partition, we will return a partition with the last partition's
+		// end value + 1 and the max value
 		if last != nil && last.Range != nil {
 			minValInt += 1
 		}
@@ -538,17 +537,9 @@ func (c *PostgresConnector) SyncQRepRecords(
 		"partition": partition.PartitionId,
 	}).Infof("SyncRecords called and initial checks complete.")
 
-	syncMode := config.SyncMode
-	switch syncMode {
-	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
-		stagingTableSync := &QRepStagingTableSync{connector: c}
-		return stagingTableSync.SyncQRepRecords(
-			config.FlowJobName, dstTable, partition, stream, config.WriteMode)
-	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
-		return 0, fmt.Errorf("[postgres] SyncQRepRecords not implemented for storage avro sync mode")
-	default:
-		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
-	}
+	stagingTableSync := &QRepStagingTableSync{connector: c}
+	return stagingTableSync.SyncQRepRecords(
+		config.FlowJobName, dstTable, partition, stream, config.WriteMode)
 }
 
 // SetupQRepMetadataTables function for postgres connector

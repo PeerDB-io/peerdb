@@ -163,7 +163,6 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 		WatermarkColumn:            "v_from",
 		NumRowsPerPartition:        5,
 		InitialCopyOnly:            true,
-		SyncMode:                   protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
 		MaxParallelWorkers:         1,
 		WaitBetweenBatchesSeconds:  5,
 	}

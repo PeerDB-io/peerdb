@@ -269,7 +269,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
 		Records:         recordBatch,
 		FlowJobName:     input.FlowConnectionConfigs.FlowJobName,
-		SyncMode:        input.FlowConnectionConfigs.CdcSyncMode,
 		StagingPath:     input.FlowConnectionConfigs.CdcStagingPath,
 		PushBatchSize:   input.FlowConnectionConfigs.PushBatchSize,
 		PushParallelism: input.FlowConnectionConfigs.PushParallelism,

@@ -49,16 +49,8 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 		return 0, nil
 	}
 
-	syncMode := config.SyncMode
-	switch syncMode {
-	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
-		return 0, fmt.Errorf("multi-insert sync mode not supported for snowflake")
-	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
-		avroSync := NewSnowflakeAvroSyncMethod(config, c)
-		return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
-	default:
-		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
-	}
+	avroSync := NewSnowflakeAvroSyncMethod(config, c)
+	return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
 }
 
 func (c *SnowflakeConnector) createMetadataInsertStatement(
@@ -269,32 +261,24 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
-	syncMode := config.SyncMode
-	switch syncMode {
-	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
-		return fmt.Errorf("multi-insert sync mode not supported for snowflake")
-	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
-		colInfo, err := c.getColsFromTable(destTable)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Errorf("failed to get columns from table %s: %v", destTable, err)
-			return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
-		}
-
-		allCols := colInfo.Columns
-		err = CopyStageToDestination(c, config, destTable, stageName, allCols)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Errorf("failed to copy stage to destination: %v", err)
-			return fmt.Errorf("failed to copy stage to destination: %w", err)
-		}
-
-		return nil
-	default:
-		return fmt.Errorf("unsupported sync mode: %s", syncMode)
+	colInfo, err := c.getColsFromTable(destTable)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Errorf("failed to get columns from table %s: %v", destTable, err)
+		return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
 	}
+
+	allCols := colInfo.Columns
+	err = CopyStageToDestination(c, config, destTable, stageName, allCols)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Errorf("failed to copy stage to destination: %v", err)
+		return fmt.Errorf("failed to copy stage to destination: %w", err)
+	}
+
+	return nil
 }
 
 // CleanupQRepFlow function for snowflake connector
