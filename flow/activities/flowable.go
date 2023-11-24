@@ -693,7 +693,7 @@ func GetPostgresPeerConfigs(ctx context.Context) ([]*protos.PostgresConfig, erro
 }
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
-	sendTimeout := 10 * time.Second
+	sendTimeout := 10 * time.Minute
 	ticker := time.NewTicker(sendTimeout)
 	defer ticker.Stop()
 
