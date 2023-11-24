@@ -20,13 +20,14 @@ mod stream;
 
 pub struct BigQueryQueryExecutor {
     peer_name: String,
-    config: BigqueryConfig,
+    project_id: String,
+    dataset_id: String,
     peer_connections: Arc<PeerConnectionTracker>,
     client: Box<Client>,
     cursor_manager: BigQueryCursorManager,
 }
 
-pub async fn bq_client_from_config(config: BigqueryConfig) -> anyhow::Result<Client> {
+pub async fn bq_client_from_config(config: &BigqueryConfig) -> anyhow::Result<Client> {
     let sa_key = yup_oauth2::ServiceAccountKey {
         key_type: Some(config.auth_type.clone()),
         project_id: Some(config.project_id.clone()),
@@ -52,12 +53,13 @@ impl BigQueryQueryExecutor {
         config: &BigqueryConfig,
         peer_connections: Arc<PeerConnectionTracker>,
     ) -> anyhow::Result<Self> {
-        let client = bq_client_from_config(config.clone()).await?;
+        let client = bq_client_from_config(config).await?;
         let client = Box::new(client);
         let cursor_manager = BigQueryCursorManager::new();
         Ok(Self {
             peer_name,
-            config: config.clone(),
+            project_id: config.project_id.clone(),
+            dataset_id: config.dataset_id.clone(),
             peer_connections,
             client,
             cursor_manager,
@@ -82,7 +84,7 @@ impl BigQueryQueryExecutor {
         let result_set = self
             .client
             .job()
-            .query(&self.config.project_id, query_req)
+            .query(&self.project_id, query_req)
             .await
             .map_err(|err| {
                 tracing::error!("error running query: {}", err);
@@ -112,7 +114,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let mut query = query.clone();
                 let bq_ast = ast::BigqueryAst::default();
                 bq_ast
-                    .rewrite(&self.config.dataset_id, &mut query)
+                    .rewrite(&self.dataset_id, &mut query)
                     .context("unable to rewrite query")
                     .map_err(|err| {
                         PgWireError::ApiError(Box::new(PgError::Internal {
@@ -222,7 +224,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 let mut query = query.clone();
                 let bq_ast = ast::BigqueryAst::default();
                 bq_ast
-                    .rewrite(&self.config.dataset_id, &mut query)
+                    .rewrite(&self.dataset_id, &mut query)
                     .context("unable to rewrite query")
                     .map_err(|err| {
                         PgWireError::ApiError(Box::new(PgError::Internal {
@@ -260,7 +262,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
         let _result_set = self
             .client
             .job()
-            .query(&self.config.project_id, QueryRequest::new(sql))
+            .query(&self.project_id, QueryRequest::new(sql))
             .await?;
         Ok(true)
     }
