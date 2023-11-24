@@ -189,10 +189,6 @@ func CDCFlowWorkflowWithConfig(
 			}
 		}
 
-		searchAttributes := map[string]interface{}{
-			"MirrorName": cfg.FlowJobName,
-		}
-
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
 		setupFlowID, err := GetChildWorkflowID(ctx, "setup-flow", cfg.FlowJobName)
@@ -205,7 +201,6 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: searchAttributes,
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
@@ -225,8 +220,7 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			TaskQueue:        shared.SnapshotFlowTaskQueue,
-			SearchAttributes: searchAttributes,
+			TaskQueue: shared.SnapshotFlowTaskQueue,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
@@ -323,10 +317,6 @@ func CDCFlowWorkflowWithConfig(
 			return state, err
 		}
 
-		searchAttributes := map[string]interface{}{
-			"MirrorName": cfg.FlowJobName,
-		}
-
 		// execute the sync flow as a child workflow
 		childSyncFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        syncFlowID,
@@ -334,7 +324,6 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: searchAttributes,
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
 		syncFlowOptions.RelationMessageMapping = *state.RelationMessageMapping
@@ -367,7 +356,6 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: searchAttributes,
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 

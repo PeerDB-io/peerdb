@@ -309,9 +309,6 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: shared.PeerFlowTaskQueue,
-		SearchAttributes: map[string]interface{}{
-			"MirrorName": req.FlowJobName,
-		},
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context
