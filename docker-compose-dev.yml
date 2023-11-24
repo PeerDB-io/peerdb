@@ -63,7 +63,6 @@ services:
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     image: temporalio/auto-setup:1.22
-    command: sh -c 'temporal operator search-attribute create --name MirrorName --type Text'
     ports:
       - 7233:7233
     volumes:
