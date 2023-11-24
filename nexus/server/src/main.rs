@@ -180,9 +180,9 @@ impl NexusBackend {
 
     async fn get_peer_of_mirror(
         catalog: &MutexGuard<'_, Catalog>,
-        peer_name: String,
+        peer_name: &str,
     ) -> PgWireResult<Peer> {
-        let peer = catalog.get_peer(&peer_name).await.map_err(|err| {
+        let peer = catalog.get_peer(peer_name).await.map_err(|err| {
             PgWireError::ApiError(Box::new(PgError::Internal {
                 err_msg: format!("unable to get peer {:?}: {:?}", peer_name, err),
             }))
@@ -192,7 +192,7 @@ impl NexusBackend {
 
     fn handle_mirror_existence(
         if_not_exists: bool,
-        flow_name: String,
+        flow_name: &str,
     ) -> PgWireResult<Vec<Response<'static>>> {
         if if_not_exists {
             let existing_mirror_success = "MIRROR ALREADY EXISTS";
@@ -389,7 +389,7 @@ impl NexusBackend {
                             None,
                         ))])
                     } else {
-                        Self::handle_mirror_existence(*if_not_exists, qrep_flow_job.name.clone())
+                        Self::handle_mirror_existence(*if_not_exists, &qrep_flow_job.name)
                     }
                 }
                 _ => unreachable!(),
@@ -487,11 +487,9 @@ impl NexusBackend {
 
                         // get source and destination peers
                         let src_peer =
-                            Self::get_peer_of_mirror(&catalog, flow_job.source_peer.clone())
-                                .await?;
+                            Self::get_peer_of_mirror(&catalog, &flow_job.source_peer).await?;
                         let dst_peer =
-                            Self::get_peer_of_mirror(&catalog, flow_job.target_peer.clone())
-                                .await?;
+                            Self::get_peer_of_mirror(&catalog, &flow_job.target_peer).await?;
 
                         // make a request to the flow service to start the job.
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
@@ -519,7 +517,7 @@ impl NexusBackend {
                             None,
                         ))])
                     } else {
-                        Self::handle_mirror_existence(*if_not_exists, flow_job.name.clone())
+                        Self::handle_mirror_existence(*if_not_exists, &flow_job.name)
                     }
                 }
                 PeerDDL::CreateMirrorForSelect { .. } => {
@@ -931,9 +929,9 @@ impl NexusBackend {
 
         let executor: Arc<dyn QueryExecutor> = match &peer.config {
             Some(Config::BigqueryConfig(ref c)) => {
-                let peer_name = peer.name.clone();
                 let executor =
-                    BigQueryQueryExecutor::new(peer_name, c, self.peer_connections.clone()).await?;
+                    BigQueryQueryExecutor::new(peer.name.clone(), c, self.peer_connections.clone())
+                        .await?;
                 Arc::new(executor)
             }
             Some(Config::PostgresConfig(ref c)) => {
