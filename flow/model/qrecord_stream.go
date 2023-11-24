@@ -1,8 +1,6 @@
 package model
 
-import (
-	"fmt"
-)
+import "fmt"
 
 type QRecordOrError struct {
 	Record *QRecord
