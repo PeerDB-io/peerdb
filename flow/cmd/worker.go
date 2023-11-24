@@ -126,6 +126,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	w.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
+	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogMirrorMonitor: catalogMirrorMonitor,
 	})

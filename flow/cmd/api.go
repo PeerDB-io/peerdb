@@ -10,12 +10,16 @@ import (
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
+	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -58,6 +62,27 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 	return server, nil
 }
 
+func killExistingHeartbeatFlows(ctx context.Context, tc client.Client, namespace string) error {
+	listRes, err := tc.ListWorkflow(ctx,
+		&workflowservice.ListWorkflowExecutionsRequest{
+			Namespace: namespace,
+			Query:     "WorkflowType = 'HeartbeatFlowWorkflow'",
+		})
+	if err != nil {
+		return fmt.Errorf("unable to list workflows: %w", err)
+	}
+	log.Info("Requesting cancellation of pre-existing heartbeat flows")
+	for _, workflow := range listRes.Executions {
+		log.Info("Cancelling workflow: ", workflow.Execution.WorkflowId)
+		err := tc.CancelWorkflow(ctx,
+			workflow.Execution.WorkflowId, workflow.Execution.RunId)
+		if err != nil && err.Error() != "workflow execution already completed" {
+			return fmt.Errorf("unable to terminate workflow: %w", err)
+		}
+	}
+	return nil
+}
+
 func APIMain(args *APIServerParams) error {
 	ctx := args.ctx
 	clientOptions := client.Options{
@@ -90,6 +115,26 @@ func APIMain(args *APIServerParams) error {
 
 	flowHandler := NewFlowRequestHandler(tc, catalogConn)
 	defer flowHandler.Close()
+
+	err = killExistingHeartbeatFlows(ctx, tc, args.TemporalNamespace)
+	if err != nil {
+		return fmt.Errorf("unable to kill existing heartbeat flows: %w", err)
+	}
+
+	workflowID := fmt.Sprintf("heartbeatflow-%s", uuid.New())
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: shared.PeerFlowTaskQueue,
+	}
+
+	_, err = flowHandler.temporalClient.ExecuteWorkflow(
+		ctx,                            // context
+		workflowOptions,                // workflow start options
+		peerflow.HeartbeatFlowWorkflow, // workflow function
+	)
+	if err != nil {
+		return fmt.Errorf("unable to start heartbeat workflow: %w", err)
+	}
 
 	protos.RegisterFlowServiceServer(grpcServer, flowHandler)
 	grpc_health_v1.RegisterHealthServer(grpcServer, health.NewServer())
