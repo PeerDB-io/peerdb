@@ -1,15 +1,15 @@
 'use client';
 
 import useTZStore from '@/app/globalstate/time';
+import Logout from '@/components/Logout';
 import { BrandLogo } from '@/lib/BrandLogo';
-import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithSelect } from '@/lib/Layout';
 import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import Link from 'next/link';
 
-export default function SidebarComponent() {
+export default function SidebarComponent(props: { logout?: boolean }) {
   const timezones = ['UTC', 'Local', 'Relative'];
   const setZone = useTZStore((state) => state.setZone);
   const zone = useTZStore((state) => state.timezone);
@@ -60,7 +60,7 @@ export default function SidebarComponent() {
               />
             </div>
           </div>
-          <Button className='w-full'>Help and Support</Button>
+          {props.logout && <Logout />}
         </>
       }
       bottomLabel={<Label variant='footnote'>App. v0.7.0</Label>}
