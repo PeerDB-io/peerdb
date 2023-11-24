@@ -884,8 +884,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
-	updateStatementsforToastCols := c.generateUpdateStatement(
-		normalizeReq.SyncedAtColName, columnNames, unchangedToastColumns)
+	updateStatementsforToastCols := c.generateUpdateStatement(normalizeReq.SyncedAtColName,
+		normalizeReq.SoftDeleteColName, columnNames, unchangedToastColumns)
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
 	pkeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
@@ -1015,6 +1015,8 @@ This function generates UPDATE statements for a MERGE operation based on the pro
 Inputs:
 1. allCols: An array of all column names.
 2. unchangedToastCols: An array capturing unique sets of unchanged toast column groups.
+3. softDeleteCol: just set to false in the case we see an insert after a soft-deleted column
+4. syncedAtCol: set to the CURRENT_TIMESTAMP
 
 Algorithm:
 1. Iterate over each unique set of unchanged toast column groups.
@@ -1032,7 +1034,8 @@ and updating the other columns.
 7. Return the list of generated update statements.
 */
 func (c *SnowflakeConnector) generateUpdateStatement(
-	syncedAtCol string, allCols []string, unchangedToastCols []string) []string {
+	syncedAtCol string, softDeleteCol string,
+	allCols []string, unchangedToastCols []string) []string {
 	updateStmts := make([]string, 0)
 
 	for _, cols := range unchangedToastCols {
@@ -1047,6 +1050,10 @@ func (c *SnowflakeConnector) generateUpdateStatement(
 		// set the synced at column to the current timestamp
 		if syncedAtCol != "" {
 			tmpArray = append(tmpArray, fmt.Sprintf(`"%s" = CURRENT_TIMESTAMP`, syncedAtCol))
+		}
+		// set soft-deleted to false, tackles insert after soft-delete
+		if softDeleteCol != "" {
+			tmpArray = append(tmpArray, fmt.Sprintf(`"%s" = FALSE`, softDeleteCol))
 		}
 
 		ssep := strings.Join(tmpArray, ", ")
