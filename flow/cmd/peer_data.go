@@ -299,3 +299,28 @@ func (h *FlowRequestHandler) GetStatInfo(
 		StatData: statInfoRows,
 	}, nil
 }
+
+func (h *FlowRequestHandler) GetPostgresPeerConfigs(ctx context.Context) (*protos.PostgresPeerConfigs, error) {
+	var peerOptions sql.RawBytes
+	optionRows, err := h.pool.Query(ctx, "SELECT options FROM peers WHERE type=3")
+	if err != nil {
+		return nil, err
+	}
+	defer optionRows.Close()
+	var peerConfigs []*protos.PostgresConfig
+	for optionRows.Next() {
+		err := optionRows.Scan(&peerOptions)
+		if err != nil {
+			return nil, err
+		}
+		var pgPeerConfig protos.PostgresConfig
+		unmarshalErr := proto.Unmarshal(peerOptions, &pgPeerConfig)
+		if unmarshalErr != nil {
+			return nil, unmarshalErr
+		}
+		peerConfigs = append(peerConfigs, &pgPeerConfig)
+	}
+	return &protos.PostgresPeerConfigs{
+		Configs: peerConfigs,
+	}, nil
+}

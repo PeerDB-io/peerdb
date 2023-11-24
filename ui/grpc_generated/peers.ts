@@ -181,6 +181,10 @@ export interface Peer {
   eventhubGroupConfig?: EventHubGroupConfig | undefined;
 }
 
+export interface PostgresPeerConfigs {
+  configs: PostgresConfig[];
+}
+
 function createBaseSnowflakeConfig(): SnowflakeConfig {
   return {
     accountId: "",
@@ -1732,6 +1736,65 @@ export const Peer = {
     message.eventhubGroupConfig = (object.eventhubGroupConfig !== undefined && object.eventhubGroupConfig !== null)
       ? EventHubGroupConfig.fromPartial(object.eventhubGroupConfig)
       : undefined;
+    return message;
+  },
+};
+
+function createBasePostgresPeerConfigs(): PostgresPeerConfigs {
+  return { configs: [] };
+}
+
+export const PostgresPeerConfigs = {
+  encode(message: PostgresPeerConfigs, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.configs) {
+      PostgresConfig.encode(v!, writer.uint32(10).fork()).ldelim();
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PostgresPeerConfigs {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePostgresPeerConfigs();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.configs.push(PostgresConfig.decode(reader, reader.uint32()));
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PostgresPeerConfigs {
+    return {
+      configs: Array.isArray(object?.configs) ? object.configs.map((e: any) => PostgresConfig.fromJSON(e)) : [],
+    };
+  },
+
+  toJSON(message: PostgresPeerConfigs): unknown {
+    const obj: any = {};
+    if (message.configs?.length) {
+      obj.configs = message.configs.map((e) => PostgresConfig.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PostgresPeerConfigs>, I>>(base?: I): PostgresPeerConfigs {
+    return PostgresPeerConfigs.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PostgresPeerConfigs>, I>>(object: I): PostgresPeerConfigs {
+    const message = createBasePostgresPeerConfigs();
+    message.configs = object.configs?.map((e) => PostgresConfig.fromPartial(e)) || [];
     return message;
   },
 };

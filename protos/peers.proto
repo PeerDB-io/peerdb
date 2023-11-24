@@ -113,3 +113,7 @@ message Peer {
     EventHubGroupConfig eventhub_group_config = 10;
   }
 }
+
+message PostgresPeerConfigs {
+  repeated PostgresConfig configs = 1;
+}

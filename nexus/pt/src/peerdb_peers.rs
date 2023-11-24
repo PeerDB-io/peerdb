@@ -181,6 +181,12 @@ pub mod peer {
         EventhubGroupConfig(super::EventHubGroupConfig),
     }
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PostgresPeerConfigs {
+    #[prost(message, repeated, tag="1")]
+    pub configs: ::prost::alloc::vec::Vec<PostgresConfig>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum DbType {

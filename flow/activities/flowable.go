@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
@@ -659,31 +660,37 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 	return nil
 }
 
-func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, config *protos.FlowConnectionConfigs) error {
-	srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
-	if err != nil {
-		return fmt.Errorf("failed to get destination connector: %w", err)
-	}
-	defer connectors.CloseConnector(srcConn)
-	log.WithFields(log.Fields{"flowName": config.FlowJobName}).Info("sending walheartbeat every 10 minutes")
-	ticker := time.NewTicker(10 * time.Minute)
+func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, configs []*protos.PostgresConfig) error {
+	log.Info("sending walheartbeat every 10 minutes")
+	ticker := time.NewTicker(10 * time.Second)
 	for {
 		select {
 		case <-ctx.Done():
-			log.WithFields(
-				log.Fields{
-					"flowName": config.FlowJobName,
-				}).Info("context is done, exiting wal heartbeat send loop")
+			log.Info("context is done, exiting wal heartbeat send loop")
 			return nil
 		case <-ticker.C:
-			err = srcConn.SendWALHeartbeat()
-			if err != nil {
-				return fmt.Errorf("failed to send WAL heartbeat: %w", err)
+			command := `
+			BEGIN;
+			DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
+			CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
+			DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
+			END;
+			`
+			// run above command for each Postgres peer
+			for _, pgConfig := range configs {
+				peerPool, poolErr := pgxpool.New(ctx, utils.GetPGConnectionString(pgConfig))
+				if poolErr != nil {
+					return fmt.Errorf("error creating pool for postgres peer with host %v: %w", pgConfig.Host, poolErr)
+				}
+
+				_, err := peerPool.Exec(ctx, command)
+				if err == nil {
+					log.Infof("sent wal heartbeat to postgres peer with host %v and port %v", pgConfig.Host, pgConfig.Port)
+				} else {
+					log.Warnf("warning: could not send walheartbeat to host %v: %v", pgConfig.Host, err)
+				}
 			}
-			log.WithFields(
-				log.Fields{
-					"flowName": config.FlowJobName,
-				}).Info("sent wal heartbeat")
+
 		}
 	}
 }
