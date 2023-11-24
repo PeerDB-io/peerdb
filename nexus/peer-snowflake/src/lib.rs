@@ -142,8 +142,8 @@ impl SnowflakeQueryExecutor {
             auth: SnowflakeAuth::new(
                 config.account_id.clone(),
                 config.username.clone(),
-                config.private_key.clone(),
-                config.password.clone(),
+                &config.private_key,
+                config.password.as_deref(),
                 DEFAULT_REFRESH_THRESHOLD,
                 DEFAULT_EXPIRY_THRESHOLD,
             )?,

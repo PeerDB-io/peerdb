@@ -36,21 +36,20 @@ pub struct SnowflakeAuth {
 }
 
 impl SnowflakeAuth {
-    // When initializing, private_key must not be copied, to improve security of credentials.
     #[tracing::instrument(name = "peer_sflake::init_client_auth", skip_all)]
     pub fn new(
         account_id: String,
         username: String,
-        private_key: String,
-        password: Option<String>,
+        private_key: &str,
+        password: Option<&str>,
         refresh_threshold: u64,
         expiry_threshold: u64,
     ) -> anyhow::Result<Self> {
         let pkey = match password {
-            Some(pw) => DecodePrivateKey::from_pkcs8_encrypted_pem(&private_key, pw)
+            Some(pw) => DecodePrivateKey::from_pkcs8_encrypted_pem(private_key, pw)
                 .context("Invalid private key or decryption failed")?,
             None => {
-                DecodePrivateKey::from_pkcs8_pem(&private_key).context("Invalid private key")?
+                DecodePrivateKey::from_pkcs8_pem(private_key).context("Invalid private key")?
             }
         };
         let mut snowflake_auth: SnowflakeAuth = SnowflakeAuth {
