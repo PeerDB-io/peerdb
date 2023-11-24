@@ -166,6 +166,16 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.EnableMetricsKey, a.EnableMetrics)
 	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
 
+	lastSyncState, err := a.GetLastSyncedID(ctx, &protos.GetLastSyncedIDInput{
+		PeerConnectionConfig: conn.Destination,
+		FlowJobName:          conn.FlowJobName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last synced ID: %w", err)
+	}
+
+	input.LastSyncState = lastSyncState
+
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)

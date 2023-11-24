@@ -238,7 +238,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				numRowsProcessedMessage := fmt.Sprintf("processed %d rows", len(localRecords))
-				log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
+				log.Infof("[%s] Sent Standby status message. %s", req.FlowJobName, numRowsProcessedMessage)
 				standByLastLogged = time.Now()
 			}
 
