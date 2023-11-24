@@ -855,17 +855,6 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(columnName)))
 	}
 
-	// add soft delete and synced at columns to the list of columns
-	if normalizeReq.SoftDelete {
-		colName := normalizeReq.SoftDeleteColName
-		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(colName)))
-	}
-
-	if normalizeReq.SyncedAtColName != "" {
-		colName := normalizeReq.SyncedAtColName
-		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(colName)))
-	}
-
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
 
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
@@ -874,21 +863,23 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", quotedUpperColumnName))
 	}
 
-	// add soft delete and synced at columns to the list of columns
-	if normalizeReq.SoftDelete {
-		// add false as default value for soft delete column
-		insertValuesSQLArray = append(insertValuesSQLArray, "FALSE,")
-	}
-
-	if normalizeReq.SyncedAtColName != "" {
-		// add current timestamp as default value for synced at column
-		insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP,")
-	}
-
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
-	updateStatementsforToastCols := c.generateUpdateStatement(normalizeReq.SyncedAtColName,
+	updateStatementsforToastCols := c.generateUpdateStatements(normalizeReq.SyncedAtColName,
 		normalizeReq.SoftDeleteColName, columnNames, unchangedToastColumns)
+
+	// handling the case when an insert and delete happen in the same batch, with updates in the middle
+	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
+	// the current merge statement doesn't do that, so we add another case to insert the DeleteRecord
+	if normalizeReq.SoftDelete {
+		softDeleteInsertColumnsSQL := strings.TrimSuffix(strings.Join(append(quotedUpperColNames,
+			normalizeReq.SoftDeleteColName), ","), ",")
+		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), "")
+
+		updateStatementsforToastCols = append(updateStatementsforToastCols,
+			fmt.Sprintf("WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN INSERT (%s) VALUES(%s)",
+				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))
+	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
 	pkeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
@@ -1036,7 +1027,7 @@ and updating the other columns.
 6. Repeat steps 1-5 for each unique set of unchanged toast column groups.
 7. Return the list of generated update statements.
 */
-func (c *SnowflakeConnector) generateUpdateStatement(
+func (c *SnowflakeConnector) generateUpdateStatements(
 	syncedAtCol string, softDeleteCol string,
 	allCols []string, unchangedToastCols []string) []string {
 	updateStmts := make([]string, 0)

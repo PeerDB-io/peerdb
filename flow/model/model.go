@@ -296,7 +296,7 @@ func (r *DeleteRecord) GetCheckPointID() int64 {
 }
 
 func (r *DeleteRecord) GetTableName() string {
-	return r.SourceTableName
+	return r.DestinationTableName
 }
 
 func (r *DeleteRecord) GetItems() *RecordItems {

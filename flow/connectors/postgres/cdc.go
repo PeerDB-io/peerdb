@@ -396,6 +396,21 @@ func (p *PostgresCDCSource) consumeStream(
 						tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
 					}
 				case *model.DeleteRecord:
+					compositePKeyString, err := p.compositePKeyToString(req, rec)
+					if err != nil {
+						return err
+					}
+
+					tablePkeyVal := model.TableWithPkey{
+						TableName:  tableName,
+						PkeyColVal: compositePKeyString,
+					}
+					_, ok := tablePKeyLastSeen[tablePkeyVal]
+					if ok {
+						latestRecord := localRecords[tablePKeyLastSeen[tablePkeyVal]]
+						deleteRecord := rec.(*model.DeleteRecord)
+						deleteRecord.Items = latestRecord.GetItems()
+					}
 					addRecord(rec)
 				case *model.RelationRecord:
 					tableSchemaDelta := r.TableSchemaDelta
