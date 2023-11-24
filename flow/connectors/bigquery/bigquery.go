@@ -457,16 +457,15 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 }
 
 // SyncRecords pushes records to the destination.
-// currently only supports inserts,updates and deletes
-// more record types will be added in the future.
+// Currently only supports inserts, updates, and deletes.
+// More record types will be added in the future.
 func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	log.Printf("pushing records to %s.%s...", c.datasetID, rawTableName)
 
-	// generate a sequential number for the last synced batch
-	// this sequence will be used to keep track of records that are normalized
-	// in the NormalizeFlowWorkflow
+	// generate a sequential number for last synced batch this sequence will be
+	// used to keep track of records that are normalized in NormalizeFlowWorkflow
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)

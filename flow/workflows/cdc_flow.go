@@ -367,74 +367,7 @@ func CDCFlowWorkflowWithConfig(
 
 		w.logger.Info("Total records synced: ", totalRecordsSynced)
 
-		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
-		if err != nil {
-			return state, err
-		}
-
-		childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        normalizeFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 20,
-			},
-			SearchAttributes: mirrorNameSearch,
-		}
-		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
-
-		var tableSchemaDeltas []*protos.TableSchemaDelta = nil
-		if childSyncFlowRes != nil {
-			tableSchemaDeltas = childSyncFlowRes.TableSchemaDeltas
-		}
-
-		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-		if tableSchemaDeltas != nil {
-			modifiedSrcTables := make([]string, 0, len(tableSchemaDeltas))
-			modifiedDstTables := make([]string, 0, len(tableSchemaDeltas))
-
-			for _, tableSchemaDelta := range tableSchemaDeltas {
-				modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
-				modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
-			}
-
-			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 5 * time.Minute,
-			})
-			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
-				&protos.GetTableSchemaBatchInput{
-					PeerConnectionConfig: cfg.Source,
-					TableIdentifiers:     modifiedSrcTables,
-				})
-
-			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
-			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
-				w.logger.Error("failed to execute schema update at source: ", err)
-				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
-			} else {
-				for i := range modifiedSrcTables {
-					cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
-						getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
-				}
-			}
-		}
-
-		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
-			ctx,
-			NormalizeFlowWorkflow,
-			cfg,
-		)
-
-		selector := workflow.NewSelector(ctx)
-		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
-			var childNormalizeFlowRes *model.NormalizeResponse
-			if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
-				w.logger.Error("failed to execute normalize flow: ", err)
-				state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
-			} else {
-				state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
-			}
-		})
-		selector.Select(ctx)
+		/* TODO send childSyncFlowRes.TableSchemaDeltas */
 	}
 
 	state.TruncateProgress()
