@@ -133,6 +133,9 @@ func (c *EventHubConnector) processBatch(
 	ticker := time.NewTicker(eventHubFlushTimeout)
 	defer ticker.Stop()
 
+	lastSeenLSN := int64(0)
+	lastUpdatedOffset := int64(0)
+
 	numRecords := 0
 	for {
 		select {
@@ -150,6 +153,12 @@ func (c *EventHubConnector) processBatch(
 			}
 
 			numRecords++
+
+			recordLSN := record.GetCheckPointID()
+			if recordLSN > lastSeenLSN {
+				lastSeenLSN = recordLSN
+			}
+
 			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
 			if err != nil {
 				log.WithFields(log.Fields{
@@ -184,6 +193,15 @@ func (c *EventHubConnector) processBatch(
 			err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
 			if err != nil {
 				return 0, err
+			}
+
+			if lastSeenLSN > lastUpdatedOffset {
+				err = c.updateLastOffset(flowJobName, lastSeenLSN)
+				lastUpdatedOffset = lastSeenLSN
+				log.Infof("[eh] updated last offset for %s to %d", flowJobName, lastSeenLSN)
+				if err != nil {
+					return 0, fmt.Errorf("failed to update last offset: %v", err)
+				}
 			}
 
 			ticker.Stop()
