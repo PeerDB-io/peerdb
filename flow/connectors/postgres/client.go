@@ -126,19 +126,15 @@ func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *utils.SchemaTable)
 		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 	}
 	defer rows.Close()
-	// 0 rows returned, table has no primary keys
-	if !rows.Next() {
-		return nil, fmt.Errorf("table %s has no primary keys", schemaTable)
-	}
 	for {
+		if !rows.Next() {
+			break
+		}
 		err = rows.Scan(&pkCol)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning primary key column for table %s: %w", schemaTable, err)
 		}
 		pkCols = append(pkCols, pkCol)
-		if !rows.Next() {
-			break
-		}
 	}
 
 	return pkCols, nil
@@ -314,13 +310,15 @@ func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
 	}
 
 	// add composite primary key to the table
-	primaryKeyColsQuoted := make([]string, 0)
-	for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
-		primaryKeyColsQuoted = append(primaryKeyColsQuoted,
-			fmt.Sprintf(`"%s"`, primaryKeyCol))
+	if len(sourceTableSchema.PrimaryKeyColumns) > 0 {
+		primaryKeyColsQuoted := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
+		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
+			primaryKeyColsQuoted = append(primaryKeyColsQuoted,
+				fmt.Sprintf(`"%s"`, primaryKeyCol))
+		}
+		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
+			strings.TrimSuffix(strings.Join(primaryKeyColsQuoted, ","), ",")))
 	}
-	createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
-		strings.TrimSuffix(strings.Join(primaryKeyColsQuoted, ","), ",")))
 
 	return fmt.Sprintf(createNormalizedTableSQL, sourceTableIdentifier,
 		strings.TrimSuffix(strings.Join(createTableSQLArray, ""), ","))
