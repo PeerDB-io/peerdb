@@ -1,14 +1,11 @@
 import type { NextRequest } from 'next/server';
-
 import { NextResponse } from 'next/server';
 
 export default function middleware(req: NextRequest) {
   if (
-    req.nextUrl.pathname !== '/favicon.ico' &&
     req.nextUrl.pathname !== '/login' &&
     req.nextUrl.pathname !== '/api/login' &&
-    !req.nextUrl.pathname.startsWith('/images/') &&
-    !req.nextUrl.pathname.startsWith('/_next/static/') &&
+    req.nextUrl.pathname !== '/api/logout' &&
     process.env.PEERDB_PASSWORD &&
     req.cookies.get('auth')?.value !== process.env.PEERDB_PASSWORD
   ) {
@@ -17,3 +14,10 @@ export default function middleware(req: NextRequest) {
   }
   return NextResponse.next();
 }
+
+export const config = {
+  matcher: [
+    // Match everything other than static assets
+    '/((?!_next/static/|images/|favicon.ico$).*)',
+  ],
+};
