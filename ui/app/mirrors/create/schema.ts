@@ -58,24 +58,24 @@ export const cdcSchema = z.object({
     .optional(),
   snapshotNumRowsPerPartition: z
     .number({
-      invalid_type_error: 'Snapshow rows per partition must be a number',
+      invalid_type_error: 'Snapshot rows per partition must be a number',
     })
     .int()
-    .min(1, 'Snapshow rows per partition must be a positive integer')
+    .min(1, 'Snapshot rows per partition must be a positive integer')
     .optional(),
   snapshotMaxParallelWorkers: z
     .number({
-      invalid_type_error: 'Snapshow max workers must be a number',
+      invalid_type_error: 'Snapshot max workers must be a number',
     })
     .int()
-    .min(1, 'Snapshow max workers must be a positive integer')
+    .min(1, 'Snapshot max workers must be a positive integer')
     .optional(),
   snapshotNumTablesInParallel: z
     .number({
-      invalid_type_error: 'Snapshow parallel tables must be a number',
+      invalid_type_error: 'Snapshot parallel tables must be a number',
     })
     .int()
-    .min(1, 'Snapshow parallel tables must be a positive integer')
+    .min(1, 'Snapshot parallel tables must be a positive integer')
     .optional(),
   snapshotStagingPath: z
     .string({

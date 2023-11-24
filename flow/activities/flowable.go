@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -12,14 +13,17 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	catalog "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
@@ -659,31 +663,89 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 	return nil
 }
 
-func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, config *protos.FlowConnectionConfigs) error {
-	srcConn, err := connectors.GetCDCPullConnector(ctx, config.Source)
-	if err != nil {
-		return fmt.Errorf("failed to get destination connector: %w", err)
+func getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
+	var peerOptions sql.RawBytes
+	catalogPool, catalogErr := catalog.GetCatalogConnectionPoolFromEnv()
+	if catalogErr != nil {
+		return nil, fmt.Errorf("error getting catalog connection pool: %w", catalogErr)
 	}
-	defer connectors.CloseConnector(srcConn)
-	log.WithFields(log.Fields{"flowName": config.FlowJobName}).Info("sending walheartbeat every 10 minutes")
-	ticker := time.NewTicker(10 * time.Minute)
+	defer catalogPool.Close()
+
+	optionRows, err := catalogPool.Query(ctx,
+		"SELECT name, options FROM peers WHERE type=$1", protos.DBType_POSTGRES)
+	if err != nil {
+		return nil, err
+	}
+	defer optionRows.Close()
+	var peerName string
+	var postgresPeers []*protos.Peer
+	for optionRows.Next() {
+		err := optionRows.Scan(&peerName, &peerOptions)
+		if err != nil {
+			return nil, err
+		}
+		var pgPeerConfig protos.PostgresConfig
+		unmarshalErr := proto.Unmarshal(peerOptions, &pgPeerConfig)
+		if unmarshalErr != nil {
+			return nil, unmarshalErr
+		}
+		postgresPeers = append(postgresPeers, &protos.Peer{
+			Name:   peerName,
+			Type:   protos.DBType_POSTGRES,
+			Config: &protos.Peer_PostgresConfig{PostgresConfig: &pgPeerConfig},
+		})
+	}
+	return postgresPeers, nil
+}
+
+func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
+	sendTimeout := 10 * time.Minute
+	ticker := time.NewTicker(sendTimeout)
+	defer ticker.Stop()
+
+	pgPeers, err := getPostgresPeerConfigs(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting postgres peer configs: %w", err)
+	}
+
+	activity.RecordHeartbeat(ctx, "sending walheartbeat every 10 minutes")
 	for {
 		select {
 		case <-ctx.Done():
-			log.WithFields(
-				log.Fields{
-					"flowName": config.FlowJobName,
-				}).Info("context is done, exiting wal heartbeat send loop")
+			log.Info("context is done, exiting wal heartbeat send loop")
 			return nil
 		case <-ticker.C:
-			err = srcConn.SendWALHeartbeat()
-			if err != nil {
-				return fmt.Errorf("failed to send WAL heartbeat: %w", err)
+			command := `
+			BEGIN;
+			DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
+			CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
+			DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
+			END;
+			`
+			// run above command for each Postgres peer
+			for _, pgPeer := range pgPeers {
+				pgConfig := pgPeer.GetPostgresConfig()
+				peerConn, peerErr := pgx.Connect(ctx, utils.GetPGConnectionString(pgConfig))
+				if peerErr != nil {
+					return fmt.Errorf("error creating pool for postgres peer %v with host %v: %w",
+						pgPeer.Name, pgConfig.Host, peerErr)
+				}
+
+				_, err := peerConn.Exec(ctx, command)
+				if err != nil {
+					log.Warnf("warning: could not send walheartbeat to peer %v: %v", pgPeer.Name, err)
+				}
+
+				closeErr := peerConn.Close(ctx)
+				if closeErr != nil {
+					return fmt.Errorf("error closing postgres connection for peer %v with host %v: %w",
+						pgPeer.Name, pgConfig.Host, closeErr)
+				}
+				log.Infof("sent walheartbeat to peer %v", pgPeer.Name)
 			}
-			log.WithFields(
-				log.Fields{
-					"flowName": config.FlowJobName,
-				}).Info("sent wal heartbeat")
+			ticker.Stop()
+			ticker = time.NewTicker(sendTimeout)
+
 		}
 	}
 }
