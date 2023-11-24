@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -12,15 +13,17 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	catalog "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
@@ -660,9 +663,46 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 	return nil
 }
 
-func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, configs []*protos.PostgresConfig) error {
-	log.Info("sending walheartbeat every 10 minutes")
-	ticker := time.NewTicker(10 * time.Second)
+func GetPostgresPeerConfigs(ctx context.Context) ([]*protos.PostgresConfig, error) {
+	var peerOptions sql.RawBytes
+	catalogPool, catalogErr := catalog.GetCatalogConnectionPoolFromEnv()
+	if catalogErr != nil {
+		return nil, fmt.Errorf("error getting catalog connection pool: %w", catalogErr)
+	}
+	defer catalogPool.Close()
+
+	optionRows, err := catalogPool.Query(ctx, "SELECT options FROM peers WHERE type=3")
+	if err != nil {
+		return nil, err
+	}
+	defer optionRows.Close()
+	var peerConfigs []*protos.PostgresConfig
+	for optionRows.Next() {
+		err := optionRows.Scan(&peerOptions)
+		if err != nil {
+			return nil, err
+		}
+		var pgPeerConfig protos.PostgresConfig
+		unmarshalErr := proto.Unmarshal(peerOptions, &pgPeerConfig)
+		if unmarshalErr != nil {
+			return nil, unmarshalErr
+		}
+		peerConfigs = append(peerConfigs, &pgPeerConfig)
+	}
+	return peerConfigs, nil
+}
+
+func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
+	sendTimeout := 10 * time.Second
+	ticker := time.NewTicker(sendTimeout)
+	defer ticker.Stop()
+
+	pgConfigs, err := GetPostgresPeerConfigs(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting postgres peer configs: %w", err)
+	}
+
+	activity.RecordHeartbeat(ctx, "sending walheartbeat every 10 minutes")
 	for {
 		select {
 		case <-ctx.Done():
@@ -677,19 +717,24 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context, configs []*prot
 			END;
 			`
 			// run above command for each Postgres peer
-			for _, pgConfig := range configs {
-				peerPool, poolErr := pgxpool.New(ctx, utils.GetPGConnectionString(pgConfig))
-				if poolErr != nil {
-					return fmt.Errorf("error creating pool for postgres peer with host %v: %w", pgConfig.Host, poolErr)
+			for _, pgConfig := range pgConfigs {
+				peerConn, peerErr := pgx.Connect(ctx, utils.GetPGConnectionString(pgConfig))
+				if peerErr != nil {
+					return fmt.Errorf("error creating pool for postgres peer with host %v: %w", pgConfig.Host, peerErr)
 				}
 
-				_, err := peerPool.Exec(ctx, command)
-				if err == nil {
-					log.Infof("sent wal heartbeat to postgres peer with host %v and port %v", pgConfig.Host, pgConfig.Port)
-				} else {
+				_, err := peerConn.Exec(ctx, command)
+				if err != nil {
 					log.Warnf("warning: could not send walheartbeat to host %v: %v", pgConfig.Host, err)
 				}
+
+				closeErr := peerConn.Close(ctx)
+				if closeErr != nil {
+					return fmt.Errorf("error closing postgres connection for host %v: %w", pgConfig.Host, closeErr)
+				}
 			}
+			ticker.Stop()
+			ticker = time.NewTicker(sendTimeout)
 
 		}
 	}

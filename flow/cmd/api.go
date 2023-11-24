@@ -71,12 +71,11 @@ func KillExistingHeartbeatFlows(ctx context.Context, tc client.Client, namespace
 	if err != nil {
 		return fmt.Errorf("unable to list workflows: %w", err)
 	}
-	log.Info("Terminating pre-existing heartbeat flows")
+	log.Info("Requesting cancellation of pre-existing heartbeat flows")
 	for _, workflow := range listRes.Executions {
-		log.Info("Terminating workflow: ", workflow.Execution.WorkflowId)
-		err := tc.TerminateWorkflow(ctx,
-			workflow.Execution.WorkflowId, workflow.Execution.RunId,
-			"Terminate pre-existing heartbeat flows before kicking off the current one")
+		log.Info("Cancelling workflow: ", workflow.Execution.WorkflowId)
+		err := tc.CancelWorkflow(ctx,
+			workflow.Execution.WorkflowId, workflow.Execution.RunId)
 		if err != nil && err.Error() != "workflow execution already completed" {
 			return fmt.Errorf("unable to terminate workflow: %w", err)
 		}
@@ -127,16 +126,11 @@ func APIMain(args *APIServerParams) error {
 		ID:        workflowID,
 		TaskQueue: shared.PeerFlowTaskQueue,
 	}
-	heartbeatRequest, err := flowHandler.GetPostgresPeerConfigs(ctx)
-	if err != nil {
-		return fmt.Errorf("unable to get postgres peer configs: %w", err)
-	}
 
 	_, err = flowHandler.temporalClient.ExecuteWorkflow(
 		ctx,                            // context
 		workflowOptions,                // workflow start options
 		peerflow.HeartbeatFlowWorkflow, // workflow function
-		heartbeatRequest,               // workflow input
 	)
 	if err != nil {
 		return fmt.Errorf("unable to start heartbeat workflow: %w", err)
