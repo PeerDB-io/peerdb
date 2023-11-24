@@ -151,7 +151,6 @@ type FlowConnectionGenerationConfig struct {
 	TableNameMapping map[string]string
 	PostgresPort     int
 	Destination      *protos.Peer
-	CDCSyncMode      protos.QRepSyncMode
 	CdcStagingPath   string
 }
 
@@ -182,7 +181,6 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 	ret.TableMappings = tblMappings
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
 	ret.Destination = c.Destination
-	ret.CdcSyncMode = c.CDCSyncMode
 	ret.CdcStagingPath = c.CdcStagingPath
 	ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	ret.SyncedAtColName = "_PEERDB_SYNCED_AT"
@@ -200,7 +198,7 @@ type QRepFlowConnectionGenerationConfig struct {
 
 // GenerateQRepConfig generates a qrep config for testing.
 func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
-	query string, watermark string, syncMode protos.QRepSyncMode) (*protos.QRepConfig, error) {
+	query string, watermark string) (*protos.QRepConfig, error) {
 	ret := &protos.QRepConfig{}
 	ret.FlowJobName = c.FlowJobName
 	ret.WatermarkTable = c.WatermarkTable
@@ -214,7 +212,6 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	ret.Query = query
 	ret.WatermarkColumn = watermark
 
-	ret.SyncMode = syncMode
 	ret.StagingPath = c.StagingPath
 	ret.WriteMode = &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,

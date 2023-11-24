@@ -40,6 +40,7 @@ use pt::{
     peerdb_peers::{peer::Config, Peer},
 };
 use rand::Rng;
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{Mutex, MutexGuard};
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -1371,8 +1372,13 @@ pub async fn main() -> anyhow::Result<()> {
         None
     };
 
+    let mut sigintstream = signal(SignalKind::interrupt()).expect("Failed to setup signal handler");
     loop {
-        let (mut socket, _) = listener.accept().await.unwrap();
+        let (mut socket, _) = tokio::select! {
+            _ = sigintstream.recv() => return Ok(()),
+            v = listener.accept() => v,
+        }
+        .unwrap();
         let catalog = match Catalog::new(&catalog_config).await {
             Ok(c) => c,
             Err(e) => {

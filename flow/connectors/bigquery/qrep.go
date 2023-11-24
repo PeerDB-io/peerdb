@@ -48,17 +48,8 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		" partition %s of destination table %s",
 		partition.PartitionId, destTable)
 
-	syncMode := config.SyncMode
-	switch syncMode {
-	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
-		stagingTableSync := &QRepStagingTableSync{connector: c}
-		return stagingTableSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, stream)
-	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
-		avroSync := &QRepAvroSyncMethod{connector: c, gcsBucket: config.StagingPath}
-		return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, stream)
-	default:
-		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
-	}
+	avroSync := &QRepAvroSyncMethod{connector: c, gcsBucket: config.StagingPath}
+	return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, stream)
 }
 
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfig, partition *protos.QRepPartition,

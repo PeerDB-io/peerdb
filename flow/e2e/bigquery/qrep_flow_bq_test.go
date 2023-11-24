@@ -6,7 +6,6 @@ import (
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,9 +63,8 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
 		tblName,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.bqHelper.Peer,
-		"peerdb_staging")
+		"")
 	s.NoError(err)
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
