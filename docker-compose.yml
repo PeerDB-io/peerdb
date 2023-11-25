@@ -150,7 +150,7 @@ services:
     environment:
       <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
-      PEERDB_PASSWORD: peerdb
+      PEERDB_PASSWORD:
       PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
       RUST_LOG: info
       RUST_BACKTRACE: 1
