@@ -508,14 +508,15 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 			destinationTableIdentifier, columnName, columnCast))
 	}
 	deleteWhereClauseSQL := strings.TrimSuffix(strings.Join(deleteWhereClauseArray, ""), "AND ")
+	parsedDstTable, _ := utils.ParseSchemaTable(destinationTableIdentifier)
 
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
 		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), c.metadataSchema,
-		rawTableIdentifier, destinationTableIdentifier, insertColumnsSQL, flattenedCastsSQL,
+		rawTableIdentifier, parsedDstTable.String(), insertColumnsSQL, flattenedCastsSQL,
 		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
 		strings.Join(maps.Values(primaryKeyColumnCasts), ","), c.metadataSchema,
-		rawTableIdentifier, destinationTableIdentifier, deleteWhereClauseSQL)
+		rawTableIdentifier, parsedDstTable.String(), deleteWhereClauseSQL)
 
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
@@ -529,6 +530,8 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	}
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
+	parsedDstTable, _ := utils.ParseSchemaTable(destinationTableIdentifier)
+
 	primaryKeyColumnCasts := make(map[string]string)
 	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
@@ -558,7 +561,7 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	updateStatements := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 
 	return fmt.Sprintf(mergeStatementSQL, strings.Join(maps.Values(primaryKeyColumnCasts), ","),
-		c.metadataSchema, rawTableIdentifier, destinationTableIdentifier, flattenedCastsSQL,
+		c.metadataSchema, rawTableIdentifier, parsedDstTable.String(), flattenedCastsSQL,
 		strings.Join(primaryKeySelectSQLArray, " AND "), insertColumnsSQL, insertValuesSQL, updateStatements)
 }
 
@@ -582,40 +585,6 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 		updateStmts = append(updateStmts, updateStmt)
 	}
 	return strings.Join(updateStmts, "\n")
-}
-
-func (c *PostgresConnector) getApproxTableCounts(tables []string) (int64, error) {
-	countTablesBatch := &pgx.Batch{}
-	totalCount := int64(0)
-	for _, table := range tables {
-		parsedTable, err := utils.ParseSchemaTable(table)
-		if err != nil {
-			log.Errorf("error while parsing table %s: %v", table, err)
-			return 0, fmt.Errorf("error while parsing table %s: %w", table, err)
-		}
-		countTablesBatch.Queue(
-			fmt.Sprintf("SELECT reltuples::bigint AS estimate FROM pg_class WHERE oid = '%s'::regclass;",
-				parsedTable.String())).
-			QueryRow(func(row pgx.Row) error {
-				var count int64
-				err := row.Scan(&count)
-				if err != nil {
-					log.WithFields(log.Fields{
-						"table": table,
-					}).Errorf("error while scanning row: %v", err)
-					return fmt.Errorf("error while scanning row: %w", err)
-				}
-				totalCount += count
-				return nil
-			})
-	}
-	countTablesResults := c.pool.SendBatch(c.ctx, countTablesBatch)
-	err := countTablesResults.Close()
-	if err != nil {
-		log.Errorf("error while closing statement batch: %v", err)
-		return 0, fmt.Errorf("error while closing statement batch: %w", err)
-	}
-	return totalCount, nil
 }
 
 func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {

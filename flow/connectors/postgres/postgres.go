@@ -635,11 +635,11 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 	}()
 
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		normalizedTableNameComponents, err := utils.ParseSchemaTable(tableIdentifier)
+		parsedNormalizedTable, err := utils.ParseSchemaTable(tableIdentifier)
 		if err != nil {
 			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 		}
-		tableAlreadyExists, err := c.tableExists(normalizedTableNameComponents)
+		tableAlreadyExists, err := c.tableExists(parsedNormalizedTable)
 		if err != nil {
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
@@ -649,7 +649,8 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 		}
 
 		// convert the column names and types to Postgres types
-		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(tableIdentifier, tableSchema)
+		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
+			parsedNormalizedTable.String(), tableSchema)
 		_, err = createNormalizedTablesTx.Exec(c.ctx, normalizedTableCreateSQL)
 		if err != nil {
 			return nil, fmt.Errorf("error while creating normalized table: %w", err)
