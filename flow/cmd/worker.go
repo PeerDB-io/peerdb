@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/tls"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"os/signal"
@@ -95,23 +94,12 @@ func WorkerMain(opts *WorkerOptions) error {
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		log.Info("Using temporal certificate/key for authentication")
-		certBytes, err := base64.StdEncoding.DecodeString(opts.TemporalCert)
+		certs, err := ProcessCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to decode temporal certificate: %w", err)
+			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}
-
-		keyBytes, err := base64.StdEncoding.DecodeString(opts.TemporalKey)
-		if err != nil {
-			return fmt.Errorf("unable to decode temporal key: %w", err)
-		}
-
-		cert, err := tls.X509KeyPair(certBytes, keyBytes)
-		if err != nil {
-			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
-		}
-
 		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{Certificates: []tls.Certificate{cert}},
+			TLS: &tls.Config{Certificates: certs},
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}
