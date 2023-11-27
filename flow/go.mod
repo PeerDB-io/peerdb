@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go/storage v1.35.1
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.0.2
-	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.1.1
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.2.0
 	github.com/aws/aws-sdk-go v1.47.9
 	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/google/uuid v1.4.0
@@ -30,7 +30,7 @@ require (
 	github.com/twpayne/go-geos v0.14.0
 	github.com/urfave/cli/v2 v2.25.7
 	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
-	go.temporal.io/api v1.25.0
+	go.temporal.io/api v1.26.0
 	go.temporal.io/sdk v1.25.1
 	go.uber.org/atomic v1.11.0
 	go.uber.org/automaxprocs v1.5.3
