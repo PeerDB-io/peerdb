@@ -114,7 +114,17 @@ export default function QRepConfigForm({
   ) => {
     if (val) {
       if (setting.label === 'Table') {
-        setter((curr) => ({ ...curr, destinationTableIdentifier: val }));
+        if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
+          setter((curr) => ({
+            ...curr,
+            destinationTableIdentifier: val.split('.')[1],
+          }));
+        } else {
+          setter((curr) => ({
+            ...curr,
+            destinationTableIdentifier: val,
+          }));
+        }
         loadColumnOptions(val);
       }
       handleChange(val, setting);
@@ -126,6 +136,20 @@ export default function QRepConfigForm({
       setSourceTables(tables?.map((table) => ({ value: table, label: table })))
     );
   }, [mirrorConfig.sourcePeer]);
+
+  useEffect(() => {
+    if (mirrorConfig.destinationPeer?.type === DBType.BIGQUERY) {
+      setter((curr) => ({
+        ...curr,
+        destinationTableIdentifier: mirrorConfig.watermarkTable?.split('.')[1],
+      }));
+    } else {
+      setter((curr) => ({
+        ...curr,
+        destinationTableIdentifier: mirrorConfig.watermarkTable,
+      }));
+    }
+  }, [mirrorConfig.destinationPeer, mirrorConfig.watermarkTable, setter]);
 
   useEffect(() => {
     // set defaults
@@ -255,12 +279,7 @@ export default function QRepConfigForm({
                       type={setting.type}
                       defaultValue={
                         setting.label === 'Destination Table Name'
-                          ? mirrorConfig.destinationPeer?.type ===
-                            DBType.BIGQUERY
-                            ? mirrorConfig.destinationTableIdentifier?.split(
-                                '.'
-                              )[1]
-                            : mirrorConfig.destinationTableIdentifier
+                          ? mirrorConfig.destinationTableIdentifier
                           : setting.default
                       }
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
