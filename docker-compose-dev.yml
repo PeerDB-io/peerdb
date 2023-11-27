@@ -13,6 +13,7 @@ x-flow-worker-env: &flow-worker-env
   TEMPORAL_HOST_PORT: temporal:7233
   PEERDB_TEMPORAL_NAMESPACE: default
   # For the below 2 cert and key variables,
+  # paste as base64 encoded strings.
   # use yml multiline syntax with '|'
   TEMPORAL_CLIENT_CERT:
   TEMPORAL_CLIENT_KEY:
