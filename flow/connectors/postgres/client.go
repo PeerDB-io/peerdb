@@ -495,20 +495,20 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
+	parsedDstTable, _ := utils.ParseSchemaTable(destinationTableIdentifier)
 
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(columnNames, ","), ",")
 	updateColumnsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName := range normalizedTableSchema.Columns {
-		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf("%s=EXCLUDED.%s", columnName, columnName))
+		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`"%s"=EXCLUDED."%s"`, columnName, columnName))
 	}
 	updateColumnsSQL := strings.TrimSuffix(strings.Join(updateColumnsSQLArray, ","), ",")
 	deleteWhereClauseArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
-		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf("%s.%s=%s AND ",
-			destinationTableIdentifier, columnName, columnCast))
+		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf(`%s."%s"=%s AND `,
+			parsedDstTable.String(), columnName, columnCast))
 	}
 	deleteWhereClauseSQL := strings.TrimSuffix(strings.Join(deleteWhereClauseArray, ""), "AND ")
-	parsedDstTable, _ := utils.ParseSchemaTable(destinationTableIdentifier)
 
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
 		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), c.metadataSchema,
