@@ -35,6 +35,10 @@ const (
 	QValueKindArrayInt32   QValueKind = "array_int32"
 	QValueKindArrayInt64   QValueKind = "array_int64"
 	QValueKindArrayString  QValueKind = "array_string"
+
+	// ts range types
+	QValueKindTSRange   QValueKind = "range_timestamp"
+	QValueKindTSTzRange QValueKind = "range_timestamptz"
 )
 
 func QValueKindIsArray(kind QValueKind) bool {

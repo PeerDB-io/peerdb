@@ -67,6 +67,10 @@ func postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 		return qvalue.QValueKindArrayFloat64
 	case pgtype.TextArrayOID, pgtype.VarcharArrayOID, pgtype.BPCharArrayOID:
 		return qvalue.QValueKindArrayString
+	case pgtype.TsrangeOID:
+		return qvalue.QValueKindTSRange
+	case pgtype.TstzrangeOID:
+		return qvalue.QValueKindTSTzRange
 	default:
 		typeName, ok := pgtype.NewMap().TypeForOID(recvOID)
 		if !ok {
@@ -139,6 +143,10 @@ func qValueKindToPostgresType(qvalueKind string) string {
 		return "DOUBLE PRECISION[]"
 	case qvalue.QValueKindArrayString:
 		return "TEXT[]"
+	case qvalue.QValueKindTSRange:
+		return "TSRANGE"
+	case qvalue.QValueKindTSTzRange:
+		return "TSTZRANGE"
 	default:
 		return "TEXT"
 	}
