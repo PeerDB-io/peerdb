@@ -706,16 +706,6 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	sendTimeout := 10 * time.Minute
 	ticker := time.NewTicker(sendTimeout)
 	defer ticker.Stop()
-
-	peerTableExists := true
-	pgPeers, err := getPostgresPeerConfigs(ctx)
-	if err != nil {
-		if strings.Contains(err.Error(), "does not exist") {
-			log.Warn("[sendwalheartbeat]: warning: no postgres peers found in catalog. Now I will be sleeping repeatedly")
-			peerTableExists = false
-		}
-	}
-
 	activity.RecordHeartbeat(ctx, "sending walheartbeat every 10 minutes")
 	for {
 		select {
@@ -723,7 +713,17 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 			log.Info("context is done, exiting wal heartbeat send loop")
 			return nil
 		case <-ticker.C:
-			if peerTableExists {
+			peersTableExists := true
+			pgPeers, err := getPostgresPeerConfigs(ctx)
+			if err != nil {
+				if strings.Contains(err.Error(), "does not exist") {
+					log.Warn("[sendwalheartbeat]: warning: peers table not found. skipping walheartbeat send.")
+					peersTableExists = false
+				}
+				return fmt.Errorf("error getting postgres peers: %w", err)
+			}
+
+			if peersTableExists {
 				command := `
 				BEGIN;
 				DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
@@ -753,9 +753,9 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 					log.Infof("sent walheartbeat to peer %v", pgPeer.Name)
 				}
 			}
-			ticker.Stop()
-			ticker = time.NewTicker(sendTimeout)
 		}
+		ticker.Stop()
+		ticker = time.NewTicker(sendTimeout)
 	}
 }
 
