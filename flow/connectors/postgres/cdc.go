@@ -594,7 +594,7 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 		if dt.Name == "uuid" {
 			// below is required to decode uuid to string
 			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
-		} else if dt.Name == "tstzrange" {
+		} else if dt.Name == "tstzrange" || dt.Name == "tsrange" {
 			// below is required to decode tstzrange to string
 			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
 		} else {
