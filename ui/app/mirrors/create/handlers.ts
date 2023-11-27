@@ -155,12 +155,21 @@ export const handleCreateCDC = async (
     setMsg({ ok: false, msg: flowNameErr });
     return;
   }
+
   const tableNameMapping = reformattedTableMapping(rows);
   const isValid = validateCDCFields(tableNameMapping, setMsg, config);
   if (!isValid) return;
 
   config['tableMappings'] = tableNameMapping as TableMapping[];
   config['flowJobName'] = flowJobName;
+
+  if (config.destination?.type == DBType.POSTGRES) {
+    config.cdcSyncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
+    config.snapshotSyncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
+  } else {
+    config.cdcSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
+    config.snapshotSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
+  }
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch('/api/mirrors/cdc', {
     method: 'POST',
@@ -220,6 +229,13 @@ export const handleCreateQRep = async (
   if (!isValid) return;
   config.flowJobName = flowJobName;
   config.query = query;
+
+  if (config.destinationPeer?.type == DBType.POSTGRES) {
+    config.syncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
+  } else {
+    config.syncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
+  }
+
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch(
     '/api/mirrors/qrep',
