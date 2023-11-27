@@ -1,6 +1,5 @@
 import {
   QRepConfig,
-  QRepSyncMode,
   QRepWriteMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
@@ -72,27 +71,13 @@ export const qrepSettings: MirrorSetting[] = [
     type: 'number',
   },
   {
-    label: 'Sync Mode',
-    stateHandler: (value, setter) =>
-      setter((curr: QRepConfig) => ({
-        ...curr,
-        syncMode:
-          (value as QRepSyncMode) || QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-      })),
-    tips: 'Specify whether you want the sync mode to be via SQL or by staging AVRO files. The default mode is SQL.',
-    default: 'SQL',
-    type: 'select',
-  },
-
-  {
     label: 'Staging Path',
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
         stagingPath: (value as string) || '',
       })),
-    tips: `You can specify staging path if you have set the sync mode as AVRO. For Snowflake as destination peer.
-    If this starts with gs:// then it will be written to GCS.
+    tips: `You can specify staging path for sync mode AVRO. For Snowflake as destination peer:
     If this starts with s3:// then it will be written to S3.
     If nothing is specified then it will be written to local disk.`,
   },

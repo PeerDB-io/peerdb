@@ -1,4 +1,3 @@
-import { QRepSyncMode } from '@/grpc_generated/flow';
 import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
@@ -64,37 +63,13 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'number',
   },
   {
-    label: 'Snapshot Sync Mode',
-    stateHandler: (value, setter) =>
-      setter((curr: CDCConfig) => ({
-        ...curr,
-        snapshotSyncMode:
-          (value as QRepSyncMode) || QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-      })),
-    tips: 'Specify whether you want the sync mode for initial load to be via SQL or by staging AVRO files. The default mode is SQL.',
-    default: 'SQL',
-    type: 'select',
-  },
-  {
-    label: 'CDC Sync Mode',
-    stateHandler: (value, setter) =>
-      setter((curr: CDCConfig) => ({
-        ...curr,
-        cdcSyncMode:
-          (value as QRepSyncMode) || QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-      })),
-    tips: 'Specify whether you want the sync mode for CDC to be via SQL or by staging AVRO files. The default mode is SQL.',
-    default: 'SQL',
-    type: 'select',
-  },
-  {
     label: 'Snapshot Staging Path',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
         snapshotStagingPath: value as string | '',
       })),
-    tips: 'You can specify staging path if you have set the Snapshot sync mode as AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL.',
+    tips: 'You can specify staging path for Snapshot sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
   },
   {
     label: 'CDC Staging Path',
@@ -103,7 +78,7 @@ export const cdcSettings: MirrorSetting[] = [
         ...curr,
         cdcStagingPath: (value as string) || '',
       })),
-    tips: 'You can specify staging path if you have set the CDC sync mode as AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket url',
+    tips: 'You can specify staging path for CDC sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
   },
   {
     label: 'Soft Delete',
