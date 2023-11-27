@@ -187,6 +187,15 @@ export const handleCreateCDC = async (
   setLoading(false);
 };
 
+const quotedWatermarkTable = (watermarkTable: string): string => {
+  if (watermarkTable.includes('.')) {
+    const [schema, table] = watermarkTable.split('.');
+    return `"${schema}"."${table}"`;
+  } else {
+    return `"${watermarkTable}"`;
+  }
+};
+
 export const handleCreateQRep = async (
   flowJobName: string,
   query: string,
@@ -210,7 +219,9 @@ export const handleCreateQRep = async (
 
   if (xmin == true) {
     config.watermarkColumn = 'xmin';
-    config.query = `SELECT * FROM ${config.watermarkTable} WHERE xmin::text::bigint BETWEEN {{.start}} AND {{.end}}`;
+    config.query = `SELECT * FROM ${quotedWatermarkTable(
+      config.watermarkTable
+    )} WHERE xmin::text::bigint BETWEEN {{.start}} AND {{.end}}`;
     query = config.query;
     config.initialCopyOnly = false;
   }
