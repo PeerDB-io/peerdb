@@ -2,7 +2,9 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -26,7 +28,17 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
-		cert, err := tls.X509KeyPair([]byte(opts.TemporalCert), []byte(opts.TemporalKey))
+		certBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(opts.TemporalCert))
+		if err != nil {
+			return fmt.Errorf("unable to decode temporal certificate: %w", err)
+		}
+
+		keyBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(opts.TemporalKey))
+		if err != nil {
+			return fmt.Errorf("unable to decode temporal key: %w", err)
+		}
+
+		cert, err := tls.X509KeyPair(certBytes, keyBytes)
 		if err != nil {
 			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
 		}
@@ -36,6 +48,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}
+
 	c, err := client.Dial(clientOptions)
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
