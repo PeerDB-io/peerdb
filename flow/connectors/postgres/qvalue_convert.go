@@ -245,6 +245,20 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		default:
 			return nil, fmt.Errorf("failed to parse UUID: %v", value)
 		}
+	case qvalue.QValueKindTSRange:
+		tmpVal, err := decodeRangeValue(value.([]byte), pgtype.TsrangeOID, qvalue.QValueKindTSRange)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse tsrange: %w", err)
+		}
+
+		val = tmpVal
+	case qvalue.QValueKindTSTzRange:
+		tmpVal, err := decodeRangeValue(value.([]byte), pgtype.TstzrangeOID, qvalue.QValueKindTSTzRange)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse tstzrange: %w", err)
+		}
+
+		val = tmpVal
 	case qvalue.QValueKindBytes:
 		rawBytes := value.([]byte)
 		val = &qvalue.QValue{Kind: qvalue.QValueKindBytes, Value: rawBytes}
@@ -372,6 +386,22 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
 	}
 	return val, nil
+}
+
+func decodeRangeValue(value []byte, oid uint32, kind qvalue.QValueKind) (*qvalue.QValue, error) {
+	typeMap := pgtype.NewMap()
+	typ, ok := typeMap.TypeForOID(oid)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse range: %v", value)
+	}
+
+	parsedData, err := typ.Codec.DecodeDatabaseSQLValue(
+		typeMap, oid, pgtype.TextFormatCode, value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse range: %v", value)
+	}
+
+	return &qvalue.QValue{Kind: kind, Value: parsedData}, nil
 }
 
 func parseFieldFromPostgresOID(oid uint32, value interface{}) (*qvalue.QValue, error) {
