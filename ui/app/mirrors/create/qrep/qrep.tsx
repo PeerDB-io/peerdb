@@ -51,24 +51,11 @@ export default function QRepConfigForm({
     { value: string; label: string }[]
   >([]);
   const [loading, setLoading] = useState(false);
-  const setToDefault = (setting: MirrorSetting) => {
-    const destinationPeerType = mirrorConfig.destinationPeer?.type;
-    return (
-      setting.label.includes('Sync') &&
-      (destinationPeerType === DBType.POSTGRES ||
-        destinationPeerType === DBType.SNOWFLAKE)
-    );
-  };
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean | QRepSyncMode | QRepWriteType | string[] =
       val;
-    if (setting.label.includes('Sync Mode')) {
-      stateVal =
-        val === 'AVRO'
-          ? QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO
-          : QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
-    } else if (setting.label.includes('Write Type')) {
+    if (setting.label.includes('Write Type')) {
       switch (val) {
         case 'Upsert':
           stateVal = QRepWriteType.QREP_WRITE_MODE_UPSERT;
@@ -86,6 +73,7 @@ export default function QRepConfigForm({
     }
     setting.stateHandler(stateVal, setter);
   };
+
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
     if (
@@ -93,7 +81,7 @@ export default function QRepConfigForm({
         mirrorConfig.writeMode?.writeType !=
           QRepWriteType.QREP_WRITE_MODE_UPSERT) ||
       (label.includes('staging') &&
-        mirrorConfig.syncMode?.toString() !== '1') ||
+        defaultSyncMode(mirrorConfig.destinationPeer?.type) !== 'AVRO') ||
       (label.includes('watermark column') && xmin) ||
       (label.includes('initial copy') && xmin)
     ) {
@@ -200,30 +188,13 @@ export default function QRepConfigForm({
                     }}
                   >
                     <div style={{ width: '100%' }}>
-                      {setting.label.includes('Sync') ||
-                      setting.label.includes('Write') ? (
+                      {setting.label.includes('Write') ? (
                         <ReactSelect
-                          placeholder='Select a mode'
-                          onChange={(val, action) =>
+                          placeholder='Select a write mode'
+                          onChange={(val) =>
                             val && handleChange(val.value, setting)
                           }
-                          isDisabled={setToDefault(setting)}
-                          defaultValue={
-                            setToDefault(setting)
-                              ? ((mode) =>
-                                  SyncModes.find((opt) => opt.value === mode) ||
-                                  WriteModes.find((opt) => opt.value === mode))(
-                                  defaultSyncMode(
-                                    mirrorConfig.destinationPeer?.type
-                                  )
-                                )
-                              : undefined
-                          }
-                          options={
-                            setting.label.includes('Sync')
-                              ? SyncModes
-                              : WriteModes
-                          }
+                          options={WriteModes}
                         />
                       ) : (
                         <ReactSelect

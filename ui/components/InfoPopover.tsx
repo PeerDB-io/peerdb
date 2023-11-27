@@ -17,9 +17,8 @@ export const InfoPopover = ({
 
       <Popover.Portal>
         <Popover.Content
-          style={{ position: 'absolute' }}
+          style={{ backgroundColor: '#fff' }}
           className='PopoverContent'
-          side='right'
           sideOffset={5}
         >
           <div
@@ -31,9 +30,11 @@ export const InfoPopover = ({
               minWidth: '15rem',
             }}
           >
-            <p className='Text' style={{ fontSize: 13 }}>
-              {tips}
-            </p>
+            {tips.split('.').map((sentence, index) => (
+              <p className='Text' style={{ fontSize: 13 }} key={index}>
+                {sentence.trim()}
+              </p>
+            ))}
 
             {link && (
               <a
