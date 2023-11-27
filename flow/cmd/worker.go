@@ -94,7 +94,7 @@ func WorkerMain(opts *WorkerOptions) error {
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
 		log.Info("Using temporal certificate/key for authentication")
-		certs, err := ProcessCertAndKey(opts.TemporalCert, opts.TemporalKey)
+		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
 			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}

@@ -92,7 +92,7 @@ func APIMain(args *APIServerParams) error {
 	if args.TemporalCert != "" && args.TemporalKey != "" {
 		log.Info("Using temporal certificate/key for authentication")
 
-		certs, err := ProcessCertAndKey(args.TemporalCert, args.TemporalKey)
+		certs, err := Base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
 		if err != nil {
 			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}

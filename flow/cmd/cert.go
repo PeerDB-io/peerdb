@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func ProcessCertAndKey(cert string, key string) ([]tls.Certificate, error) {
+func Base64DecodeCertAndKey(cert string, key string) ([]tls.Certificate, error) {
 	temporalCert := strings.TrimSpace(cert)
 	certBytes, err := base64.StdEncoding.DecodeString(temporalCert)
 	if err != nil {
