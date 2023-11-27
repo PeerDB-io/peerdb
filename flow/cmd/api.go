@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
@@ -93,23 +91,14 @@ func APIMain(args *APIServerParams) error {
 	}
 	if args.TemporalCert != "" && args.TemporalKey != "" {
 		log.Info("Using temporal certificate/key for authentication")
-		certBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(args.TemporalCert))
-		if err != nil {
-			return fmt.Errorf("unable to decode temporal certificate: %w", err)
-		}
 
-		keyBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(args.TemporalKey))
+		certs, err := Base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to decode temporal key: %w", err)
-		}
-
-		cert, err := tls.X509KeyPair(certBytes, keyBytes)
-		if err != nil {
-			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
+			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{Certificates: []tls.Certificate{cert}},
+			TLS: &tls.Config{Certificates: certs},
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}
