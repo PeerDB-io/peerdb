@@ -866,7 +866,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
 
 	updateStatementsforToastCols := c.generateUpdateStatements(normalizeReq.SyncedAtColName,
-		normalizeReq.SoftDeleteColName, columnNames, unchangedToastColumns)
+		normalizeReq.SoftDeleteColName, normalizeReq.SoftDelete,
+		columnNames, unchangedToastColumns)
 
 	// handling the case when an insert and delete happen in the same batch, with updates in the middle
 	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
@@ -1028,7 +1029,7 @@ and updating the other columns.
 7. Return the list of generated update statements.
 */
 func (c *SnowflakeConnector) generateUpdateStatements(
-	syncedAtCol string, softDeleteCol string,
+	syncedAtCol string, softDeleteCol string, softDelete bool,
 	allCols []string, unchangedToastCols []string) []string {
 	updateStmts := make([]string, 0)
 
@@ -1055,6 +1056,14 @@ func (c *SnowflakeConnector) generateUpdateStatements(
 		(SOURCE._PEERDB_RECORD_TYPE != 2) AND _PEERDB_UNCHANGED_TOAST_COLUMNS='%s'
 		THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
+		if softDelete && (softDeleteCol != "") {
+			tmpArray = append(tmpArray[:len(tmpArray)-1], fmt.Sprintf(`"%s" = TRUE`, softDeleteCol))
+			ssep := strings.Join(tmpArray, ", ")
+			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
+			(SOURCE._PEERDB_RECORD_TYPE = 2) AND _PEERDB_UNCHANGED_TOAST_COLUMNS='%s'
+			THEN UPDATE SET %s `, cols, ssep)
+			updateStmts = append(updateStmts, updateStmt)
+		}
 	}
 	return updateStmts
 }

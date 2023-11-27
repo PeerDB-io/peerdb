@@ -288,6 +288,8 @@ type DeleteRecord struct {
 	CheckPointID int64
 	// Items is a map of column name to value.
 	Items *RecordItems
+	// unchanged toast columns, filled from latest UpdateRecord
+	UnchangedToastColumns map[string]struct{}
 }
 
 // Implement Record interface for DeleteRecord.

@@ -410,6 +410,10 @@ func (p *PostgresCDCSource) consumeStream(
 						latestRecord := localRecords[tablePKeyLastSeen[tablePkeyVal]]
 						deleteRecord := rec.(*model.DeleteRecord)
 						deleteRecord.Items = latestRecord.GetItems()
+						updateRecord, ok := latestRecord.(*model.UpdateRecord)
+						if ok {
+							deleteRecord.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+						}
 					}
 					addRecord(rec)
 				case *model.RelationRecord:
