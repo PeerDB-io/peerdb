@@ -362,12 +362,12 @@ func (p *PostgresCDCSource) consumeStream(
 							TableName:  tableName,
 							PkeyColVal: compositePKeyString,
 						}
-						_, ok := tablePKeyLastSeen[tablePkeyVal]
+						recIndex, ok := tablePKeyLastSeen[tablePkeyVal]
 						if !ok {
 							addRecord(rec)
 							tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
 						} else {
-							oldRec := localRecords[tablePKeyLastSeen[tablePkeyVal]]
+							oldRec := localRecords[recIndex]
 							// iterate through unchanged toast cols and set them in new record
 							updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
 							for _, col := range updatedCols {
@@ -405,9 +405,9 @@ func (p *PostgresCDCSource) consumeStream(
 						TableName:  tableName,
 						PkeyColVal: compositePKeyString,
 					}
-					_, ok := tablePKeyLastSeen[tablePkeyVal]
+					recIndex, ok := tablePKeyLastSeen[tablePkeyVal]
 					if ok {
-						latestRecord := localRecords[tablePKeyLastSeen[tablePkeyVal]]
+						latestRecord := localRecords[recIndex]
 						deleteRecord := rec.(*model.DeleteRecord)
 						deleteRecord.Items = latestRecord.GetItems()
 						updateRecord, ok := latestRecord.(*model.UpdateRecord)
