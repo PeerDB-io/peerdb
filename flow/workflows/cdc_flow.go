@@ -214,13 +214,19 @@ func CDCFlowWorkflowWithConfig(
 		if err != nil {
 			return state, err
 		}
+
+		taskQueue, err := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueueID)
+		if err != nil {
+			return state, err
+		}
+
 		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        snapshotFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			TaskQueue: shared.SnapshotFlowTaskQueue,
+			TaskQueue: taskQueue,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)

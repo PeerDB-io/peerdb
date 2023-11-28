@@ -43,7 +43,12 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	}
 	defer c.Close()
 
-	w := worker.New(c, shared.SnapshotFlowTaskQueue, worker.Options{
+	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.SnapshotFlowTaskQueueID)
+	if queueErr != nil {
+		return queueErr
+	}
+
+	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 	})
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)

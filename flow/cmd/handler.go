@@ -20,15 +20,17 @@ import (
 
 // grpc server implementation
 type FlowRequestHandler struct {
-	temporalClient client.Client
-	pool           *pgxpool.Pool
+	temporalClient      client.Client
+	pool                *pgxpool.Pool
+	peerflowTaskQueueID string
 	protos.UnimplementedFlowServiceServer
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool) *FlowRequestHandler {
+func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
-		temporalClient: temporalClient,
-		pool:           pool,
+		temporalClient:      temporalClient,
+		pool:                pool,
+		peerflowTaskQueueID: taskQueue,
 	}
 }
 
@@ -126,7 +128,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
 	}
 
 	maxBatchSize := int(cfg.MaxBatchSize)
@@ -226,7 +228,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
 	}
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
@@ -308,7 +310,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context

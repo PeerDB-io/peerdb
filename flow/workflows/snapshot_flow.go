@@ -112,10 +112,15 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}).Infof("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName)
 
+	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
+	if queueErr != nil {
+		return queueErr
+	}
+
 	childCtx = workflow.WithChildOptions(childCtx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
-		TaskQueue:           shared.PeerFlowTaskQueue,
+		TaskQueue:           taskQueue,
 	})
 
 	// we know that the source is postgres as setup replication output is non-nil
