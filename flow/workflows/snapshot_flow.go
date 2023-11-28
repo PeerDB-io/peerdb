@@ -145,7 +145,11 @@ func (s *SnapshotFlowExecution) cloneTable(
 	if len(mapping.Exclude) != 0 {
 		for _, v := range s.config.TableNameSchemaMapping {
 			if v.TableIdentifier == srcName {
-				from = strings.Join(maps.Keys(v.Columns), ",")
+				cols := maps.Keys(v.Columns)
+				for i, col := range cols {
+					cols[i] = fmt.Sprintf(`"%s"`, col)
+				}
+				from = strings.Join(cols, ",")
 				break
 			}
 		}
