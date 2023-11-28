@@ -11,6 +11,8 @@ const (
 	CDCFlowSignalName     = "peer-flow-signal"
 )
 
+const MirrorNameSearchAttribute = "MirrorName"
+
 type CDCFlowSignal int64
 type ContextKey string
 
