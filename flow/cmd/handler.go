@@ -124,9 +124,14 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
+	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
+	if queueErr != nil {
+		return nil, queueErr
+	}
+
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: taskQueue,
 	}
 
 	maxBatchSize := int(cfg.MaxBatchSize)
@@ -224,9 +229,14 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest) (*protos.CreateQRepFlowResponse, error) {
 	cfg := req.QrepConfig
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
+	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
+	if queueErr != nil {
+		return nil, queueErr
+	}
+
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: taskQueue,
 	}
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
@@ -306,9 +316,14 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}
 
 	workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
+	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
+	if queueErr != nil {
+		return nil, queueErr
+	}
+
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: taskQueue,
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context

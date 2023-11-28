@@ -123,10 +123,15 @@ func APIMain(args *APIServerParams) error {
 		return fmt.Errorf("unable to kill existing heartbeat flows: %w", err)
 	}
 
+	taskQueue, err := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
+	if err != nil {
+		return err
+	}
+
 	workflowID := fmt.Sprintf("heartbeatflow-%s", uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: taskQueue,
 	}
 
 	_, err = flowHandler.temporalClient.ExecuteWorkflow(
