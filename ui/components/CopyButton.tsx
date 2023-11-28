@@ -13,7 +13,10 @@ export const CopyButton = ({ text }: { text: string }) => {
     <Button
       variant='normalBorderless'
       onClick={handleClick}
-      style={{ backgroundColor: copied ? 'lightgreen' : 'auto' }}
+      style={{
+        backgroundColor: copied ? 'rgba(48, 164, 108,0.3)' : 'auto',
+        marginLeft: '0.5rem',
+      }}
     >
       <Icon name={copied ? 'check' : 'content_copy'} />
     </Button>
