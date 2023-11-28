@@ -129,6 +129,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		},
 	}
 
 	maxBatchSize := int(cfg.MaxBatchSize)
@@ -229,6 +232,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		},
 	}
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
@@ -311,6 +317,9 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: req.FlowJobName,
+		},
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context

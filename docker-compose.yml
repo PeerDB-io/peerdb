@@ -73,11 +73,14 @@ services:
     image: temporalio/admin-tools:1.22
     stdin_open: true
     tty: true
+    entrypoint: ["bash", "/etc/temporal/entrypoint.sh"]
     healthcheck:
       test: ["CMD", "tctl", "workflow", "list"]
       interval: 1s
       timeout: 5s
       retries: 30
+    volumes:
+      - ./scripts/mirror-name-search.sh:/etc/temporal/entrypoint.sh
 
   temporal-ui:
     container_name: temporal-ui
