@@ -1,80 +1,22 @@
+'use client';
 import { CopyButton } from '@/components/CopyButton';
 import TimeLabel from '@/components/TimeComponent';
-import { SlotInfo, StatInfo } from '@/grpc_generated/route';
+import { StatInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
+import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import { DurationDisplay, SlotNameDisplay } from './helpers';
+import { useMemo, useState } from 'react';
+import { DurationDisplay } from './helpers';
 import { tableStyle } from './style';
 
-export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
-  return (
-    <div style={{ height: '30%', marginTop: '2rem', marginBottom: '1rem' }}>
-      <Label
-        as='label'
-        variant='subheadline'
-        style={{ marginBottom: '1rem', fontWeight: 'bold' }}
-      >
-        Replication Slot Information
-      </Label>
-      <div style={tableStyle}>
-        <Table
-          header={
-            <TableRow>
-              {[
-                'Slot Name',
-                'Active',
-                'Redo LSN',
-                'Restart LSN',
-                'Lag (In MB)',
-              ].map((heading, index) => (
-                <TableCell as='th' key={index}>
-                  <Label
-                    as='label'
-                    style={{ fontWeight: 'bold', fontSize: 14 }}
-                  >
-                    {heading}
-                  </Label>
-                </TableCell>
-              ))}
-            </TableRow>
-          }
-        >
-          {data.map(({ slotName, active, redoLSN, restartLSN, lagInMb }) => {
-            return (
-              <TableRow key={slotName}>
-                <TableCell>
-                  <SlotNameDisplay slotName={slotName} />
-                </TableCell>
-                <TableCell>
-                  <Label as='label' style={{ fontSize: 14 }}>
-                    {active ? 'Yes' : 'No'}
-                  </Label>
-                </TableCell>
-                <TableCell>
-                  <Label as='label' style={{ fontSize: 14 }}>
-                    {redoLSN}
-                  </Label>
-                </TableCell>
-                <TableCell>
-                  <Label as='label' style={{ fontSize: 14 }}>
-                    {restartLSN}
-                  </Label>
-                </TableCell>
-                <TableCell>
-                  <Label as='label' style={{ fontSize: 14 }}>
-                    {lagInMb < 0 ? 0 : lagInMb}
-                  </Label>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </Table>
-      </div>
-    </div>
-  );
-};
+const StatTable = ({ data }: { data: StatInfo[] }) => {
+  const [search, setSearch] = useState('');
+  const filteredData = useMemo(() => {
+    return data.filter((stat) => {
+      return stat.query.toLowerCase().includes(search.toLowerCase());
+    });
+  }, [data, search]);
 
-export const StatTable = ({ data }: { data: StatInfo[] }) => {
   return (
     <div style={{ height: '50%' }}>
       <Label
@@ -107,8 +49,19 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
               ))}
             </TableRow>
           }
+          toolbar={{
+            left: <></>,
+            right: (
+              <SearchField
+                placeholder='Search by query'
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setSearch(e.target.value)
+                }
+              />
+            ),
+          }}
         >
-          {data.map((stat) => (
+          {filteredData.map((stat) => (
             <TableRow key={stat.pid}>
               <TableCell>
                 <Label as='label' style={{ fontSize: 14 }}>
@@ -153,3 +106,5 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
     </div>
   );
 };
+
+export default StatTable;

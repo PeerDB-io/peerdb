@@ -6,7 +6,8 @@ import { Label } from '@/lib/Label';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import Link from 'next/link';
 import prisma from '../../utils/prisma';
-import { SlotTable, StatTable } from './datatables';
+import SlotTable from './slottable';
+import StatTable from './stattable';
 import { connStringStyle } from './style';
 export const dynamic = 'force-dynamic';
 
