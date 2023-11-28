@@ -130,7 +130,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
 		SearchAttributes: map[string]interface{}{
-			"MirrorName": cfg.FlowJobName,
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 		},
 	}
 
@@ -233,7 +233,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
 		SearchAttributes: map[string]interface{}{
-			"MirrorName": cfg.FlowJobName,
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 		},
 	}
 	if req.CreateCatalogEntry {
@@ -318,7 +318,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
 		SearchAttributes: map[string]interface{}{
-			"MirrorName": req.FlowJobName,
+			shared.MirrorNameSearchAttribute: req.FlowJobName,
 		},
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(

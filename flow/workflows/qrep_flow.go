@@ -207,7 +207,7 @@ func (q *QRepFlowExecution) startChildWorkflow(
 			MaximumAttempts: 20,
 		},
 		SearchAttributes: map[string]interface{}{
-			"MirrorName": q.config.FlowJobName,
+			shared.MirrorNameSearchAttribute: q.config.FlowJobName,
 		},
 	})
 

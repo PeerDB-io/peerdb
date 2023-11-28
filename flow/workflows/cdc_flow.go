@@ -190,7 +190,7 @@ func CDCFlowWorkflowWithConfig(
 		}
 
 		mirrorNameSearch := map[string]interface{}{
-			"MirrorName": cfg.FlowJobName,
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 		}
 
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
@@ -330,7 +330,7 @@ func CDCFlowWorkflowWithConfig(
 		}
 
 		mirrorNameSearch := map[string]interface{}{
-			"MirrorName": cfg.FlowJobName,
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
 		}
 		// execute the sync flow as a child workflow
 		childSyncFlowOpts := workflow.ChildWorkflowOptions{
