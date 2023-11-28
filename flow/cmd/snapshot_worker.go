@@ -26,16 +26,17 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
-		cert, err := tls.X509KeyPair([]byte(opts.TemporalCert), []byte(opts.TemporalKey))
+		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
+			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{Certificates: []tls.Certificate{cert}},
+			TLS: &tls.Config{Certificates: certs},
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}
+
 	c, err := client.Dial(clientOptions)
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)

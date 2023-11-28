@@ -93,13 +93,13 @@ func WorkerMain(opts *WorkerOptions) error {
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
-		cert, err := tls.X509KeyPair([]byte(opts.TemporalCert), []byte(opts.TemporalKey))
+		log.Info("Using temporal certificate/key for authentication")
+		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
+			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}
-
 		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{Certificates: []tls.Certificate{cert}},
+			TLS: &tls.Config{Certificates: certs},
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}

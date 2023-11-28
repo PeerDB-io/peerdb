@@ -90,13 +90,15 @@ func APIMain(args *APIServerParams) error {
 		Namespace: args.TemporalNamespace,
 	}
 	if args.TemporalCert != "" && args.TemporalKey != "" {
-		cert, err := tls.X509KeyPair([]byte(args.TemporalCert), []byte(args.TemporalKey))
+		log.Info("Using temporal certificate/key for authentication")
+
+		certs, err := Base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to obtain temporal key pair: %w", err)
+			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{Certificates: []tls.Certificate{cert}},
+			TLS: &tls.Config{Certificates: certs},
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}

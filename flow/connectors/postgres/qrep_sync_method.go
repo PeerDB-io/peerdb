@@ -115,21 +115,23 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 		// construct the SET clause for the upsert operation
 		upsertMatchColsList := writeMode.UpsertKeyColumns
-		upsertMatchCols := make(map[string]bool)
+		upsertMatchCols := make(map[string]struct{})
 		for _, col := range upsertMatchColsList {
-			upsertMatchCols[col] = true
+			upsertMatchCols[col] = struct{}{}
 		}
 
-		setClause := ""
+		setClauseArray := make([]string, 0)
+		selectStrArray := make([]string, 0)
 		for _, col := range schema.GetColumnNames() {
 			_, ok := upsertMatchCols[col]
 			if !ok {
-				setClause += fmt.Sprintf("%s = EXCLUDED.%s,", col, col)
+				setClauseArray = append(setClauseArray, fmt.Sprintf(`"%s" = EXCLUDED."%s"`, col, col))
 			}
+			selectStrArray = append(selectStrArray, fmt.Sprintf(`"%s"`, col))
 		}
 
-		setClause = strings.TrimSuffix(setClause, ",")
-		selectStr := strings.Join(schema.GetColumnNames(), ", ")
+		setClause := strings.Join(setClauseArray, ",")
+		selectStr := strings.Join(selectStrArray, ",")
 
 		// Step 2.3: Perform the upsert operation, ON CONFLICT UPDATE
 		upsertStmt := fmt.Sprintf(
