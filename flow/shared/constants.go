@@ -2,7 +2,8 @@ package shared
 
 import (
 	"fmt"
-	"os"
+
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 )
 
 const (
@@ -34,13 +35,20 @@ const (
 const FetchAndChannelSize = 256 * 1024
 
 func GetPeerFlowTaskQueueName(taskQueueID TaskQueueID) (string, error) {
-	deploymentUID := os.Getenv("PEERDB_DEPLOYMENT_UID")
 	switch taskQueueID {
 	case PeerFlowTaskQueueID:
-		return deploymentUID + "-" + peerFlowTaskQueue, nil
+		return prependUIDToTaskQueueName(peerFlowTaskQueue), nil
 	case SnapshotFlowTaskQueueID:
-		return deploymentUID + "-" + snapshotFlowTaskQueue, nil
+		return prependUIDToTaskQueueName(snapshotFlowTaskQueue), nil
 	default:
 		return "", fmt.Errorf("unknown task queue id %d", taskQueueID)
 	}
+}
+
+func prependUIDToTaskQueueName(taskQueueName string) string {
+	deploymentUID := utils.GetEnvString("PEERDB_DEPLOYMENT_UID", "")
+	if deploymentUID == "" {
+		return taskQueueName
+	}
+	return fmt.Sprintf("%s-%s", deploymentUID, taskQueueName)
 }

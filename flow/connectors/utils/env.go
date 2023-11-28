@@ -45,3 +45,14 @@ func GetEnvInt(name string, defaultValue int) int {
 
 	return i
 }
+
+// GetEnvString returns the value of the environment variable with the given name
+// or defaultValue if the environment variable is not set.
+func GetEnvString(name string, defaultValue string) string {
+	val, ok := GetEnv(name)
+	if !ok {
+		return defaultValue
+	}
+
+	return val
+}
