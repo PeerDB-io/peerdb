@@ -4,6 +4,7 @@ import { SlotInfo, StatInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { DurationDisplay, SlotNameDisplay } from './helpers';
+import { tableStyle } from './style';
 
 export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
   return (
@@ -15,15 +16,7 @@ export const SlotTable = ({ data }: { data: SlotInfo[] }) => {
       >
         Replication Slot Information
       </Label>
-      <div
-        style={{
-          maxHeight: '100%',
-          overflow: 'scroll',
-          padding: '0.5rem',
-          borderRadius: '1rem',
-          boxShadow: '2px 2px 4px 2px rgba(0,0,0,0.1)',
-        }}
-      >
+      <div style={tableStyle}>
         <Table
           header={
             <TableRow>
@@ -91,15 +84,7 @@ export const StatTable = ({ data }: { data: StatInfo[] }) => {
       >
         Stat Activity Information
       </Label>
-      <div
-        style={{
-          maxHeight: '100%',
-          overflow: 'scroll',
-          padding: '0.5rem',
-          borderRadius: '1rem',
-          boxShadow: '2px 2px 4px 2px rgba(0,0,0,0.1)',
-        }}
-      >
+      <div style={tableStyle}>
         <Table
           header={
             <TableRow>
