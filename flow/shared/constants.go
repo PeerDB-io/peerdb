@@ -31,16 +31,14 @@ const (
 
 const FetchAndChannelSize = 256 * 1024
 
-func GetPeerFlowTaskQueueName(taskQueueId TaskQueueID) (string, error) {
-	// read deployment uid from env
+func GetPeerFlowTaskQueueName(taskQueueID TaskQueueID) (string, error) {
 	deploymentUID := os.Getenv("PEERDB_DEPLOYMENT_UID")
-
-	switch taskQueueId {
+	switch taskQueueID {
 	case PeerFlowTaskQueueID:
-		return deploymentUID + peerFlowTaskQueue, nil
+		return deploymentUID + "-" + peerFlowTaskQueue, nil
 	case SnapshotFlowTaskQueueID:
-		return deploymentUID + snapshotFlowTaskQueue, nil
+		return deploymentUID + "-" + snapshotFlowTaskQueue, nil
 	default:
-		return "", fmt.Errorf("unknown task queue id %d", taskQueueId)
+		return "", fmt.Errorf("unknown task queue id %d", taskQueueID)
 	}
 }

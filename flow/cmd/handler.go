@@ -20,15 +20,17 @@ import (
 
 // grpc server implementation
 type FlowRequestHandler struct {
-	temporalClient client.Client
-	pool           *pgxpool.Pool
+	temporalClient      client.Client
+	pool                *pgxpool.Pool
+	peerflowTaskQueueID string
 	protos.UnimplementedFlowServiceServer
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool) *FlowRequestHandler {
+func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
-		temporalClient: temporalClient,
-		pool:           pool,
+		temporalClient:      temporalClient,
+		pool:                pool,
+		peerflowTaskQueueID: taskQueue,
 	}
 }
 
@@ -124,14 +126,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return nil, queueErr
-	}
-
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: taskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
 	}
 
 	maxBatchSize := int(cfg.MaxBatchSize)
@@ -229,14 +226,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest) (*protos.CreateQRepFlowResponse, error) {
 	cfg := req.QrepConfig
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return nil, queueErr
-	}
-
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: taskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
 	}
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
@@ -316,14 +308,9 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	}
 
 	workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return nil, queueErr
-	}
-
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: taskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context

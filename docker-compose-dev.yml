@@ -14,7 +14,6 @@ x-flow-worker-env: &flow-worker-env
   PEERDB_TEMPORAL_NAMESPACE: default
   # For the below 2 cert and key variables,
   # paste as base64 encoded strings.
-  # use yml multiline syntax with '|'
   TEMPORAL_CLIENT_CERT:
   TEMPORAL_CLIENT_KEY:
   # For GCS, these will be your HMAC keys instead
