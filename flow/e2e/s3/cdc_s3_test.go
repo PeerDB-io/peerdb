@@ -24,7 +24,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_s3")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_s3", "test_simple_flow_s3")
-	flowJobName := s.attachSuffix("test_simple_flow")
+	flowJobName := s.attachSuffix("test_simple_flow_s3")
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL PRIMARY KEY,
@@ -96,7 +96,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_gcs_interop")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_gcs_interop", "test_simple_flow_gcs_interop")
-	flowJobName := s.attachSuffix("test_simple_flow")
+	flowJobName := s.attachSuffix("test_simple_flow_gcs_interop")
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL PRIMARY KEY,
@@ -133,6 +133,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 		`, srcTableName), testKey, testValue)
 			s.NoError(err)
 		}
+		fmt.Println("Inserted 20 rows into the source table")
 		s.NoError(err)
 	}()
 
