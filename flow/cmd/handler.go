@@ -142,6 +142,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	limits := &peerflow.CDCFlowLimits{
 		TotalSyncFlows:      0,
+		ExitAfterRecords:    -1,
 		TotalNormalizeFlows: 0,
 		MaxBatchSize:        maxBatchSize,
 	}

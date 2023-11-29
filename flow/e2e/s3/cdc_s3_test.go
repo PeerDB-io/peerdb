@@ -44,8 +44,8 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 5,
-		MaxBatchSize:   5,
+		ExitAfterRecords: 20,
+		MaxBatchSize:     5,
 	}
 
 	go func() {
@@ -115,8 +115,8 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 5,
-		MaxBatchSize:   5,
+		ExitAfterRecords: 20,
+		MaxBatchSize:     5,
 	}
 
 	go func() {
