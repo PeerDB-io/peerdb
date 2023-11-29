@@ -111,7 +111,7 @@ services:
     container_name: flow_api
     build:
       context: .
-      dockerfile: stacks/flow.Dockerfile
+      dockerfile: stacks/Dockerfile
       target: flow-api
     ports:
       - 8112:8112
@@ -126,7 +126,7 @@ services:
     container_name: flow-snapshot-worker
     build:
       context: .
-      dockerfile: stacks/flow.Dockerfile
+      dockerfile: stacks/Dockerfile
       target: flow-snapshot-worker
     environment:
       <<: [*flow-worker-env]
@@ -138,7 +138,7 @@ services:
     container_name: flow-worker1
     build:
       context: .
-      dockerfile: stacks/flow.Dockerfile
+      dockerfile: stacks/Dockerfile
       target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
@@ -150,7 +150,7 @@ services:
     container_name: flow-worker2
     build:
       context: .
-      dockerfile: stacks/flow.Dockerfile
+      dockerfile: stacks/Dockerfile
       target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
@@ -164,7 +164,7 @@ services:
     container_name: flow-worker3
     build:
       context: .
-      dockerfile: stacks/flow.Dockerfile
+      dockerfile: stacks/Dockerfile
       target: flow-worker
     environment:
       <<: [*catalog-config, *flow-worker-env]
@@ -179,7 +179,7 @@ services:
     stop_signal: SIGINT
     build:
       context: .
-      dockerfile: stacks/peerdb-server.Dockerfile
+      dockerfile: stacks/Dockerfile
     environment:
       <<: *catalog-config
       PEERDB_LOG_DIR: /var/log/peerdb
@@ -197,7 +197,7 @@ services:
     container_name: peerdb-ui
     build:
       context: .
-      dockerfile: stacks/peerdb-ui.Dockerfile
+      dockerfile: stacks/Dockerfile
     ports:
       - 3000:3000
     environment:

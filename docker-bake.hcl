@@ -22,7 +22,7 @@ group "default" {
 
 target "flow-api" {
   context    = "."
-  dockerfile = "stacks/flow.Dockerfile"
+  dockerfile = "stacks/Dockerfile"
   target     = "flow-api"
   platforms = [
     "linux/amd64",
@@ -36,7 +36,7 @@ target "flow-api" {
 
 target "flow-snapshot-worker" {
   context    = "."
-  dockerfile = "stacks/flow.Dockerfile"
+  dockerfile = "stacks/Dockerfile"
   target     = "flow-snapshot-worker"
   platforms = [
     "linux/amd64",
@@ -50,7 +50,7 @@ target "flow-snapshot-worker" {
 
 target "flow-worker" {
   context    = "."
-  dockerfile = "stacks/flow.Dockerfile"
+  dockerfile = "stacks/Dockerfile"
   target     = "flow-worker"
   platforms = [
     "linux/amd64",
@@ -64,7 +64,8 @@ target "flow-worker" {
 
 target "peerdb" {
   context    = "."
-  dockerfile = "stacks/peerdb-server.Dockerfile"
+  dockerfile = "stacks/Dockerfile"
+  target     = "peerdb-server"
   platforms = [
     "linux/amd64",
     "linux/arm64",
@@ -77,7 +78,8 @@ target "peerdb" {
 
 target "peerdb-ui" {
   context    = "."
-  dockerfile = "stacks/peerdb-ui.Dockerfile"
+  dockerfile = "stacks/Dockerfile"
+  target     = "peerdb-ui"
   platforms = [
     "linux/amd64",
     "linux/arm64",
@@ -85,5 +87,19 @@ target "peerdb-ui" {
   tags = [
     "${REGISTRY}/peerdb-ui:${TAG}",
     "${REGISTRY}/peerdb-ui:${SHA_SHORT}",
+  ]
+}
+
+target "peerdb-unimage" {
+  context    = "."
+  dockerfile = "stacks/Dockerfile"
+  target     = "peerdb-unimage"
+  platforms = [
+    "linux/amd64",
+    "linux/arm64",
+  ]
+  tags = [
+    "${REGISTRY}/peerdb-unimage:${TAG}",
+    "${REGISTRY}/peerdb-unimage:${SHA_SHORT}",
   ]
 }

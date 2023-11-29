@@ -94,27 +94,6 @@ services:
     ports:
       - 8085:8080
 
-  flow-api:
-    container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:latest-dev
-    ports:
-      - 8112:8112
-      - 8113:8113
-    environment:
-      <<: [*catalog-config, *flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-snapshot-worker:
-    container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev
-    environment:
-      <<: [*flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
   flow-worker1:
     container_name: flow-worker1
     image: ghcr.io/peerdb-io/flow-worker:latest-dev
@@ -146,33 +125,29 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  peerdb:
-    container_name: peerdb-server
-    stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:latest-dev
+  peerdb-unimage:
+    container_name: peerdb-unimage
+    build:
+      context: .
+      dockerfile: stacks/Dockerfile
+      target: peerdb-unimage
+    ports:
+      - 8112:8112
+      - 8113:8113
+      - 3000:3000
+      - 9900:9900
     environment:
-      <<: *catalog-config
+      <<: [*catalog-config, *flow-worker-env]
+      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
+      PEERDB_FLOW_SERVER_HTTP: http://localhost:8113
       PEERDB_LOG_DIR: /var/log/peerdb
       PEERDB_PASSWORD:
-      PEERDB_FLOW_SERVER_ADDRESS: grpc://flow_api:8112
+      PEERDB_FLOW_SERVER_ADDRESS: grpc://localhost:8112
       RUST_LOG: info
       RUST_BACKTRACE: 1
-    ports:
-      - 9900:9900
     depends_on:
-      catalog:
+      temporal-admin-tools:
         condition: service_healthy
-
-  peerdb-ui:
-    container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:latest-dev
-    ports:
-      - 3000:3000
-    environment:
-      <<: *catalog-config
-      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
-      PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
 
 volumes:
   pgdata:
-  prometheusdata:
