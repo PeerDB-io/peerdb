@@ -414,6 +414,14 @@ func (p *PostgresCDCSource) consumeStream(
 						if ok {
 							deleteRecord.UnchangedToastColumns = updateRecord.UnchangedToastColumns
 						}
+					} else {
+						deleteRecord := rec.(*model.DeleteRecord)
+						// there is nothing to backfill the items in the delete record with,
+						// so don't update the row with this record
+						// add sentinel value to prevent update statements from selecting
+						deleteRecord.UnchangedToastColumns = map[string]struct{}{
+							"_peerdb_not_backfilled_delete": {},
+						}
 					}
 					addRecord(rec)
 				case *model.RelationRecord:
