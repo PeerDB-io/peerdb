@@ -371,6 +371,8 @@ func CDCFlowWorkflowWithConfig(
 			}
 		}
 
+		w.logger.Info("Total records synced: ", totalRecordsSynced)
+
 		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
 		if err != nil {
 			return state, err
