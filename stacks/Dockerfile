@@ -103,7 +103,7 @@ COPY --chown=node:node ui/ .
 RUN npx prisma generate && npm run build
 
 # Builder stage
-FROM ui-base AS ui
+FROM ui-base AS peerdb-ui
 ENV NODE_ENV production
 
 COPY --from=ui-builder /app/public ./public
