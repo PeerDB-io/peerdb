@@ -36,6 +36,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	config *protos.FlowConnectionConfigs,
 	opts *protos.SyncFlowOptions,
 	relationMessageMapping model.RelationMessageMapping,
+	syncNormChan workflow.Channel,
 ) (*model.SyncResponse, error) {
 	s.logger.Info("executing sync flow - ", s.CDCFlowName)
 
@@ -95,6 +96,8 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
 	}
 
+	syncNormChan.Send(ctx, syncRes.TableSchemaDeltas)
+
 	return syncRes, nil
 }
 
@@ -104,11 +107,18 @@ func (s *SyncFlowExecution) executeSyncFlow(
 func SyncFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
+	syncNormChan workflow.Channel,
 ) (*model.SyncResponse, error) {
 	s := NewSyncFlowExecution(ctx, &SyncFlowState{
 		CDCFlowName: config.FlowJobName,
 		Progress:    []string{},
 	})
 
-	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
+	return s.executeSyncFlow(
+		ctx,
+		config,
+		options,
+		options.RelationMessageMapping,
+		syncNormChan,
+	)
 }

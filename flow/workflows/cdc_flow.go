@@ -287,6 +287,16 @@ func CDCFlowWorkflowWithConfig(
 	currentSyncFlowNum := 0
 	totalRecordsSynced := 0
 
+	// sync will send normalize changes;
+	// which will be handled concurrently
+	syncNormChan := workflow.NewChannel(ctx)
+	childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
+		ctx,
+		NormalizeFlowWorkflow,
+		cfg,
+		syncNormChan,
+	)
+
 	for {
 		// check and act on signals before a fresh flow starts.
 		w.receiveAndHandleSignalAsync(ctx, state)
@@ -351,6 +361,7 @@ func CDCFlowWorkflowWithConfig(
 			SyncFlowWorkflow,
 			cfg,
 			syncFlowOptions,
+			syncNormChan,
 		)
 
 		var childSyncFlowRes *model.SyncResponse
@@ -366,8 +377,16 @@ func CDCFlowWorkflowWithConfig(
 		}
 
 		w.logger.Info("Total records synced: ", totalRecordsSynced)
+	}
 
-		/* TODO send childSyncFlowRes.TableSchemaDeltas */
+	syncNormChan.Close()
+	var childNormalizeFlowRes *NormalizeFlowResult
+	if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
+		w.logger.Error("failed to execute normalize flow: ", err)
+		state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
+	} else {
+		state.NormalizeFlowStatuses = childNormalizeFlowRes.NormalizeFlowStatuses
+		state.NormalizeFlowErrors = childNormalizeFlowRes.NormalizeFlowErrors
 	}
 
 	state.TruncateProgress()
