@@ -4,7 +4,7 @@ import { Label } from '@/lib/Label';
 import Image from 'next/image';
 import { DBTypeToImageMapping } from './PeerComponent';
 
-const DBTypeToGoodText = (ptype: DBType) => {
+export const DBTypeToGoodText = (ptype: DBType) => {
   switch (ptype) {
     case DBType.POSTGRES:
       return 'PostgreSQL';
