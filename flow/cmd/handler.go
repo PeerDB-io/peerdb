@@ -164,6 +164,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if req.CreateCatalogEntry {
 		err := h.createCdcJobEntry(ctx, req, workflowID)
 		if err != nil {
+			log.Errorf("unable to create flow job entry: %v", err)
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
@@ -171,6 +172,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	var err error
 	err = h.updateFlowConfigInCatalog(cfg)
 	if err != nil {
+		log.Errorf("unable to update flow config in catalog: %v", err)
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
@@ -184,6 +186,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		state,                              // workflow state
 	)
 	if err != nil {
+		log.Errorf("unable to start PeerFlow workflow: %v", err)
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
