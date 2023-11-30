@@ -1,12 +1,15 @@
 'use client';
 import { DropDialog } from '@/components/DropDialog';
 import PeerButton from '@/components/PeerComponent';
-import PeerTypeLabel from '@/components/PeerTypeComponent';
-import { Peer } from '@/grpc_generated/peers';
+import PeerTypeLabel, {
+  DBTypeToGoodText,
+} from '@/components/PeerTypeComponent';
+import { DBType, Peer } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
+import ReactSelect from 'react-select';
 
 function PeerRow({ peer }: { peer: Peer }) {
   return (
@@ -31,13 +34,33 @@ function PeerRow({ peer }: { peer: Peer }) {
 
 function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filteredType, setFilteredType] = useState<DBType | undefined>(
+    undefined
+  );
   const rows = useMemo(
     () =>
-      peers.filter((peer) => {
-        return peer.name.toLowerCase().includes(searchQuery.toLowerCase());
-      }),
-    [peers, searchQuery]
+      peers
+        .filter((peer) => {
+          return peer.name.toLowerCase().includes(searchQuery.toLowerCase());
+        })
+        .filter((peer) => {
+          return filteredType == undefined || peer.type == filteredType;
+        }),
+    [peers, searchQuery, filteredType]
   );
+  const allTypesOption: { value: DBType | undefined; label: string } = {
+    value: undefined,
+    label: 'All',
+  };
+  const availableTypes: { value: DBType | undefined; label: string }[] =
+    Array.from(
+      new Map( // Map filters out duplicates
+        peers.flatMap((peer) => [
+          [peer.type, { value: peer.type, label: DBTypeToGoodText(peer.type) }],
+        ])
+      ).values()
+    );
+  availableTypes.unshift(allTypesOption);
 
   return (
     <Table
@@ -45,12 +68,22 @@ function PeersTable({ title, peers }: { title: string; peers: Peer[] }) {
       toolbar={{
         left: <></>,
         right: (
-          <SearchField
-            placeholder='Search by peer name'
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(e.target.value)
-            }
-          />
+          <>
+            <ReactSelect
+              className='w-48'
+              options={availableTypes}
+              onChange={(val, _) => {
+                setFilteredType(val?.value);
+              }}
+              defaultValue={allTypesOption}
+            />
+            <SearchField
+              placeholder='Search by peer name'
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setSearchQuery(e.target.value)
+              }
+            />
+          </>
         ),
       }}
       header={
