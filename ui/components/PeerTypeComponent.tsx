@@ -13,7 +13,7 @@ export const DBTypeToGoodText = (ptype: DBType) => {
     case DBType.EVENTHUB:
       return 'Event Hubs';
     case DBType.EVENTHUB_GROUP:
-      return 'Event Hubs';
+      return 'Event Hubs (Group)';
     case DBType.BIGQUERY:
       return 'BigQuery';
     case DBType.S3:
