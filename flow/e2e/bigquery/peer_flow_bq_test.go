@@ -8,13 +8,11 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
 )
@@ -755,19 +753,18 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		VOLATILE
 		SET search_path = 'pg_catalog';
 	`, srcTableName))
-	require.NoError(t, err)
+	s.NoError(err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_types_avro_bq"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(t, err)
+	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
 
@@ -794,7 +791,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		ARRAY[0.0003, 1039.0034],
 		ARRAY['hello','bye'],'sad', 'a=>1,b=>2'::hstore,'192.168.0.0/16','abc','Top.Top1.Top2'::ltree;
 		`, srcTableName))
-		require.NoError(t, err)
+		s.NoError(err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -835,18 +832,17 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Flow_BQ_Avro_CDC(t *testing.T) {
 			value TEXT NOT NULL
 		);
 	`, srcTableName))
-	require.NoError(t, err)
+	s.NoError(err)
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_simple_flow_bq_avro_cdc"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		CdcStagingPath:   "peerdb_staging",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(t, err)
+	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows: 2,
@@ -861,7 +857,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Flow_BQ_Avro_CDC(t *testing.T) {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (key, value) VALUES ($1, $2)
 		`, srcTableName), testKey, testValue)
-			require.NoError(t, err)
+			s.NoError(err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
@@ -877,73 +873,11 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Flow_BQ_Avro_CDC(t *testing.T) {
 	s.Contains(err.Error(), "continue as new")
 
 	count, err := s.bqHelper.countRows(dstTableName)
-	require.NoError(t, err)
+	s.NoError(err)
 	s.Equal(10, count)
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
-
-	env.AssertExpectations(s.T())
-}
-
-func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ(t *testing.T) {
-	t.Parallel()
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
-
-	srcTable1Name := s.attachSchemaSuffix("test1_bq")
-	dstTable1Name := "test1_bq"
-	srcTable2Name := s.attachSchemaSuffix("test2_bq")
-	dstTable2Name := "test2_bq"
-
-	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-	CREATE TABLE %s (id serial primary key, c1 int, c2 text);
-	CREATE TABLE %s(id serial primary key, c1 int, c2 text);
-	`, srcTable1Name, srcTable2Name))
-	s.NoError(err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_multi_table_bq"),
-		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
-		PostgresPort:     e2e.PostgresPort,
-		Destination:      s.bqHelper.Peer,
-		CdcStagingPath:   "",
-	}
-
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
-
-	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 2,
-		MaxBatchSize:     100,
-	}
-
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		/* inserting across multiple tables*/
-		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s (c1,c2) VALUES (1,'dummy_1');
-		INSERT INTO %s (c1,c2) VALUES (-1,'dummy_-1');
-		`, srcTable1Name, srcTable2Name))
-		s.NoError(err)
-		fmt.Println("Executed an insert on two tables")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.T(), env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	count1, err := s.bqHelper.countRows(dstTable1Name)
-	s.NoError(err)
-	count2, err := s.bqHelper.countRows(dstTable2Name)
-	s.NoError(err)
-
-	s.Equal(1, count1)
-	s.Equal(1, count2)
 
 	env.AssertExpectations(s.T())
 }
