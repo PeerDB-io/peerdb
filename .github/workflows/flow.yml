@@ -81,7 +81,7 @@ jobs:
           json: ${{ secrets.GCS_CREDS }}
 
       - name: create hstore extension and increase logical replication limits
-        run: >
+        run: |
           docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION hstore;"
           docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION citext;"
           docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION ltree;"
