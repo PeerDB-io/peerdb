@@ -17,7 +17,7 @@ import (
 )
 
 type SQLQueryExecutor interface {
-	ConnectionActive() (bool, error)
+	ConnectionActive() error
 	Close() error
 
 	CreateSchema(schemaName string) error

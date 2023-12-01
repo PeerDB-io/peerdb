@@ -503,7 +503,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 
-	_, connErr := conn.ConnectionActive()
+	connErr := conn.ConnectionActive()
 	if connErr != nil {
 		return &protos.ValidatePeerResponse{
 			Status: protos.ValidatePeerStatus_INVALID,

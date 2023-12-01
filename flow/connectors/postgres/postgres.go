@@ -104,12 +104,12 @@ func (c *PostgresConnector) Close() error {
 }
 
 // ConnectionActive returns true if the connection is active.
-func (c *PostgresConnector) ConnectionActive() (bool, error) {
+func (c *PostgresConnector) ConnectionActive() error {
 	if c.pool == nil {
-		return false, fmt.Errorf("connection pool is nil")
+		return fmt.Errorf("connection pool is nil")
 	}
 	pingErr := c.pool.Ping(c.ctx)
-	return pingErr == nil, pingErr
+	return pingErr
 }
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.

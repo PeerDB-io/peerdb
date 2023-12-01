@@ -134,19 +134,19 @@ func ValidCheck(s3Client *s3.S3, bucketURL string, metadataDB *metadataStore.Pos
 	return nil
 }
 
-func (c *S3Connector) ConnectionActive() (bool, error) {
+func (c *S3Connector) ConnectionActive() error {
 	_, listErr := c.client.ListBuckets(nil)
 	if listErr != nil {
-		return false, listErr
+		return listErr
 	}
 
 	validErr := ValidCheck(&c.client, c.url, c.pgMetadata)
 	if validErr != nil {
 		log.Errorf("failed to validate s3 connector: %v", validErr)
-		return false, validErr
+		return validErr
 	}
 
-	return listErr == nil, listErr
+	return nil
 }
 
 func (c *S3Connector) NeedsSetupMetadataTables() bool {

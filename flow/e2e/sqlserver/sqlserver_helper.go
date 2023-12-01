@@ -41,7 +41,7 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 		return nil, err
 	}
 
-	_, connErr := connector.ConnectionActive()
+	connErr := connector.ConnectionActive()
 	if connErr != nil {
 		return nil, fmt.Errorf("invalid connection configs: %v", connErr)
 	}

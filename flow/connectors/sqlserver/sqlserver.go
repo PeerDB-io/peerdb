@@ -53,9 +53,9 @@ func (c *SQLServerConnector) Close() error {
 }
 
 // ConnectionActive checks if the connection is still active
-func (c *SQLServerConnector) ConnectionActive() (bool, error) {
+func (c *SQLServerConnector) ConnectionActive() error {
 	if err := c.db.Ping(); err != nil {
-		return false, err
+		return err
 	}
-	return true, nil
+	return nil
 }
