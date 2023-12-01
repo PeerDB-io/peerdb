@@ -206,6 +206,9 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 20,
 		},
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: q.config.FlowJobName,
+		},
 	})
 
 	future := workflow.ExecuteChildWorkflow(

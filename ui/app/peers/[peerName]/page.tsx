@@ -3,7 +3,8 @@ import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import Link from 'next/link';
-import { SlotTable, StatTable } from './datatables';
+import SlotTable from './slottable';
+import StatTable from './stattable';
 export const dynamic = 'force-dynamic';
 
 type DataConfigProps = {

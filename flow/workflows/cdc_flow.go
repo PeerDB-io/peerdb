@@ -33,6 +33,8 @@ type CDCFlowLimits struct {
 	TotalNormalizeFlows int
 	// Maximum number of rows in a sync flow batch.
 	MaxBatchSize int
+	// Rows synced after which we can say a test is done.
+	ExitAfterRecords int
 }
 
 type CDCFlowWorkflowState struct {
@@ -189,6 +191,10 @@ func CDCFlowWorkflowWithConfig(
 			}
 		}
 
+		mirrorNameSearch := map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		}
+
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
 		setupFlowID, err := GetChildWorkflowID(ctx, "setup-flow", cfg.FlowJobName)
@@ -201,6 +207,7 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
+			SearchAttributes: mirrorNameSearch,
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
@@ -226,7 +233,8 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			TaskQueue: taskQueue,
+			TaskQueue:        taskQueue,
+			SearchAttributes: mirrorNameSearch,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
@@ -283,6 +291,7 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	currentSyncFlowNum := 0
+	totalRecordsSynced := 0
 
 	for {
 		// check and act on signals before a fresh flow starts.
@@ -318,11 +327,20 @@ func CDCFlowWorkflowWithConfig(
 		}
 		currentSyncFlowNum++
 
+		// check if total records synced have been completed
+		if totalRecordsSynced == limits.ExitAfterRecords {
+			w.logger.Warn("All the records have been synced successfully, so ending the flow")
+			break
+		}
+
 		syncFlowID, err := GetChildWorkflowID(ctx, "sync-flow", cfg.FlowJobName)
 		if err != nil {
 			return state, err
 		}
 
+		mirrorNameSearch := map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		}
 		// execute the sync flow as a child workflow
 		childSyncFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        syncFlowID,
@@ -330,6 +348,7 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
+			SearchAttributes: mirrorNameSearch,
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
 		syncFlowOptions.RelationMessageMapping = *state.RelationMessageMapping
@@ -348,8 +367,11 @@ func CDCFlowWorkflowWithConfig(
 			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			if childSyncFlowRes != nil {
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
+				totalRecordsSynced += int(childSyncFlowRes.NumRecordsSynced)
 			}
 		}
+
+		w.logger.Info("Total records synced: ", totalRecordsSynced)
 
 		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
 		if err != nil {
@@ -362,6 +384,7 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
+			SearchAttributes: mirrorNameSearch,
 		}
 		ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 

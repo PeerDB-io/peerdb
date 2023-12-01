@@ -129,6 +129,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		},
 	}
 
 	maxBatchSize := int(cfg.MaxBatchSize)
@@ -139,6 +142,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	limits := &peerflow.CDCFlowLimits{
 		TotalSyncFlows:      0,
+		ExitAfterRecords:    -1,
 		TotalNormalizeFlows: 0,
 		MaxBatchSize:        maxBatchSize,
 	}
@@ -160,6 +164,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if req.CreateCatalogEntry {
 		err := h.createCdcJobEntry(ctx, req, workflowID)
 		if err != nil {
+			log.Errorf("unable to create flow job entry: %v", err)
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
@@ -167,6 +172,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	var err error
 	err = h.updateFlowConfigInCatalog(cfg)
 	if err != nil {
+		log.Errorf("unable to update flow config in catalog: %v", err)
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
@@ -180,6 +186,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		state,                              // workflow state
 	)
 	if err != nil {
+		log.Errorf("unable to start PeerFlow workflow: %v", err)
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
@@ -229,6 +236,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		},
 	}
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
@@ -311,6 +321,9 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: req.FlowJobName,
+		},
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context
