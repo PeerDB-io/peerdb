@@ -41,9 +41,9 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 		return nil, err
 	}
 
-	testConn := connector.ConnectionActive()
-	if !testConn {
-		return nil, fmt.Errorf("invalid connection configs")
+	connErr := connector.ConnectionActive()
+	if connErr != nil {
+		return nil, fmt.Errorf("invalid connection configs: %v", connErr)
 	}
 
 	rndNum, err := util.RandomUInt64()

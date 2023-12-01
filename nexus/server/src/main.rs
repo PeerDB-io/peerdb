@@ -157,8 +157,7 @@ impl NexusBackend {
     fn is_peer_validity_supported(peer_type: i32) -> bool {
         let unsupported_peer_types = [
             4, // EVENTHUB
-            5, // S3
-            7,
+            7, // EVENTHUB_GROUP
         ];
         !unsupported_peer_types.contains(&peer_type)
     }
@@ -209,50 +208,36 @@ impl NexusBackend {
         }
     }
 
-    async fn validate_peer<'a>(&self, peer_type: i32, peer: &Peer) -> anyhow::Result<()> {
-        if peer_type != 6 {
-            let peer_executor = self.get_peer_executor(peer).await.map_err(|err| {
+    async fn validate_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
+        //if flow handler does not exist, skip validation
+        if self.flow_handler.is_none() {
+            return Ok(());
+        }
+        let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
+        let validate_request = pt::peerdb_route::ValidatePeerRequest {
+            peer: Some(Peer {
+                name: peer.name.clone(),
+                r#type: peer.r#type,
+                config: peer.config.clone(),
+            }),
+        };
+        let validity = flow_handler
+            .validate_peer(&validate_request)
+            .await
+            .map_err(|err| {
                 PgWireError::ApiError(Box::new(PgError::Internal {
-                    err_msg: format!("unable to get peer executor: {:?}", err),
+                    err_msg: format!("unable to check peer validity: {:?}", err),
                 }))
             })?;
-            peer_executor.is_connection_valid().await.map_err(|e| {
-                self.executors.remove(&peer.name); // Otherwise it will keep returning the earlier configured executor
-                PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "internal_error".to_owned(),
-                    format!("[peer]: invalid configuration: {}", e),
-                )))
-            })?;
-            self.executors.remove(&peer.name);
-            Ok(())
+        if let PeerValidationResult::Invalid(validation_err) = validity {
+            Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "internal_error".to_owned(),
+                format!("[peer]: invalid configuration: {}", validation_err),
+            )))
+            .into())
         } else {
-            let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
-            let validate_request = pt::peerdb_route::ValidatePeerRequest {
-                peer: Some(Peer {
-                    name: peer.name.clone(),
-                    r#type: peer.r#type,
-                    config: peer.config.clone(),
-                }),
-            };
-            let validity = flow_handler
-                .validate_peer(&validate_request)
-                .await
-                .map_err(|err| {
-                    PgWireError::ApiError(Box::new(PgError::Internal {
-                        err_msg: format!("unable to check peer validity: {:?}", err),
-                    }))
-                })?;
-            if let PeerValidationResult::Invalid(validation_err) = validity {
-                Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "internal_error".to_owned(),
-                    format!("[peer]: invalid configuration: {}", validation_err),
-                )))
-                .into())
-            } else {
-                Ok(())
-            }
+            Ok(())
         }
     }
 
@@ -411,7 +396,7 @@ impl NexusBackend {
                 } => {
                     let peer_type = peer.r#type;
                     if Self::is_peer_validity_supported(peer_type) {
-                        self.validate_peer(peer_type, peer).await.map_err(|e| {
+                        self.validate_peer(peer).await.map_err(|e| {
                             PgWireError::UserError(Box::new(ErrorInfo::new(
                                 "ERROR".to_owned(),
                                 "internal_error".to_owned(),

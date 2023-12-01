@@ -48,9 +48,7 @@ impl SnowflakeAuth {
         let pkey = match password {
             Some(pw) => DecodePrivateKey::from_pkcs8_encrypted_pem(private_key, pw)
                 .context("Invalid private key or decryption failed")?,
-            None => {
-                DecodePrivateKey::from_pkcs8_pem(private_key).context("Invalid private key")?
-            }
+            None => DecodePrivateKey::from_pkcs8_pem(private_key).context("Invalid private key")?,
         };
         let mut snowflake_auth: SnowflakeAuth = SnowflakeAuth {
             // moved normalized_account_id above account_id to satisfy the borrow checker.

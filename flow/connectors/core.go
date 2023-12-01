@@ -21,7 +21,7 @@ var ErrUnsupportedFunctionality = errors.New("requested connector does not suppo
 
 type Connector interface {
 	Close() error
-	ConnectionActive() bool
+	ConnectionActive() error
 }
 
 type CDCPullConnector interface {
@@ -223,7 +223,6 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
-
 	case protos.DBType_SQLSERVER:
 		sqlServerConfig := peer.GetSqlserverConfig()
 		if sqlServerConfig == nil {

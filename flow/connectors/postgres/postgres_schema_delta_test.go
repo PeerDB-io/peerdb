@@ -67,10 +67,10 @@ func (suite *PostgresSchemaDeltaTestSuite) TearDownSuite() {
 	err = teardownTx.Commit(context.Background())
 	suite.failTestError(err)
 
-	suite.True(suite.connector.ConnectionActive())
+	suite.True(suite.connector.ConnectionActive() == nil)
 	err = suite.connector.Close()
 	suite.failTestError(err)
-	suite.False(suite.connector.ConnectionActive())
+	suite.False(suite.connector.ConnectionActive() == nil)
 }
 
 func (suite *PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
