@@ -503,12 +503,12 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 
-	status := conn.ConnectionActive()
-	if !status {
+	connErr := conn.ConnectionActive()
+	if connErr != nil {
 		return &protos.ValidatePeerResponse{
 			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("failed to establish active connection to %s peer %s.",
-				req.Peer.Type, req.Peer.Name),
+			Message: fmt.Sprintf("failed to establish active connection to %s peer %s: %v",
+				req.Peer.Type, req.Peer.Name, connErr),
 		}, nil
 	}
 

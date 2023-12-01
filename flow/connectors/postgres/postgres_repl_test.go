@@ -94,12 +94,12 @@ func (suite *PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 	err = teardownTx.Commit(context.Background())
 	require.NoError(suite.T(), err)
 
-	suite.True(suite.connector.ConnectionActive())
+	suite.True(suite.connector.ConnectionActive() == nil)
 
 	err = suite.connector.Close()
 	require.NoError(suite.T(), err)
 
-	suite.False(suite.connector.ConnectionActive())
+	suite.False(suite.connector.ConnectionActive() == nil)
 }
 
 func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {

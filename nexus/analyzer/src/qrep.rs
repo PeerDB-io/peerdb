@@ -86,13 +86,13 @@ const QREP_OPTIONS: &[QRepOptionType] = &[
     QRepOptionType::Boolean {
         name: "setup_watermark_table_on_destination",
         default_value: false,
-        required: false
+        required: false,
     },
     QRepOptionType::Boolean {
         name: "dst_table_full_resync",
         default_value: false,
-        required: false
-    }
+        required: false,
+    },
 ];
 
 pub fn process_options(

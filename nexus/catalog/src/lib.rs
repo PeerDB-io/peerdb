@@ -426,7 +426,8 @@ impl Catalog {
             .await?;
 
         let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
-            let flow_opts: HashMap<String, Value> = row.get::<&str, Option<Value>>("flow_metadata")
+            let flow_opts: HashMap<String, Value> = row
+                .get::<&str, Option<Value>>("flow_metadata")
                 .and_then(|flow_opts| serde_json::from_value(flow_opts).ok())
                 .unwrap_or_default();
 
