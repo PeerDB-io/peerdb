@@ -1,35 +1,15 @@
-import { CopyButton } from '@/components/CopyButton';
 import ReloadButton from '@/components/ReloadButton';
-import { PostgresConfig } from '@/grpc_generated/peers';
 import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import Link from 'next/link';
-import prisma from '../../utils/prisma';
 import SlotTable from './slottable';
 import StatTable from './stattable';
-import { connStringStyle } from './style';
 export const dynamic = 'force-dynamic';
 
 type DataConfigProps = {
   params: { peerName: string };
 };
-
-async function fetchConnectionString(peerName: string) {
-  const config = await prisma.peers.findUnique({
-    select: {
-      options: true,
-    },
-    where: {
-      name: peerName,
-    },
-  });
-  if (config) {
-    const pgConfig = PostgresConfig.decode(config.options);
-    return `postgresql://${pgConfig.user}:${pgConfig.password}@${pgConfig.host}:${pgConfig.port}`;
-  }
-  return '';
-}
 
 const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   const getSlotData = async () => {
@@ -71,20 +51,12 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
 
   const slots = await getSlotData();
   const stats = await getStatData();
-  const connectionString = await fetchConnectionString(peerName);
 
   return (
     <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 20, fontWeight: 'bold' }}>{peerName}</div>
         <ReloadButton />
-      </div>
-      <div style={{ marginTop: '1rem' }}>
-        <Label variant='subheadline'>Connection string:</Label>
-        <div style={connStringStyle}>
-          {connectionString}
-          <CopyButton text={connectionString} />
-        </div>
       </div>
       {slots && stats ? (
         <div
