@@ -410,7 +410,7 @@ impl NexusBackend {
                 } => {
                     let peer_type = peer.r#type;
                     if Self::is_peer_validity_supported(peer_type) {
-                        self.validate_peer(peer).await.map_err(|e| {
+                        self.validate_peer(peer_type,peer).await.map_err(|e| {
                             PgWireError::UserError(Box::new(ErrorInfo::new(
                                 "ERROR".to_owned(),
                                 "internal_error".to_owned(),
