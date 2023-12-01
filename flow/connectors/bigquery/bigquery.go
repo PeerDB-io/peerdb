@@ -204,13 +204,13 @@ func (c *BigQueryConnector) Close() error {
 }
 
 // ConnectionActive returns true if the connection is active.
-func (c *BigQueryConnector) ConnectionActive() bool {
+func (c *BigQueryConnector) ConnectionActive() (bool, error) {
 	_, err := c.client.Dataset(c.datasetID).Metadata(c.ctx)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("failed to get dataset metadata: %v", err)
 	}
 
-	return c.client != nil
+	return c.client != nil, fmt.Errorf("BigQuery client is nil")
 }
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.

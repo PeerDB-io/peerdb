@@ -21,7 +21,7 @@ var ErrUnsupportedFunctionality = errors.New("requested connector does not suppo
 
 type Connector interface {
 	Close() error
-	ConnectionActive() bool
+	ConnectionActive() (bool, error)
 }
 
 type CDCPullConnector interface {

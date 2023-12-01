@@ -65,8 +65,8 @@ func (c *EventHubConnector) Close() error {
 	return allErrors
 }
 
-func (c *EventHubConnector) ConnectionActive() bool {
-	return true
+func (c *EventHubConnector) ConnectionActive() (bool, error) {
+	return true, nil
 }
 
 func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {

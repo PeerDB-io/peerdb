@@ -168,11 +168,12 @@ func (c *SnowflakeConnector) Close() error {
 	return nil
 }
 
-func (c *SnowflakeConnector) ConnectionActive() bool {
+func (c *SnowflakeConnector) ConnectionActive() (bool, error) {
 	if c == nil || c.database == nil {
-		return false
+		return false, fmt.Errorf("SnowflakeConnector is nil")
 	}
-	return c.database.PingContext(c.ctx) == nil
+	err := c.database.PingContext(c.ctx)
+	return err == nil, err
 }
 
 func (c *SnowflakeConnector) NeedsSetupMetadataTables() bool {
