@@ -149,15 +149,15 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 20,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert 15 rows into the source table
+	// and then insert 20 rows into the source table
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		// insert 15 rows into the source table
+		// insert 20 rows into the source table
 		for i := 0; i < 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
@@ -166,7 +166,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 		`, srcTableName), testKey, testValue)
 			s.NoError(err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		fmt.Println("Inserted 20 rows into the source table")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -225,15 +225,15 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		// insert 10 rows into the source table
+		// insert 4 invalid shapes and 6 valid shapes into the source table
 		for i := 0; i < 4; i++ {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,poly) VALUES ($1,$2)
@@ -269,7 +269,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	s.Contains(err.Error(), "continue as new")
 
 	// We inserted 4 invalid shapes in each.
-	// They should have filtered out as null on destination
+	// They should have been filtered out as null on destination
 	lineCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "line")
 	s.NoError(err)
 	s.Equal(6, lineCount)
@@ -312,8 +312,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 4,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -382,12 +382,10 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 0,
+		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* transaction updating no rows */
@@ -398,7 +396,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 			END;
 		`, srcTableName, srcTableName))
 		s.NoError(err)
-		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -444,8 +441,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 11,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -518,8 +515,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 6,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -587,8 +584,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 4,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -656,8 +653,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -731,8 +728,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 2,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -790,8 +787,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 10,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -954,8 +951,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 5,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1029,8 +1026,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 20,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1106,8 +1103,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 4,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1187,8 +1184,8 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup

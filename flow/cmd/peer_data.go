@@ -44,7 +44,7 @@ func (h *FlowRequestHandler) GetSchemas(
 
 	defer peerPool.Close()
 	rows, err := peerPool.Query(ctx, "SELECT schema_name"+
-		" FROM information_schema.schemata;")
+		" FROM information_schema.schemata WHERE schema_name !~ '^pg_' AND schema_name <> 'information_schema';")
 	if err != nil {
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
 	}
@@ -106,7 +106,7 @@ func (h *FlowRequestHandler) GetAllTables(
 
 	defer peerPool.Close()
 	rows, err := peerPool.Query(ctx, "SELECT table_schema || '.' || table_name AS schema_table "+
-		"FROM information_schema.tables;")
+		"FROM information_schema.tables WHERE table_schema !~ '^pg_' AND table_schema <> 'information_schema'")
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
 	}

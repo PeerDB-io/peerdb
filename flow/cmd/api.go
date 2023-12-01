@@ -62,11 +62,15 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 	return server, nil
 }
 
-func killExistingHeartbeatFlows(ctx context.Context, tc client.Client, namespace string) error {
+func killExistingHeartbeatFlows(
+	ctx context.Context,
+	tc client.Client,
+	namespace string,
+	taskQueue string) error {
 	listRes, err := tc.ListWorkflow(ctx,
 		&workflowservice.ListWorkflowExecutionsRequest{
 			Namespace: namespace,
-			Query:     "WorkflowType = 'HeartbeatFlowWorkflow'",
+			Query:     "WorkflowType = 'HeartbeatFlowWorkflow' AND TaskQueue = '" + taskQueue + "'",
 		})
 	if err != nil {
 		return fmt.Errorf("unable to list workflows: %w", err)
@@ -94,7 +98,7 @@ func APIMain(args *APIServerParams) error {
 
 		certs, err := Base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
 		if err != nil {
-			return fmt.Errorf("unable to process certificate and key: %w", err)
+			return fmt.Errorf("unable to base64 decode certificate and key: %w", err)
 		}
 
 		connOptions := client.ConnectionOptions{
@@ -115,10 +119,15 @@ func APIMain(args *APIServerParams) error {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
 
-	flowHandler := NewFlowRequestHandler(tc, catalogConn)
+	taskQueue, err := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
+	if err != nil {
+		return err
+	}
+
+	flowHandler := NewFlowRequestHandler(tc, catalogConn, taskQueue)
 	defer flowHandler.Close()
 
-	err = killExistingHeartbeatFlows(ctx, tc, args.TemporalNamespace)
+	err = killExistingHeartbeatFlows(ctx, tc, args.TemporalNamespace, taskQueue)
 	if err != nil {
 		return fmt.Errorf("unable to kill existing heartbeat flows: %w", err)
 	}
@@ -126,7 +135,7 @@ func APIMain(args *APIServerParams) error {
 	workflowID := fmt.Sprintf("heartbeatflow-%s", uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: taskQueue,
 	}
 
 	_, err = flowHandler.temporalClient.ExecuteWorkflow(

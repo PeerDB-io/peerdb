@@ -20,15 +20,17 @@ import (
 
 // grpc server implementation
 type FlowRequestHandler struct {
-	temporalClient client.Client
-	pool           *pgxpool.Pool
+	temporalClient      client.Client
+	pool                *pgxpool.Pool
+	peerflowTaskQueueID string
 	protos.UnimplementedFlowServiceServer
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool) *FlowRequestHandler {
+func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
-		temporalClient: temporalClient,
-		pool:           pool,
+		temporalClient:      temporalClient,
+		pool:                pool,
+		peerflowTaskQueueID: taskQueue,
 	}
 }
 
@@ -126,7 +128,10 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		},
 	}
 
 	maxBatchSize := int(cfg.MaxBatchSize)
@@ -137,6 +142,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	limits := &peerflow.CDCFlowLimits{
 		TotalSyncFlows:      0,
+		ExitAfterRecords:    -1,
 		TotalNormalizeFlows: 0,
 		MaxBatchSize:        maxBatchSize,
 	}
@@ -158,6 +164,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if req.CreateCatalogEntry {
 		err := h.createCdcJobEntry(ctx, req, workflowID)
 		if err != nil {
+			log.Errorf("unable to create flow job entry: %v", err)
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
@@ -165,6 +172,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	var err error
 	err = h.updateFlowConfigInCatalog(cfg)
 	if err != nil {
+		log.Errorf("unable to update flow config in catalog: %v", err)
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
@@ -178,6 +186,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		state,                              // workflow state
 	)
 	if err != nil {
+		log.Errorf("unable to start PeerFlow workflow: %v", err)
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
@@ -226,7 +235,10 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		},
 	}
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
@@ -308,7 +320,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: req.FlowJobName,
+		},
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context

@@ -118,7 +118,12 @@ func WorkerMain(opts *WorkerOptions) error {
 	log.Info("Created temporal client")
 	defer c.Close()
 
-	w := worker.New(c, shared.PeerFlowTaskQueue, worker.Options{})
+	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
+	if queueErr != nil {
+		return queueErr
+	}
+
+	w := worker.New(c, taskQueue, worker.Options{})
 	w.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
 	w.RegisterWorkflow(peerflow.SyncFlowWorkflow)
 	w.RegisterWorkflow(peerflow.SetupFlowWorkflow)
