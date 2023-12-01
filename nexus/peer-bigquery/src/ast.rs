@@ -3,10 +3,9 @@ use std::ops::ControlFlow;
 use sqlparser::ast::Value::Number;
 
 use sqlparser::ast::{
-    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, visit_setexpr_mut,
-    Array, ArrayElemTypeDef, BinaryOperator, DataType, DateTimeField, Expr,
-    Function, FunctionArg, FunctionArgExpr, Ident,
-    ObjectName, Query, SetExpr, SetOperator, SetQuantifier, TimezoneInfo,
+    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, visit_setexpr_mut, Array,
+    ArrayElemTypeDef, BinaryOperator, DataType, DateTimeField, Expr, Function, FunctionArg,
+    FunctionArgExpr, Ident, ObjectName, Query, SetExpr, SetOperator, SetQuantifier, TimezoneInfo,
 };
 
 #[derive(Default)]
@@ -99,11 +98,7 @@ impl BigqueryAst {
 
         visit_expressions_mut(query, |node| {
             // CAST AS Text to CAST AS String
-            if let Expr::Cast {
-                data_type: dt,
-                ..
-            } = node
-            {
+            if let Expr::Cast { data_type: dt, .. } = node {
                 if let DataType::Text = dt {
                     *dt = DataType::String(None);
                 }
@@ -177,7 +172,6 @@ impl BigqueryAst {
                             distinct: false,
                             special: false,
                             order_by: vec![],
-
                         })
                     } else if let BinaryOperator::Plus = op {
                         *node = Expr::Function(Function {
@@ -241,7 +235,12 @@ impl BigqueryAst {
 
         // flatten ANY to IN operation overall.
         visit_expressions_mut(query, |node| {
-            if let Expr::AnyOp { left, compare_op, right } = node {
+            if let Expr::AnyOp {
+                left,
+                compare_op,
+                right,
+            } = node
+            {
                 if matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq) {
                     let list = self
                         .flatten_expr_to_in_list(right)
@@ -256,8 +255,6 @@ impl BigqueryAst {
 
             ControlFlow::<()>::Continue(())
         });
-
-
 
         Ok(())
     }
@@ -300,7 +297,10 @@ impl BigqueryAst {
     fn flatten_expr_to_in_list(&self, expr: &Expr) -> anyhow::Result<Vec<Expr>> {
         let mut list = vec![];
         // check if expr is of type Cast
-        if let Expr::Cast { expr, data_type, .. } = expr {
+        if let Expr::Cast {
+            expr, data_type, ..
+        } = expr
+        {
             // assert that expr is of type SingleQuotedString
             if let Expr::Value(sqlparser::ast::Value::SingleQuotedString(s)) = expr.as_ref() {
                 // trim the starting and ending curly braces
@@ -309,39 +309,40 @@ impl BigqueryAst {
                 let split = s.split(',');
                 // match on data type, and create a vector of Expr::Value
                 match data_type {
-                    DataType::Array(ArrayElemTypeDef::AngleBracket(inner)) |
-                        DataType::Array(ArrayElemTypeDef::SquareBracket(inner))
-                        => match inner.as_ref() {
-                        DataType::Text | DataType::Char(_) | DataType::Varchar(_) => {
-                            for s in split {
-                                list.push(Expr::Value(sqlparser::ast::Value::SingleQuotedString(
-                                    s.to_string(),
-                                )));
+                    DataType::Array(ArrayElemTypeDef::AngleBracket(inner))
+                    | DataType::Array(ArrayElemTypeDef::SquareBracket(inner)) => {
+                        match inner.as_ref() {
+                            DataType::Text | DataType::Char(_) | DataType::Varchar(_) => {
+                                for s in split {
+                                    list.push(Expr::Value(
+                                        sqlparser::ast::Value::SingleQuotedString(s.to_string()),
+                                    ));
+                                }
+                            }
+                            DataType::Integer(_)
+                            | DataType::Float(_)
+                            | DataType::BigInt(_)
+                            | DataType::UnsignedBigInt(_)
+                            | DataType::UnsignedInteger(_)
+                            | DataType::UnsignedSmallInt(_)
+                            | DataType::UnsignedTinyInt(_)
+                            | DataType::TinyInt(_)
+                            | DataType::UnsignedInt(_) => {
+                                for s in split {
+                                    list.push(Expr::Value(sqlparser::ast::Value::Number(
+                                        s.to_string(),
+                                        false,
+                                    )));
+                                }
+                            }
+                            _ => {
+                                return Err(anyhow::anyhow!(
+                                    "Unsupported inner data type for IN list: {:?}",
+                                    data_type
+                                ))
                             }
                         }
-                        DataType::Integer(_)
-                        | DataType::Float(_)
-                        | DataType::BigInt(_)
-                        | DataType::UnsignedBigInt(_)
-                        | DataType::UnsignedInteger(_)
-                        | DataType::UnsignedSmallInt(_)
-                        | DataType::UnsignedTinyInt(_)
-                        | DataType::TinyInt(_)
-                        | DataType::UnsignedInt(_) => {
-                            for s in split {
-                                list.push(Expr::Value(sqlparser::ast::Value::Number(
-                                    s.to_string(),
-                                    false,
-                                )));
-                            }
-                        }
-                        _ => {
-                            return Err(anyhow::anyhow!(
-                                "Unsupported inner data type for IN list: {:?}",
-                                data_type
-                            ))
-                        }
-                    },
+                    }
                     _ => {
                         return Err(anyhow::anyhow!(
                             "Unsupported data type for IN list: {:?}",
