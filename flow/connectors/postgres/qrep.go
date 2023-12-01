@@ -84,50 +84,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
-	if config.WatermarkColumn == "xmin" {
-		minVal, maxVal, err := c.getMinMaxValues(tx, config, last)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get min max values for xmin: %w", err)
-		}
-
-		// we know these are int64s so we can just cast them
-		minValInt := minVal.(int64)
-		maxValInt := maxVal.(int64)
-
-		// we will only return 1 partition for xmin:
-		// if there is no last partition, we will return a partition with the min and max values
-		// if there is a last partition, we will return a partition with the last partition's
-		// end value + 1 and the max value
-		if last != nil && last.Range != nil {
-			minValInt += 1
-		}
-
-		if minValInt > maxValInt {
-			// log and return an empty partition
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Infof("xmin min value is greater than max value, returning empty partition")
-			return make([]*protos.QRepPartition, 0), nil
-		}
-
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Infof("single xmin partition range: %v - %v", minValInt, maxValInt)
-
-		partition := &protos.QRepPartition{
-			PartitionId: uuid.New().String(),
-			Range: &protos.PartitionRange{
-				Range: &protos.PartitionRange_IntRange{
-					IntRange: &protos.IntPartitionRange{
-						Start: minValInt,
-						End:   maxValInt,
-					},
-				},
-			},
-		}
-
-		return []*protos.QRepPartition{partition}, nil
-	}
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -594,6 +550,34 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) PullXminRecordStream(
+	config *protos.QRepConfig,
+	stream *model.QRecordStream,
+) (int, error) {
+	// Build the query to pull records within the range from the source table
+	// Be sure to order the results by the watermark column to ensure consistency across pulls
+	query, err := BuildQuery(config.Query, config.FlowJobName)
+	if err != nil {
+		return 0, err
+	}
+
+	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		config.FlowJobName, partition.PartitionId)
+	if err != nil {
+		return 0, err
+	}
+
+	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query, rangeStart, rangeEnd)
+	if err != nil {
+		return 0, err
+	}
+
+	log.WithFields(log.Fields{
+		"partition": partition.PartitionId,
+	}).Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
+	return numRecords, nil
 }
 
 func BuildQuery(query string, flowJobName string) (string, error) {

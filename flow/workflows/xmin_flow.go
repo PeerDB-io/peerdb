@@ -1,0 +1,304 @@
+// This file corresponds to query based replication.
+package peerflow
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
+	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/google/uuid"
+	// "go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/log"
+	// "go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/workflow"
+)
+
+type XminFlowExecution struct {
+	config          *protos.QRepConfig
+	flowExecutionID string
+	logger          log.Logger
+	runUUID         string
+	// being tracked for future workflow signalling
+	childPartitionWorkflows []workflow.ChildWorkflowFuture
+	// Current signalled state of the peer flow.
+	activeSignal shared.CDCFlowSignal
+}
+
+// returns a new empty QRepFlowState
+func NewXminFlowState() *protos.QRepFlowState {
+	return &protos.QRepFlowState{
+		LastPartition: &protos.QRepPartition{
+			PartitionId: "not-applicable-partition",
+			Range:       nil,
+		},
+		NumPartitionsProcessed: 0,
+		NeedsResync:            true,
+	}
+}
+
+// returns a new empty QRepFlowState
+func NewXminFlowStateForTesting() *protos.QRepFlowState {
+	return &protos.QRepFlowState{
+		LastPartition: &protos.QRepPartition{
+			PartitionId: "not-applicable-partition",
+			Range:       nil,
+		},
+		NumPartitionsProcessed: 0,
+		NeedsResync:            true,
+		DisableWaitForNewRows:  true,
+	}
+}
+
+// NewXminFlowExecution creates a new instance of XminFlowExecution.
+func NewXminFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUUID string) *XminFlowExecution {
+	return &XminFlowExecution{
+		config:                  config,
+		flowExecutionID:         workflow.GetInfo(ctx).WorkflowExecution.ID,
+		logger:                  workflow.GetLogger(ctx),
+		runUUID:                 runUUID,
+		childPartitionWorkflows: nil,
+		activeSignal:            shared.NoopSignal,
+	}
+}
+
+// SetupMetadataTables creates the metadata tables for query based replication.
+func (q *XminFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
+	q.logger.Info("setting up metadata tables for qrep flow - ", q.config.FlowJobName)
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+
+	if err := workflow.ExecuteActivity(ctx, flowable.SetupQRepMetadataTables, q.config).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to setup metadata tables: %w", err)
+	}
+
+	q.logger.Info("metadata tables setup for qrep flow - ", q.config.FlowJobName)
+	return nil
+}
+
+func (q *XminFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Context) error {
+	if q.config.SetupWatermarkTableOnDestination {
+		q.logger.Info("setting up watermark table on destination for qrep flow: ", q.config.FlowJobName)
+
+		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+
+		tableSchemaInput := &protos.GetTableSchemaBatchInput{
+			PeerConnectionConfig: q.config.SourcePeer,
+			TableIdentifiers:     []string{q.config.WatermarkTable},
+		}
+
+		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
+
+		var tblSchemaOutput *protos.GetTableSchemaBatchOutput
+		if err := future.Get(ctx, &tblSchemaOutput); err != nil {
+			q.logger.Error("failed to fetch schema for watermark table: ", err)
+			return fmt.Errorf("failed to fetch schema for watermark table %s: %w", q.config.WatermarkTable, err)
+		}
+
+		// now setup the normalized tables on the destination peer
+		setupConfig := &protos.SetupNormalizedTableBatchInput{
+			PeerConnectionConfig: q.config.DestinationPeer,
+			TableNameSchemaMapping: map[string]*protos.TableSchema{
+				q.config.DestinationTableIdentifier: tblSchemaOutput.TableNameSchemaMapping[q.config.WatermarkTable],
+			},
+		}
+
+		future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
+		var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
+		if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
+			q.logger.Error("failed to create watermark table: ", err)
+			return fmt.Errorf("failed to create watermark table: %w", err)
+		}
+		q.logger.Info("finished setting up watermark table for qrep flow: ", q.config.FlowJobName)
+	}
+	return nil
+}
+
+// getPartitionWorkflowID returns the child workflow ID for a new sync flow.
+func (q *XminFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string, error) {
+	childWorkflowIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, uuid.New().String())
+	})
+
+	var childWorkflowID string
+	if err := childWorkflowIDSideEffect.Get(&childWorkflowID); err != nil {
+		return "", fmt.Errorf("failed to get child workflow ID: %w", err)
+	}
+
+	return childWorkflowID, nil
+}
+
+func (q *XminFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) error {
+	q.logger.Info("idling until new rows are detected")
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		HeartbeatTimeout:    5 * time.Minute,
+	})
+
+	if err := workflow.ExecuteActivity(ctx, flowable.XminWaitUntilNewRows, q.config,
+		lastPartition).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed while idling for new rows: %w", err)
+	}
+
+	return nil
+}
+
+func (q *XminFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
+	if state.NeedsResync && q.config.DstTableFullResync {
+		renamedTableIdentifier := fmt.Sprintf("%s_peerdb_resync", q.config.DestinationTableIdentifier)
+		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 10 * time.Minute,
+			HeartbeatTimeout:    2 * time.Minute,
+		})
+		createTablesFromExistingFuture := workflow.ExecuteActivity(
+			createTablesFromExistingCtx, flowable.CreateTablesFromExisting, &protos.CreateTablesFromExistingInput{
+				FlowJobName: q.config.FlowJobName,
+				Peer:        q.config.DestinationPeer,
+				NewToExistingTableMapping: map[string]string{
+					renamedTableIdentifier: q.config.DestinationTableIdentifier,
+				},
+			})
+		if err := createTablesFromExistingFuture.Get(createTablesFromExistingCtx, nil); err != nil {
+			return fmt.Errorf("failed to create table for mirror resync: %w", err)
+		}
+		q.config.DestinationTableIdentifier = renamedTableIdentifier
+	}
+	return nil
+}
+
+func (q *XminFlowExecution) handleTableRenameForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
+	if state.NeedsResync && q.config.DstTableFullResync {
+		oldTableIdentifier := strings.TrimSuffix(q.config.DestinationTableIdentifier, "_peerdb_resync")
+		renameOpts := &protos.RenameTablesInput{}
+		renameOpts.FlowJobName = q.config.FlowJobName
+		renameOpts.Peer = q.config.DestinationPeer
+		renameOpts.RenameTableOptions = []*protos.RenameTableOption{
+			{
+				CurrentName: q.config.DestinationTableIdentifier,
+				NewName:     oldTableIdentifier,
+			},
+		}
+
+		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Minute,
+			HeartbeatTimeout:    5 * time.Minute,
+		})
+		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
+		if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
+			return fmt.Errorf("failed to execute rename tables activity: %w", err)
+		}
+		q.config.DestinationTableIdentifier = oldTableIdentifier
+	}
+	state.NeedsResync = false
+	return nil
+}
+
+func (q *XminFlowExecution) receiveAndHandleSignalAsync(ctx workflow.Context) {
+	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+
+	var signalVal shared.CDCFlowSignal
+	ok := signalChan.ReceiveAsync(&signalVal)
+	if ok {
+		q.activeSignal = util.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+	}
+}
+
+func XminFlowWorkflow(
+	ctx workflow.Context,
+	config *protos.QRepConfig,
+	state *protos.QRepFlowState,
+) error {
+	// register a query to get the number of partitions processed
+	err := workflow.SetQueryHandler(ctx, "num-partitions-processed", func() (uint64, error) {
+		return state.NumPartitionsProcessed, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register query handler: %w", err)
+	}
+
+	// get qrep run uuid via side-effect
+	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+		return uuid.New().String()
+	})
+
+	var runUUID string
+	if err := runUUIDSideEffect.Get(&runUUID); err != nil {
+		return fmt.Errorf("failed to get run uuid: %w", err)
+	}
+
+	q := NewXminFlowExecution(ctx, config, runUUID)
+
+	err = q.SetupMetadataTables(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup metadata tables: %w", err)
+	}
+	q.logger.Info("metadata tables setup for peer flow - ", config.FlowJobName)
+
+	err = q.handleTableCreationForResync(ctx, state)
+	if err != nil {
+		return err
+	}
+
+	err = q.SetupWatermarkTableOnDestination(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup watermark table: %w", err)
+	}
+
+	// TODO sync
+
+	if config.InitialCopyOnly {
+		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
+		return nil
+	}
+
+	err = q.handleTableRenameForResync(ctx, state)
+	if err != nil {
+		return err
+	}
+
+	// state.LastPartition = ...
+
+	if !state.DisableWaitForNewRows {
+		// sleep for a while and continue the workflow
+		err = q.waitForNewRows(ctx, state.LastPartition)
+		if err != nil {
+			return err
+		}
+	}
+
+	workflow.GetLogger(ctx).Info("Continuing as new workflow",
+		"Last Partition", state.LastPartition,
+		"Number of Partitions Processed", state.NumPartitionsProcessed)
+
+	// here, we handle signals after the end of the flow because a new workflow does not inherit the signals
+	// and the chance of missing a signal is much higher if the check is before the time consuming parts run
+	q.receiveAndHandleSignalAsync(ctx)
+	if q.activeSignal == shared.PauseSignal {
+		startTime := time.Now()
+		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+		var signalVal shared.CDCFlowSignal
+
+		for q.activeSignal == shared.PauseSignal {
+			q.logger.Info("mirror has been paused for ", time.Since(startTime))
+			// only place we block on receive, so signal processing is immediate
+			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
+			if ok {
+				q.activeSignal = util.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+			}
+		}
+	}
+	if q.activeSignal == shared.ShutdownSignal {
+		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		return nil
+	}
+
+	// Continue the workflow with new state
+	return workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
+}

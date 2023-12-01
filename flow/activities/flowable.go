@@ -845,3 +845,99 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 	}
 	return nil, fmt.Errorf("create tables from existing is only supported on snowflake and bigquery")
 }
+
+func (a *FlowableActivity) XminWaitUntilNewRows(ctx context.Context,
+	config *protos.QRepConfig) error {
+	// TODO
+	return nil
+}
+
+// ReplicateXminPartition replicates a XminPartition from the source to the destination.
+func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
+	config *protos.QRepConfig,
+	runUUID string,
+) error {
+	partition := &protos.QRepPartition { PartitionId: "00000000-0000-0000-0000-000000000000" }
+
+	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition)
+	if err != nil {
+		return fmt.Errorf("failed to update start time for partition: %w", err)
+	}
+
+	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
+	if err != nil {
+		return fmt.Errorf("failed to get qrep source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
+	if err != nil {
+		return fmt.Errorf("failed to get qrep destination connector: %w", err)
+	}
+	defer connectors.CloseConnector(dstConn)
+
+	log.Info("replicating xmin\n")
+
+	var stream *model.QRecordStream
+	bufferSize := shared.FetchAndChannelSize
+	var wg sync.WaitGroup
+
+	var goroutineErr error = nil
+
+	stream = model.NewQRecordStream(bufferSize)
+	wg.Add(1)
+
+	pullPgRecords := func() {
+		pgConn := srcConn.(*connpostgres.PostgresConnector)
+		tmp, err := pgConn.PullXminRecordStream(config, partition, stream)
+		numRecords := int64(tmp)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("failed to pull records: %v", err)
+			goroutineErr = err
+		}
+		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
+		if err != nil {
+			log.Errorf("%v", err)
+			goroutineErr = err
+		}
+		wg.Done()
+	}
+
+	go pullPgRecords()
+
+	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+		return "syncing xmin."
+	})
+
+	defer func() {
+		shutdown <- true
+	}()
+
+	res, err := dstConn.SyncQRepRecords(config, partition, stream)
+	if err != nil {
+		return fmt.Errorf("failed to sync records: %w", err)
+	}
+
+	if res == 0 {
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Info("no records to push for xmin\n")
+	} else {
+		wg.Wait()
+		if goroutineErr != nil {
+			return goroutineErr
+		}
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Infof("pushed %d records\n", res)
+	}
+
+	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
