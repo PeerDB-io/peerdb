@@ -407,6 +407,11 @@ func QRepFlowWorkflow(
 
 	q := NewQRepFlowExecution(ctx, config, runUUID)
 
+	err = q.SetupWatermarkTableOnDestination(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup watermark table: %w", err)
+	}
+
 	err = q.SetupMetadataTables(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
@@ -416,11 +421,6 @@ func QRepFlowWorkflow(
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
 		return err
-	}
-
-	err = q.SetupWatermarkTableOnDestination(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to setup watermark table: %w", err)
 	}
 
 	logger.Info("fetching partitions to replicate for peer flow - ", config.FlowJobName)
