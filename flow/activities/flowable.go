@@ -846,12 +846,6 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 	return nil, fmt.Errorf("create tables from existing is only supported on snowflake and bigquery")
 }
 
-func (a *FlowableActivity) XminWaitUntilNewRows(ctx context.Context,
-	config *protos.QRepConfig) error {
-	// TODO
-	return nil
-}
-
 // ReplicateXminPartition replicates a XminPartition from the source to the destination.
 func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	config *protos.QRepConfig,

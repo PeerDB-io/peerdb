@@ -134,22 +134,6 @@ func (q *XminFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 	return childWorkflowID, nil
 }
 
-func (q *XminFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) error {
-	q.logger.Info("idling until new rows are detected")
-
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
-		HeartbeatTimeout:    5 * time.Minute,
-	})
-
-	if err := workflow.ExecuteActivity(ctx, flowable.XminWaitUntilNewRows, q.config,
-		lastPartition).Get(ctx, nil); err != nil {
-		return fmt.Errorf("failed while idling for new rows: %w", err)
-	}
-
-	return nil
-}
-
 func (q *XminFlowExecution) handleTableCreationForResync(ctx workflow.Context, state *protos.QRepFlowState) error {
 	if state.NeedsResync && q.config.DstTableFullResync {
 		renamedTableIdentifier := fmt.Sprintf("%s_peerdb_resync", q.config.DestinationTableIdentifier)
@@ -266,14 +250,6 @@ func XminFlowWorkflow(
 	err = q.handleTableRenameForResync(ctx, state)
 	if err != nil {
 		return err
-	}
-
-	if !state.DisableWaitForNewRows {
-		// sleep for a while and continue the workflow
-		err = q.waitForNewRows(ctx, state.LastPartition)
-		if err != nil {
-			return err
-		}
 	}
 
 	workflow.GetLogger(ctx).Info("Continuing as new workflow",
