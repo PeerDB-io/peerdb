@@ -248,13 +248,13 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 
 	state := peerflow.NewQRepFlowState()
-	_, err := h.temporalClient.ExecuteWorkflow(
-		ctx,                       // context
-		workflowOptions,           // workflow start options
-		peerflow.QRepFlowWorkflow, // workflow function
-		cfg,                       // workflow input
-		state,
-	)
+	var workflowFn interface{}
+	if cfg.SourcePeer.Type == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
+		workflowFn = peerflow.XminFlowWorkflow
+	} else {
+		workflowFn = peerflow.QRepFlowWorkflow
+	}
+	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}

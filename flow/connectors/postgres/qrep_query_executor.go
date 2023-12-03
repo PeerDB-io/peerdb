@@ -321,6 +321,61 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		return 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
+	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(tx, stream, query, args...)
+	return totalRecordsFetched, err
+}
+
+func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentTxid(
+	currentTxid *int64,
+	stream *model.QRecordStream,
+	query string,
+	args ...interface{},
+) (int, error) {
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("Executing and processing query stream '%s'", query)
+	defer close(stream.Records)
+
+	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
+		AccessMode: pgx.ReadOnly,
+		IsoLevel:   pgx.RepeatableRead,
+	})
+	if err != nil {
+		log.WithFields(log.Fields{
+			"flowName":    qe.flowJobName,
+			"partitionID": qe.partitionID,
+		}).Errorf("[pg_query_executor] failed to begin transaction: %v", err)
+		return 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
+	}
+
+	rows, err := tx.Query(qe.ctx, "select txid_current()")
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return 0, err
+	}
+
+	err = rows.Scan(currentTxid)
+	if err != nil {
+		return 0, err
+	}
+
+	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(tx, stream, query, args...)
+	return totalRecordsFetched, err
+}
+
+func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
+	tx pgx.Tx,
+	stream *model.QRecordStream,
+	query string,
+	args ...interface{},
+) (int, error) {
+	var err error
+
 	defer func() {
 		err := tx.Rollback(qe.ctx)
 		if err != nil && err != pgx.ErrTxClosed {

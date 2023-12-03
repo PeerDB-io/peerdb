@@ -200,9 +200,6 @@ func (c *PostgresConnector) getMinMaxValues(
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
-	if config.WatermarkColumn == "xmin" {
-		quotedWatermarkColumn = fmt.Sprintf("%s::text::bigint", quotedWatermarkColumn)
-	}
 
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -554,14 +551,13 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 
 func (c *PostgresConnector) PullXminRecordStream(
 	config *protos.QRepConfig,
+	currentTxid *int64,
+	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(config.Query, config.FlowJobName)
-	if err != nil {
-		return 0, err
-	}
+	query := config.Query + " WHERE age(xmin) > 0 AND age(xmin) < age($1) ORDER BY xmin"
 
 	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
@@ -569,7 +565,7 @@ func (c *PostgresConnector) PullXminRecordStream(
 		return 0, err
 	}
 
-	numRecords, err := executor.ExecuteAndProcessQueryStream(stream, query, rangeStart, rangeEnd)
+	numRecords, err := executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(currentTxid, stream, query, partition.PartitionId)
 	if err != nil {
 		return 0, err
 	}

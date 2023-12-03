@@ -855,24 +855,23 @@ func (a *FlowableActivity) XminWaitUntilNewRows(ctx context.Context,
 // ReplicateXminPartition replicates a XminPartition from the source to the destination.
 func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
 	runUUID string,
-) error {
-	partition := &protos.QRepPartition { PartitionId: "00000000-0000-0000-0000-000000000000" }
-
+) (int64, error) {
 	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition)
 	if err != nil {
-		return fmt.Errorf("failed to update start time for partition: %w", err)
+		return 0, fmt.Errorf("failed to update start time for partition: %w", err)
 	}
 
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
-		return fmt.Errorf("failed to get qrep source connector: %w", err)
+		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
 	defer connectors.CloseConnector(srcConn)
 
 	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
 	if err != nil {
-		return fmt.Errorf("failed to get qrep destination connector: %w", err)
+		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
 
@@ -887,9 +886,10 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	stream = model.NewQRecordStream(bufferSize)
 	wg.Add(1)
 
+	var currentTxid int64
 	pullPgRecords := func() {
 		pgConn := srcConn.(*connpostgres.PostgresConnector)
-		tmp, err := pgConn.PullXminRecordStream(config, partition, stream)
+		tmp, err := pgConn.PullXminRecordStream(config, &currentTxid, partition, stream)
 		numRecords := int64(tmp)
 		if err != nil {
 			log.WithFields(log.Fields{
@@ -917,7 +917,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 
 	res, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
-		return fmt.Errorf("failed to sync records: %w", err)
+		return 0, fmt.Errorf("failed to sync records: %w", err)
 	}
 
 	if res == 0 {
@@ -927,7 +927,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	} else {
 		wg.Wait()
 		if goroutineErr != nil {
-			return goroutineErr
+			return 0, goroutineErr
 		}
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
@@ -936,8 +936,8 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 
 	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return currentTxid, nil
 }

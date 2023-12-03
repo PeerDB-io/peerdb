@@ -66,7 +66,7 @@ func NewXminFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUU
 
 // SetupMetadataTables creates the metadata tables for query based replication.
 func (q *XminFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
-	q.logger.Info("setting up metadata tables for qrep flow - ", q.config.FlowJobName)
+	q.logger.Info("setting up metadata tables for xmin flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -76,13 +76,13 @@ func (q *XminFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 
-	q.logger.Info("metadata tables setup for qrep flow - ", q.config.FlowJobName)
+	q.logger.Info("metadata tables setup for xmin flow - ", q.config.FlowJobName)
 	return nil
 }
 
 func (q *XminFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Context) error {
 	if q.config.SetupWatermarkTableOnDestination {
-		q.logger.Info("setting up watermark table on destination for qrep flow: ", q.config.FlowJobName)
+		q.logger.Info("setting up watermark table on destination for xmin flow: ", q.config.FlowJobName)
 
 		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 5 * time.Minute,
@@ -115,7 +115,7 @@ func (q *XminFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 			q.logger.Error("failed to create watermark table: ", err)
 			return fmt.Errorf("failed to create watermark table: %w", err)
 		}
-		q.logger.Info("finished setting up watermark table for qrep flow: ", q.config.FlowJobName)
+		q.logger.Info("finished setting up watermark table for xmin flow: ", q.config.FlowJobName)
 	}
 	return nil
 }
@@ -223,7 +223,7 @@ func XminFlowWorkflow(
 		return fmt.Errorf("failed to register query handler: %w", err)
 	}
 
-	// get qrep run uuid via side-effect
+	// get xmin run uuid via side-effect
 	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		return uuid.New().String()
 	})
@@ -251,7 +251,12 @@ func XminFlowWorkflow(
 		return fmt.Errorf("failed to setup watermark table: %w", err)
 	}
 
-	// TODO sync
+	var lastPartition int64
+	err = workflow.ExecuteActivity(ctx, flowable.ReplicateXminPartition, q.config, state.LastPartition, q.runUUID).Get(ctx, &lastPartition)
+	if err != nil {
+		return fmt.Errorf("xmin replication failed: %w", err)
+	}
+	state.LastPartition = &protos.QRepPartition{PartitionId: fmt.Sprintf("%ld", lastPartition)}
 
 	if config.InitialCopyOnly {
 		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
@@ -262,8 +267,6 @@ func XminFlowWorkflow(
 	if err != nil {
 		return err
 	}
-
-	// state.LastPartition = ...
 
 	if !state.DisableWaitForNewRows {
 		// sleep for a while and continue the workflow
