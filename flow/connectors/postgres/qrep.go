@@ -560,7 +560,7 @@ func (c *PostgresConnector) PullXminRecordStream(
 	//	    but prevents parallelism without chunking from qrep code.
 	//      Maybe strategy should be qrep initial load, then populate PartitionId for xmin to takeover.
 	if partition.PartitionId != "" {
-		query += " WHERE age(xmin) >= 0 AND age(xmin) < age($1::xid)"
+		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
 	}
 
 	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
