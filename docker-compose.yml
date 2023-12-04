@@ -56,11 +56,6 @@ services:
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     image: temporalio/auto-setup:1.22
-    healthcheck:
-      test: ["CMD", "tctl", "cluster", "h"]
-      interval: 10s
-      timeout: 1m
-      retries: 10
     ports:
       - 7233:7233
     volumes:
@@ -71,8 +66,7 @@ services:
   temporal-admin-tools:
     container_name: temporal-admin-tools
     depends_on:
-      temporal:
-        condition: service_healthy
+      - temporal
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
