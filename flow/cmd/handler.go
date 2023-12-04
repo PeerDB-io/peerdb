@@ -250,6 +250,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	state := peerflow.NewQRepFlowState()
 	var workflowFn interface{}
 	if cfg.SourcePeer.Type == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
+		state.LastPartition.PartitionId = ""
 		workflowFn = peerflow.XminFlowWorkflow
 	} else {
 		workflowFn = peerflow.QRepFlowWorkflow

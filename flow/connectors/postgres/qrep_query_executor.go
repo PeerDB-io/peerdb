@@ -353,13 +353,12 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentTxid(
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
-
 	if !rows.Next() {
+		rows.Close()
 		return 0, err
 	}
-
 	err = rows.Scan(currentTxid)
+	rows.Close()
 	if err != nil {
 		return 0, err
 	}

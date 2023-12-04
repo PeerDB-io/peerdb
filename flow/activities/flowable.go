@@ -467,7 +467,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}, nil
 }
 
-// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
+// ReplicateQRepPartitions spawns multiple ReplicateQRepPartition
 func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	config *protos.QRepConfig,
 	partitions *protos.QRepPartitionBatch,

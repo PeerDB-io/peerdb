@@ -3,6 +3,7 @@ package peerflow
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,31 +26,6 @@ type XminFlowExecution struct {
 	childPartitionWorkflows []workflow.ChildWorkflowFuture
 	// Current signalled state of the peer flow.
 	activeSignal shared.CDCFlowSignal
-}
-
-// returns a new empty QRepFlowState
-func NewXminFlowState() *protos.QRepFlowState {
-	return &protos.QRepFlowState{
-		LastPartition: &protos.QRepPartition{
-			PartitionId: "not-applicable-partition",
-			Range:       nil,
-		},
-		NumPartitionsProcessed: 0,
-		NeedsResync:            true,
-	}
-}
-
-// returns a new empty QRepFlowState
-func NewXminFlowStateForTesting() *protos.QRepFlowState {
-	return &protos.QRepFlowState{
-		LastPartition: &protos.QRepPartition{
-			PartitionId: "not-applicable-partition",
-			Range:       nil,
-		},
-		NumPartitionsProcessed: 0,
-		NeedsResync:            true,
-		DisableWaitForNewRows:  true,
-	}
 }
 
 // NewXminFlowExecution creates a new instance of XminFlowExecution.
@@ -236,11 +212,15 @@ func XminFlowWorkflow(
 	}
 
 	var lastPartition int64
-	err = workflow.ExecuteActivity(ctx, flowable.ReplicateXminPartition, q.config, state.LastPartition, q.runUUID).Get(ctx, &lastPartition)
+	replicateXminPartitionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 24 * 5 * time.Hour,
+		HeartbeatTimeout:    5 * time.Minute,
+	})
+	err = workflow.ExecuteActivity(replicateXminPartitionCtx, flowable.ReplicateXminPartition, q.config, state.LastPartition, q.runUUID).Get(ctx, &lastPartition)
 	if err != nil {
 		return fmt.Errorf("xmin replication failed: %w", err)
 	}
-	state.LastPartition = &protos.QRepPartition{PartitionId: fmt.Sprintf("%ld", lastPartition)}
+	state.LastPartition = &protos.QRepPartition{PartitionId: strconv.FormatInt(lastPartition&0xffffffff, 10)}
 
 	if config.InitialCopyOnly {
 		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)

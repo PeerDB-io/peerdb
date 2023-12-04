@@ -555,9 +555,13 @@ func (c *PostgresConnector) PullXminRecordStream(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	// Build the query to pull records within the range from the source table
-	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query := config.Query + " WHERE age(xmin) > 0 AND age(xmin) < age($1) ORDER BY xmin"
+	query := config.Query
+	// TODO if initial replication uses xmin with empty partition id, need to do full scan,
+	//	    but prevents parallelism without chunking from qrep code.
+	//      Maybe strategy should be qrep initial load, then populate PartitionId for xmin to takeover.
+	if partition.PartitionId != "" {
+		query += " WHERE age(xmin) >= 0 AND age(xmin) < age($1::xid)"
+	}
 
 	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
@@ -565,7 +569,12 @@ func (c *PostgresConnector) PullXminRecordStream(
 		return 0, err
 	}
 
-	numRecords, err := executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(currentTxid, stream, query, partition.PartitionId)
+	var numRecords int
+	if partition.PartitionId != "" {
+		numRecords, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(currentTxid, stream, query, partition.PartitionId)
+	} else {
+		numRecords, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(currentTxid, stream, query)
+	}
 	if err != nil {
 		return 0, err
 	}
