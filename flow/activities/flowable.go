@@ -878,12 +878,12 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 
 	stream := model.NewQRecordStream(bufferSize)
 
-	var currentTxid int64
+	var currentSnapshotXmin int64
 	errGroup.Go(func() error {
 		pgConn := srcConn.(*connpostgres.PostgresConnector)
 		var pullErr error
 		var numRecords int
-		numRecords, currentTxid, pullErr = pgConn.PullXminRecordStream(config, partition, stream)
+		numRecords, currentSnapshotXmin, pullErr = pgConn.PullXminRecordStream(config, partition, stream)
 		if pullErr != nil {
 			log.WithFields(log.Fields{
 				"flowName": config.FlowJobName,
@@ -930,5 +930,5 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		return 0, err
 	}
 
-	return currentTxid, nil
+	return currentSnapshotXmin, nil
 }

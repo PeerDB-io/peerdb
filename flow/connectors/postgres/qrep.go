@@ -554,11 +554,8 @@ func (c *PostgresConnector) PullXminRecordStream(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, int64, error) {
-	var currentTxid int64
+	var currentSnapshotXmin int64
 	query := config.Query
-	// TODO if initial replication uses xmin with empty partition id, need to do full scan,
-	//	    but prevents parallelism without chunking from qrep code.
-	//      Maybe strategy should be qrep initial load, then populate PartitionId for xmin to takeover.
 	if partition.PartitionId != "" {
 		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
 	}
@@ -566,23 +563,23 @@ func (c *PostgresConnector) PullXminRecordStream(
 	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
-		return 0, currentTxid, err
+		return 0, currentSnapshotXmin, err
 	}
 
 	var numRecords int
 	if partition.PartitionId != "" {
-		numRecords, currentTxid, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query, partition.PartitionId)
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query, partition.PartitionId)
 	} else {
-		numRecords, currentTxid, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query)
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query)
 	}
 	if err != nil {
-		return 0, currentTxid, err
+		return 0, currentSnapshotXmin, err
 	}
 
 	log.WithFields(log.Fields{
 		"partition": partition.PartitionId,
 	}).Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
-	return numRecords, currentTxid, nil
+	return numRecords, currentSnapshotXmin, nil
 }
 
 func BuildQuery(query string, flowJobName string) (string, error) {

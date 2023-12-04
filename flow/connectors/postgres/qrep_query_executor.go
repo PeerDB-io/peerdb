@@ -330,7 +330,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentTxid(
 	query string,
 	args ...interface{},
 ) (int, int64, error) {
-	var currentTxid int64
+	var currentSnapshotXmin int64
 	log.WithFields(log.Fields{
 		"flowName":    qe.flowJobName,
 		"partitionID": qe.partitionID,
@@ -346,16 +346,16 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentTxid(
 			"flowName":    qe.flowJobName,
 			"partitionID": qe.partitionID,
 		}).Errorf("[pg_query_executor] failed to begin transaction: %v", err)
-		return 0, currentTxid, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
+		return 0, currentSnapshotXmin, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
-	err = tx.QueryRow(qe.ctx, "select txid_current()").Scan(&currentTxid)
+	err = tx.QueryRow(qe.ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin)
 	if err != nil {
-		return 0, currentTxid, err
+		return 0, currentSnapshotXmin, err
 	}
 
 	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(tx, stream, query, args...)
-	return totalRecordsFetched, currentTxid, err
+	return totalRecordsFetched, currentSnapshotXmin, err
 }
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
