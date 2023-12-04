@@ -99,6 +99,11 @@ enum DBType {
   EVENTHUB_GROUP = 7;
 }
 
+message TableColumn{
+  string name = 1;
+  string type = 2;
+}
+
 message Peer {
   string name = 1;
   DBType type = 2;

@@ -114,14 +114,14 @@ func (c *PostgresConnector) ConnectionActive() error {
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
 func (c *PostgresConnector) NeedsSetupMetadataTables() bool {
-	result, err := c.tableExists(&utils.SchemaTable{
+	columns, err := c.tableExists(&utils.SchemaTable{
 		Schema: c.metadataSchema,
 		Table:  mirrorJobsTableIdentifier,
 	})
 	if err != nil {
 		return true
 	}
-	return !result
+	return len(*columns) != 0
 }
 
 // SetupMetadataTables sets up the metadata tables.
@@ -640,11 +640,11 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 		if err != nil {
 			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 		}
-		tableAlreadyExists, err := c.tableExists(parsedNormalizedTable)
+		destinationColumns, err := c.tableExists(parsedNormalizedTable)
 		if err != nil {
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
-		if tableAlreadyExists {
+		if destinationColumns != nil {
 			tableExistsMapping[tableIdentifier] = true
 			continue
 		}

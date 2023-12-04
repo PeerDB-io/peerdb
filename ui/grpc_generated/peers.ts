@@ -168,6 +168,11 @@ export interface SqlServerConfig {
   database: string;
 }
 
+export interface TableColumn {
+  name: string;
+  type: string;
+}
+
 export interface Peer {
   name: string;
   type: DBType;
@@ -1509,6 +1514,77 @@ export const SqlServerConfig = {
     message.user = object.user ?? "";
     message.password = object.password ?? "";
     message.database = object.database ?? "";
+    return message;
+  },
+};
+
+function createBaseTableColumn(): TableColumn {
+  return { name: "", type: "" };
+}
+
+export const TableColumn = {
+  encode(message: TableColumn, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.type !== "") {
+      writer.uint32(18).string(message.type);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): TableColumn {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTableColumn();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.type = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TableColumn {
+    return { name: isSet(object.name) ? String(object.name) : "", type: isSet(object.type) ? String(object.type) : "" };
+  },
+
+  toJSON(message: TableColumn): unknown {
+    const obj: any = {};
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.type !== "") {
+      obj.type = message.type;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<TableColumn>, I>>(base?: I): TableColumn {
+    return TableColumn.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TableColumn>, I>>(object: I): TableColumn {
+    const message = createBaseTableColumn();
+    message.name = object.name ?? "";
+    message.type = object.type ?? "";
     return message;
   },
 };
