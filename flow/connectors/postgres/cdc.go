@@ -362,12 +362,12 @@ func (p *PostgresCDCSource) consumeStream(
 							TableName:  tableName,
 							PkeyColVal: compositePKeyString,
 						}
-						_, ok := tablePKeyLastSeen[tablePkeyVal]
+						recIndex, ok := tablePKeyLastSeen[tablePkeyVal]
 						if !ok {
 							addRecord(rec)
 							tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
 						} else {
-							oldRec := localRecords[tablePKeyLastSeen[tablePkeyVal]]
+							oldRec := localRecords[recIndex]
 							// iterate through unchanged toast cols and set them in new record
 							updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
 							for _, col := range updatedCols {
@@ -396,6 +396,33 @@ func (p *PostgresCDCSource) consumeStream(
 						tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
 					}
 				case *model.DeleteRecord:
+					compositePKeyString, err := p.compositePKeyToString(req, rec)
+					if err != nil {
+						return err
+					}
+
+					tablePkeyVal := model.TableWithPkey{
+						TableName:  tableName,
+						PkeyColVal: compositePKeyString,
+					}
+					recIndex, ok := tablePKeyLastSeen[tablePkeyVal]
+					if ok {
+						latestRecord := localRecords[recIndex]
+						deleteRecord := rec.(*model.DeleteRecord)
+						deleteRecord.Items = latestRecord.GetItems()
+						updateRecord, ok := latestRecord.(*model.UpdateRecord)
+						if ok {
+							deleteRecord.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+						}
+					} else {
+						deleteRecord := rec.(*model.DeleteRecord)
+						// there is nothing to backfill the items in the delete record with,
+						// so don't update the row with this record
+						// add sentinel value to prevent update statements from selecting
+						deleteRecord.UnchangedToastColumns = map[string]struct{}{
+							"_peerdb_not_backfilled_delete": {},
+						}
+					}
 					addRecord(rec)
 				case *model.RelationRecord:
 					tableSchemaDelta := r.TableSchemaDelta

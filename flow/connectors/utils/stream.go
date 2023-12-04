@@ -169,7 +169,7 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 		}
 		entries[7] = qvalue.QValue{
 			Kind:  qvalue.QValueKindString,
-			Value: "",
+			Value: KeysToString(typedRecord.UnchangedToastColumns),
 		}
 		tableMapping[typedRecord.DestinationTableName] += 1
 	default:

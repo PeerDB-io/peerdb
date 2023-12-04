@@ -288,6 +288,8 @@ type DeleteRecord struct {
 	CheckPointID int64
 	// Items is a map of column name to value.
 	Items *RecordItems
+	// unchanged toast columns, filled from latest UpdateRecord
+	UnchangedToastColumns map[string]struct{}
 }
 
 // Implement Record interface for DeleteRecord.
@@ -296,7 +298,7 @@ func (r *DeleteRecord) GetCheckPointID() int64 {
 }
 
 func (r *DeleteRecord) GetTableName() string {
-	return r.SourceTableName
+	return r.DestinationTableName
 }
 
 func (r *DeleteRecord) GetItems() *RecordItems {

@@ -25,7 +25,7 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 		THEN UPDATE SET "COL1" = SOURCE."COL1", "COL2" = SOURCE."COL2",
 		 "_PEERDB_SYNCED_AT" = CURRENT_TIMESTAMP, "_PEERDB_SOFT_DELETE" = FALSE`,
 	}
-	result := c.generateUpdateStatement("_PEERDB_SYNCED_AT", "_PEERDB_SOFT_DELETE", allCols, unchangedToastCols)
+	result := c.generateUpdateStatements("_PEERDB_SYNCED_AT", "_PEERDB_SOFT_DELETE", false, allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = removeSpacesTabsNewlines(expected[i])
@@ -47,7 +47,7 @@ func TestGenerateUpdateStatement_EmptyColumns(t *testing.T) {
 		THEN UPDATE SET "COL1" = SOURCE."COL1", "COL2" = SOURCE."COL2", "COL3" = SOURCE."COL3",
 		 "_PEERDB_SYNCED_AT" = CURRENT_TIMESTAMP, "_PEERDB_SOFT_DELETE" = FALSE`,
 	}
-	result := c.generateUpdateStatement("_PEERDB_SYNCED_AT", "_PEERDB_SOFT_DELETE", allCols, unchangedToastCols)
+	result := c.generateUpdateStatements("_PEERDB_SYNCED_AT", "_PEERDB_SOFT_DELETE", false, allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = removeSpacesTabsNewlines(expected[i])
