@@ -70,9 +70,11 @@ services:
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CLI_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_SHOW_STACKS=1
     image: temporalio/admin-tools:1.22
     stdin_open: true
     tty: true
+    restart: on-failure
     entrypoint: ["bash", "/etc/temporal/entrypoint.sh"]
     healthcheck:
       test: ["CMD", "tctl", "workflow", "list"]
