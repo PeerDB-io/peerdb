@@ -571,9 +571,9 @@ func (c *PostgresConnector) PullXminRecordStream(
 
 	var numRecords int
 	if partition.PartitionId != "" {
-		numRecords, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(&currentTxid, stream, query, partition.PartitionId)
+		numRecords, currentTxid, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query, partition.PartitionId)
 	} else {
-		numRecords, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(&currentTxid, stream, query)
+		numRecords, currentTxid, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query)
 	}
 	if err != nil {
 		return 0, currentTxid, err
