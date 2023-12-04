@@ -248,9 +248,16 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 
 	state := peerflow.NewQRepFlowState()
+	watermarkColumnParts := strings.Split(strings.ToLower(cfg.WatermarkColumn), "::")
 	var workflowFn interface{}
-	if cfg.SourcePeer.Type == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
+	if cfg.SourcePeer.Type == protos.DBType_POSTGRES &&
+		watermarkColumnParts[0] == "xmin" {
 		state.LastPartition.PartitionId = ""
+		if len(watermarkColumnParts) == 2 {
+			txid := watermarkColumnParts[1]
+			state.LastPartition.PartitionId = txid
+		}
+
 		workflowFn = peerflow.XminFlowWorkflow
 	} else {
 		workflowFn = peerflow.QRepFlowWorkflow
