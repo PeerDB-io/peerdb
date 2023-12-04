@@ -195,6 +195,11 @@ func XminFlowWorkflow(
 
 	q := NewXminFlowExecution(ctx, config, runUUID)
 
+	err = q.SetupWatermarkTableOnDestination(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup watermark table: %w", err)
+	}
+
 	err = q.SetupMetadataTables(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
@@ -204,11 +209,6 @@ func XminFlowWorkflow(
 	err = q.handleTableCreationForResync(ctx, state)
 	if err != nil {
 		return err
-	}
-
-	err = q.SetupWatermarkTableOnDestination(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to setup watermark table: %w", err)
 	}
 
 	var lastPartition int64
