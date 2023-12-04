@@ -442,6 +442,9 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 		qe.recordHeartbeat("#%d fetched %d rows", numFetchOpsComplete, numRows)
 	}
 
+	log.WithFields(log.Fields{
+		"flowName": qe.flowJobName,
+	}).Info("Committing transaction")
 	err = tx.Commit(qe.ctx)
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{
