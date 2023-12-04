@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"text/template"
 	"time"
 
@@ -556,7 +557,9 @@ func (c *PostgresConnector) PullXminRecordStream(
 ) (int, int64, error) {
 	var currentSnapshotXmin int64
 	query := config.Query
-	if partition.PartitionId != "" {
+	oldxid := ""
+	if partition.Range != nil {
+		oldxid = strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)
 		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
 	}
 
@@ -567,8 +570,8 @@ func (c *PostgresConnector) PullXminRecordStream(
 	}
 
 	var numRecords int
-	if partition.PartitionId != "" {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query, partition.PartitionId)
+	if partition.Range != nil {
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query, oldxid)
 	} else {
 		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query)
 	}

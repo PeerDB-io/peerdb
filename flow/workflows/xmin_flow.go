@@ -3,7 +3,6 @@ package peerflow
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -239,7 +238,10 @@ func XminFlowWorkflow(
 		return fmt.Errorf("xmin replication failed: %w", err)
 	}
 
-	state.LastPartition = &protos.QRepPartition{PartitionId: strconv.FormatInt(lastPartition&0xffffffff, 10)}
+	state.LastPartition = &protos.QRepPartition{
+		PartitionId: uuid.New().String(),
+		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
+	}
 
 	if config.InitialCopyOnly {
 		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)

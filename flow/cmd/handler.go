@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -248,14 +249,18 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 
 	state := peerflow.NewQRepFlowState()
-	watermarkColumnParts := strings.Split(strings.ToLower(cfg.WatermarkColumn), "::")
+	preColon, postColon, hasColon := strings.Cut(cfg.WatermarkColumn, "::")
 	var workflowFn interface{}
 	if cfg.SourcePeer.Type == protos.DBType_POSTGRES &&
-		watermarkColumnParts[0] == "xmin" {
-		state.LastPartition.PartitionId = ""
-		if len(watermarkColumnParts) == 2 {
-			txid := watermarkColumnParts[1]
-			state.LastPartition.PartitionId = txid
+		preColon == "xmin" {
+		state.LastPartition.PartitionId = uuid.New().String()
+		if hasColon {
+			// hack to facilitate migrating from existing xmin sync
+			txid, err := strconv.ParseInt(postColon, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
+			}
+			state.LastPartition.Range = &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}}}
 		}
 
 		workflowFn = peerflow.XminFlowWorkflow
