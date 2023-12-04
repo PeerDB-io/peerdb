@@ -471,7 +471,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to check if table exists: %w", err)
 	}
 
-	if len(*sourceColumns) == 0 {
+	if len(sourceColumns) == 0 {
 		return 0, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Schema)
 	}
 

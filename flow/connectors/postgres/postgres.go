@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -121,7 +122,7 @@ func (c *PostgresConnector) NeedsSetupMetadataTables() bool {
 	if err != nil {
 		return true
 	}
-	return len(*columns) != 0
+	return len(columns) != 0
 }
 
 // SetupMetadataTables sets up the metadata tables.
@@ -645,7 +646,28 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
 		if destinationColumns != nil {
+			sourceColumns := req.TableNameSchemaMapping[tableIdentifier].Columns
 			tableExistsMapping[tableIdentifier] = true
+			log.Infoln("found existing normalized table, checking if it matches the desired schema")
+			if len(destinationColumns) != len(sourceColumns) {
+				return nil, fmt.Errorf("failed to setup normalized table: schemas on both sides differ")
+			}
+			for id := range destinationColumns {
+				column := &destinationColumns[id]
+				existingName := strings.ToLower(column.Name)
+				sourceType, ok := sourceColumns[existingName]
+				if !ok {
+					return nil, fmt.Errorf("failed to setup normalized table:"+
+						"non-matching column name: %v",
+						existingName)
+				}
+				sourceTypeConverted := strings.ToLower(qValueKindToPostgresType(sourceType))
+				if sourceTypeConverted != column.Type {
+					return nil, fmt.Errorf("failed to setup normalized table: mismatched column %v "+
+						"with destination type %v and source type %v",
+						existingName, column.Type, sourceTypeConverted)
+				}
+			}
 			continue
 		}
 

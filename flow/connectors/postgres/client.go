@@ -140,7 +140,7 @@ func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *utils.SchemaTable)
 	return pkCols, nil
 }
 
-func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) (*[]protos.TableColumn, error) {
+func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) ([]protos.TableColumn, error) {
 	rows, err := c.pool.Query(c.ctx,
 		`SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
 		schemaTable.Schema,
@@ -161,7 +161,7 @@ func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) (*[]prot
 		columns = append(columns, protos.TableColumn{Name: colName, Type: colType})
 	}
 
-	return &columns, nil
+	return columns, nil
 }
 
 // checkSlotAndPublication checks if the replication slot and publication exist.
