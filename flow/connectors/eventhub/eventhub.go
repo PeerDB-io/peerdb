@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	log "github.com/sirupsen/logrus"
+	"go.uber.org/atomic"
 )
 
 type EventHubConnector struct {
@@ -120,7 +121,6 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 func (c *EventHubConnector) processBatch(
 	flowJobName string,
 	batch *model.CDCRecordStream,
-	maxParallelism int64,
 ) (uint32, error) {
 	ctx := context.Background()
 	batchPerTopic := NewHubBatches(c.hubManager)
@@ -136,23 +136,34 @@ func (c *EventHubConnector) processBatch(
 	lastSeenLSN := int64(0)
 	lastUpdatedOffset := int64(0)
 
-	numRecords := 0
+	numRecords := atomic.NewUint32(0)
+	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
+		return fmt.Sprintf(
+			"processed %d records for flow %s",
+			numRecords.Load(), flowJobName,
+		)
+	})
+	defer func() {
+		shutdown <- true
+	}()
+
 	for {
 		select {
 		case record, ok := <-batch.GetRecords():
 			if !ok {
-				err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+				err := batchPerTopic.flushAllBatches(ctx, flowJobName)
 				if err != nil {
 					return 0, err
 				}
 
 				log.WithFields(log.Fields{
 					"flowName": flowJobName,
-				}).Infof("[total] successfully sent %d records to event hub", numRecords)
-				return uint32(numRecords), nil
+				}).Infof("[total] successfully sent %d records to event hub",
+					numRecords.Load())
+				return numRecords.Load(), nil
 			}
 
-			numRecords++
+			numRecords.Inc()
 
 			recordLSN := record.GetCheckPointID()
 			if recordLSN > lastSeenLSN {
@@ -183,14 +194,15 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
-			if numRecords%1000 == 0 {
+			curNumRecords := numRecords.Load()
+			if curNumRecords%1000 == 0 {
 				log.WithFields(log.Fields{
 					"flowName": flowJobName,
-				}).Infof("processed %d records for sending", numRecords)
+				}).Infof("processed %d records for sending", curNumRecords)
 			}
 
 		case <-ticker.C:
-			err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+			err := batchPerTopic.flushAllBatches(ctx, flowJobName)
 			if err != nil {
 				return 0, err
 			}
@@ -211,37 +223,21 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	maxParallelism := req.PushParallelism
-	if maxParallelism <= 0 {
-		maxParallelism = 10
-	}
-
 	var err error
 	batch := req.Records
 	var numRecords uint32
-
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf(
-			"processed %d records for flow %s",
-			numRecords, req.FlowJobName,
-		)
-	})
-	defer func() {
-		shutdown <- true
-	}()
-
 	// if env var PEERDB_BETA_EVENTHUB_PUSH_ASYNC=true
 	// we kick off processBatch in a goroutine and return immediately.
 	// otherwise, we block until processBatch is done.
 	if utils.GetEnvBool("PEERDB_BETA_EVENTHUB_PUSH_ASYNC", false) {
 		go func() {
-			numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
+			numRecords, err = c.processBatch(req.FlowJobName, batch)
 			if err != nil {
 				log.Errorf("[async] failed to process batch: %v", err)
 			}
 		}()
 	} else {
-		numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
+		numRecords, err = c.processBatch(req.FlowJobName, batch)
 		if err != nil {
 			log.Errorf("failed to process batch: %v", err)
 			return nil, err

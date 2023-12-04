@@ -9,7 +9,6 @@ import (
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 )
 
 // multimap from ScopedEventhub to *azeventhubs.EventDataBatch
@@ -75,10 +74,14 @@ func (h *HubBatches) Len() int {
 }
 
 // ForEach calls the given function for each ScopedEventhub and batch pair
-func (h *HubBatches) ForEach(fn func(ScopedEventhub, *azeventhubs.EventDataBatch)) {
+func (h *HubBatches) ForEach(fn func(ScopedEventhub, *azeventhubs.EventDataBatch) error) error {
 	for name, batch := range h.batch {
-		fn(name, batch)
+		err := fn(name, batch)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (h *HubBatches) sendBatch(
@@ -106,7 +109,6 @@ func (h *HubBatches) sendBatch(
 
 func (h *HubBatches) flushAllBatches(
 	ctx context.Context,
-	maxParallelism int64,
 	flowName string,
 ) error {
 	if h.Len() == 0 {
@@ -117,12 +119,13 @@ func (h *HubBatches) flushAllBatches(
 	}
 
 	var numEventsPushed int32
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(int(maxParallelism))
-	h.ForEach(func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
-		g.Go(func() error {
+	err := h.ForEach(
+		func(
+			tblName ScopedEventhub,
+			eventBatch *azeventhubs.EventDataBatch,
+		) error {
 			numEvents := eventBatch.NumEvents()
-			err := h.sendBatch(gCtx, tblName, eventBatch)
+			err := h.sendBatch(ctx, tblName, eventBatch)
 			if err != nil {
 				return err
 			}
@@ -133,14 +136,16 @@ func (h *HubBatches) flushAllBatches(
 			}).Infof("pushed %d events to event hub: %s", numEvents, tblName)
 			return nil
 		})
-	})
-
-	err := g.Wait()
-	log.Infof("[flush] successfully sent %d events in total to event hub",
-		numEventsPushed)
 
 	// clear the batches after flushing them.
 	h.Clear()
+
+	if err != nil {
+		return fmt.Errorf("failed to flushAllBatches: %v", err)
+	}
+
+	log.Infof("[flush] successfully sent %d events in total to event hub",
+		numEventsPushed)
 
 	return err
 }
