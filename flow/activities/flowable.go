@@ -869,37 +869,34 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	log.Info("replicating xmin\n")
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Info("replicating xmin\n")
 
-	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
-	var wg sync.WaitGroup
+	errGroup, errCtx := errgroup.WithContext(ctx)
 
-	var goroutineErr error = nil
-
-	stream = model.NewQRecordStream(bufferSize)
-	wg.Add(1)
+	stream := model.NewQRecordStream(bufferSize)
 
 	var currentTxid int64
-	pullPgRecords := func() {
+	errGroup.Go(func() error {
 		pgConn := srcConn.(*connpostgres.PostgresConnector)
-		tmp, err := pgConn.PullXminRecordStream(config, &currentTxid, partition, stream)
-		numRecords := int64(tmp)
-		if err != nil {
+		var pullErr error
+		var numRecords int
+		numRecords, currentTxid, pullErr = pgConn.PullXminRecordStream(config, partition, stream)
+		if pullErr != nil {
 			log.WithFields(log.Fields{
 				"flowName": config.FlowJobName,
 			}).Errorf("failed to pull records: %v", err)
-			goroutineErr = err
+			return err
 		}
-		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
+		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(errCtx, runUUID, partition, int64(numRecords))
 		if err != nil {
 			log.Errorf("%v", err)
-			goroutineErr = err
+			return err
 		}
-		wg.Done()
-	}
-
-	go pullPgRecords()
+		return nil
+	})
 
 	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
 		return "syncing xmin."
@@ -919,9 +916,9 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 			"flowName": config.FlowJobName,
 		}).Info("no records to push for xmin\n")
 	} else {
-		wg.Wait()
-		if goroutineErr != nil {
-			return 0, goroutineErr
+		err := errGroup.Wait()
+		if err != nil {
+			return 0, err
 		}
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,

@@ -551,10 +551,10 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 
 func (c *PostgresConnector) PullXminRecordStream(
 	config *protos.QRepConfig,
-	currentTxid *int64,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int, int64, error) {
+	var currentTxid int64
 	query := config.Query
 	// TODO if initial replication uses xmin with empty partition id, need to do full scan,
 	//	    but prevents parallelism without chunking from qrep code.
@@ -566,23 +566,23 @@ func (c *PostgresConnector) PullXminRecordStream(
 	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
-		return 0, err
+		return 0, currentTxid, err
 	}
 
 	var numRecords int
 	if partition.PartitionId != "" {
-		numRecords, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(currentTxid, stream, query, partition.PartitionId)
+		numRecords, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(&currentTxid, stream, query, partition.PartitionId)
 	} else {
-		numRecords, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(currentTxid, stream, query)
+		numRecords, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(&currentTxid, stream, query)
 	}
 	if err != nil {
-		return 0, err
+		return 0, currentTxid, err
 	}
 
 	log.WithFields(log.Fields{
 		"partition": partition.PartitionId,
 	}).Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
-	return numRecords, nil
+	return numRecords, currentTxid, nil
 }
 
 func BuildQuery(query string, flowJobName string) (string, error) {
