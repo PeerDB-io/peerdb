@@ -137,7 +137,7 @@ func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConne
 	}
 }
 
-func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConnector, error) {
+func GetCDCSyncConnector(ctx context.Context, config *protos.Peer, flowName string) (CDCSyncConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -145,7 +145,7 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
+		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig(), flowName)
 	case *protos.Peer_EventhubConfig:
 		return nil, fmt.Errorf("use eventhub group config instead")
 	case *protos.Peer_EventhubGroupConfig:
@@ -158,7 +158,7 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 }
 
 func GetCDCNormalizeConnector(ctx context.Context,
-	config *protos.Peer) (CDCNormalizeConnector, error) {
+	config *protos.Peer, flowName string) (CDCNormalizeConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -166,7 +166,7 @@ func GetCDCNormalizeConnector(ctx context.Context,
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
+		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig(), flowName)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -184,7 +184,7 @@ func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullCon
 	}
 }
 
-func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncConnector, error) {
+func GetQRepSyncConnector(ctx context.Context, config *protos.Peer, flowName string) (QRepSyncConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -192,7 +192,7 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
+		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig(), flowName)
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
 	default:
@@ -222,7 +222,7 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 		if sfConfig == nil {
 			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
 		}
-		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
+		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig, "")
 	case protos.DBType_SQLSERVER:
 		sqlServerConfig := peer.GetSqlserverConfig()
 		if sqlServerConfig == nil {
@@ -243,11 +243,11 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 }
 
 func GetQRepConsolidateConnector(ctx context.Context,
-	config *protos.Peer) (QRepConsolidateConnector, error) {
+	config *protos.Peer, flowName string) (QRepConsolidateConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_SnowflakeConfig:
-		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
+		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig(), flowName)
 
 	default:
 		return nil, ErrUnsupportedFunctionality

@@ -208,6 +208,7 @@ message SetupNormalizedTableInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string table_identifier = 2;
   TableSchema source_table_schema = 3;
+  string flowName = 4;
 }
 
 message SetupNormalizedTableBatchInput {
@@ -217,6 +218,8 @@ message SetupNormalizedTableBatchInput {
   // migration related columns
   string soft_delete_col_name = 4;
   string synced_at_col_name = 5;
+  
+  string flowName = 6;
 }
 
 message SetupNormalizedTableOutput {

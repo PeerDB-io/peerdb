@@ -100,7 +100,7 @@ func (s *PeerFlowE2ETestSuiteSF) SetupSuite() {
 	}
 
 	s.connector, err = connsnowflake.NewSnowflakeConnector(context.Background(),
-		s.sfHelper.Config)
+		s.sfHelper.Config, "")
 	require.NoError(s.T(), err)
 }
 

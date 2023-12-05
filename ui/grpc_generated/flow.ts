@@ -331,6 +331,7 @@ export interface SetupNormalizedTableInput {
   peerConnectionConfig: Peer | undefined;
   tableIdentifier: string;
   sourceTableSchema: TableSchema | undefined;
+  flowName: string;
 }
 
 export interface SetupNormalizedTableBatchInput {
@@ -339,6 +340,7 @@ export interface SetupNormalizedTableBatchInput {
   /** migration related columns */
   softDeleteColName: string;
   syncedAtColName: string;
+  flowName: string;
 }
 
 export interface SetupNormalizedTableBatchInput_TableNameSchemaMappingEntry {
@@ -4271,7 +4273,7 @@ export const GetTableSchemaBatchOutput_TableNameSchemaMappingEntry = {
 };
 
 function createBaseSetupNormalizedTableInput(): SetupNormalizedTableInput {
-  return { peerConnectionConfig: undefined, tableIdentifier: "", sourceTableSchema: undefined };
+  return { peerConnectionConfig: undefined, tableIdentifier: "", sourceTableSchema: undefined, flowName: "" };
 }
 
 export const SetupNormalizedTableInput = {
@@ -4284,6 +4286,9 @@ export const SetupNormalizedTableInput = {
     }
     if (message.sourceTableSchema !== undefined) {
       TableSchema.encode(message.sourceTableSchema, writer.uint32(26).fork()).ldelim();
+    }
+    if (message.flowName !== "") {
+      writer.uint32(34).string(message.flowName);
     }
     return writer;
   },
@@ -4316,6 +4321,13 @@ export const SetupNormalizedTableInput = {
 
           message.sourceTableSchema = TableSchema.decode(reader, reader.uint32());
           continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.flowName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4330,6 +4342,7 @@ export const SetupNormalizedTableInput = {
       peerConnectionConfig: isSet(object.peerConnectionConfig) ? Peer.fromJSON(object.peerConnectionConfig) : undefined,
       tableIdentifier: isSet(object.tableIdentifier) ? String(object.tableIdentifier) : "",
       sourceTableSchema: isSet(object.sourceTableSchema) ? TableSchema.fromJSON(object.sourceTableSchema) : undefined,
+      flowName: isSet(object.flowName) ? String(object.flowName) : "",
     };
   },
 
@@ -4343,6 +4356,9 @@ export const SetupNormalizedTableInput = {
     }
     if (message.sourceTableSchema !== undefined) {
       obj.sourceTableSchema = TableSchema.toJSON(message.sourceTableSchema);
+    }
+    if (message.flowName !== "") {
+      obj.flowName = message.flowName;
     }
     return obj;
   },
@@ -4359,12 +4375,19 @@ export const SetupNormalizedTableInput = {
     message.sourceTableSchema = (object.sourceTableSchema !== undefined && object.sourceTableSchema !== null)
       ? TableSchema.fromPartial(object.sourceTableSchema)
       : undefined;
+    message.flowName = object.flowName ?? "";
     return message;
   },
 };
 
 function createBaseSetupNormalizedTableBatchInput(): SetupNormalizedTableBatchInput {
-  return { peerConnectionConfig: undefined, tableNameSchemaMapping: {}, softDeleteColName: "", syncedAtColName: "" };
+  return {
+    peerConnectionConfig: undefined,
+    tableNameSchemaMapping: {},
+    softDeleteColName: "",
+    syncedAtColName: "",
+    flowName: "",
+  };
 }
 
 export const SetupNormalizedTableBatchInput = {
@@ -4383,6 +4406,9 @@ export const SetupNormalizedTableBatchInput = {
     }
     if (message.syncedAtColName !== "") {
       writer.uint32(42).string(message.syncedAtColName);
+    }
+    if (message.flowName !== "") {
+      writer.uint32(50).string(message.flowName);
     }
     return writer;
   },
@@ -4425,6 +4451,13 @@ export const SetupNormalizedTableBatchInput = {
 
           message.syncedAtColName = reader.string();
           continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.flowName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4445,6 +4478,7 @@ export const SetupNormalizedTableBatchInput = {
         : {},
       softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : "",
       syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : "",
+      flowName: isSet(object.flowName) ? String(object.flowName) : "",
     };
   },
 
@@ -4467,6 +4501,9 @@ export const SetupNormalizedTableBatchInput = {
     }
     if (message.syncedAtColName !== "") {
       obj.syncedAtColName = message.syncedAtColName;
+    }
+    if (message.flowName !== "") {
+      obj.flowName = message.flowName;
     }
     return obj;
   },
@@ -4491,6 +4528,7 @@ export const SetupNormalizedTableBatchInput = {
     }, {});
     message.softDeleteColName = object.softDeleteColName ?? "";
     message.syncedAtColName = object.syncedAtColName ?? "";
+    message.flowName = object.flowName ?? "";
     return message;
   },
 };

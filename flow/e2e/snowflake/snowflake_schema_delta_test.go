@@ -32,7 +32,7 @@ func (suite *SnowflakeSchemaDeltaTestSuite) SetupSuite() {
 	suite.failTestError(err)
 
 	suite.connector, err = connsnowflake.NewSnowflakeConnector(context.Background(),
-		suite.sfTestHelper.Config)
+		suite.sfTestHelper.Config, "")
 	suite.failTestError(err)
 }
 

@@ -70,7 +70,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	}
 
 	// then check the destination peer connection
-	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Destination)
+	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Destination, config.FlowJobName)
 	var destConnStatus activities.CheckConnectionResult
 	if err := destConnStatusFuture.Get(ctx, &destConnStatus); err != nil {
 		return fmt.Errorf("failed to check destination peer connection: %w", err)
@@ -80,7 +80,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	// then setup the destination peer metadata tables
 	if destConnStatus.NeedsSetupMetadataTables {
-		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Destination)
+		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Destination, config.FlowJobName)
 		if err := fDst.Get(ctx, nil); err != nil {
 			return fmt.Errorf("failed to setup destination peer metadata tables: %w", err)
 		}
@@ -224,6 +224,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		TableNameSchemaMapping: normalizedTableMapping,
 		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
+		FlowName:               flowConnectionConfigs.FlowJobName,
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)

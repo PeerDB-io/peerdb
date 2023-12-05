@@ -4541,6 +4541,9 @@ impl serde::Serialize for SetupNormalizedTableBatchInput {
         if !self.synced_at_col_name.is_empty() {
             len += 1;
         }
+        if !self.flow_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.SetupNormalizedTableBatchInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
@@ -4553,6 +4556,9 @@ impl serde::Serialize for SetupNormalizedTableBatchInput {
         }
         if !self.synced_at_col_name.is_empty() {
             struct_ser.serialize_field("syncedAtColName", &self.synced_at_col_name)?;
+        }
+        if !self.flow_name.is_empty() {
+            struct_ser.serialize_field("flowName", &self.flow_name)?;
         }
         struct_ser.end()
     }
@@ -4572,6 +4578,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
             "softDeleteColName",
             "synced_at_col_name",
             "syncedAtColName",
+            "flowName",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4580,6 +4587,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
             TableNameSchemaMapping,
             SoftDeleteColName,
             SyncedAtColName,
+            FlowName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4606,6 +4614,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
                             "tableNameSchemaMapping" | "table_name_schema_mapping" => Ok(GeneratedField::TableNameSchemaMapping),
                             "softDeleteColName" | "soft_delete_col_name" => Ok(GeneratedField::SoftDeleteColName),
                             "syncedAtColName" | "synced_at_col_name" => Ok(GeneratedField::SyncedAtColName),
+                            "flowName" => Ok(GeneratedField::FlowName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4629,6 +4638,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
                 let mut table_name_schema_mapping__ = None;
                 let mut soft_delete_col_name__ = None;
                 let mut synced_at_col_name__ = None;
+                let mut flow_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -4657,6 +4667,12 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
                             }
                             synced_at_col_name__ = Some(map.next_value()?);
                         }
+                        GeneratedField::FlowName => {
+                            if flow_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowName"));
+                            }
+                            flow_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4667,6 +4683,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableBatchInput {
                     table_name_schema_mapping: table_name_schema_mapping__.unwrap_or_default(),
                     soft_delete_col_name: soft_delete_col_name__.unwrap_or_default(),
                     synced_at_col_name: synced_at_col_name__.unwrap_or_default(),
+                    flow_name: flow_name__.unwrap_or_default(),
                 })
             }
         }
@@ -4788,6 +4805,9 @@ impl serde::Serialize for SetupNormalizedTableInput {
         if self.source_table_schema.is_some() {
             len += 1;
         }
+        if !self.flow_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.SetupNormalizedTableInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
@@ -4797,6 +4817,9 @@ impl serde::Serialize for SetupNormalizedTableInput {
         }
         if let Some(v) = self.source_table_schema.as_ref() {
             struct_ser.serialize_field("sourceTableSchema", v)?;
+        }
+        if !self.flow_name.is_empty() {
+            struct_ser.serialize_field("flowName", &self.flow_name)?;
         }
         struct_ser.end()
     }
@@ -4814,6 +4837,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableInput {
             "tableIdentifier",
             "source_table_schema",
             "sourceTableSchema",
+            "flowName",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4821,6 +4845,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableInput {
             PeerConnectionConfig,
             TableIdentifier,
             SourceTableSchema,
+            FlowName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4846,6 +4871,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableInput {
                             "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
                             "tableIdentifier" | "table_identifier" => Ok(GeneratedField::TableIdentifier),
                             "sourceTableSchema" | "source_table_schema" => Ok(GeneratedField::SourceTableSchema),
+                            "flowName" => Ok(GeneratedField::FlowName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4868,6 +4894,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableInput {
                 let mut peer_connection_config__ = None;
                 let mut table_identifier__ = None;
                 let mut source_table_schema__ = None;
+                let mut flow_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -4888,6 +4915,12 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableInput {
                             }
                             source_table_schema__ = map.next_value()?;
                         }
+                        GeneratedField::FlowName => {
+                            if flow_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowName"));
+                            }
+                            flow_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4897,6 +4930,7 @@ impl<'de> serde::Deserialize<'de> for SetupNormalizedTableInput {
                     peer_connection_config: peer_connection_config__,
                     table_identifier: table_identifier__.unwrap_or_default(),
                     source_table_schema: source_table_schema__,
+                    flow_name: flow_name__.unwrap_or_default(),
                 })
             }
         }

@@ -330,6 +330,8 @@ pub struct SetupNormalizedTableInput {
     pub table_identifier: ::prost::alloc::string::String,
     #[prost(message, optional, tag="3")]
     pub source_table_schema: ::core::option::Option<TableSchema>,
+    #[prost(string, tag="4")]
+    pub flow_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -343,6 +345,8 @@ pub struct SetupNormalizedTableBatchInput {
     pub soft_delete_col_name: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub synced_at_col_name: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub flow_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
