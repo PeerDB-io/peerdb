@@ -274,11 +274,6 @@ func (c *PostgresConnector) getMinMaxValues(
 
 func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
 	last *protos.QRepPartition) (bool, error) {
-	// for xmin lets always assume there are updates
-	if config.WatermarkColumn == "xmin" {
-		return true, nil
-	}
-
 	tx, err := c.pool.Begin(c.ctx)
 	if err != nil {
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
@@ -571,9 +566,9 @@ func (c *PostgresConnector) PullXminRecordStream(
 
 	var numRecords int
 	if partition.Range != nil {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query, oldxid)
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(stream, query, oldxid)
 	} else {
-		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query)
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(stream, query)
 	}
 	if err != nil {
 		return 0, currentSnapshotXmin, err

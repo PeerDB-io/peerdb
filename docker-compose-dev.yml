@@ -8,7 +8,7 @@ x-catalog-config: &catalog-config
   PEERDB_CATALOG_DATABASE: postgres
 
 x-flow-worker-env: &flow-worker-env
-  # For Temporal Cloud, this will look like: 
+  # For Temporal Cloud, this will look like:
   # <yournamespace>.<id>.tmprl.cloud:7233
   TEMPORAL_HOST_PORT: temporal:7233
   PEERDB_TEMPORAL_NAMESPACE: default
@@ -115,6 +115,8 @@ services:
       context: .
       dockerfile: stacks/flow.Dockerfile
       target: flow-api
+      args:
+        PEERDB_VERSION_SHA_SHORT: ${PEERDB_VERSION_SHA_SHORT:-}
     ports:
       - 8112:8112
       - 8113:8113

@@ -197,6 +197,13 @@ message FlowStateChangeResponse {
   string error_message = 2;
 }
 
+message PeerDBVersionRequest {
+}
+
+message PeerDBVersionResponse {
+  string version = 1;
+}
+
 service FlowService {
   rpc ValidatePeer(ValidatePeerRequest) returns (ValidatePeerResponse) {
     option (google.api.http) = {
@@ -257,5 +264,9 @@ service FlowService {
   rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {}
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+  }
+
+  rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {
+    option (google.api.http) = { get: "/v1/version" };
   }
 }
