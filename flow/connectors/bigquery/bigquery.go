@@ -964,7 +964,8 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 					return nil, fmt.Errorf("destination column %s not found in source: ", existingField.Name)
 				}
 				if existingField.Name != desiredField.Name || existingField.Type != desiredField.Type {
-					return nil, fmt.Errorf("failed to setup normalized table due to incompatible columns: %s (destination) and %s (source)",
+					return nil, fmt.Errorf("failed to setup normalized table due to incompatible columns: "+
+						"%s (destination) and %s (source)",
 						existingField.Name, desiredField.Name)
 				}
 			}

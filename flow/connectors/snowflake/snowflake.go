@@ -766,7 +766,8 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	return nil
 }
 
-func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) ([]protos.TableColumn, error) {
+func (c *SnowflakeConnector) checkIfTableExists(
+	schemaIdentifier string, tableIdentifier string) ([]protos.TableColumn, error) {
 	rows, err := c.database.QueryContext(c.ctx, checkIfTableExistsSQL,
 		strings.ToUpper(schemaIdentifier), strings.ToUpper(tableIdentifier))
 	if err != nil {
