@@ -307,7 +307,8 @@ func (r *DeleteRecord) GetItems() *RecordItems {
 }
 
 type TableWithPkey struct {
-	TableName  string
+	TableName string
+	// SHA256 hash of the primary key columns
 	PkeyColVal [32]byte
 }
 

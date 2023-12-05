@@ -322,7 +322,9 @@ func (p *PostgresCDCSource) consumeStream(
 
 		msg, ok := rawMsg.(*pgproto3.CopyData)
 		if !ok {
-			log.Warnf("unexpected message type: %T", rawMsg)
+			if rawMsg != nil {
+				log.Warnf("unexpected message type: %T", rawMsg)
+			}
 			continue
 		}
 

@@ -19,7 +19,7 @@ const (
 	/** begin with in-memory store, and then switch to Pebble DB
 		when the number of stored records crosses 1M
 	**/
-	defaultNumRecordsSwitchThreshold = 1_000_000
+	defaultNumRecordsSwitchThreshold = 0
 )
 
 func encVal(val any) ([]byte, error) {
@@ -36,6 +36,7 @@ type cdcRecordsStore struct {
 	inMemoryRecords           map[model.TableWithPkey]model.Record
 	pebbleDB                  *pebble.DB
 	numRecords                int
+	flowJobName               string
 	dbFolderName              string
 	numRecordsSwitchThreshold int
 }
@@ -45,6 +46,7 @@ func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
 		inMemoryRecords:           make(map[model.TableWithPkey]model.Record),
 		pebbleDB:                  nil,
 		numRecords:                0,
+		flowJobName:               flowJobName,
 		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, util.RandomString(8)),
 		numRecordsSwitchThreshold: defaultNumRecordsSwitchThreshold,
 	}
@@ -55,6 +57,7 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 		return nil
 	}
 
+	// register future record classes here as well, if they are passed/stored as interfaces
 	gob.Register(&model.InsertRecord{})
 	gob.Register(&model.UpdateRecord{})
 	gob.Register(&model.DeleteRecord{})
@@ -80,7 +83,9 @@ func (c *cdcRecordsStore) Set(key model.TableWithPkey, rec model.Record) error {
 		c.inMemoryRecords[key] = rec
 	} else {
 		if c.pebbleDB == nil {
-			logrus.Infof("more than %d primary keys read, spilling to disk", defaultNumRecordsSwitchThreshold)
+			logrus.WithFields(logrus.Fields{
+				"flowName": c.flowJobName,
+			}).Infof("more than %d primary keys read, spilling to disk", c.numRecordsSwitchThreshold)
 			err := c.initPebbleDB()
 			if err != nil {
 				return err
@@ -109,6 +114,7 @@ func (c *cdcRecordsStore) Set(key model.TableWithPkey, rec model.Record) error {
 	return nil
 }
 
+// bool is to indicate if a record is found or not [similar to ok]
 func (c *cdcRecordsStore) Get(key model.TableWithPkey) (model.Record, bool, error) {
 	rec, ok := c.inMemoryRecords[key]
 	if ok {
@@ -129,7 +135,9 @@ func (c *cdcRecordsStore) Get(key model.TableWithPkey) (model.Record, bool, erro
 		defer func() {
 			err := closer.Close()
 			if err != nil {
-				logrus.Warnf("failed to close database: %v", err)
+				logrus.WithFields(logrus.Fields{
+					"flowName": c.flowJobName,
+				}).Warnf("failed to close database: %v", err)
 			}
 		}()
 
