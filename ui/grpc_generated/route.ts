@@ -309,6 +309,13 @@ export interface FlowStateChangeResponse {
   errorMessage: string;
 }
 
+export interface PeerDBVersionRequest {
+}
+
+export interface PeerDBVersionResponse {
+  version: string;
+}
+
 function createBaseCreateCDCFlowRequest(): CreateCDCFlowRequest {
   return { connectionConfigs: undefined, createCatalogEntry: false };
 }
@@ -2763,6 +2770,106 @@ export const FlowStateChangeResponse = {
   },
 };
 
+function createBasePeerDBVersionRequest(): PeerDBVersionRequest {
+  return {};
+}
+
+export const PeerDBVersionRequest = {
+  encode(_: PeerDBVersionRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PeerDBVersionRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePeerDBVersionRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): PeerDBVersionRequest {
+    return {};
+  },
+
+  toJSON(_: PeerDBVersionRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PeerDBVersionRequest>, I>>(base?: I): PeerDBVersionRequest {
+    return PeerDBVersionRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PeerDBVersionRequest>, I>>(_: I): PeerDBVersionRequest {
+    const message = createBasePeerDBVersionRequest();
+    return message;
+  },
+};
+
+function createBasePeerDBVersionResponse(): PeerDBVersionResponse {
+  return { version: "" };
+}
+
+export const PeerDBVersionResponse = {
+  encode(message: PeerDBVersionResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.version !== "") {
+      writer.uint32(10).string(message.version);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PeerDBVersionResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePeerDBVersionResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.version = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PeerDBVersionResponse {
+    return { version: isSet(object.version) ? String(object.version) : "" };
+  },
+
+  toJSON(message: PeerDBVersionResponse): unknown {
+    const obj: any = {};
+    if (message.version !== "") {
+      obj.version = message.version;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PeerDBVersionResponse>, I>>(base?: I): PeerDBVersionResponse {
+    return PeerDBVersionResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PeerDBVersionResponse>, I>>(object: I): PeerDBVersionResponse {
+    const message = createBasePeerDBVersionResponse();
+    message.version = object.version ?? "";
+    return message;
+  },
+};
+
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
   validatePeer: {
@@ -2895,6 +3002,15 @@ export const FlowServiceService = {
     responseSerialize: (value: MirrorStatusResponse) => Buffer.from(MirrorStatusResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => MirrorStatusResponse.decode(value),
   },
+  getVersion: {
+    path: "/peerdb_route.FlowService/GetVersion",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: PeerDBVersionRequest) => Buffer.from(PeerDBVersionRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PeerDBVersionRequest.decode(value),
+    responseSerialize: (value: PeerDBVersionResponse) => Buffer.from(PeerDBVersionResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => PeerDBVersionResponse.decode(value),
+  },
 } as const;
 
 export interface FlowServiceServer extends UntypedServiceImplementation {
@@ -2912,6 +3028,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
   flowStateChange: handleUnaryCall<FlowStateChangeRequest, FlowStateChangeResponse>;
   mirrorStatus: handleUnaryCall<MirrorStatusRequest, MirrorStatusResponse>;
+  getVersion: handleUnaryCall<PeerDBVersionRequest, PeerDBVersionResponse>;
 }
 
 export interface FlowServiceClient extends Client {
@@ -3124,6 +3241,21 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: MirrorStatusResponse) => void,
+  ): ClientUnaryCall;
+  getVersion(
+    request: PeerDBVersionRequest,
+    callback: (error: ServiceError | null, response: PeerDBVersionResponse) => void,
+  ): ClientUnaryCall;
+  getVersion(
+    request: PeerDBVersionRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: PeerDBVersionResponse) => void,
+  ): ClientUnaryCall;
+  getVersion(
+    request: PeerDBVersionRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: PeerDBVersionResponse) => void,
   ): ClientUnaryCall;
 }
 
