@@ -204,7 +204,6 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 	}
 }
 
-// StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx, "starting flow...")
