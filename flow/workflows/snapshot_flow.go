@@ -185,7 +185,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		},
 	}
 
-	// TODO handle xmin? if yes, maybe move xmin redirection to QRepFlowWorkflow
 	state := NewQRepFlowState()
 	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, config, state)
 	return nil
