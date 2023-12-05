@@ -30,7 +30,7 @@ const (
 	CompressSnappy
 )
 
-type PeerDBOCFWriter struct {
+type peerDBOCFWriter struct {
 	ctx                  context.Context
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
@@ -45,8 +45,8 @@ func NewPeerDBOCFWriter(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	avroCompressionCodec AvroCompressionCodec,
 	targetDWH qvalue.QDWHType,
-) *PeerDBOCFWriter {
-	return &PeerDBOCFWriter{
+) *peerDBOCFWriter {
+	return &peerDBOCFWriter{
 		ctx:                  ctx,
 		stream:               stream,
 		avroSchema:           avroSchema,
@@ -55,7 +55,7 @@ func NewPeerDBOCFWriter(
 	}
 }
 
-func (p *PeerDBOCFWriter) initWriteCloser(w io.Writer) error {
+func (p *peerDBOCFWriter) initWriteCloser(w io.Writer) error {
 	var err error
 	switch p.avroCompressionCodec {
 	case CompressNone:
@@ -77,7 +77,7 @@ func (p *PeerDBOCFWriter) initWriteCloser(w io.Writer) error {
 	return nil
 }
 
-func (p *PeerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error) {
+func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error) {
 	err := p.initWriteCloser(w)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create compressed writer: %w", err)
@@ -94,7 +94,7 @@ func (p *PeerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 	return ocfWriter, nil
 }
 
-func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (int, error) {
+func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (int, error) {
 	schema, err := p.stream.Schema()
 	if err != nil {
 		log.Errorf("failed to get schema from stream: %v", err)
@@ -149,7 +149,7 @@ func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 	return int(numRows.Load()), nil
 }
 
-func (p *PeerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
+func (p *peerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
@@ -164,7 +164,7 @@ func (p *PeerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
 	return numRows, nil
 }
 
-func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils.S3PeerCredentials) (int, error) {
+func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils.S3PeerCredentials) (int, error) {
 	r, w := io.Pipe()
 	numRowsWritten := make(chan int, 1)
 	go func() {
@@ -202,7 +202,7 @@ func (p *PeerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 	return <-numRowsWritten, nil
 }
 
-func (p *PeerDBOCFWriter) WriteRecordsToAvroFile(filePath string) (int, error) {
+func (p *peerDBOCFWriter) WriteRecordsToAvroFile(filePath string) (int, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create file: %w", err)

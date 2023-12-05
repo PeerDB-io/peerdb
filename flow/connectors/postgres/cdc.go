@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/connectors/utils/cdc_records"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -188,18 +189,22 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 
 	var standByLastLogged time.Time
-	localRecords := make([]model.Record, 0)
+	cdcRecordsStorage := cdc_records.NewCDCRecordsStore(req.FlowJobName)
 	defer func() {
-		if len(localRecords) == 0 {
+		if cdcRecordsStorage.IsEmpty() {
 			records.SignalAsEmpty()
 		}
 		records.RelationMessageMapping <- &p.relationMessageMapping
-		log.Infof("[finished] PullRecords streamed %d records", len(localRecords))
+		log.Infof("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len())
+		err := cdcRecordsStorage.Close()
+		if err != nil {
+			log.Warnf("failed to clean up records storage: %v", err)
+		}
 	}()
 
 	shutdown := utils.HeartbeatRoutine(p.ctx, 10*time.Second, func() string {
 		jobName := req.FlowJobName
-		currRecords := len(localRecords)
+		currRecords := cdcRecordsStorage.Len()
 		return fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
 	})
 
@@ -207,20 +212,30 @@ func (p *PostgresCDCSource) consumeStream(
 		shutdown <- true
 	}()
 
-	tablePKeyLastSeen := make(map[model.TableWithPkey]int)
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
 
-	addRecord := func(rec model.Record) {
+	addRecordWithKey := func(key model.TableWithPkey, rec model.Record) error {
 		records.AddRecord(rec)
-		localRecords = append(localRecords, rec)
+		err := cdcRecordsStorage.Set(key, rec)
+		if err != nil {
+			return err
+		}
 
-		if len(localRecords) == 1 {
+		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
 			log.Infof("pushing the standby deadline to %s", time.Now().Add(standbyMessageTimeout))
-			log.Infof("num records accumulated: %d", len(localRecords))
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
 		}
+		return nil
+	}
+
+	addRecord := func(rec model.Record) error {
+		key, err := p.recToTablePKey(req, rec)
+		if err != nil {
+			return err
+		}
+		return addRecordWithKey(*key, rec)
 	}
 
 	pkmRequiresResponse := false
@@ -237,7 +252,7 @@ func (p *PostgresCDCSource) consumeStream(
 			}
 
 			if time.Since(standByLastLogged) > 10*time.Second {
-				numRowsProcessedMessage := fmt.Sprintf("processed %d rows", len(localRecords))
+				numRowsProcessedMessage := fmt.Sprintf("processed %d rows", cdcRecordsStorage.Len())
 				log.Infof("Sent Standby status message. %s", numRowsProcessedMessage)
 				standByLastLogged = time.Now()
 			}
@@ -245,7 +260,7 @@ func (p *PostgresCDCSource) consumeStream(
 			pkmRequiresResponse = false
 		}
 
-		if (len(localRecords) >= int(req.MaxBatchSize)) && !p.commitLock {
+		if (cdcRecordsStorage.Len() >= int(req.MaxBatchSize)) && !p.commitLock {
 			return nil
 		}
 
@@ -253,17 +268,17 @@ func (p *PostgresCDCSource) consumeStream(
 			log.Infof(
 				"[%s] commit received, returning currently accumulated records - %d",
 				req.FlowJobName,
-				len(localRecords),
+				cdcRecordsStorage.Len(),
 			)
 			return nil
 		}
 
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
-			if len(localRecords) > 0 {
+			if !cdcRecordsStorage.IsEmpty() {
 				log.Infof("[%s] standby deadline reached, have %d records, will return at next commit",
 					req.FlowJobName,
-					len(localRecords),
+					cdcRecordsStorage.Len(),
 				)
 
 				if !p.commitLock {
@@ -283,7 +298,7 @@ func (p *PostgresCDCSource) consumeStream(
 		var ctx context.Context
 		var cancel context.CancelFunc
 
-		if len(localRecords) == 0 {
+		if cdcRecordsStorage.IsEmpty() {
 			ctx, cancel = context.WithCancel(p.ctx)
 		} else {
 			ctx, cancel = context.WithDeadline(p.ctx, nextStandbyMessageDeadline)
@@ -293,7 +308,8 @@ func (p *PostgresCDCSource) consumeStream(
 		cancel()
 		if err != nil && !p.commitLock {
 			if pgconn.Timeout(err) {
-				log.Infof("Stand-by deadline reached, returning currently accumulated records - %d", len(localRecords))
+				log.Infof("Stand-by deadline reached, returning currently accumulated records - %d",
+					cdcRecordsStorage.Len())
 				return nil
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)
@@ -351,63 +367,64 @@ func (p *PostgresCDCSource) consumeStream(
 					// will change in future
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						addRecord(rec)
+						err = addRecord(rec)
+						if err != nil {
+							return err
+						}
 					} else {
-						compositePKeyString, err := p.compositePKeyToString(req, rec)
+						tablePkeyVal, err := p.recToTablePKey(req, rec)
 						if err != nil {
 							return err
 						}
 
-						tablePkeyVal := model.TableWithPkey{
-							TableName:  tableName,
-							PkeyColVal: compositePKeyString,
+						latestRecord, ok, err := cdcRecordsStorage.Get(*tablePkeyVal)
+						if err != nil {
+							return err
 						}
-						recIndex, ok := tablePKeyLastSeen[tablePkeyVal]
 						if !ok {
-							addRecord(rec)
-							tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
+							err = addRecordWithKey(*tablePkeyVal, rec)
 						} else {
-							oldRec := localRecords[recIndex]
 							// iterate through unchanged toast cols and set them in new record
-							updatedCols := r.NewItems.UpdateIfNotExists(oldRec.GetItems())
+							updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
 							for _, col := range updatedCols {
 								delete(r.UnchangedToastColumns, col)
 							}
-							addRecord(rec)
-							tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
+							err = addRecordWithKey(*tablePkeyVal, rec)
+						}
+						if err != nil {
+							return err
 						}
 					}
+
 				case *model.InsertRecord:
 					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 					if isFullReplica {
-						addRecord(rec)
+						err = addRecord(rec)
+						if err != nil {
+							return err
+						}
 					} else {
-						compositePKeyString, err := p.compositePKeyToString(req, rec)
+						tablePkeyVal, err := p.recToTablePKey(req, rec)
 						if err != nil {
 							return err
 						}
 
-						tablePkeyVal := model.TableWithPkey{
-							TableName:  tableName,
-							PkeyColVal: compositePKeyString,
+						err = addRecordWithKey(*tablePkeyVal, rec)
+						if err != nil {
+							return err
 						}
-						addRecord(rec)
-						// all columns will be set in insert record, so add it to the map
-						tablePKeyLastSeen[tablePkeyVal] = len(localRecords) - 1
 					}
 				case *model.DeleteRecord:
-					compositePKeyString, err := p.compositePKeyToString(req, rec)
+					tablePkeyVal, err := p.recToTablePKey(req, rec)
 					if err != nil {
 						return err
 					}
 
-					tablePkeyVal := model.TableWithPkey{
-						TableName:  tableName,
-						PkeyColVal: compositePKeyString,
+					latestRecord, ok, err := cdcRecordsStorage.Get(*tablePkeyVal)
+					if err != nil {
+						return err
 					}
-					recIndex, ok := tablePKeyLastSeen[tablePkeyVal]
 					if ok {
-						latestRecord := localRecords[recIndex]
 						deleteRecord := rec.(*model.DeleteRecord)
 						deleteRecord.Items = latestRecord.GetItems()
 						updateRecord, ok := latestRecord.(*model.UpdateRecord)
@@ -423,7 +440,11 @@ func (p *PostgresCDCSource) consumeStream(
 							"_peerdb_not_backfilled_delete": {},
 						}
 					}
-					addRecord(rec)
+
+					err = addRecord(rec)
+					if err != nil {
+						return err
+					}
 				case *model.RelationRecord:
 					tableSchemaDelta := r.TableSchemaDelta
 					if len(tableSchemaDelta.AddedColumns) > 0 {
@@ -438,7 +459,7 @@ func (p *PostgresCDCSource) consumeStream(
 				clientXLogPos = xld.WALStart
 			}
 
-			if len(localRecords) == 0 {
+			if cdcRecordsStorage.IsEmpty() {
 				// given that we have no records it is safe to update the flush wal position
 				// to the clientXLogPos. clientXLogPos can be moved forward due to PKM messages.
 				consumedXLogPos = clientXLogPos
@@ -790,21 +811,23 @@ func (p *PostgresCDCSource) processRelationMessage(
 	}, nil
 }
 
-func (p *PostgresCDCSource) compositePKeyToString(req *model.PullRecordsRequest, rec model.Record) (string, error) {
+func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
+	rec model.Record) (*model.TableWithPkey, error) {
 	tableName := rec.GetTableName()
 	pkeyColsMerged := make([]byte, 0)
 
 	for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColVal, err := rec.GetItems().GetValueByColName(pkeyCol)
 		if err != nil {
-			return "", fmt.Errorf("error getting pkey column value: %w", err)
+			return nil, fmt.Errorf("error getting pkey column value: %w", err)
 		}
 		pkeyColsMerged = append(pkeyColsMerged, []byte(fmt.Sprintf("%v", pkeyColVal.Value))...)
 	}
 
-	hasher := sha256.New()
-	hasher.Write(pkeyColsMerged)
-	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+	return &model.TableWithPkey{
+		TableName:  tableName,
+		PkeyColVal: sha256.Sum256(pkeyColsMerged),
+	}, nil
 }
 
 func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
