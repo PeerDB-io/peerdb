@@ -949,10 +949,23 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		if err == nil { // it exists.
 			// check if the structure of the table is as needed
 			existingSchema := metadata.Schema
-			for i, existingField := range existingSchema {
-				desiredField := schema[i]
+			if len(existingSchema) != len(schema) {
+				return nil, fmt.Errorf("failed to setup normalized table: number of columns on both sides differ")
+			}
+			for _, existingField := range existingSchema {
+				var desiredField *bigquery.FieldSchema
+				for id := range schema {
+					if schema[id].Name == existingField.Name {
+						desiredField = schema[id]
+						break
+					}
+				}
+				if desiredField == nil {
+					return nil, fmt.Errorf("destination column %s not found in source: ", existingField.Name)
+				}
 				if existingField.Name != desiredField.Name || existingField.Type != desiredField.Type {
-					return nil, fmt.Errorf("failed to setup normalized table due to incompatible columns")
+					return nil, fmt.Errorf("failed to setup normalized table due to incompatible columns: %s (destination) and %s (source)",
+						existingField.Name, desiredField.Name)
 				}
 			}
 			// table exists, go to next table

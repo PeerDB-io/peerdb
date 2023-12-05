@@ -412,12 +412,12 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 		if destinationColumns != nil {
 			sourceColumns := req.TableNameSchemaMapping[tableIdentifier].Columns
 			log.Infoln("found existing normalized table, checking if it matches the desired schema")
-			if len(destinationColumns) != len(sourceColumns) {
-				return nil, fmt.Errorf("failed to setup normalized table: schemas on both sides differ")
-			}
 			for id := range destinationColumns {
 				column := &destinationColumns[id]
 				existingName := strings.ToLower(column.Name)
+				if _, found := strings.CutPrefix(existingName, "_peerdb"); found {
+					continue
+				}
 				sourceType, ok := sourceColumns[existingName]
 				if !ok {
 					return nil, fmt.Errorf("failed to setup normalized table:"+

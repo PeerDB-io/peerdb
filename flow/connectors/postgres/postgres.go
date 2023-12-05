@@ -650,7 +650,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 			tableExistsMapping[tableIdentifier] = true
 			log.Infoln("found existing normalized table, checking if it matches the desired schema")
 			if len(destinationColumns) != len(sourceColumns) {
-				return nil, fmt.Errorf("failed to setup normalized table: schemas on both sides differ")
+				return nil, fmt.Errorf("failed to setup normalized table: number of columns on both sides differ")
 			}
 			for id := range destinationColumns {
 				column := &destinationColumns[id]
