@@ -289,13 +289,15 @@ func CDCFlowWorkflowWithConfig(
 
 	// sync will send normalize changes;
 	// which will be handled concurrently
-	syncNormChan := workflow.NewChannel(ctx)
 	childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
 		ctx,
 		NormalizeFlowWorkflow,
 		cfg,
-		syncNormChan,
 	)
+	var normExecution workflow.Execution
+	if err := childNormalizeFlowFuture.GetChildWorkflowExecution().Get(ctx, &normExecution); err != nil {
+		return state, fmt.Errorf("normalize workflow failed to start: %w", err)
+	}
 
 	for {
 		// check and act on signals before a fresh flow starts.
@@ -361,7 +363,8 @@ func CDCFlowWorkflowWithConfig(
 			SyncFlowWorkflow,
 			cfg,
 			syncFlowOptions,
-			syncNormChan,
+			normExecution.ID,
+			normExecution.RunID,
 		)
 
 		var childSyncFlowRes *model.SyncResponse
@@ -379,7 +382,7 @@ func CDCFlowWorkflowWithConfig(
 		w.logger.Info("Total records synced: ", totalRecordsSynced)
 	}
 
-	syncNormChan.Close()
+	workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "StopLoop", true)
 	var childNormalizeFlowRes *NormalizeFlowResult
 	if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
 		w.logger.Error("failed to execute normalize flow: ", err)

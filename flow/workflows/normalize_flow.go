@@ -32,8 +32,9 @@ func NewNormalizeFlowExecution(ctx workflow.Context) *NormalizeFlowExecution {
 func NormalizeFlowWorkflow(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
-	syncNormChan workflow.Channel,
 ) (*NormalizeFlowResult, error) {
+	schemaDeltas := workflow.GetSignalChannel(ctx, "SchemaDelta")
+	stopLoopChan := workflow.GetSignalChannel(ctx, "StopLoop")
 	w := NewCDCFlowWorkflowExecution(ctx)
 
 	res := NormalizeFlowResult{}
@@ -52,41 +53,52 @@ func NormalizeFlowWorkflow(
 	}
 	ctx = workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 
+	var stopLoop bool
 	for {
-		var tableSchemaDeltas []*protos.TableSchemaDelta
-		if !syncNormChan.Receive(ctx, &tableSchemaDeltas) {
-			break
+		// Sequence channel checks carefully to avoid race condition;
+		// must check & process all schema deltas before breaking loop
+		if !stopLoop {
+			var stopLoopVal bool
+			stopLoop = stopLoopChan.ReceiveAsync(&stopLoopVal) && stopLoopVal
 		}
 
-		// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-		if tableSchemaDeltas != nil {
-			modifiedSrcTables := make([]string, 0, len(tableSchemaDeltas))
-			modifiedDstTables := make([]string, 0, len(tableSchemaDeltas))
+		var tableSchemaDeltas []*protos.TableSchemaDelta
+		received, _ := schemaDeltas.ReceiveWithTimeout(ctx, 5*time.Second, &tableSchemaDeltas)
+		if received {
+			if len(tableSchemaDeltas) != 0 {
+				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
+				modifiedSrcTables := make([]string, 0, len(tableSchemaDeltas))
+				modifiedDstTables := make([]string, 0, len(tableSchemaDeltas))
 
-			for _, tableSchemaDelta := range tableSchemaDeltas {
-				modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
-				modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
-			}
+				for _, tableSchemaDelta := range tableSchemaDeltas {
+					modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
+					modifiedDstTables = append(modifiedDstTables, tableSchemaDelta.DstTableName)
+				}
 
-			getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-				StartToCloseTimeout: 5 * time.Minute,
-			})
-			getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
-				&protos.GetTableSchemaBatchInput{
-					PeerConnectionConfig: cfg.Source,
-					TableIdentifiers:     modifiedSrcTables,
+				getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+					StartToCloseTimeout: 5 * time.Minute,
 				})
+				getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.GetTableSchema,
+					&protos.GetTableSchemaBatchInput{
+						PeerConnectionConfig: cfg.Source,
+						TableIdentifiers:     modifiedSrcTables,
+					})
 
-			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
-			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
-				w.logger.Error("failed to execute schema update at source: ", err)
-				res.NormalizeFlowErrors = multierror.Append(res.NormalizeFlowErrors, err)
-			} else {
-				for i := range modifiedSrcTables {
-					cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
-						getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
+				var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
+				if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
+					w.logger.Error("failed to execute schema update at source: ", err)
+					res.NormalizeFlowErrors = multierror.Append(res.NormalizeFlowErrors, err)
+				} else {
+					for i := range modifiedSrcTables {
+						cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
+							getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
+					}
 				}
 			}
+		} else if stopLoop {
+			break
+		} else {
+			continue
 		}
 
 		s := NewNormalizeFlowExecution(ctx)
