@@ -306,6 +306,7 @@ func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.
 
 func RunXminFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
 	state := peerflow.NewQRepFlowState()
+	state.LastPartition.PartitionId = uuid.New().String()
 	time.Sleep(5 * time.Second)
 	env.ExecuteWorkflow(peerflow.XminFlowWorkflow, config, state)
 }
