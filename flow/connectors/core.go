@@ -101,7 +101,7 @@ type QRepPullConnector interface {
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
-	// GetQRepRecords returns the records for a given partition.
+	// PullQRepRecords returns the records for a given partition.
 	PullQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
 }
 

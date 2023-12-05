@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"text/template"
 	"time"
 
@@ -84,50 +85,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
-	if config.WatermarkColumn == "xmin" {
-		minVal, maxVal, err := c.getMinMaxValues(tx, config, last)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get min max values for xmin: %w", err)
-		}
-
-		// we know these are int64s so we can just cast them
-		minValInt := minVal.(int64)
-		maxValInt := maxVal.(int64)
-
-		// we will only return 1 partition for xmin:
-		// if there is no last partition, we will return a partition with the min and max values
-		// if there is a last partition, we will return a partition with the last partition's
-		// end value + 1 and the max value
-		if last != nil && last.Range != nil {
-			minValInt += 1
-		}
-
-		if minValInt > maxValInt {
-			// log and return an empty partition
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Infof("xmin min value is greater than max value, returning empty partition")
-			return make([]*protos.QRepPartition, 0), nil
-		}
-
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Infof("single xmin partition range: %v - %v", minValInt, maxValInt)
-
-		partition := &protos.QRepPartition{
-			PartitionId: uuid.New().String(),
-			Range: &protos.PartitionRange{
-				Range: &protos.PartitionRange_IntRange{
-					IntRange: &protos.IntPartitionRange{
-						Start: minValInt,
-						End:   maxValInt,
-					},
-				},
-			},
-		}
-
-		return []*protos.QRepPartition{partition}, nil
-	}
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -244,9 +201,6 @@ func (c *PostgresConnector) getMinMaxValues(
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
-	if config.WatermarkColumn == "xmin" {
-		quotedWatermarkColumn = fmt.Sprintf("%s::text::bigint", quotedWatermarkColumn)
-	}
 
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -594,6 +548,41 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) PullXminRecordStream(
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
+) (int, int64, error) {
+	var currentSnapshotXmin int64
+	query := config.Query
+	oldxid := ""
+	if partition.Range != nil {
+		oldxid = strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)
+		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
+	}
+
+	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		config.FlowJobName, partition.PartitionId)
+	if err != nil {
+		return 0, currentSnapshotXmin, err
+	}
+
+	var numRecords int
+	if partition.Range != nil {
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query, oldxid)
+	} else {
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentTxid(stream, query)
+	}
+	if err != nil {
+		return 0, currentSnapshotXmin, err
+	}
+
+	log.WithFields(log.Fields{
+		"partition": partition.PartitionId,
+	}).Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
+	return numRecords, currentSnapshotXmin, nil
 }
 
 func BuildQuery(query string, flowJobName string) (string, error) {

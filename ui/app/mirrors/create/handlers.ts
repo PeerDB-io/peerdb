@@ -221,7 +221,7 @@ export const handleCreateQRep = async (
     config.watermarkColumn = 'xmin';
     config.query = `SELECT * FROM ${quotedWatermarkTable(
       config.watermarkTable
-    )} WHERE xmin::text::bigint BETWEEN {{.start}} AND {{.end}}`;
+    )}`;
     query = config.query;
     config.initialCopyOnly = false;
   }
