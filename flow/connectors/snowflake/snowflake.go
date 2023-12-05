@@ -926,15 +926,12 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 // parseTableName parses a table name into schema and table name.
 func parseTableName(tableName string) (*tableNameComponents, error) {
-	parts := strings.Split(tableName, ".")
-	if len(parts) != 2 {
+	schemaIdentifier, tableIdentifier, hasDot := strings.Cut(tableName, ".")
+	if !hasDot || strings.ContainsRune(tableIdentifier, '.') {
 		return nil, fmt.Errorf("invalid table name: %s", tableName)
 	}
 
-	return &tableNameComponents{
-		schemaIdentifier: parts[0],
-		tableIdentifier:  parts[1],
-	}, nil
+	return &tableNameComponents{schemaIdentifier, tableIdentifier}, nil
 }
 
 func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
@@ -1032,12 +1029,12 @@ and updating the other columns.
 func (c *SnowflakeConnector) generateUpdateStatements(
 	syncedAtCol string, softDeleteCol string, softDelete bool,
 	allCols []string, unchangedToastCols []string) []string {
-	updateStmts := make([]string, 0)
+	updateStmts := make([]string, 0, len(unchangedToastCols))
 
 	for _, cols := range unchangedToastCols {
 		unchangedColsArray := strings.Split(cols, ",")
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
-		tmpArray := make([]string, 0)
+		tmpArray := make([]string, 0, len(otherCols)+2)
 		for _, colName := range otherCols {
 			quotedUpperColName := fmt.Sprintf(`"%s"`, strings.ToUpper(colName))
 			tmpArray = append(tmpArray, fmt.Sprintf("%s = SOURCE.%s", quotedUpperColName, quotedUpperColName))

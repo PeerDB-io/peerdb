@@ -81,18 +81,11 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 	stagingPath := strings.TrimPrefix(s3Path, "s3://")
 
 	// Split into bucket and prefix
-	splitPath := strings.SplitN(stagingPath, "/", 2)
-
-	bucket := splitPath[0]
-	prefix := ""
-	if len(splitPath) > 1 {
-		// Remove leading and trailing slashes from prefix
-		prefix = strings.Trim(splitPath[1], "/")
-	}
+	bucket, prefix, _ := strings.Cut(stagingPath, "/")
 
 	return &S3BucketAndPrefix{
 		Bucket: bucket,
-		Prefix: prefix,
+		Prefix: strings.Trim(prefix, "/"),
 	}, nil
 }
 

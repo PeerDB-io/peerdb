@@ -10,14 +10,14 @@ import (
 type QRecordAvroConverter struct {
 	QRecord        *QRecord
 	TargetDWH      qvalue.QDWHType
-	NullableFields *map[string]bool
+	NullableFields map[string]struct{}
 	ColNames       []string
 }
 
 func NewQRecordAvroConverter(
 	q *QRecord,
 	targetDWH qvalue.QDWHType,
-	nullableFields *map[string]bool,
+	nullableFields map[string]struct{},
 	colNames []string,
 ) *QRecordAvroConverter {
 	return &QRecordAvroConverter{
@@ -33,12 +33,12 @@ func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
 
 	for idx := range qac.QRecord.Entries {
 		key := qac.ColNames[idx]
-		nullable, ok := (*qac.NullableFields)[key]
+		_, nullable := qac.NullableFields[key]
 
 		avroConverter := qvalue.NewQValueAvroConverter(
 			&qac.QRecord.Entries[idx],
 			qac.TargetDWH,
-			nullable && ok,
+			nullable,
 		)
 		avroVal, err := avroConverter.ToAvroValue()
 		if err != nil {
@@ -64,7 +64,7 @@ type QRecordAvroSchema struct {
 
 type QRecordAvroSchemaDefinition struct {
 	Schema         string
-	NullableFields map[string]bool
+	NullableFields map[string]struct{}
 }
 
 func GetAvroSchemaDefinition(
@@ -72,7 +72,7 @@ func GetAvroSchemaDefinition(
 	qRecordSchema *QRecordSchema,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := []QRecordAvroField{}
-	nullableFields := map[string]bool{}
+	nullableFields := make(map[string]struct{})
 
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, qField.Nullable)
@@ -84,7 +84,7 @@ func GetAvroSchemaDefinition(
 
 		if qField.Nullable {
 			consolidatedType = []interface{}{"null", consolidatedType}
-			nullableFields[qField.Name] = true
+			nullableFields[qField.Name] = struct{}{}
 		}
 
 		avroFields = append(avroFields, QRecordAvroField{

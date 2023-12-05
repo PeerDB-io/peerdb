@@ -572,15 +572,16 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 }
 
 func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedToastColsLists []string) string {
-	updateStmts := make([]string, 0)
+	updateStmts := make([]string, 0, len(unchangedToastColsLists))
 
 	for _, cols := range unchangedToastColsLists {
-		unchangedColsArray := make([]string, 0)
-		for _, unchangedToastCol := range strings.Split(cols, ",") {
+		unquotedUnchangedColsArray := strings.Split(cols, ",")
+		unchangedColsArray := make([]string, 0, len(unquotedUnchangedColsArray))
+		for _, unchangedToastCol := range unquotedUnchangedColsArray {
 			unchangedColsArray = append(unchangedColsArray, fmt.Sprintf(`"%s"`, unchangedToastCol))
 		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
-		tmpArray := make([]string, 0)
+		tmpArray := make([]string, 0, len(otherCols))
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
