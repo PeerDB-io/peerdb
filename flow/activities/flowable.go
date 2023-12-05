@@ -467,7 +467,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}, nil
 }
 
-// ReplicateQRepPartition replicates a QRepPartition from the source to the destination.
+// ReplicateQRepPartitions spawns multiple ReplicateQRepPartition
 func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	config *protos.QRepConfig,
 	partitions *protos.QRepPartitionBatch,
@@ -537,11 +537,12 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 					"flowName": config.FlowJobName,
 				}).Errorf("failed to pull records: %v", err)
 				goroutineErr = err
-			}
-			err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
-			if err != nil {
-				log.Errorf("%v", err)
-				goroutineErr = err
+			} else {
+				err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
+				if err != nil {
+					log.Errorf("%v", err)
+					goroutineErr = err
+				}
 			}
 			wg.Done()
 		}
@@ -844,4 +845,91 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 		return bqConn.CreateTablesFromExisting(req)
 	}
 	return nil, fmt.Errorf("create tables from existing is only supported on snowflake and bigquery")
+}
+
+// ReplicateXminPartition replicates a XminPartition from the source to the destination.
+func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	runUUID string,
+) (int64, error) {
+	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition)
+	if err != nil {
+		return 0, fmt.Errorf("failed to update start time for partition: %w", err)
+	}
+
+	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
+	}
+	defer connectors.CloseConnector(srcConn)
+
+	dstConn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
+	}
+	defer connectors.CloseConnector(dstConn)
+
+	log.WithFields(log.Fields{
+		"flowName": config.FlowJobName,
+	}).Info("replicating xmin\n")
+
+	bufferSize := shared.FetchAndChannelSize
+	errGroup, errCtx := errgroup.WithContext(ctx)
+
+	stream := model.NewQRecordStream(bufferSize)
+
+	var currentSnapshotXmin int64
+	errGroup.Go(func() error {
+		pgConn := srcConn.(*connpostgres.PostgresConnector)
+		var pullErr error
+		var numRecords int
+		numRecords, currentSnapshotXmin, pullErr = pgConn.PullXminRecordStream(config, partition, stream)
+		if pullErr != nil {
+			log.WithFields(log.Fields{
+				"flowName": config.FlowJobName,
+			}).Errorf("failed to pull records: %v", err)
+			return err
+		}
+		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(errCtx, runUUID, partition, int64(numRecords))
+		if err != nil {
+			log.Errorf("%v", err)
+			return err
+		}
+		return nil
+	})
+
+	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+		return "syncing xmin."
+	})
+
+	defer func() {
+		shutdown <- true
+	}()
+
+	res, err := dstConn.SyncQRepRecords(config, partition, stream)
+	if err != nil {
+		return 0, fmt.Errorf("failed to sync records: %w", err)
+	}
+
+	if res == 0 {
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Info("no records to push for xmin\n")
+	} else {
+		err := errGroup.Wait()
+		if err != nil {
+			return 0, err
+		}
+		log.WithFields(log.Fields{
+			"flowName": config.FlowJobName,
+		}).Infof("pushed %d records\n", res)
+	}
+
+	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
+	if err != nil {
+		return 0, err
+	}
+
+	return currentSnapshotXmin, nil
 }

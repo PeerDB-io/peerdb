@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -248,13 +249,25 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 
 	state := peerflow.NewQRepFlowState()
-	_, err := h.temporalClient.ExecuteWorkflow(
-		ctx,                       // context
-		workflowOptions,           // workflow start options
-		peerflow.QRepFlowWorkflow, // workflow function
-		cfg,                       // workflow input
-		state,
-	)
+	preColon, postColon, hasColon := strings.Cut(cfg.WatermarkColumn, "::")
+	var workflowFn interface{}
+	if cfg.SourcePeer.Type == protos.DBType_POSTGRES &&
+		preColon == "xmin" {
+		state.LastPartition.PartitionId = uuid.New().String()
+		if hasColon {
+			// hack to facilitate migrating from existing xmin sync
+			txid, err := strconv.ParseInt(postColon, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
+			}
+			state.LastPartition.Range = &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}}}
+		}
+
+		workflowFn = peerflow.XminFlowWorkflow
+	} else {
+		workflowFn = peerflow.QRepFlowWorkflow
+	}
+	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}

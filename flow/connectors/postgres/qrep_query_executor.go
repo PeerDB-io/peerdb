@@ -321,6 +321,51 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		return 0, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
+	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(tx, stream, query, args...)
+	return totalRecordsFetched, err
+}
+
+func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentTxid(
+	stream *model.QRecordStream,
+	query string,
+	args ...interface{},
+) (int, int64, error) {
+	var currentSnapshotXmin int64
+	log.WithFields(log.Fields{
+		"flowName":    qe.flowJobName,
+		"partitionID": qe.partitionID,
+	}).Infof("Executing and processing query stream '%s'", query)
+	defer close(stream.Records)
+
+	tx, err := qe.pool.BeginTx(qe.ctx, pgx.TxOptions{
+		AccessMode: pgx.ReadOnly,
+		IsoLevel:   pgx.RepeatableRead,
+	})
+	if err != nil {
+		log.WithFields(log.Fields{
+			"flowName":    qe.flowJobName,
+			"partitionID": qe.partitionID,
+		}).Errorf("[pg_query_executor] failed to begin transaction: %v", err)
+		return 0, currentSnapshotXmin, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
+	}
+
+	err = tx.QueryRow(qe.ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin)
+	if err != nil {
+		return 0, currentSnapshotXmin, err
+	}
+
+	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(tx, stream, query, args...)
+	return totalRecordsFetched, currentSnapshotXmin, err
+}
+
+func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
+	tx pgx.Tx,
+	stream *model.QRecordStream,
+	query string,
+	args ...interface{},
+) (int, error) {
+	var err error
+
 	defer func() {
 		err := tx.Rollback(qe.ctx)
 		if err != nil && err != pgx.ErrTxClosed {
@@ -397,6 +442,9 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 		qe.recordHeartbeat("#%d fetched %d rows", numFetchOpsComplete, numRows)
 	}
 
+	log.WithFields(log.Fields{
+		"flowName": qe.flowJobName,
+	}).Info("Committing transaction")
 	err = tx.Commit(qe.ctx)
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{
