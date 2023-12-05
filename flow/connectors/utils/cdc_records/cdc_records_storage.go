@@ -163,11 +163,13 @@ func (c *cdcRecordsStore) Len() int {
 
 func (c *cdcRecordsStore) Close() error {
 	c.inMemoryRecords = nil
-	err := c.pebbleDB.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close database: %w", err)
+	if c.pebbleDB != nil {
+		err := c.pebbleDB.Close()
+		if err != nil {
+			return fmt.Errorf("failed to close database: %w", err)
+		}
 	}
-	err = os.RemoveAll(c.dbFolderName)
+	err := os.RemoveAll(c.dbFolderName)
 	if err != nil {
 		return fmt.Errorf("failed to delete database file: %w", err)
 	}
