@@ -1,10 +1,10 @@
 import { FlowConnectionConfigs, QRepSyncMode } from '@/grpc_generated/flow';
 
 const syncModeToLabel = (mode: QRepSyncMode) => {
-  switch (mode) {
-    case QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO:
+  switch (mode.toString()) {
+    case 'QREP_SYNC_MODE_STORAGE_AVRO':
       return 'AVRO';
-    case QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT:
+    case 'QREP_SYNC_MODE_MULTI_INSERT':
       return 'Copy with Binary';
     default:
       return 'AVRO';
@@ -29,11 +29,11 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
       label: 'Snapshot Parallel Tables',
     },
     {
-      value: `${syncModeToLabel(mirrorConfig?.cdcSyncMode!)} mode`,
+      value: `${syncModeToLabel(mirrorConfig?.cdcSyncMode!)}`,
       label: 'CDC Sync Mode',
     },
     {
-      value: `${syncModeToLabel(mirrorConfig?.snapshotSyncMode!)} mode`,
+      value: `${syncModeToLabel(mirrorConfig?.snapshotSyncMode!)}`,
       label: 'Snapshot Sync Mode',
     },
     {

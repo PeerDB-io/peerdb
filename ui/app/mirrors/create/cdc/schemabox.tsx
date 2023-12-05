@@ -270,6 +270,7 @@ const SchemaBox = ({
                                   }
                                   action={
                                     <Checkbox
+                                      style={{ cursor: 'pointer' }}
                                       disabled={isPkey}
                                       checked={
                                         !row.exclude.find(
