@@ -127,7 +127,7 @@ func (p *PeerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 		avroConverter := model.NewQRecordAvroConverter(
 			qRecord,
 			p.targetDWH,
-			&p.avroSchema.NullableFields,
+			p.avroSchema.NullableFields,
 			colNames,
 		)
 

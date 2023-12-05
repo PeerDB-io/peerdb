@@ -172,12 +172,12 @@ and updating the other columns (not the unchanged toast columns)
 7. Return the list of generated update statements.
 */
 func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastCols []string) []string {
-	updateStmts := make([]string, 0)
+	updateStmts := make([]string, 0, len(unchangedToastCols))
 
 	for _, cols := range unchangedToastCols {
 		unchangedColsArray := strings.Split(cols, ", ")
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
-		tmpArray := make([]string, 0)
+		tmpArray := make([]string, 0, len(otherCols))
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("`%s` = _peerdb_deduped.%s", colName, colName))
 		}
