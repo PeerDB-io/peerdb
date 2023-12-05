@@ -19,6 +19,9 @@ export default async function QRepMirrorStatus({
       start_time: {
         not: null,
       },
+      rows_in_partition: {
+        not: 0,
+      },
     },
     orderBy: {
       start_time: 'desc',
