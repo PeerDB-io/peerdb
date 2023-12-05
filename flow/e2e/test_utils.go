@@ -20,7 +20,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 )
 
-// readFileToBytes reads a file to a byte array.
+// ReadFileToBytes reads a file to a byte array.
 func ReadFileToBytes(path string) ([]byte, error) {
 	var ret []byte
 
