@@ -325,7 +325,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	return totalRecordsFetched, err
 }
 
-func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentTxid(
+func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(
 	stream *model.QRecordStream,
 	query string,
 	args ...interface{},

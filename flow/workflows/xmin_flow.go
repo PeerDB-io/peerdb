@@ -176,7 +176,7 @@ func (q *XminFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 		return fmt.Errorf("failed to cleanup qrep flow: %w", err)
 	}
 
-	q.logger.Info("qrep flow cleaned up")
+	q.logger.Info("xmin flow cleaned up")
 
 	return nil
 }
@@ -186,14 +186,6 @@ func XminFlowWorkflow(
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
 ) error {
-	// register a query to get the number of partitions processed
-	err := workflow.SetQueryHandler(ctx, "num-partitions-processed", func() (uint64, error) {
-		return state.NumPartitionsProcessed, nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to register query handler: %w", err)
-	}
-
 	// get xmin run uuid via side-effect
 	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		return uuid.New().String()
@@ -206,7 +198,7 @@ func XminFlowWorkflow(
 
 	q := NewXminFlowExecution(ctx, config, runUUID)
 
-	err = q.SetupWatermarkTableOnDestination(ctx)
+	err := q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup watermark table: %w", err)
 	}
@@ -238,9 +230,8 @@ func XminFlowWorkflow(
 		return fmt.Errorf("xmin replication failed: %w", err)
 	}
 
-	state.LastPartition = &protos.QRepPartition{
-		PartitionId: q.runUUID,
-		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
+	if err = q.consolidatePartitions(ctx); err != nil {
+		return err
 	}
 
 	if config.InitialCopyOnly {
@@ -253,8 +244,9 @@ func XminFlowWorkflow(
 		return err
 	}
 
-	if err = q.consolidatePartitions(ctx); err != nil {
-		return err
+	state.LastPartition = &protos.QRepPartition{
+		PartitionId: q.runUUID,
+		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
 	}
 
 	workflow.GetLogger(ctx).Info("Continuing as new workflow",
