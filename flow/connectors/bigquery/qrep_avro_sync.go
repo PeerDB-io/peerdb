@@ -186,7 +186,7 @@ type AvroSchema struct {
 func DefineAvroSchema(dstTableName string,
 	dstTableMetadata *bigquery.TableMetadata) (*model.QRecordAvroSchemaDefinition, error) {
 	avroFields := []AvroField{}
-	nullableFields := map[string]bool{}
+	nullableFields := make(map[string]struct{})
 
 	for _, bqField := range dstTableMetadata.Schema {
 		avroType, err := GetAvroType(bqField)
@@ -197,7 +197,7 @@ func DefineAvroSchema(dstTableName string,
 		// If a field is nullable, its Avro type should be ["null", actualType]
 		if !bqField.Required {
 			avroType = []interface{}{"null", avroType}
-			nullableFields[bqField.Name] = true
+			nullableFields[bqField.Name] = struct{}{}
 		}
 
 		avroFields = append(avroFields, AvroField{

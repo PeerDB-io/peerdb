@@ -47,11 +47,10 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 }
 
 func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
-	tableIdentifierParts := strings.Split(tableIdentifier, ".")
-	if len(tableIdentifierParts) == 1 && peerDBType != int32(protos.DBType_BIGQUERY) {
-		tableIdentifierParts = append([]string{"public"}, tableIdentifierParts...)
+	if peerDBType != int32(protos.DBType_BIGQUERY) && !strings.ContainsRune(tableIdentifier, '.') {
+		return "public." + tableIdentifier
 	}
-	return strings.Join(tableIdentifierParts, ".")
+	return tableIdentifier
 }
 
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,

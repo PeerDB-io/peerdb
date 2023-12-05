@@ -174,13 +174,13 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 }
 
 type ToJSONOptions struct {
-	UnnestColumns map[string]bool
+	UnnestColumns map[string]struct{}
 }
 
 func NewToJSONOptions(unnestCols []string) *ToJSONOptions {
-	unnestColumns := make(map[string]bool)
+	unnestColumns := make(map[string]struct{})
 	for _, col := range unnestCols {
-		unnestColumns[col] = true
+		unnestColumns[col] = struct{}{}
 	}
 	return &ToJSONOptions{
 		UnnestColumns: unnestColumns,
