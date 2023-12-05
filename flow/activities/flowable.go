@@ -764,12 +764,6 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 		waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
 	}
 
-	if config.WatermarkColumn == "xmin" {
-		// for xmin we ignore the wait between batches, as seq scan time is
-		// extremely slow.
-		waitBetweenBatches = 10 * time.Second
-	}
-
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get qrep source connector: %w", err)

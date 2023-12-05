@@ -49,6 +49,7 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	env.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
+	env.RegisterWorkflow(peerflow.XminFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
 	env.RegisterActivity(&activities.FlowableActivity{})
 	env.RegisterActivity(&activities.SnapshotActivity{})
@@ -301,6 +302,12 @@ func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.
 	state := peerflow.NewQRepFlowState()
 	time.Sleep(5 * time.Second)
 	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
+}
+
+func RunXminFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
+	state := peerflow.NewQRepFlowState()
+	time.Sleep(5 * time.Second)
+	env.ExecuteWorkflow(peerflow.XminFlowWorkflow, config, state)
 }
 
 func GetOwnersSchema() *model.QRecordSchema {
