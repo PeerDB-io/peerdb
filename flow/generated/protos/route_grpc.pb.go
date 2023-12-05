@@ -33,6 +33,7 @@ const (
 	FlowService_ShutdownFlow_FullMethodName      = "/peerdb_route.FlowService/ShutdownFlow"
 	FlowService_FlowStateChange_FullMethodName   = "/peerdb_route.FlowService/FlowStateChange"
 	FlowService_MirrorStatus_FullMethodName      = "/peerdb_route.FlowService/MirrorStatus"
+	FlowService_GetVersion_FullMethodName        = "/peerdb_route.FlowService/GetVersion"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -53,6 +54,7 @@ type FlowServiceClient interface {
 	ShutdownFlow(ctx context.Context, in *ShutdownRequest, opts ...grpc.CallOption) (*ShutdownResponse, error)
 	FlowStateChange(ctx context.Context, in *FlowStateChangeRequest, opts ...grpc.CallOption) (*FlowStateChangeResponse, error)
 	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
+	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
 }
 
 type flowServiceClient struct {
@@ -189,6 +191,15 @@ func (c *flowServiceClient) MirrorStatus(ctx context.Context, in *MirrorStatusRe
 	return out, nil
 }
 
+func (c *flowServiceClient) GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error) {
+	out := new(PeerDBVersionResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetVersion_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServiceServer is the server API for FlowService service.
 // All implementations must embed UnimplementedFlowServiceServer
 // for forward compatibility
@@ -207,6 +218,7 @@ type FlowServiceServer interface {
 	ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
 	FlowStateChange(context.Context, *FlowStateChangeRequest) (*FlowStateChangeResponse, error)
 	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
+	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -255,6 +267,9 @@ func (UnimplementedFlowServiceServer) FlowStateChange(context.Context, *FlowStat
 }
 func (UnimplementedFlowServiceServer) MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MirrorStatus not implemented")
+}
+func (UnimplementedFlowServiceServer) GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVersion not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 
@@ -521,6 +536,24 @@ func _FlowService_MirrorStatus_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetVersion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerDBVersionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetVersion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetVersion_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetVersion(ctx, req.(*PeerDBVersionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FlowService_ServiceDesc is the grpc.ServiceDesc for FlowService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -583,6 +616,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MirrorStatus",
 			Handler:    _FlowService_MirrorStatus_Handler,
+		},
+		{
+			MethodName: "GetVersion",
+			Handler:    _FlowService_GetVersion_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
