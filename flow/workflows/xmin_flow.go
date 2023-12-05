@@ -239,7 +239,7 @@ func XminFlowWorkflow(
 	}
 
 	state.LastPartition = &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: q.runUUID,
 		Range:       &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: lastPartition}}},
 	}
 

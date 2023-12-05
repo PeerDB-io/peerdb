@@ -537,11 +537,12 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 					"flowName": config.FlowJobName,
 				}).Errorf("failed to pull records: %v", err)
 				goroutineErr = err
-			}
-			err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
-			if err != nil {
-				log.Errorf("%v", err)
-				goroutineErr = err
+			} else {
+				err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
+				if err != nil {
+					log.Errorf("%v", err)
+					goroutineErr = err
+				}
 			}
 			wg.Done()
 		}
