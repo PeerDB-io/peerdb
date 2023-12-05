@@ -306,14 +306,10 @@ func (c *CatalogMirrorMonitor) UpdateStartTimeForPartition(
 	ctx context.Context,
 	runUUID string,
 	partition *protos.QRepPartition,
-	overrideStartTime *time.Time,
+	startTime time.Time,
 ) error {
 	if c == nil || c.catalogConn == nil {
 		return nil
-	}
-	startTime := time.Now()
-	if overrideStartTime != nil {
-		startTime = *overrideStartTime
 	}
 
 	_, err := c.catalogConn.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET start_time=$1

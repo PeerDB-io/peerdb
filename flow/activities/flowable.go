@@ -500,7 +500,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
-	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition, nil)
+	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to update start time for partition: %w", err)
 	}
@@ -900,7 +900,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 			return updateErr
 		}
 
-		err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition, &startTime)
+		err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition, startTime)
 		if err != nil {
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
