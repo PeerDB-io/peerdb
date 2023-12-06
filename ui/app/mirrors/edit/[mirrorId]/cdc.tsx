@@ -105,6 +105,7 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(allRows.length / ROWS_PER_PAGE);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('asc');
   const displayedRows = useMemo(() => {
     const shownRows = allRows.filter((row: any) =>
       row.tableName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -117,9 +118,9 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
       }
 
       if (aValue < bValue) {
-        return -1;
+        return sortDir === 'dsc' ? 1 : -1;
       } else if (aValue > bValue) {
-        return 1;
+        return sortDir === 'dsc' ? -1 : 1;
       } else {
         return 0;
       }
@@ -130,7 +131,7 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
     return shownRows.length > ROWS_PER_PAGE
       ? shownRows.slice(startRow, endRow)
       : shownRows;
-  }, [allRows, currentPage, searchQuery, sortField]);
+  }, [allRows, currentPage, searchQuery, sortField, sortDir]);
 
   const handlePrevPage = () => {
     if (currentPage > 1) {
@@ -183,6 +184,22 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
                 }}
                 defaultValue={{ value: 'cloneStartTime', label: 'Start Time' }}
               />
+              <button
+                className='IconButton'
+                onClick={() => setSortDir('asc')}
+                aria-label='sort up'
+                style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+              >
+                <Icon name='arrow_upward' />
+              </button>
+              <button
+                className='IconButton'
+                onClick={() => setSortDir('dsc')}
+                aria-label='sort down'
+                style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+              >
+                <Icon name='arrow_downward' />
+              </button>
             </>
           ),
           right: (

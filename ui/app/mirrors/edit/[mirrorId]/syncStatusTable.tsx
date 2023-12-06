@@ -50,6 +50,7 @@ function TimeWithDurationOrRunning({
 
 const ROWS_PER_PAGE = 5;
 const sortOptions = [
+  { value: 'batchId', label: 'Batch ID' },
   { value: 'startTime', label: 'Start Time' },
   { value: 'endTime', label: 'End Time' },
   { value: 'numRows', label: 'Rows Synced' },
@@ -57,9 +58,10 @@ const sortOptions = [
 export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<
-    'startTime' | 'endTime' | 'numRows'
-  >('startTime');
+    'startTime' | 'endTime' | 'numRows' | 'batchId'
+  >('batchId');
 
+  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const totalPages = Math.ceil(rows.length / ROWS_PER_PAGE);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const displayedRows = useMemo(() => {
@@ -75,9 +77,9 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
       }
 
       if (aValue < bValue) {
-        return -1;
+        return sortDir === 'dsc' ? 1 : -1;
       } else if (aValue > bValue) {
-        return 1;
+        return sortDir === 'dsc' ? -1 : 1;
       } else {
         return 0;
       }
@@ -88,7 +90,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
     return shownRows.length > ROWS_PER_PAGE
       ? shownRows.slice(startRow, endRow)
       : shownRows;
-  }, [searchQuery, currentPage, rows, sortField]);
+  }, [searchQuery, currentPage, rows, sortField, sortDir]);
 
   const handlePrevPage = () => {
     if (currentPage > 1) {
@@ -130,12 +132,31 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
               }}
               onChange={(val, _) => {
                 const sortVal =
-                  (val?.value as 'startTime' | 'endTime' | 'numRows') ??
-                  'startTime';
+                  (val?.value as
+                    | 'startTime'
+                    | 'endTime'
+                    | 'numRows'
+                    | 'batchId') ?? 'batchId';
                 setSortField(sortVal);
               }}
-              defaultValue={{ value: 'startTime', label: 'Start Time' }}
+              defaultValue={{ value: 'batchId', label: 'Batch ID' }}
             />
+            <button
+              className='IconButton'
+              onClick={() => setSortDir('asc')}
+              aria-label='sort up'
+              style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+            >
+              <Icon name='arrow_upward' />
+            </button>
+            <button
+              className='IconButton'
+              onClick={() => setSortDir('dsc')}
+              aria-label='sort down'
+              style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+            >
+              <Icon name='arrow_downward' />
+            </button>
           </>
         ),
         right: (
