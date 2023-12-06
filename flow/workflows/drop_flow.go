@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 )
@@ -30,6 +31,8 @@ func DropFlowWorkflow(ctx workflow.Context, req *protos.ShutdownRequest) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
+
+	ctx = workflow.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 
 	dropFlowFuture := workflow.ExecuteActivity(ctx, flowable.DropFlow, req)
 	if err := dropFlowFuture.Get(ctx, nil); err != nil {
