@@ -22,12 +22,19 @@ import (
 )
 
 type AvroCompressionCodec int64
+type AvroStorageLocation int64
 
 const (
 	CompressNone AvroCompressionCodec = iota
 	CompressZstd
 	CompressDeflate
 	CompressSnappy
+)
+
+const (
+	AvroLocalStorage = iota
+	AvroS3Storage
+	AvroGCSStorage
 )
 
 type peerDBOCFWriter struct {
@@ -37,6 +44,21 @@ type peerDBOCFWriter struct {
 	avroCompressionCodec AvroCompressionCodec
 	writer               io.WriteCloser
 	targetDWH            qvalue.QDWHType
+}
+
+type AvroFile struct {
+	NumRecords      int
+	StorageLocation AvroStorageLocation
+	FilePath        string
+}
+
+func (l *AvroFile) Cleanup() {
+	if l.StorageLocation == AvroLocalStorage {
+		err := os.Remove(l.FilePath)
+		if err != nil && !os.IsNotExist(err) {
+			log.Warnf("unable to delete temporary Avro file: %v", err)
+		}
+	}
 }
 
 func NewPeerDBOCFWriter(
@@ -164,7 +186,7 @@ func (p *peerDBOCFWriter) WriteOCF(w io.Writer) (int, error) {
 	return numRows, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils.S3PeerCredentials) (int, error) {
+func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils.S3PeerCredentials) (*AvroFile, error) {
 	r, w := io.Pipe()
 	numRowsWritten := make(chan int, 1)
 	go func() {
@@ -179,7 +201,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 	s3svc, err := utils.CreateS3Client(s3Creds)
 	if err != nil {
 		log.Errorf("failed to create S3 client: %v", err)
-		return 0, fmt.Errorf("failed to create S3 client: %w", err)
+		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
 	// Create an uploader with the session and default options
@@ -194,21 +216,34 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 
 	if err != nil {
 		log.Errorf("failed to upload file: %v", err)
-		return 0, fmt.Errorf("failed to upload file: %w", err)
+		return nil, fmt.Errorf("failed to upload file: %w", err)
 	}
 
 	log.Infof("file uploaded to, %s", result.Location)
 
-	return <-numRowsWritten, nil
+	return &AvroFile{
+		NumRecords:      <-numRowsWritten,
+		StorageLocation: AvroS3Storage,
+		FilePath:        key,
+	}, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToAvroFile(filePath string) (int, error) {
+func (p *peerDBOCFWriter) WriteRecordsToAvroFile(filePath string) (*AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create file: %w", err)
+		return nil, fmt.Errorf("failed to create temporary Avro file: %w", err)
 	}
-	defer file.Close()
-	return p.WriteOCF(file)
+
+	numRecords, err := p.WriteOCF(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
+	}
+
+	return &AvroFile{
+		NumRecords:      numRecords,
+		StorageLocation: AvroLocalStorage,
+		FilePath:        filePath,
+	}, nil
 }
 
 type nopWriteCloser struct {

@@ -60,14 +60,15 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	}
 
 	partitionID := util.RandomString(16)
-	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, partitionID, flowJobName)
+	avroFile, err := s.writeToAvroFile(stream, avroSchema, partitionID, flowJobName)
 	if err != nil {
 		return 0, err
 	}
+	defer avroFile.Cleanup()
 	log.WithFields(log.Fields{
 		"destinationTable": dstTableName,
 		"flowName":         flowJobName,
-	}).Infof("written %d records to Avro file", numRecords)
+	}).Infof("written %d records to Avro file", avroFile.NumRecords)
 
 	stage := s.connector.getStageNameForJob(s.config.FlowJobName)
 	err = s.connector.createStage(stage, s.config)
@@ -85,7 +86,7 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	}
 
 	allCols := colInfo.Columns
-	err = s.putFileToStage(localFilePath, stage)
+	err = s.putFileToStage(avroFile, stage)
 	if err != nil {
 		return 0, err
 	}
@@ -101,7 +102,7 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 		"destinationTable": dstTableName,
 	}).Infof("copying records into %s from stage %s", s.config.DestinationTableIdentifier, stage)
 
-	return numRecords, nil
+	return avroFile.NumRecords, nil
 }
 
 func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
@@ -138,28 +139,15 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	numRecords, localFilePath, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
+	avroFile, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
-
-	if localFilePath != "" {
-		defer func() {
-			log.Infof("removing temp file %s", localFilePath)
-			err := os.Remove(localFilePath)
-			if err != nil {
-				log.WithFields(log.Fields{
-					"flowName":         config.FlowJobName,
-					"partitionID":      partition.PartitionId,
-					"destinationTable": dstTableName,
-				}).Errorf("failed to remove temp file %s: %v", localFilePath, err)
-			}
-		}()
-	}
+	defer avroFile.Cleanup()
 
 	stage := s.connector.getStageNameForJob(config.FlowJobName)
 
-	err = s.putFileToStage(localFilePath, stage)
+	err = s.putFileToStage(avroFile, stage)
 	if err != nil {
 		return 0, err
 	}
@@ -175,7 +163,7 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 
 	activity.RecordHeartbeat(s.connector.ctx, "finished syncing records")
 
-	return numRecords, nil
+	return avroFile.NumRecords, nil
 }
 
 func (s *SnowflakeAvroSyncMethod) addMissingColumns(
@@ -271,14 +259,14 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
 	flowJobName string,
-) (int, string, error) {
-	var numRecords int
+) (*avro.AvroFile, error) {
 	if s.config.StagingPath == "" {
 		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
 			qvalue.QDWHTypeSnowflake)
-		tmpDir, err := os.MkdirTemp("", "peerdb-avro")
+		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
+		err := os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
-			return 0, "", fmt.Errorf("failed to create temp dir: %w", err)
+			return nil, fmt.Errorf("failed to create temp dir: %w", err)
 		}
 
 		localFilePath := fmt.Sprintf("%s/%s.avro.zst", tmpDir, partitionID)
@@ -286,18 +274,18 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 			"flowName":    flowJobName,
 			"partitionID": partitionID,
 		}).Infof("writing records to local file %s", localFilePath)
-		numRecords, err = ocfWriter.WriteRecordsToAvroFile(localFilePath)
+		avroFile, err := ocfWriter.WriteRecordsToAvroFile(localFilePath)
 		if err != nil {
-			return 0, "", fmt.Errorf("failed to write records to Avro file: %w", err)
+			return nil, fmt.Errorf("failed to write records to Avro file: %w", err)
 		}
 
-		return numRecords, localFilePath, nil
+		return avroFile, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
 		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
 			qvalue.QDWHTypeSnowflake)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
-			return 0, "", fmt.Errorf("failed to parse staging path: %w", err)
+			return nil, fmt.Errorf("failed to parse staging path: %w", err)
 		}
 
 		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
@@ -305,39 +293,39 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 			"flowName":    flowJobName,
 			"partitionID": partitionID,
 		}).Infof("OCF: Writing records to S3")
-		numRecords, err = ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{})
+		avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{})
 		if err != nil {
-			return 0, "", fmt.Errorf("failed to write records to S3: %w", err)
+			return nil, fmt.Errorf("failed to write records to S3: %w", err)
 		}
 
-		return numRecords, "", nil
+		return avroFile, nil
 	}
 
-	return 0, "", fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
+	return nil, fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
 }
 
-func (s *SnowflakeAvroSyncMethod) putFileToStage(localFilePath string, stage string) error {
-	if localFilePath == "" {
+func (s *SnowflakeAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage string) error {
+	if avroFile.StorageLocation != avro.AvroLocalStorage {
 		log.Infof("no file to put to stage")
 		return nil
 	}
 
 	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
-	putCmd := fmt.Sprintf("PUT file://%s @%s", localFilePath, stage)
+	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
 
-	sutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
 		return fmt.Sprintf("putting file to stage %s", stage)
 	})
 
 	defer func() {
-		sutdown <- true
+		shutdown <- true
 	}()
 
 	if _, err := s.connector.database.Exec(putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
 	}
 
-	log.Infof("put file %s to stage %s", localFilePath, stage)
+	log.Infof("put file %s to stage %s", avroFile.FilePath, stage)
 	return nil
 }
 
