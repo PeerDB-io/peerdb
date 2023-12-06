@@ -360,14 +360,13 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_2")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-    SELECT pg_advisory_lock(hashtext('%s'));
     CREATE TABLE IF NOT EXISTS %s (
         id SERIAL PRIMARY KEY,
         t1 text,
         t2 text,
         k int
     );
-`, srcTableName, srcTableName))
+`, srcTableName))
 	log.Infof("Creating table '%s', err: %v", srcTableName, err)
 	s.NoError(err)
 
@@ -420,14 +419,13 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_3")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-		SELECT pg_advisory_lock(hashtext('%s'));
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
 			k int
 		);
-	`, srcTableName, srcTableName))
+	`, srcTableName))
 	s.NoError(err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -495,13 +493,12 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_4")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-		SELECT pg_advisory_lock(hashtext('%s'));
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			k int
 		);
-	`, srcTableName, srcTableName))
+	`, srcTableName))
 	s.NoError(err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -563,14 +560,13 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_5")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-	SELECT pg_advisory_lock(hashtext('%s'));
 	CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			t2 text,
 			k int
 	);
-`, srcTableName, srcTableName))
+`, srcTableName))
 	s.NoError(err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -631,7 +627,6 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_types_sf")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-	SELECT pg_advisory_lock(hashtext('%s'));
 	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
 		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
@@ -639,7 +634,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
 		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 GEOMETRY(POINT), c43 GEOGRAPHY(POINT),
 		c44 GEOGRAPHY(POLYGON), c45 GEOGRAPHY(LINESTRING), c46 GEOMETRY(LINESTRING), c47 GEOMETRY(POLYGON));
-	`, srcTableName, srcTableName))
+	`, srcTableName))
 	s.NoError(err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
