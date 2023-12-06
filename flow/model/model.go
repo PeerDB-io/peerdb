@@ -60,41 +60,42 @@ type Record interface {
 	GetItems() *RecordItems
 }
 
+// encoding/gob cannot encode unexported fields
 type RecordItems struct {
-	colToValIdx map[string]int
-	values      []*qvalue.QValue
+	ColToValIdx map[string]int
+	Values      []*qvalue.QValue
 }
 
 func NewRecordItems() *RecordItems {
 	return &RecordItems{
-		colToValIdx: make(map[string]int),
+		ColToValIdx: make(map[string]int),
 		// create a slice of 32 qvalues so that we don't have to allocate memory
 		// for each record to reduce GC pressure
-		values: make([]*qvalue.QValue, 0, 32),
+		Values: make([]*qvalue.QValue, 0, 32),
 	}
 }
 
 func NewRecordItemWithData(cols []string, val []*qvalue.QValue) *RecordItems {
 	recordItem := NewRecordItems()
 	for i, col := range cols {
-		recordItem.colToValIdx[col] = len(recordItem.values)
-		recordItem.values = append(recordItem.values, val[i])
+		recordItem.ColToValIdx[col] = len(recordItem.Values)
+		recordItem.Values = append(recordItem.Values, val[i])
 	}
 	return recordItem
 }
 
 func (r *RecordItems) AddColumn(col string, val *qvalue.QValue) {
-	if idx, ok := r.colToValIdx[col]; ok {
-		r.values[idx] = val
+	if idx, ok := r.ColToValIdx[col]; ok {
+		r.Values[idx] = val
 	} else {
-		r.colToValIdx[col] = len(r.values)
-		r.values = append(r.values, val)
+		r.ColToValIdx[col] = len(r.Values)
+		r.Values = append(r.Values, val)
 	}
 }
 
 func (r *RecordItems) GetColumnValue(col string) *qvalue.QValue {
-	if idx, ok := r.colToValIdx[col]; ok {
-		return r.values[idx]
+	if idx, ok := r.ColToValIdx[col]; ok {
+		return r.Values[idx]
 	}
 	return nil
 }
@@ -105,10 +106,10 @@ func (r *RecordItems) GetColumnValue(col string) *qvalue.QValue {
 // We return the slice of col names that were updated.
 func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
 	updatedCols := make([]string, 0)
-	for col, idx := range input.colToValIdx {
-		if _, ok := r.colToValIdx[col]; !ok {
-			r.colToValIdx[col] = len(r.values)
-			r.values = append(r.values, input.values[idx])
+	for col, idx := range input.ColToValIdx {
+		if _, ok := r.ColToValIdx[col]; !ok {
+			r.ColToValIdx[col] = len(r.Values)
+			r.Values = append(r.Values, input.Values[idx])
 			updatedCols = append(updatedCols, col)
 		}
 	}
@@ -116,25 +117,25 @@ func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
 }
 
 func (r *RecordItems) GetValueByColName(colName string) (*qvalue.QValue, error) {
-	idx, ok := r.colToValIdx[colName]
+	idx, ok := r.ColToValIdx[colName]
 	if !ok {
 		return nil, fmt.Errorf("column name %s not found", colName)
 	}
-	return r.values[idx], nil
+	return r.Values[idx], nil
 }
 
 func (r *RecordItems) Len() int {
-	return len(r.values)
+	return len(r.Values)
 }
 
 func (r *RecordItems) toMap() (map[string]interface{}, error) {
-	if r.colToValIdx == nil {
+	if r.ColToValIdx == nil {
 		return nil, errors.New("colToValIdx is nil")
 	}
 
 	jsonStruct := make(map[string]interface{})
-	for col, idx := range r.colToValIdx {
-		v := r.values[idx]
+	for col, idx := range r.ColToValIdx {
+		v := r.Values[idx]
 		if v.Value == nil {
 			jsonStruct[col] = nil
 			continue
@@ -193,8 +194,8 @@ func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
 		return "", err
 	}
 
-	for col, idx := range r.colToValIdx {
-		v := r.values[idx]
+	for col, idx := range r.ColToValIdx {
+		v := r.Values[idx]
 		if v.Kind == qvalue.QValueKindJSON {
 			if _, ok := opts.UnnestColumns[col]; ok {
 				var unnestStruct map[string]interface{}
@@ -306,8 +307,9 @@ func (r *DeleteRecord) GetItems() *RecordItems {
 }
 
 type TableWithPkey struct {
-	TableName  string
-	PkeyColVal string
+	TableName string
+	// SHA256 hash of the primary key columns
+	PkeyColVal [32]byte
 }
 
 type CDCRecordStream struct {

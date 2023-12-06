@@ -61,7 +61,7 @@ func (s *PeerFlowE2ETestSuiteS3) SetupSuite() {
 	log.SetReportCaller(true)
 
 	pool, err := e2e.SetupPostgres(s3Suffix)
-	if err != nil {
+	if err != nil || pool == nil {
 		s.Fail("failed to setup postgres", err)
 	}
 	s.pool = pool

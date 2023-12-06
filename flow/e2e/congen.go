@@ -6,7 +6,9 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -88,13 +90,30 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
+	setupTx, err := pool.Begin(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to start setup transaction")
+	}
+
 	// create an e2e_test schema
-	_, err = pool.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA e2e_test_%s", suffix))
+	_, err = setupTx.Exec(context.Background(), "SELECT pg_advisory_xact_lock(hashtext('Megaton Mile'))")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get lock: %w", err)
+	}
+	defer func() {
+		deferErr := setupTx.Rollback(context.Background())
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			logrus.Errorf("unexpected error rolling back setup transaction: %v", err)
+		}
+	}()
+
+	// create an e2e_test schema
+	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA e2e_test_%s", suffix))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create e2e_test schema: %w", err)
 	}
 
-	_, err = pool.Exec(context.Background(), `
+	_, err = setupTx.Exec(context.Background(), `
 		CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
 			SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
 			round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
@@ -110,6 +129,11 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create utility functions: %w", err)
+	}
+
+	err = setupTx.Commit(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("error committing setup transaction: %w", err)
 	}
 
 	return pool, nil
