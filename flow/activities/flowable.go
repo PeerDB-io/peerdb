@@ -384,6 +384,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 func (a *FlowableActivity) StartNormalize(
 	ctx context.Context,
 	input *protos.StartNormalizeInput,
+	syncBatchID int64,
 ) (*model.NormalizeResponse, error) {
 	conn := input.FlowConnectionConfigs
 
@@ -395,13 +396,8 @@ func (a *FlowableActivity) StartNormalize(
 		}
 		defer connectors.CloseConnector(dstConn)
 
-		lastSyncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get last sync batch ID: %v", err)
-		}
-
 		err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
-			lastSyncBatchID)
+			syncBatchID)
 		return nil, err
 	} else if err != nil {
 		return nil, err
@@ -426,6 +422,7 @@ func (a *FlowableActivity) StartNormalize(
 		SoftDelete:        input.FlowConnectionConfigs.SoftDelete,
 		SoftDeleteColName: input.FlowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:   input.FlowConnectionConfigs.SyncedAtColName,
+		SyncBatchID:       syncBatchID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to normalized records: %w", err)

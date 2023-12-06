@@ -577,10 +577,8 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 
 // NormalizeRecords normalizes raw table to destination table.
 func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
+	syncBatchID := req.SyncBatchID
+
 	normalizeBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err

@@ -452,6 +452,7 @@ type NormalizeRecordsRequest struct {
 	SoftDelete        bool
 	SoftDeleteColName string
 	SyncedAtColName   string
+	SyncBatchID       int64
 }
 
 type SyncResponse struct {
@@ -469,6 +470,11 @@ type SyncResponse struct {
 	TableSchemaDeltas []*protos.TableSchemaDelta
 	// to be stored in state for future PullFlows
 	RelationMessageMapping *RelationMessageMapping
+}
+
+type NormalizeSyncSignal struct {
+	CurrentSyncBatchID int64
+	TableSchemaDeltas  []*protos.TableSchemaDelta
 }
 
 type NormalizeResponse struct {

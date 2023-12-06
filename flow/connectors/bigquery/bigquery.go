@@ -709,12 +709,8 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 
 // NormalizeRecords normalizes raw table to destination table.
 func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+	syncBatchID := req.SyncBatchID
 	rawTableName := c.getRawTableName(req.FlowJobName)
-
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
-	}
 
 	// get last batchid that has been normalize
 	normalizeBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)

@@ -97,7 +97,10 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
 	}
 
-	workflow.SignalExternalWorkflow(ctx, normFlowId, normFlowRunId, "SchemaDelta", syncRes.TableSchemaDeltas)
+	workflow.SignalExternalWorkflow(ctx, normFlowId, normFlowRunId, "SchemaDelta", &model.NormalizeSyncSignal{
+		CurrentSyncBatchID: syncRes.CurrentSyncBatchID,
+		TableSchemaDeltas:  syncRes.TableSchemaDeltas,
+	})
 
 	return syncRes, nil
 }

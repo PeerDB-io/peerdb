@@ -56,15 +56,22 @@ func NormalizeFlowWorkflow(
 	var stopLoop bool
 	for {
 		// Sequence channel checks carefully to avoid race condition;
-		// must check & process all schema deltas before breaking loop
+		// must check & process all schema deltas before breaking loop.
 		if !stopLoop {
 			var stopLoopVal bool
 			stopLoop = stopLoopChan.ReceiveAsync(&stopLoopVal) && stopLoopVal
 		}
 
-		var tableSchemaDeltas []*protos.TableSchemaDelta
-		received, _ := schemaDeltas.ReceiveWithTimeout(ctx, 5*time.Second, &tableSchemaDeltas)
+		var syncSignal model.NormalizeSyncSignal
+		var received bool
+		if stopLoop {
+			received = schemaDeltas.ReceiveAsync(&syncSignal)
+		} else {
+			received, _ = schemaDeltas.ReceiveWithTimeout(ctx, 5*time.Second, &syncSignal)
+		}
+
 		if received {
+			tableSchemaDeltas := syncSignal.TableSchemaDeltas
 			if len(tableSchemaDeltas) != 0 {
 				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
 				modifiedSrcTables := make([]string, 0, len(tableSchemaDeltas))
@@ -95,32 +102,32 @@ func NormalizeFlowWorkflow(
 					}
 				}
 			}
+
+			s := NewNormalizeFlowExecution(ctx)
+
+			s.logger.Info("executing normalize flow - ", cfg.FlowJobName)
+
+			normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 7 * 24 * time.Hour,
+				HeartbeatTimeout:    5 * time.Minute,
+			})
+
+			// execute StartFlow on the peers to start the flow
+			startNormalizeInput := &protos.StartNormalizeInput{
+				FlowConnectionConfigs: cfg,
+			}
+			fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput, syncSignal.CurrentSyncBatchID)
+
+			var normalizeResponse *model.NormalizeResponse
+			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
+				res.NormalizeFlowErrors = multierror.Append(res.NormalizeFlowErrors, err)
+			} else {
+				res.NormalizeFlowStatuses = append(res.NormalizeFlowStatuses, normalizeResponse)
+			}
 		} else if stopLoop {
 			break
 		} else {
 			continue
-		}
-
-		s := NewNormalizeFlowExecution(ctx)
-
-		s.logger.Info("executing normalize flow - ", cfg.FlowJobName)
-
-		normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 7 * 24 * time.Hour,
-			HeartbeatTimeout:    5 * time.Minute,
-		})
-
-		// execute StartFlow on the peers to start the flow
-		startNormalizeInput := &protos.StartNormalizeInput{
-			FlowConnectionConfigs: cfg,
-		}
-		fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
-
-		var normalizeResponse *model.NormalizeResponse
-		if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-			res.NormalizeFlowErrors = multierror.Append(res.NormalizeFlowErrors, err)
-		} else {
-			res.NormalizeFlowStatuses = append(res.NormalizeFlowStatuses, normalizeResponse)
 		}
 	}
 

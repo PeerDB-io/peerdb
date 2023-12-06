@@ -409,11 +409,9 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 }
 
 func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+	syncBatchID := req.SyncBatchID
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
+
 	normalizeBatchID, err := c.getLastNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err
