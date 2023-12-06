@@ -36,7 +36,15 @@ function aggregateCountsByInterval(
 
   // Iterate through the timestamps and populate the aggregatedCounts object
   for (let { timestamp, count } of timestamps) {
-    const date = roundUpToNearestNMinutes(timestamp, 1);
+    let N = 1;
+    if (interval === '1min') {
+      N = 1;
+    } else if (interval === '5min') {
+      N = 5;
+    } else if (interval === '15min') {
+      N = 15;
+    }
+    const date = roundUpToNearestNMinutes(timestamp, N);
     const formattedTimestamp = moment(date).format(timeUnit);
 
     if (!aggregatedCounts[formattedTimestamp]) {

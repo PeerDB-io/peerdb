@@ -45,10 +45,14 @@ function RowPerPartition({
   return (
     <TableRow key={partitionId}>
       <TableCell>
-        <Label>{partitionId}</Label>
+        <Label as='label' style={{ fontSize: 15 }}>
+          {partitionId}
+        </Label>
       </TableCell>
       <TableCell>
-        <Label>{runUuid}</Label>
+        <Label as='label' style={{ fontSize: 15 }}>
+          {runUuid}
+        </Label>
       </TableCell>
       <TableCell>
         <Label>{duration}</Label>
@@ -107,7 +111,7 @@ export default function QRepStatusTable({
 
   return (
     <Table
-      title={<Label variant='headline'>Progress</Label>}
+      title={<Label>Progress</Label>}
       toolbar={{
         left: (
           <>
@@ -131,9 +135,6 @@ export default function QRepStatusTable({
             >
               <Icon name='refresh' />
             </Button>
-            <Button variant='normalBorderless'>
-              <Icon name='help' />
-            </Button>
             <Button variant='normalBorderless' disabled>
               <Icon name='download' />
             </Button>
@@ -146,7 +147,7 @@ export default function QRepStatusTable({
         ),
         right: (
           <SearchField
-            placeholder='Search by partition UUID'
+            placeholder='Search by partition'
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setSearchQuery(e.target.value)
             }
