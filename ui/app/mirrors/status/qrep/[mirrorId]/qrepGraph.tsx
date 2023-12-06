@@ -4,24 +4,24 @@ import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import aggregateCountsByInterval from './aggregatedCountsByInterval';
+import aggregateCountsByInterval from '../../../edit/[mirrorId]/aggregatedCountsByInterval';
 
-type SyncStatusRow = {
-  batchId: number;
-  startTime: Date;
+type QrepStatusRow = {
+  partitionID: string;
+  startTime: Date | null;
   endTime: Date | null;
-  numRows: number;
+  numRows: number | null;
 };
 
-function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
+function QrepGraph({ syncs }: { syncs: QrepStatusRow[] }) {
   let [aggregateType, setAggregateType] = useState('hour');
   const initialCount: [string, number][] = [];
   let [counts, setCounts] = useState(initialCount);
 
   useEffect(() => {
     let rows = syncs.map((sync) => ({
-      timestamp: sync.startTime,
-      count: sync.numRows,
+      timestamp: sync.startTime!,
+      count: sync.numRows ?? 0,
     }));
 
     let counts = aggregateCountsByInterval(rows, aggregateType);
@@ -42,7 +42,7 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
         />
       </div>
       <div style={{ height: '3rem' }}>
-        <Label variant='body'>Sync history</Label>
+        <Label variant='headline'>Partition sync history</Label>
       </div>
       <BarChart
         className='mt-3'
@@ -57,4 +57,4 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
   );
 }
 
-export default CdcGraph;
+export default QrepGraph;
