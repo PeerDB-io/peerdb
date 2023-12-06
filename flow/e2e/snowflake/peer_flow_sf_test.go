@@ -89,7 +89,7 @@ func (s *PeerFlowE2ETestSuiteSF) SetupSuite() {
 	s.pgSuffix = fmt.Sprintf("sf_%s_%s", strings.ToLower(suffix), tsSuffix)
 
 	pool, err := e2e.SetupPostgres(s.pgSuffix)
-	if err != nil {
+	if err != nil || pool == nil {
 		s.Fail("failed to setup postgres", err)
 	}
 	s.pool = pool
