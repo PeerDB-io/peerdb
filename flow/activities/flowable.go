@@ -500,7 +500,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
-	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition)
+	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to update start time for partition: %w", err)
 	}
@@ -847,11 +847,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) (int64, error) {
-	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition)
-	if err != nil {
-		return 0, fmt.Errorf("failed to update start time for partition: %w", err)
-	}
-
+	startTime := time.Now()
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get qrep source connector: %w", err)
@@ -885,11 +881,36 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 			}).Errorf("failed to pull records: %v", err)
 			return err
 		}
+
+		// The first sync of an XMIN mirror will have a partition without a range
+		// A nil range is not supported by the catalog mirror monitor functions below
+		// So I'm creating a partition with a range of 0 to numRecords
+		partitionForMetrics := partition
+		if partition.Range == nil {
+			partitionForMetrics = &protos.QRepPartition{
+				PartitionId: partition.PartitionId,
+				Range: &protos.PartitionRange{
+					Range: &protos.PartitionRange_IntRange{
+						IntRange: &protos.IntPartitionRange{Start: 0, End: int64(numRecords)},
+					}},
+			}
+		}
+		updateErr := a.CatalogMirrorMonitor.InitializeQRepRun(ctx, config, runUUID, []*protos.QRepPartition{partitionForMetrics})
+		if updateErr != nil {
+			return updateErr
+		}
+
+		err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition, startTime)
+		if err != nil {
+			return fmt.Errorf("failed to update start time for partition: %w", err)
+		}
+
 		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(errCtx, runUUID, partition, int64(numRecords))
 		if err != nil {
 			log.Errorf("%v", err)
 			return err
 		}
+
 		return nil
 	})
 
