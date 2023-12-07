@@ -325,7 +325,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		},
 	)
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	var avroFile *avro.AvroFile

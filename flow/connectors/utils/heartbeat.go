@@ -13,9 +13,9 @@ func HeartbeatRoutine(
 	ctx context.Context,
 	interval time.Duration,
 	message func() string,
-) chan bool {
+) chan struct{} {
 	counter := 1
-	shutdown := make(chan bool)
+	shutdown := make(chan struct{})
 	go func() {
 		for {
 			msg := fmt.Sprintf("heartbeat #%d: %s", counter, message())
