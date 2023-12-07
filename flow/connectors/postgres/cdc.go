@@ -182,6 +182,12 @@ func (p *PostgresCDCSource) consumeStream(
 	consumedXLogPos := pglogrepl.LSN(0)
 	if clientXLogPos > 0 {
 		consumedXLogPos = clientXLogPos - 1
+
+		err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
+			pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
+		if err != nil {
+			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
+		}
 	}
 
 	var standByLastLogged time.Time
