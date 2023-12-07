@@ -246,6 +246,33 @@ func (c *CatalogMirrorMonitor) UpdateEndTimeForQRepRun(ctx context.Context, runU
 	return nil
 }
 
+func (c *CatalogMirrorMonitor) UpsertSlotSizeInfo(
+	ctx context.Context,
+	peerName string,
+	slotInfo *protos.SlotInfo,
+) error {
+	if c == nil || c.catalogConn == nil || slotInfo == nil {
+		return nil
+	}
+
+	_, err := c.catalogConn.Exec(ctx,
+		"INSERT INTO peerdb_stats.peer_slot_size(peer_name, slot_name, restart_lsn, redo_lsn, confirmed_flush_lsn, slot_size) "+
+			"VALUES($1,$2,$3,$4,$5,$6) "+
+			"ON CONFLICT (slot_name, peer_name) DO UPDATE SET restart_lsn = $3, redo_lsn = $4, confirmed_flush_lsn = $5, slot_size = $6",
+		peerName,
+		slotInfo.SlotName,
+		slotInfo.RestartLSN,
+		slotInfo.RedoLSN,
+		slotInfo.ConfirmedFlushLSN,
+		slotInfo.LagInMb,
+	)
+	if err != nil {
+		return fmt.Errorf("error while upserting row for slot_size: %w", err)
+	}
+
+	return nil
+}
+
 func (c *CatalogMirrorMonitor) addPartitionToQRepRun(ctx context.Context, flowJobName string,
 	runUUID string, partition *protos.QRepPartition) error {
 	if c == nil || c.catalogConn == nil {
