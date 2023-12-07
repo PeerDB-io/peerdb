@@ -246,7 +246,7 @@ func (c *CatalogMirrorMonitor) UpdateEndTimeForQRepRun(ctx context.Context, runU
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpsertSlotSizeInfo(
+func (c *CatalogMirrorMonitor) AppendSlotSizeInfo(
 	ctx context.Context,
 	peerName string,
 	slotInfo *protos.SlotInfo,
@@ -256,9 +256,9 @@ func (c *CatalogMirrorMonitor) UpsertSlotSizeInfo(
 	}
 
 	_, err := c.catalogConn.Exec(ctx,
-		"INSERT INTO peerdb_stats.peer_slot_size(peer_name, slot_name, restart_lsn, redo_lsn, confirmed_flush_lsn, slot_size) "+
-			"VALUES($1,$2,$3,$4,$5,$6) "+
-			"ON CONFLICT (slot_name, peer_name) DO UPDATE SET restart_lsn = $3, redo_lsn = $4, confirmed_flush_lsn = $5, slot_size = $6",
+		"INSERT INTO peerdb_stats.peer_slot_size"+
+			"(peer_name, slot_name, restart_lsn, redo_lsn, confirmed_flush_lsn, slot_size) "+
+			"VALUES($1,$2,$3,$4,$5,$6);",
 		peerName,
 		slotInfo.SlotName,
 		slotInfo.RestartLSN,

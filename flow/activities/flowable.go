@@ -228,7 +228,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		return nil, fmt.Errorf("failed to get slot info: %w", err)
 	}
 
-	a.CatalogMirrorMonitor.UpsertSlotSizeInfo(ctx, input.FlowConnectionConfigs.Source.Name, slotInfo[0])
+	if len(slotInfo) == 1 {
+		a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, input.FlowConnectionConfigs.Source.Name, slotInfo[0])
+	}
 
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
 	log.WithFields(log.Fields{

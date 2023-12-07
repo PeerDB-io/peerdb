@@ -5,6 +5,5 @@ CREATE TABLE IF NOT EXISTS peerdb_stats.peer_slot_size (
     restart_lsn TEXT,
     confirmed_flush_lsn TEXT,
     slot_size BIGINT,
-    updated_at 
-    PRIMARY KEY (slot_name, peer_name)
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
