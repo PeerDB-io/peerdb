@@ -43,9 +43,6 @@ type CDCPullConnector interface {
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
 
-	// SendWALHeartbeat allows for activity to progress restart_lsn on postgres.
-	SendWALHeartbeat() error
-
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(slotName string) ([]*protos.SlotInfo, error)
 }

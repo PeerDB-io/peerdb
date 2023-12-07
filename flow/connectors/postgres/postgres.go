@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/utils/evervigil"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -30,6 +31,7 @@ type PostgresConnector struct {
 	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
 	metadataSchema     string
+	vigil              *evervigil.EverVigil
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
@@ -83,6 +85,11 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
+	vigil, err := evervigil.NewVigil()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize vigil: %w", err)
+	}
+
 	return &PostgresConnector{
 		connStr:            connectionString,
 		ctx:                ctx,
@@ -91,6 +98,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		replPool:           replPool,
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
+		vigil:              vigil,
 	}, nil
 }
 
@@ -107,6 +115,10 @@ func (c *PostgresConnector) Close() error {
 
 	if c.replPool != nil {
 		c.replPool.Close()
+	}
+
+	if c.vigil != nil {
+		c.vigil.Close()
 	}
 
 	return nil
@@ -890,21 +902,5 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
-	return nil
-}
-
-func (c *PostgresConnector) SendWALHeartbeat() error {
-	command := `
-	BEGIN;
-	DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
-	CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-	DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
-	END;
-	`
-	_, err := c.pool.Exec(c.ctx, command)
-	if err != nil {
-		return fmt.Errorf("error bumping wal position: %w", err)
-	}
-
 	return nil
 }
