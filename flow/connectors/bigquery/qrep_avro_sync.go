@@ -18,14 +18,17 @@ import (
 )
 
 type QRepAvroSyncMethod struct {
-	connector *BigQueryConnector
-	gcsBucket string
+	connector   *BigQueryConnector
+	gcsBucket   string
+	flowJobName string
 }
 
-func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string) *QRepAvroSyncMethod {
+func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string,
+	flowJobName string) *QRepAvroSyncMethod {
 	return &QRepAvroSyncMethod{
-		connector: connector,
-		gcsBucket: gcsBucket,
+		connector:   connector,
+		gcsBucket:   gcsBucket,
+		flowJobName: flowJobName,
 	}
 }
 
@@ -325,58 +328,59 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		shutdown <- true
 	}()
 
-	var avroFilePath string
-	numRecords, err := func() (int, error) {
-		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema,
-			avro.CompressNone, qvalue.QDWHTypeBigQuery)
-		if s.gcsBucket != "" {
-			bucket := s.connector.storageClient.Bucket(s.gcsBucket)
-			avroFilePath = fmt.Sprintf("%s/%s.avro", objectFolder, syncID)
-			obj := bucket.Object(avroFilePath)
-			w := obj.NewWriter(s.connector.ctx)
+	var avroFile *avro.AvroFile
+	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema,
+		avro.CompressNone, qvalue.QDWHTypeBigQuery)
+	if s.gcsBucket != "" {
+		bucket := s.connector.storageClient.Bucket(s.gcsBucket)
+		avroFilePath := fmt.Sprintf("%s/%s.avro", objectFolder, syncID)
+		obj := bucket.Object(avroFilePath)
+		w := obj.NewWriter(s.connector.ctx)
 
-			numRecords, err := ocfWriter.WriteOCF(w)
-			if err != nil {
-				return 0, fmt.Errorf("failed to write records to Avro file on GCS: %w", err)
-			}
-			return numRecords, err
-		} else {
-			tmpDir, err := os.MkdirTemp("", "peerdb-avro")
-			if err != nil {
-				return 0, fmt.Errorf("failed to create temp dir: %w", err)
-			}
-
-			avroFilePath = fmt.Sprintf("%s/%s.avro", tmpDir, syncID)
-			log.WithFields(log.Fields{
-				"batchOrPartitionID": syncID,
-			}).Infof("writing records to local file %s", avroFilePath)
-			numRecords, err := ocfWriter.WriteRecordsToAvroFile(avroFilePath)
-			if err != nil {
-				return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
-			}
-			return numRecords, err
+		numRecords, err := ocfWriter.WriteOCF(w)
+		if err != nil {
+			return 0, fmt.Errorf("failed to write records to Avro file on GCS: %w", err)
 		}
-	}()
-	if err != nil {
-		return 0, err
+		avroFile = &avro.AvroFile{
+			NumRecords:      numRecords,
+			StorageLocation: avro.AvroGCSStorage,
+			FilePath:        avroFilePath,
+		}
+	} else {
+		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), s.flowJobName)
+		err := os.MkdirAll(tmpDir, os.ModePerm)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create temp dir: %w", err)
+		}
+
+		avroFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, syncID)
+		log.WithFields(log.Fields{
+			"batchOrPartitionID": syncID,
+		}).Infof("writing records to local file %s", avroFilePath)
+		avroFile, err = ocfWriter.WriteRecordsToAvroFile(avroFilePath)
+		if err != nil {
+			return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
+		}
 	}
-	if numRecords == 0 {
+	defer avroFile.Cleanup()
+
+	if avroFile.NumRecords == 0 {
 		return 0, nil
 	}
 	log.WithFields(log.Fields{
 		"batchOrPartitionID": syncID,
-	}).Infof("wrote %d records to file %s", numRecords, avroFilePath)
+	}).Infof("wrote %d records to file %s", avroFile.NumRecords, avroFile.FilePath)
 
 	bqClient := s.connector.client
 	datasetID := s.connector.datasetID
 	var avroRef bigquery.LoadSource
 	if s.gcsBucket != "" {
-		gcsRef := bigquery.NewGCSReference(fmt.Sprintf("gs://%s/%s", s.gcsBucket, avroFilePath))
+		gcsRef := bigquery.NewGCSReference(fmt.Sprintf("gs://%s/%s", s.gcsBucket, avroFile.FilePath))
 		gcsRef.SourceFormat = bigquery.Avro
 		gcsRef.Compression = bigquery.Deflate
 		avroRef = gcsRef
 	} else {
-		fh, err := os.Open(avroFilePath)
+		fh, err := os.Open(avroFile.FilePath)
 		if err != nil {
 			return 0, fmt.Errorf("failed to read local Avro file: %w", err)
 		}
@@ -401,6 +405,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %w", err)
 	}
 	log.Printf("Pushed into %s/%s",
-		avroFilePath, syncID)
-	return numRecords, nil
+		avroFile.FilePath, syncID)
+	return avroFile.NumRecords, nil
 }

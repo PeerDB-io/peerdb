@@ -64,12 +64,13 @@ func (c *S3Connector) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
 	writer := avro.NewPeerDBOCFWriter(c.ctx, stream, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
-	numRecords, err := writer.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, c.creds)
+	avroFile, err := writer.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, c.creds)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}
+	defer avroFile.Cleanup()
 
-	return numRecords, nil
+	return avroFile.NumRecords, nil
 }
 
 // S3 just sets up destination, not metadata tables
