@@ -21,7 +21,7 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(flowJobName string) error {
 	}
 
 	if s, ok := a.SnapshotConnections[flowJobName]; ok {
-		s.signal.CloneComplete <- true
+		s.signal.CloneComplete <- struct{}{}
 		s.connector.Close()
 	}
 

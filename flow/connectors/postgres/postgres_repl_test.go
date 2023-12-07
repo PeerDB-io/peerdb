@@ -127,7 +127,7 @@ func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
 
 	log.Infof("signaling clone complete for %s after waiting for 2 seconds", flowJobName)
 	time.Sleep(2 * time.Second)
-	signal.CloneComplete <- true
+	signal.CloneComplete <- struct{}{}
 
 	log.Infof("successfully setup replication for %s", flowJobName)
 }

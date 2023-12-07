@@ -135,7 +135,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 		})
 
 		defer func() {
-			shutdown <- true
+			shutdown <- struct{}{}
 		}()
 	}
 

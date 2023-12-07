@@ -11,13 +11,13 @@ type SlotCreationResult struct {
 // 2. CloneComplete - which can be waited on to ensure that the clone has completed.
 type SlotSignal struct {
 	SlotCreated   chan *SlotCreationResult
-	CloneComplete chan bool
+	CloneComplete chan struct{}
 }
 
 // NewSlotSignal returns a new SlotSignal.
 func NewSlotSignal() *SlotSignal {
 	return &SlotSignal{
 		SlotCreated:   make(chan *SlotCreationResult, 1),
-		CloneComplete: make(chan bool, 1),
+		CloneComplete: make(chan struct{}, 1),
 	}
 }

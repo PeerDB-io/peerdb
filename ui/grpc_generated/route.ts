@@ -262,6 +262,7 @@ export interface SlotInfo {
   restartLSN: string;
   active: boolean;
   lagInMb: number;
+  confirmedFlushLSN: string;
 }
 
 export interface StatInfo {
@@ -1983,7 +1984,7 @@ export const PostgresPeerActivityInfoRequest = {
 };
 
 function createBaseSlotInfo(): SlotInfo {
-  return { slotName: "", redoLSN: "", restartLSN: "", active: false, lagInMb: 0 };
+  return { slotName: "", redoLSN: "", restartLSN: "", active: false, lagInMb: 0, confirmedFlushLSN: "" };
 }
 
 export const SlotInfo = {
@@ -2002,6 +2003,9 @@ export const SlotInfo = {
     }
     if (message.lagInMb !== 0) {
       writer.uint32(45).float(message.lagInMb);
+    }
+    if (message.confirmedFlushLSN !== "") {
+      writer.uint32(50).string(message.confirmedFlushLSN);
     }
     return writer;
   },
@@ -2048,6 +2052,13 @@ export const SlotInfo = {
 
           message.lagInMb = reader.float();
           continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.confirmedFlushLSN = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2064,6 +2075,7 @@ export const SlotInfo = {
       restartLSN: isSet(object.restartLSN) ? String(object.restartLSN) : "",
       active: isSet(object.active) ? Boolean(object.active) : false,
       lagInMb: isSet(object.lagInMb) ? Number(object.lagInMb) : 0,
+      confirmedFlushLSN: isSet(object.confirmedFlushLSN) ? String(object.confirmedFlushLSN) : "",
     };
   },
 
@@ -2084,6 +2096,9 @@ export const SlotInfo = {
     if (message.lagInMb !== 0) {
       obj.lagInMb = message.lagInMb;
     }
+    if (message.confirmedFlushLSN !== "") {
+      obj.confirmedFlushLSN = message.confirmedFlushLSN;
+    }
     return obj;
   },
 
@@ -2097,6 +2112,7 @@ export const SlotInfo = {
     message.restartLSN = object.restartLSN ?? "";
     message.active = object.active ?? false;
     message.lagInMb = object.lagInMb ?? 0;
+    message.confirmedFlushLSN = object.confirmedFlushLSN ?? "";
     return message;
   },
 };
