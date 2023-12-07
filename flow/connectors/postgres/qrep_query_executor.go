@@ -83,7 +83,7 @@ func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetc
 		})
 
 		defer func() {
-			shutdownCh <- true
+			shutdownCh <- struct{}{}
 		}()
 	}
 

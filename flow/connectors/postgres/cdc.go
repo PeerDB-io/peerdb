@@ -209,7 +209,7 @@ func (p *PostgresCDCSource) consumeStream(
 	})
 
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	standbyMessageTimeout := req.IdleTimeout

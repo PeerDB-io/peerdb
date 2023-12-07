@@ -266,7 +266,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	})
 
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	syncStartTime := time.Now()
@@ -364,7 +364,7 @@ func (a *FlowableActivity) StartNormalize(
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	log.Info("initializing table schema...")
@@ -443,7 +443,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	})
 
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	partitions, err := srcConn.GetQRepPartitions(config, last)
@@ -574,7 +574,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	})
 
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	res, err := dstConn.SyncQRepRecords(config, partition, stream)
@@ -618,7 +618,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	})
 
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	err = dstConn.ConsolidateQRepPartitions(config)
@@ -919,7 +919,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	})
 
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	res, err := dstConn.SyncQRepRecords(config, partition, stream)

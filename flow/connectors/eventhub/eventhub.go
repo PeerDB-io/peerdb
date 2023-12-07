@@ -227,7 +227,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		)
 	})
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	// if env var PEERDB_BETA_EVENTHUB_PUSH_ASYNC=true
