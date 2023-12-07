@@ -2,18 +2,20 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/PeerDB-io/peer-flow/logger"
+	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	_ "go.uber.org/automaxprocs"
 )
 
 func main() {
 	appCtx, appCancel := context.WithCancel(context.Background())
-
+	slog.SetDefault(slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
 	// setup shutdown handling
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

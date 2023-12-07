@@ -216,13 +216,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
-	slog.Info("initializing table schema...", shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+	slog.InfoContext(ctx, "initializing table schema...")
 	err = dstConn.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
 	}
 	activity.RecordHeartbeat(ctx, "initialized table schema")
-	slog.Info("pulling records...", shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+	slog.InfoContext(ctx, "pulling records...")
 	tblNameMapping := make(map[string]model.NameAndExclude)
 	for _, v := range input.FlowConnectionConfigs.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
@@ -266,8 +266,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	})
 
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
-	slog.Info(fmt.Sprintf("the current sync flow has records: %v", hasRecords),
-		shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+	slog.InfoContext(ctx, fmt.Sprintf("the current sync flow has records: %v", hasRecords))
 	if a.CatalogPool != nil && hasRecords {
 		syncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
 		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
@@ -293,7 +292,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		if err != nil {
 			return nil, fmt.Errorf("failed to pull records: %w", err)
 		}
-		slog.Info("no records to push", shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.InfoContext(ctx, "no records to push")
 		syncResponse := &model.SyncResponse{}
 		syncResponse.RelationMessageMapping = <-recordBatch.RelationMessageMapping
 		syncResponse.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
@@ -318,7 +317,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		PushParallelism: input.FlowConnectionConfigs.PushParallelism,
 	})
 	if err != nil {
-		slog.Warn(fmt.Sprintf("failed to push records %v", err), shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.Warn(fmt.Sprintf("failed to push records %v", err))
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
 
@@ -330,9 +329,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	numRecords := res.NumRecordsSynced
 	syncDuration := time.Since(syncStartTime)
 
-	slog.Info(fmt.Sprintf("pushed %d records in %d seconds\n",
+	slog.InfoContext(ctx, fmt.Sprintf("pushed %d records in %d seconds\n",
 		numRecords, int(syncDuration.Seconds())),
-		shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+	)
 
 	lastCheckpoint, err := recordBatch.GetLastCheckpoint()
 	if err != nil {
@@ -413,7 +412,7 @@ func (a *FlowableActivity) StartNormalize(
 		shutdown <- struct{}{}
 	}()
 
-	slog.Info("initializing table schema...", shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+	slog.InfoContext(ctx, "initializing table schema...")
 	err = dstConn.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
@@ -444,8 +443,8 @@ func (a *FlowableActivity) StartNormalize(
 
 	// log the number of batches normalized
 	if res != nil {
-		slog.Info(fmt.Sprintf("normalized records from batch %d to batch %d\n", res.StartBatchID, res.EndBatchID),
-			shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.InfoContext(ctx, fmt.Sprintf("normalized records from batch %d to batch %d\n",
+			res.StartBatchID, res.EndBatchID))
 	}
 
 	return res, nil
@@ -532,12 +531,11 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 
 	numPartitions := len(partitions.Partitions)
 
-	slog.Info(fmt.Sprintf("replicating partitions for batch %d - size: %d\n",
+	slog.InfoContext(ctx, fmt.Sprintf("replicating partitions for batch %d - size: %d\n",
 		partitions.BatchId, numPartitions),
-		shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+	)
 	for i, p := range partitions.Partitions {
-		slog.Info(fmt.Sprintf("batch-%d - replicating partition - %s\n", partitions.BatchId, p.PartitionId),
-			shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.InfoContext(ctx, fmt.Sprintf("batch-%d - replicating partition - %s\n", partitions.BatchId, p.PartitionId))
 		err := a.replicateQRepPartition(ctx, config, i+1, numPartitions, p, runUUID)
 		if err != nil {
 			return err
@@ -573,8 +571,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	slog.Info(fmt.Sprintf("replicating partition %s\n", partition.PartitionId),
-		shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+	slog.InfoContext(ctx, fmt.Sprintf("replicating partition %s\n", partition.PartitionId))
 
 	var stream *model.QRecordStream
 	bufferSize := shared.FetchAndChannelSize
@@ -590,8 +587,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
 			numRecords := int64(tmp)
 			if err != nil {
-				slog.Error(fmt.Sprintf("failed to pull records: %v", err),
-					shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+				slog.Error(fmt.Sprintf("failed to pull records: %v", err))
 				goroutineErr = err
 			} else {
 				err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx, a.CatalogPool, runUUID, partition, numRecords)
@@ -610,8 +606,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return fmt.Errorf("failed to pull records: %w", err)
 		}
 		numRecords := int64(recordBatch.NumRecords)
-		slog.Info(fmt.Sprintf("pulled %d records\n", len(recordBatch.Records)),
-			shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.InfoContext(ctx, fmt.Sprintf("pulled %d records\n", len(recordBatch.Records)))
 
 		err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx, a.CatalogPool, runUUID, partition, numRecords)
 		if err != nil {
@@ -639,8 +634,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 
 	if rowsSynced == 0 {
 		pullCancel()
-		slog.Info(fmt.Sprintf("no records to push for partition %s\n", partition.PartitionId),
-			shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.InfoContext(ctx, fmt.Sprintf("no records to push for partition %s\n", partition.PartitionId))
 	} else {
 		wg.Wait()
 		if goroutineErr != nil {
@@ -652,7 +646,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return err
 		}
 
-		slog.Info(fmt.Sprintf("pushed %d records\n", rowsSynced))
+		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records\n", rowsSynced))
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
@@ -763,7 +757,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("context is done, exiting wal heartbeat send loop")
+			slog.InfoContext(ctx, "context is done, exiting wal heartbeat send loop")
 			return nil
 		case <-ticker.C:
 			pgPeers, err := a.getPostgresPeerConfigs(ctx)
@@ -799,7 +793,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 					return fmt.Errorf("error closing postgres connection for peer %v with host %v: %w",
 						pgPeer.Name, pgConfig.Host, closeErr)
 				}
-				slog.Info(fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
+				slog.InfoContext(ctx, fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 			}
 		}
 		ticker.Stop()
@@ -823,7 +817,7 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	}
 	defer connectors.CloseConnector(srcConn)
 	pgSrcConn := srcConn.(*connpostgres.PostgresConnector)
-	slog.Info(fmt.Sprintf("current last partition value is %v\n", last))
+	slog.InfoContext(ctx, fmt.Sprintf("current last partition value is %v\n", last))
 	attemptCount := 1
 	for {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("no new rows yet, attempt #%d", attemptCount))
@@ -910,7 +904,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	slog.Info("replicating xmin\n", shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+	slog.InfoContext(ctx, "replicating xmin\n")
 
 	bufferSize := shared.FetchAndChannelSize
 	errGroup, errCtx := errgroup.WithContext(ctx)
@@ -924,8 +918,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		var numRecords int
 		numRecords, currentSnapshotXmin, pullErr = pgConn.PullXminRecordStream(config, partition, stream)
 		if pullErr != nil {
-			slog.Info(fmt.Sprintf("failed to pull records: %v", err),
-				shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+			slog.InfoContext(ctx, fmt.Sprintf("failed to pull records: %v", err))
 			return err
 		}
 
@@ -975,7 +968,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 
 	if rowsSynced == 0 {
-		slog.Info("no records to push for xmin\n", shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.InfoContext(ctx, "no records to push for xmin\n")
 	} else {
 		err := errGroup.Wait()
 		if err != nil {
@@ -987,8 +980,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 			return 0, err
 		}
 
-		slog.Info(fmt.Sprintf("pushed %d records\n", rowsSynced),
-			shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.InfoContext(ctx, fmt.Sprintf("pushed %d records\n", rowsSynced))
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
