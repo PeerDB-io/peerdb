@@ -318,7 +318,7 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage 
 	})
 
 	defer func() {
-		shutdown <- true
+		shutdown <- struct{}{}
 	}()
 
 	if _, err := s.connector.database.Exec(putCmd); err != nil {
