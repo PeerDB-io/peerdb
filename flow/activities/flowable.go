@@ -162,10 +162,16 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 func (a *FlowableActivity) recordSlotSizePeriodically(
 	ctx context.Context,
+	srcConn connectors.CDCPullConnector,
+	slotName string,
 	done <-chan struct{},
 	peerName string,
-	slotInfo []*protos.SlotInfo,
 ) {
+	slotInfo, err := srcConn.GetSlotInfo(slotName)
+	if err != nil {
+		log.Warnf("warning: failed to get slot info: %v", err)
+	}
+
 	timeout := 10 * time.Minute
 	ticker := time.NewTicker(timeout)
 
@@ -238,12 +244,8 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	if input.FlowConnectionConfigs.ReplicationSlotName != "" {
 		slotNameForMetrics = input.FlowConnectionConfigs.ReplicationSlotName
 	}
-	slotInfo, err := srcConn.GetSlotInfo(slotNameForMetrics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get slot info: %w", err)
-	}
 
-	go a.recordSlotSizePeriodically(ctx, done, input.FlowConnectionConfigs.Source.Name, slotInfo)
+	go a.recordSlotSizePeriodically(ctx, srcConn, slotNameForMetrics, done, input.FlowConnectionConfigs.Source.Name)
 	// start a goroutine to pull records from the source
 	errGroup.Go(func() error {
 		return srcConn.PullRecords(&model.PullRecordsRequest{
