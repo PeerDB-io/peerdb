@@ -160,10 +160,39 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	return conn.SetupNormalizedTables(config)
 }
 
+func (a *FlowableActivity) recordSlotSizePeriodically(
+	ctx context.Context,
+	done <-chan struct{},
+	peerName string,
+	slotInfo []*protos.SlotInfo,
+) {
+	timeout := 10 * time.Minute
+	ticker := time.NewTicker(timeout)
+
+	defer ticker.Stop()
+	for {
+		if len(slotInfo) == 0 {
+			continue
+		}
+
+		select {
+		case <-ticker.C:
+			a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, peerName, slotInfo[0])
+		case <-done:
+			a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, peerName, slotInfo[0])
+		}
+		ticker.Stop()
+		ticker = time.NewTicker(timeout)
+	}
+
+}
+
 // StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx, "starting flow...")
+	done := make(chan struct{})
+	defer close(done)
 	conn := input.FlowConnectionConfigs
 
 	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
@@ -205,6 +234,16 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 	defer connectors.CloseConnector(srcConn)
 
+	slotNameForMetrics := fmt.Sprintf("peerflow_slot_%s", input.FlowConnectionConfigs.FlowJobName)
+	if input.FlowConnectionConfigs.ReplicationSlotName != "" {
+		slotNameForMetrics = input.FlowConnectionConfigs.ReplicationSlotName
+	}
+	slotInfo, err := srcConn.GetSlotInfo(slotNameForMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get slot info: %w", err)
+	}
+
+	go a.recordSlotSizePeriodically(ctx, done, input.FlowConnectionConfigs.Source.Name, slotInfo)
 	// start a goroutine to pull records from the source
 	errGroup.Go(func() error {
 		return srcConn.PullRecords(&model.PullRecordsRequest{
@@ -221,16 +260,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			RecordStream:                recordBatch,
 		})
 	})
-
-	slotNameForMetrics := fmt.Sprintf("peerflow_slot_%s", input.FlowConnectionConfigs.FlowJobName)
-	slotInfo, err := srcConn.GetSlotInfo(slotNameForMetrics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get slot info: %w", err)
-	}
-
-	if len(slotInfo) == 1 {
-		a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, input.FlowConnectionConfigs.Source.Name, slotInfo[0])
-	}
 
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
 	log.WithFields(log.Fields{
@@ -339,6 +368,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
+	done <- struct{}{}
 
 	return res, nil
 }

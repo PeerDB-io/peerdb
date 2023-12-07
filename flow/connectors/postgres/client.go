@@ -198,6 +198,8 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 }
 
 // GetSlotInfo gets the information about the replication slot size and LSNs
+// If slotName input is empty, all slot info rows are returned - this is for UI.
+// Else, only the row pertaining to that slotName will be returned.
 func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, error) {
 	specificSlotClause := ""
 	if slotName != "" {
