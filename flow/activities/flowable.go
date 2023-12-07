@@ -167,16 +167,17 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 	done <-chan struct{},
 	peerName string,
 ) {
-	slotInfo, err := srcConn.GetSlotInfo(slotName)
-	if err != nil {
-		log.Warnf("warning: failed to get slot info: %v", err)
-	}
 
 	timeout := 10 * time.Minute
 	ticker := time.NewTicker(timeout)
 
 	defer ticker.Stop()
 	for {
+		slotInfo, err := srcConn.GetSlotInfo(slotName)
+		if err != nil {
+			log.Warnf("warning: failed to get slot info: %v", err)
+		}
+
 		if len(slotInfo) == 0 {
 			continue
 		}
