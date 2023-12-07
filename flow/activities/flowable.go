@@ -222,6 +222,14 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		})
 	})
 
+	slotNameForMetrics := fmt.Sprintf("peerflow_slot_%s", input.FlowConnectionConfigs.FlowJobName)
+	slotInfo, err := srcConn.GetSlotInfo(slotNameForMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get slot info: %w", err)
+	}
+
+	a.CatalogMirrorMonitor.UpsertSlotSizeInfo(ctx, input.FlowConnectionConfigs.Source.Name, slotInfo[0])
+
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
 	log.WithFields(log.Fields{
 		"flowName": input.FlowConnectionConfigs.FlowJobName,

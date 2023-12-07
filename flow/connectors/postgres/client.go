@@ -197,6 +197,44 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 	}, nil
 }
 
+// GetSlotInfo gets the information about the replication slot size and LSNs
+func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, error) {
+	specificSlotClause := ""
+	if slotName != "" {
+		specificSlotClause = fmt.Sprintf(" WHERE slot_name = '%s'", slotName)
+	}
+	rows, err := c.pool.Query(c.ctx, "SELECT slot_name, redo_lsn::Text,restart_lsn::text,confirmed_flush_lsn::text,active,"+
+		"round((pg_current_wal_lsn() - confirmed_flush_lsn) / 1024 / 1024) AS MB_Behind"+
+		" FROM pg_control_checkpoint(), pg_replication_slots"+specificSlotClause+";")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var slotInfoRows []*protos.SlotInfo
+	for rows.Next() {
+		var redoLSN string
+		var slotName string
+		var restartLSN string
+		var confirmedFlushLSN string
+		var active bool
+		var lagInMB float32
+		err := rows.Scan(&slotName, &redoLSN, &restartLSN, &confirmedFlushLSN, &active, &lagInMB)
+		if err != nil {
+			return nil, err
+		}
+
+		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
+			RedoLSN:           redoLSN,
+			RestartLSN:        restartLSN,
+			ConfirmedFlushLSN: confirmedFlushLSN,
+			SlotName:          slotName,
+			Active:            active,
+			LagInMb:           lagInMB,
+		})
+	}
+	return slotInfoRows, nil
+}
+
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
 	signal *SlotSignal,
