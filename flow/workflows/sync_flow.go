@@ -83,24 +83,28 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		return nil, fmt.Errorf("failed to flow: %w", err)
 	}
 
-	replayTableSchemaDeltaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Minute,
-	})
-	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
-		FlowConnectionConfigs: config,
-		TableSchemaDeltas:     syncRes.TableSchemaDeltas,
-	}
+	if syncRes.CurrentSyncBatchID != 0 {
+		if len(syncRes.TableSchemaDeltas) != 0 {
+			replayTableSchemaDeltaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 30 * time.Minute,
+			})
+			replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
+				FlowConnectionConfigs: config,
+				TableSchemaDeltas:     syncRes.TableSchemaDeltas,
+			}
 
-	fReplayTableSchemaDelta := workflow.ExecuteActivity(replayTableSchemaDeltaCtx,
-		flowable.ReplayTableSchemaDeltas, replayTableSchemaInput)
-	if err := fReplayTableSchemaDelta.Get(replayTableSchemaDeltaCtx, nil); err != nil {
-		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
-	}
+			fReplayTableSchemaDelta := workflow.ExecuteActivity(replayTableSchemaDeltaCtx,
+				flowable.ReplayTableSchemaDeltas, replayTableSchemaInput)
+			if err := fReplayTableSchemaDelta.Get(replayTableSchemaDeltaCtx, nil); err != nil {
+				return nil, fmt.Errorf("failed to replay schema delta: %w", err)
+			}
+		}
 
-	workflow.SignalExternalWorkflow(ctx, normFlowId, normFlowRunId, "SchemaDelta", &model.NormalizeSyncSignal{
-		CurrentSyncBatchID: syncRes.CurrentSyncBatchID,
-		TableSchemaDeltas:  syncRes.TableSchemaDeltas,
-	})
+		workflow.SignalExternalWorkflow(ctx, normFlowId, normFlowRunId, "SchemaDelta", &model.NormalizeSyncSignal{
+			CurrentSyncBatchID: syncRes.CurrentSyncBatchID,
+			TableSchemaDeltas:  syncRes.TableSchemaDeltas,
+		})
+	}
 
 	return syncRes, nil
 }

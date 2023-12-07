@@ -112,7 +112,6 @@ func NormalizeFlowWorkflow(
 				HeartbeatTimeout:    5 * time.Minute,
 			})
 
-			// execute StartFlow on the peers to start the flow
 			startNormalizeInput := &protos.StartNormalizeInput{
 				FlowConnectionConfigs: cfg,
 			}
