@@ -680,7 +680,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	}
 
 	close(recordStream.Records)
-	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath)
+	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath, req.FlowJobName)
 	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
