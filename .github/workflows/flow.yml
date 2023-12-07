@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     services:
       pg_cdc:
-        image: postgis/postgis:15-3.4-alpine
+        image: imresamu/postgis:15-3.4-alpine
         ports:
           - 7132:5432
         env:
