@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/utils/evervigil"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -41,6 +44,25 @@ type SlotSnapshotSignal struct {
 
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
+	Vigil       *evervigil.EverVigil
+}
+
+func currentFunction() string {
+	counter, _, _, ok := runtime.Caller(2)
+
+	if !ok {
+		return "unknown"
+	}
+
+	splitStr := strings.Split(runtime.FuncForPC(counter).Name(), ".")
+	return splitStr[len(splitStr)-1]
+}
+
+func (a *FlowableActivity) vigilForActivityFailures(flowJobName string, err error) {
+	if err != nil {
+		a.Vigil.AlertIf(fmt.Sprintf("%s-%s-failed", flowJobName, currentFunction()),
+			fmt.Sprintf("```%s```", err.Error()))
+	}
 }
 
 // CheckConnection implements CheckConnection.
@@ -97,12 +119,14 @@ func (a *FlowableActivity) EnsurePullability(
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
+		a.vigilForActivityFailures(config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(srcConn)
 
 	output, err := srcConn.EnsurePullability(config)
 	if err != nil {
+		a.vigilForActivityFailures(config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
 

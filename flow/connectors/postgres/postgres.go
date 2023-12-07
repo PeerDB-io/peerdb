@@ -12,7 +12,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/utils/evervigil"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -31,7 +30,6 @@ type PostgresConnector struct {
 	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
 	metadataSchema     string
-	vigil              *evervigil.EverVigil
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
@@ -85,11 +83,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
-	vigil, err := evervigil.NewVigil()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize vigil: %w", err)
-	}
-
 	return &PostgresConnector{
 		connStr:            connectionString,
 		ctx:                ctx,
@@ -98,7 +91,6 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		replPool:           replPool,
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
-		vigil:              vigil,
 	}, nil
 }
 
@@ -115,10 +107,6 @@ func (c *PostgresConnector) Close() error {
 
 	if c.replPool != nil {
 		c.replPool.Close()
-	}
-
-	if c.vigil != nil {
-		c.vigil.Close()
 	}
 
 	return nil

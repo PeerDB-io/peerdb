@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/utils/evervigil"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
 	"github.com/grafana/pyroscope-go"
@@ -103,10 +104,17 @@ func WorkerMain(opts *WorkerOptions) error {
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	catalogPool, err := utils.GetCatalogConnectionPoolFromEnv()
 	if err != nil {
 		return fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
+	catalogMirrorMonitor := monitoring.NewCatalogMirrorMonitor(catalogPool)
+	defer catalogMirrorMonitor.Close()
+	vigil, err := evervigil.NewVigil(catalogPool)
+	if err != nil {
+		return fmt.Errorf("unable to create Vigil: %w", err)
+	}
+	defer vigil.Close()
 
 	c, err := client.Dial(clientOptions)
 	if err != nil {
@@ -132,6 +140,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
+		Vigil:       vigil,
 	})
 
 	err = w.Run(worker.InterruptCh())
