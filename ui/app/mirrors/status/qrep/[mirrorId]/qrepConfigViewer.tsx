@@ -38,7 +38,7 @@ export default async function QRepConfigViewer({
 
   return (
     <div className='my-4'>
-      <Badge variant='warning' type='longText'>
+      <Badge type='longText'>
         <Icon name={qrepConfig.initialCopyOnly ? 'double_arrow' : 'sync'} />
         <div className='font-bold'>
           {qrepConfig.initialCopyOnly ? 'Initial Load' : 'Continuous Sync'}

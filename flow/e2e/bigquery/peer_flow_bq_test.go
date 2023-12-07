@@ -81,7 +81,7 @@ func (s *PeerFlowE2ETestSuiteBQ) SetupSuite() {
 	tsSuffix := time.Now().Format("20060102150405")
 	s.bqSuffix = fmt.Sprintf("bq_%s_%s", strings.ToLower(suffix), tsSuffix)
 	pool, err := e2e.SetupPostgres(s.bqSuffix)
-	if err != nil {
+	if err != nil || pool == nil {
 		s.Fail("failed to setup postgres", err)
 	}
 	s.pool = pool

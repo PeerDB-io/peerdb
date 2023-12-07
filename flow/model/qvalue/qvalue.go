@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// if new types are added, register them in gob - cdc_records_storage.go
 type QValue struct {
 	Kind  QValueKind
 	Value interface{}

@@ -152,14 +152,17 @@ export const qrepSchema = z.object({
     })
     .max(255, 'Staging path must be less than 255 characters')
     .optional(),
-  writeMode: z.object({
-    writeType: z
-      .number({ required_error: 'Write type is required' })
-      .int()
-      .min(0)
-      .max(2),
-    upsert_key_columns: z.array(z.string()).optional(),
-  }),
+  writeMode: z.object(
+    {
+      writeType: z
+        .number({ required_error: 'Write type is required' })
+        .int()
+        .min(0)
+        .max(2),
+      upsert_key_columns: z.array(z.string()).optional(),
+    },
+    { required_error: 'Write mode is required' }
+  ),
   waitBetweenBatchesSeconds: z
     .number({
       invalid_type_error: 'Batch wait must be a number',
