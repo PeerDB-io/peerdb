@@ -160,10 +160,46 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	return conn.SetupNormalizedTables(config)
 }
 
+func (a *FlowableActivity) recordSlotSizePeriodically(
+	ctx context.Context,
+	srcConn connectors.CDCPullConnector,
+	slotName string,
+	done <-chan struct{},
+	peerName string,
+) {
+
+	timeout := 10 * time.Minute
+	ticker := time.NewTicker(timeout)
+
+	defer ticker.Stop()
+	for {
+		slotInfo, err := srcConn.GetSlotInfo(slotName)
+		if err != nil {
+			log.Warnf("warning: failed to get slot info: %v", err)
+		}
+
+		if len(slotInfo) == 0 {
+			continue
+		}
+
+		select {
+		case <-ticker.C:
+			a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, peerName, slotInfo[0])
+		case <-done:
+			a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, peerName, slotInfo[0])
+		}
+		ticker.Stop()
+		ticker = time.NewTicker(timeout)
+	}
+
+}
+
 // StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx, "starting flow...")
+	done := make(chan struct{})
+	defer close(done)
 	conn := input.FlowConnectionConfigs
 
 	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
@@ -205,6 +241,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 	defer connectors.CloseConnector(srcConn)
 
+	slotNameForMetrics := fmt.Sprintf("peerflow_slot_%s", input.FlowConnectionConfigs.FlowJobName)
+	if input.FlowConnectionConfigs.ReplicationSlotName != "" {
+		slotNameForMetrics = input.FlowConnectionConfigs.ReplicationSlotName
+	}
+
+	go a.recordSlotSizePeriodically(ctx, srcConn, slotNameForMetrics, done, input.FlowConnectionConfigs.Source.Name)
 	// start a goroutine to pull records from the source
 	errGroup.Go(func() error {
 		return srcConn.PullRecords(&model.PullRecordsRequest{
@@ -329,6 +371,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
+	done <- struct{}{}
 
 	return res, nil
 }

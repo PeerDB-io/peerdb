@@ -141,6 +141,7 @@ message SlotInfo {
   string restart_lSN = 3;
   bool active = 4;
   float lag_in_mb = 5;
+  string confirmed_flush_lSN = 6;
 }
 
 message StatInfo {

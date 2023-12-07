@@ -5,27 +5,36 @@ import (
 	"database/sql"
 	"fmt"
 
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 )
 
-func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName string) (*pgxpool.Pool, string, error) {
+func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
 	var pgPeerOptions sql.RawBytes
 	var pgPeerConfig protos.PostgresConfig
 	err := h.pool.QueryRow(ctx,
 		"SELECT options FROM peers WHERE name = $1 AND type=3", peerName).Scan(&pgPeerOptions)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	unmarshalErr := proto.Unmarshal(pgPeerOptions, &pgPeerConfig)
 	if err != nil {
-		return nil, "", unmarshalErr
+		return nil, unmarshalErr
 	}
 
-	connStr := utils.GetPGConnectionString(&pgPeerConfig)
+	return &pgPeerConfig, nil
+}
+
+func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName string) (*pgxpool.Pool, string, error) {
+	pgPeerConfig, err := h.getPGPeerConfig(ctx, peerName)
+	if err != nil {
+		return nil, "", err
+	}
+	connStr := utils.GetPGConnectionString(pgPeerConfig)
 	peerPool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
 		return nil, "", err
@@ -193,40 +202,21 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSlotResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	pgConfig, err := h.getPGPeerConfig(ctx, req.PeerName)
 	if err != nil {
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
-	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, "SELECT slot_name, redo_lsn::Text,restart_lsn::text,active,"+
-		"round((redo_lsn-restart_lsn) / 1024 / 1024 , 2) AS MB_Behind"+
-		" FROM pg_control_checkpoint(), pg_replication_slots;")
-	if err != nil {
-		return &protos.PeerSlotResponse{SlotData: nil}, err
-	}
-	defer rows.Close()
-	var slotInfoRows []*protos.SlotInfo
-	for rows.Next() {
-		var redoLSN string
-		var slotName string
-		var restartLSN string
-		var active bool
-		var lagInMB float32
-		err := rows.Scan(&slotName, &redoLSN, &restartLSN, &active, &lagInMB)
-		if err != nil {
-			return &protos.PeerSlotResponse{SlotData: nil}, err
-		}
 
-		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
-			RedoLSN:    redoLSN,
-			RestartLSN: restartLSN,
-			SlotName:   slotName,
-			Active:     active,
-			LagInMb:    lagInMB,
-		})
+	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
+	if err != nil {
+		return &protos.PeerSlotResponse{SlotData: nil}, err
+	}
+	slotInfo, err := pgConnector.GetSlotInfo("")
+	if err != nil {
+		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
 	return &protos.PeerSlotResponse{
-		SlotData: slotInfoRows,
+		SlotData: slotInfo,
 	}, nil
 }
 
