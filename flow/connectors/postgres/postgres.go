@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
 )
 
 // PostgresConnector is a Connector implementation for Postgres.
@@ -30,6 +30,7 @@ type PostgresConnector struct {
 	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
 	metadataSchema     string
+	logger             slog.Logger
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
@@ -83,6 +84,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		metadataSchema = *pgConfig.MetadataSchema
 	}
 
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &PostgresConnector{
 		connStr:            connectionString,
 		ctx:                ctx,
@@ -91,6 +93,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		replPool:           replPool,
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
+		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -142,7 +145,7 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 	defer func() {
 		deferErr := createMetadataTablesTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.Errorf("unexpected error rolling back transaction for creating metadata tables: %v", err)
+			c.logger.Error("unexpected error rolling back transaction for creating metadata tables", slog.Any("error", err))
 		}
 	}()
 
@@ -173,7 +176,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	defer rows.Close()
 
 	if !rows.Next() {
-		log.Infof("No row found for job %s, returning nil", jobName)
+		c.logger.Info("No row found, returning nil")
 		return nil, nil
 	}
 	var result pgtype.Int8
@@ -182,7 +185,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
-		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
+		c.logger.Warn("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
 		return nil, nil
 	}
 
@@ -216,22 +219,16 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 	}
 
 	if !exists.PublicationExists {
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Warnf("publication %s does not exist", publicationName)
+		c.logger.Warn(fmt.Sprintf("publication %s does not exist", publicationName))
 		publicationName = ""
 	}
 
 	if !exists.SlotExists {
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Warnf("slot %s does not exist", slotName)
+		c.logger.Warn(fmt.Sprintf("slot %s does not exist", slotName))
 		return fmt.Errorf("replication slot %s does not exist", slotName)
 	}
 
-	log.WithFields(log.Fields{
-		"flowName": req.FlowJobName,
-	}).Infof("PullRecords: performed checks for slot and publication")
+	c.logger.Info("PullRecords: performed checks for slot and publication")
 
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:             c.ctx,
@@ -269,9 +266,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 // SyncRecords pushes records to the destination.
 func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	log.WithFields(log.Fields{
-		"flowName": req.FlowJobName,
-	}).Printf("pushing records to Postgres table %s via COPY", rawTableIdentifier)
+	c.logger.Info(fmt.Sprintf("pushing records to Postgres table %s via COPY", rawTableIdentifier))
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -366,9 +361,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	defer func() {
 		deferErr := syncRecordsTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-			}).Errorf("unexpected error rolling back transaction for syncing records: %v", err)
+			c.logger.Error("unexpected error rolling back transaction for syncing records", slog.Any("error", err))
 		}
 	}()
 
@@ -384,9 +377,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			len(records), syncedRecordsCount)
 	}
 
-	log.WithFields(log.Fields{
-		"flowName": req.FlowJobName,
-	}).Printf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier)
+	c.logger.Info(fmt.Sprintf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier))
 
 	lastCP, err := req.Records.GetLastCheckpoint()
 	if err != nil {
@@ -429,9 +420,8 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	// normalize has caught up with sync or no SyncFlow has run, chill until more records are loaded.
 	if syncBatchID == normalizeBatchID || !jobMetadataExists {
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Printf("no records to normalize: syncBatchID %d, normalizeBatchID %d", syncBatchID, normalizeBatchID)
+		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
+			syncBatchID, normalizeBatchID))
 		return &model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normalizeBatchID,
@@ -451,9 +441,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	defer func() {
 		deferErr := normalizeRecordsTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-			}).Errorf("unexpected error rolling back transaction for normalizing records: %v", err)
+			c.logger.Error("unexpected error rolling back transaction for normalizing records", slog.Any("error", err))
 		}
 	}()
 
@@ -481,9 +469,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			return nil, fmt.Errorf("error executing merge statements: %w", err)
 		}
 	}
-	log.WithFields(log.Fields{
-		"flowName": req.FlowJobName,
-	}).Infof("normalized %d records", totalRowsAffected)
+	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)
@@ -519,9 +505,7 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	defer func() {
 		deferErr := createRawTableTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-			}).Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
+			c.logger.Error("unexpected error rolling back transaction for creating raw table.", slog.Any("error", err))
 		}
 	}()
 
@@ -638,9 +622,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 	defer func() {
 		deferErr := createNormalizedTablesTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"tableMapping": req.TableNameSchemaMapping,
-			}).Errorf("unexpected error rolling back transaction for creating raw table: %v", err)
+			c.logger.Error("unexpected error rolling back transaction for creating raw table", slog.Any("error", err))
 		}
 	}()
 
@@ -667,7 +649,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 		}
 
 		tableExistsMapping[tableIdentifier] = false
-		log.Printf("created table %s", tableIdentifier)
+		c.logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
@@ -700,9 +682,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 	defer func() {
 		deferErr := tableSchemaModifyTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Errorf("unexpected error rolling back transaction for table schema modification: %v", err)
+			c.logger.Error("unexpected error rolling back transaction for table schema modification", slog.Any("error", err))
 		}
 	}()
 
@@ -720,12 +700,11 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 					schemaDelta.DstTableName, err)
 			}
-			log.WithFields(log.Fields{
-				"flowName":     flowJobName,
-				"srcTableName": schemaDelta.SrcTableName,
-				"dstTableName": schemaDelta.DstTableName,
-			}).Infof("[schema delta replay] added column %s with data type %s",
-				addedColumn.ColumnName, addedColumn.ColumnType)
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s",
+				addedColumn.ColumnName, addedColumn.ColumnType),
+				slog.String("srcTableName", schemaDelta.SrcTableName),
+				slog.String("dstTableName", schemaDelta.DstTableName),
+			)
 		}
 	}
 
@@ -838,9 +817,7 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := pullFlowCleanupTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": jobName,
-			}).Errorf("unexpected error rolling back transaction for flow cleanup: %v", err)
+			c.logger.Error("unexpected error rolling back transaction for flow cleanup", slog.Any("error", err))
 		}
 	}()
 
@@ -871,9 +848,7 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": jobName,
-			}).Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
+			c.logger.Error("unexpected error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
 		}
 	}()
 

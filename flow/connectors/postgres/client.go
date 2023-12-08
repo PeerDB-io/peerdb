@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"slices"
 	"strings"
@@ -269,7 +270,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
 		_, err := c.pool.Exec(c.ctx, stmt)
 		if err != nil {
-			log.Warnf("Error creating publication '%s': %v", publication, err)
+			c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
 			return fmt.Errorf("error creating publication '%s' : %w", publication, err)
 		}
 	}
@@ -283,7 +284,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 		defer conn.Release()
 
-		log.Infof("Creating replication slot '%s'", slot)
+		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
 		_, err = conn.Exec(c.ctx, "SET idle_in_transaction_session_timeout = 0")
 		if err != nil {
@@ -299,7 +300,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
 
-		log.Infof("Created replication slot '%s'", slot)
+		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
 		if signal != nil {
 			slotDetails := &SlotCreationResult{
 				SlotName:     res.SlotName,
@@ -307,12 +308,12 @@ func (c *PostgresConnector) createSlotAndPublication(
 				Err:          nil,
 			}
 			signal.SlotCreated <- slotDetails
-			log.Infof("Waiting for clone to complete")
+			c.logger.Info("Waiting for clone to complete")
 			<-signal.CloneComplete
-			log.Infof("Clone complete")
+			c.logger.Info("Clone complete")
 		}
 	} else {
-		log.Infof("Replication slot '%s' already exists", slot)
+		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
 		if signal != nil {
 			var e error
 			if doInitialCopy {
@@ -381,7 +382,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 
 	var result pgtype.Int8
 	if !rows.Next() {
-		log.Warnf("No row found for job %s, returning 0", jobName)
+		c.logger.Info("No row found ,returning 0")
 		return 0, nil
 	}
 	err = rows.Scan(&result)
@@ -401,7 +402,7 @@ func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, erro
 
 	var result pgtype.Int8
 	if !rows.Next() {
-		log.Warnf("No row found for job %s, returning 0", jobName)
+		c.logger.Info("No row found returning 0")
 		return 0, nil
 	}
 	err = rows.Scan(&result)
@@ -518,8 +519,8 @@ func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifi
 	if supportsMerge {
 		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns, rawTableIdentifier)}
 	}
-	log.Warnf("Postgres version is not high enough to support MERGE, falling back to UPSERT + DELETE")
-	log.Warnf("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
+	c.logger.Warn("Postgres version is not high enough to support MERGE, falling back to UPSERT + DELETE")
+	c.logger.Warn("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
 	return c.generateFallbackStatements(destinationTableIdentifier, rawTableIdentifier)
 }
 
