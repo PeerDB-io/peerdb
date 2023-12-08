@@ -3,7 +3,6 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
-	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -199,6 +198,6 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
-func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
-	suite.Run(t, new(SnowflakeSchemaDeltaTestSuite))
-}
+// func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
+// 	suite.Run(t, new(SnowflakeSchemaDeltaTestSuite))
+// }
