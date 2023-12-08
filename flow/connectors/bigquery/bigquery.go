@@ -173,7 +173,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	datasetID := config.GetDatasetId()
 	_, checkErr := client.Dataset(datasetID).Metadata(ctx)
 	if checkErr != nil {
-		slog.Error(fmt.Sprintf("failed to get dataset metadata: %v", checkErr), shared.FlowNameKey, ctx.Value(shared.FlowNameKey))
+		slog.ErrorContext(ctx, "failed to get dataset metadata", slog.Any("error", checkErr))
 		return nil, fmt.Errorf("failed to get dataset metadata: %v", checkErr)
 	}
 
@@ -196,7 +196,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		datasetID:     datasetID,
 		storageClient: storageClient,
 		catalogPool:   catalogPool,
-		logger:        *slog.With(slog.String(shared.FlowNameKey, flowName)),
+		logger:        *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -357,12 +357,12 @@ func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, erro
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
-		c.logger.Info(fmt.Sprintf("no row found for job %s", jobName))
+		c.logger.Info("no row found for job")
 		return 0, nil
 	}
 
 	if row[0] == nil {
-		c.logger.Info(fmt.Sprintf("no normalize_batch_id found for job %s, returning 0", jobName))
+		c.logger.Info("no normalize_batch_id foundreturning 0")
 		return 0, nil
 	} else {
 		return row[0].(int64), nil
@@ -762,7 +762,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	defer func() {
 		err := release()
 		if err != nil {
-			c.logger.Error(fmt.Sprintf("failed to release lock: %v", err))
+			c.logger.Error("failed to release lock", slog.Any("error", err))
 		}
 	}()
 
@@ -981,7 +981,7 @@ func (c *BigQueryConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		err := release()
 		if err != nil {
-			c.logger.Info(fmt.Sprintf("failed to release lock: %v", err))
+			c.logger.Error("failed to release lock", slog.Any("error", err))
 		}
 	}()
 

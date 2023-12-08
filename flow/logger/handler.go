@@ -3,19 +3,14 @@ package logger
 import (
 	"context"
 	"log/slog"
+	"os"
+
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 var _ slog.Handler = Handler{}
 
-type ContextKey string
-
-const (
-	FlowName      ContextKey = "flowName"
-	PartitionId   ContextKey = "partitionId"
-	DeploymentUid ContextKey = "deploymentUid"
-)
-
-var fields = []ContextKey{FlowName, PartitionId, DeploymentUid}
+var fields = []shared.ContextKey{shared.FlowNameKey, shared.PartitionIdKey}
 
 type Handler struct {
 	handler slog.Handler
@@ -37,6 +32,7 @@ func (h Handler) Handle(ctx context.Context, record slog.Record) error {
 			record.AddAttrs(slog.String(string(field), v))
 		}
 	}
+	record.AddAttrs(slog.String(string(shared.DeploymentUidKey), os.Getenv("PEERDB_DEPLOYMENT_UID")))
 	return h.handler.Handle(ctx, record)
 }
 

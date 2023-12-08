@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	cmap "github.com/orcaman/concurrent-map/v2"
-	log "github.com/sirupsen/logrus"
+	"google.golang.org/appengine/log"
 )
 
 type EventHubManager struct {
@@ -62,10 +63,10 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
 		if err != nil {
-			log.Infof("eventhub %s not reachable. Will re-establish connection and re-create it. Err: %v", name, err)
+			slog.Info(fmt.Sprintf("eventhub %s not reachable. Will re-establish connection and re-create it. Err: %v", name, err))
 			closeError := m.closeProducerClient(ctx, hubTmp)
 			if closeError != nil {
-				log.Errorf("failed to close producer client: %v", closeError)
+				slog.Error("failed to close producer client", slog.Any("error", closeError))
 			}
 			m.hubs.Delete(name)
 			hubConnectOK = false
@@ -160,13 +161,13 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 		_, err := hubClient.CreateOrUpdate(ctx, resourceGroup, namespace, name.Eventhub, opts, nil)
 		if err != nil {
-			log.Errorf("failed to create event hub: %v", err)
+			slog.Error("failed to create event hub", slog.Any("error", err))
 			return err
 		}
 
-		log.Infof("event hub %s created", name)
+		slog.Info("event hub created", slog.Any("name", name))
 	} else {
-		log.Infof("event hub %s already exists", name)
+		slog.Info("event hub exists already", slog.Any("name", name))
 	}
 
 	return nil
@@ -176,7 +177,7 @@ func (m *EventHubManager) getEventHubMgmtClient(subID string) (*armeventhub.Even
 	if subID == "" {
 		envSubID, err := utils.GetAzureSubscriptionID()
 		if err != nil {
-			log.Errorf("failed to get azure subscription id: %v", err)
+			slog.Error("failed to get azure subscription id", slog.Any("error", err))
 			return nil, err
 		}
 		subID = envSubID
@@ -184,7 +185,7 @@ func (m *EventHubManager) getEventHubMgmtClient(subID string) (*armeventhub.Even
 
 	hubClient, err := armeventhub.NewEventHubsClient(subID, m.creds, nil)
 	if err != nil {
-		log.Errorf("failed to get event hub client: %v", err)
+		slog.Error("failed to get event hub client", slog.Any("error", err))
 		return nil, err
 	}
 

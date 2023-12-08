@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
-	log "github.com/sirupsen/logrus"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -100,7 +101,8 @@ func (h *HubBatches) sendBatch(
 		return err
 	}
 
-	log.Infof("successfully sent %d events to event hub topic - %s", events.NumEvents(), tblName.ToString())
+	slog.InfoContext(ctx, "sendBatch",
+		slog.Int("events sent", int(events.NumEvents())), slog.String("event hub topic ", tblName.ToString()))
 	return nil
 }
 
@@ -110,9 +112,7 @@ func (h *HubBatches) flushAllBatches(
 	flowName string,
 ) error {
 	if h.Len() == 0 {
-		log.WithFields(log.Fields{
-			"flowName": flowName,
-		}).Infof("no events to send")
+		slog.Info("no events to send")
 		return nil
 	}
 
@@ -128,16 +128,18 @@ func (h *HubBatches) flushAllBatches(
 			}
 
 			atomic.AddInt32(&numEventsPushed, numEvents)
-			log.WithFields(log.Fields{
-				"flowName": flowName,
-			}).Infof("pushed %d events to event hub: %s", numEvents, tblName)
+			slog.Info("flushAllBatches",
+				slog.String(string(shared.FlowNameKey), flowName),
+				slog.Int("events sent", int(numEvents)),
+				slog.String("event hub topic ", tblName.ToString()))
 			return nil
 		})
 	})
 
 	err := g.Wait()
-	log.Infof("[flush] successfully sent %d events in total to event hub",
-		numEventsPushed)
+	slog.Info("hub batches flush",
+		slog.String(string(shared.FlowNameKey), flowName),
+		slog.Int("events sent", int(numEventsPushed)))
 
 	// clear the batches after flushing them.
 	h.Clear()

@@ -2,6 +2,7 @@ package connbigquery
 
 import (
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"time"
@@ -9,7 +10,8 @@ import (
 	"cloud.google.com/go/bigquery"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	log "github.com/sirupsen/logrus"
+	"github.com/PeerDB-io/peer-flow/shared"
+
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -36,17 +38,12 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	}
 
 	if done {
-		log.WithFields(log.Fields{
-			"flowName":    config.FlowJobName,
-			"partitionID": partition.PartitionId,
-		}).Infof("Partition %s has already been synced", partition.PartitionId)
+		c.logger.InfoContext(c.ctx, fmt.Sprintf("Partition %s has already been synced", partition.PartitionId))
 		return 0, nil
 	}
-	log.WithFields(log.Fields{
-		"flowName": config.FlowJobName,
-	}).Infof("QRep sync function called and partition existence checked for"+
+	c.logger.Info(fmt.Sprintf("QRep sync function called and partition existence checked for"+
 		" partition %s of destination table %s",
-		partition.PartitionId, destTable)
+		partition.PartitionId, destTable))
 
 	avroSync := &QRepAvroSyncMethod{connector: c, gcsBucket: config.StagingPath}
 	return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, stream)
@@ -77,10 +74,8 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfi
 		}
 
 		if !hasColumn {
-			log.WithFields(log.Fields{
-				"flowName":    config.FlowJobName,
-				"partitionID": partition.PartitionId,
-			}).Infof("adding column %s to destination table %s", col.Name, config.DestinationTableIdentifier)
+			c.logger.Info(fmt.Sprintf("adding column %s to destination table %s", col.Name, config.DestinationTableIdentifier),
+				slog.String(string(shared.PartitionIdKey), partition.PartitionId))
 			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 				ColumnName: col.Name,
 				ColumnType: string(col.Type),

@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -220,7 +220,7 @@ func (h *FlowRequestHandler) getQRepConfigFromCatalog(flowJobName string) *proto
 		if err == nil {
 			break
 		}
-		logrus.Warnf("%s - %s: %s", qInfo.Warning, flowJobName, err.Error())
+		slog.Warn(fmt.Sprintf("%s - %s: %s", qInfo.Warning, flowJobName, err.Error()))
 	}
 
 	// If no config was fetched, return nil
@@ -230,7 +230,7 @@ func (h *FlowRequestHandler) getQRepConfigFromCatalog(flowJobName string) *proto
 
 	// Try unmarshaling
 	if err := proto.Unmarshal(configBytes, &config); err != nil {
-		logrus.Warnf("failed to unmarshal config for %s: %s", flowJobName, err.Error())
+		slog.Warn(fmt.Sprintf("failed to unmarshal config for %s: %s", flowJobName, err.Error()))
 		return nil
 	}
 

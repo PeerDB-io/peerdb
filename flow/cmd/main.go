@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/PeerDB-io/peer-flow/logger"
-	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	_ "go.uber.org/automaxprocs"
 )
@@ -144,6 +144,6 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		log.Fatalf("error running app: %v", err)
 	}
 }
