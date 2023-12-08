@@ -41,7 +41,7 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	var peerType pgtype.Int4
 	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query peer id for peer %s: %s", peerName, err.Error()))
+		slog.Error("unable to query peer id for peer "+peerName, slog.Any("error", err))
 		return -1, -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
 	}
 	return id.Int32, peerType.Int32, nil
@@ -158,7 +158,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if req.CreateCatalogEntry {
 		err := h.createCdcJobEntry(ctx, req, workflowID)
 		if err != nil {
-			slog.Error(fmt.Sprintf("unable to create flow job entry: %v", err))
+			slog.Error("unable to create flow job entry", slog.Any("error", err))
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
@@ -166,7 +166,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	var err error
 	err = h.updateFlowConfigInCatalog(cfg)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to update flow config in catalog: %v", err))
+		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
@@ -180,7 +180,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		state,                              // workflow state
 	)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to start PeerFlow workflow: %v", err))
+		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 

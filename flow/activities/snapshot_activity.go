@@ -53,7 +53,7 @@ func (a *SnapshotActivity) SetupReplication(
 		pgConn := conn.(*connpostgres.PostgresConnector)
 		err = pgConn.SetupReplication(slotSignal, config)
 		if err != nil {
-			slog.ErrorContext(ctx, fmt.Sprintf("failed to setup replication: %v", err))
+			slog.ErrorContext(ctx, "failed to setup replication", slog.Any("error", err))
 			replicationErr <- err
 			return
 		}

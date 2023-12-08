@@ -87,7 +87,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {
 		// just log the error this isn't fatal.
-		slog.Error(fmt.Sprintf("failed to delete staging table %s", stagingTable),
+		slog.Error("failed to delete staging table "+stagingTable,
 			slog.Any("error", err),
 			slog.String("syncBatchID", fmt.Sprint(syncBatchID)),
 			slog.String("destinationTable", dstTableName))
@@ -156,7 +156,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {
 		// just log the error this isn't fatal.
-		slog.Error(fmt.Sprintf("failed to delete staging table %s", stagingTable),
+		slog.Error("failed to delete staging table "+stagingTable,
 			slog.Any("error", err),
 			flowLog)
 	}

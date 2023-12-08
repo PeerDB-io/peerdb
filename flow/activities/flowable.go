@@ -587,7 +587,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
 			numRecords := int64(tmp)
 			if err != nil {
-				slog.Error(fmt.Sprintf("failed to pull records: %v", err))
+				slog.Error("failed to pull records", slog.Any("error", err))
 				goroutineErr = err
 			} else {
 				err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx, a.CatalogPool, runUUID, partition, numRecords)

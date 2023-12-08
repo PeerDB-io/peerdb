@@ -32,7 +32,8 @@ func NewEventHubConnector(
 ) (*EventHubConnector, error) {
 	defaultAzureCreds, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("failed to get default azure credentials: %v", err))
+		slog.ErrorContext(ctx, "failed to get default azure credentials",
+			slog.Any("error", err))
 		return nil, err
 	}
 
@@ -41,7 +42,8 @@ func NewEventHubConnector(
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, config.GetMetadataDb(),
 		metadataSchemaName)
 	if err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("failed to create postgres metadata store: %v", err))
+		slog.ErrorContext(ctx, "failed to create postgres metadata store",
+			slog.Any("error", err))
 		return nil, err
 	}
 
