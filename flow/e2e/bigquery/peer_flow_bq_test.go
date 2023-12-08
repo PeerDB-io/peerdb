@@ -177,7 +177,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	env.AssertExpectations(s.t)
@@ -222,7 +221,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	env.AssertExpectations(s.t)
@@ -286,7 +284,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	count, err := s.bqHelper.countRows(dstTableName)
@@ -361,7 +358,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
@@ -423,7 +419,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
@@ -498,7 +493,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
@@ -566,7 +560,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,k")
@@ -634,7 +627,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
@@ -704,7 +696,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	noNulls, err := s.bqHelper.CheckNull(dstTableName, []string{"c41", "c1", "c2", "c3", "c4",
@@ -877,7 +868,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	env.AssertExpectations(s.t)
@@ -949,7 +939,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,c1,c2,t")
@@ -1026,7 +1015,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
@@ -1100,7 +1088,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
