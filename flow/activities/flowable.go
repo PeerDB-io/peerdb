@@ -119,14 +119,12 @@ func (a *FlowableActivity) EnsurePullability(
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
-		a.vigilForActivityFailures(config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(srcConn)
 
 	output, err := srcConn.EnsurePullability(config)
 	if err != nil {
-		a.vigilForActivityFailures(config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
 	}
 

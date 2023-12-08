@@ -24,7 +24,7 @@ type slackServiceConfig struct {
 	ChannelIDs []string `json:"channel_ids"`
 }
 
-func NewVigil(catalogPool *pgxpool.Pool) (*EverVigil, error) {
+func registerServicesForNotifier(catalogPool *pgxpool.Pool) (*notify.Notify, error) {
 	notifier := notify.New()
 
 	rows, err := catalogPool.Query(context.Background(),
@@ -33,6 +33,7 @@ func NewVigil(catalogPool *pgxpool.Pool) (*EverVigil, error) {
 		return nil, fmt.Errorf("failed to read everVigil config from catalog: %w", err)
 	}
 
+	registeredAtleastOneService := false
 	var serviceType, serviceConfig string
 	_, err = pgx.ForEachRow(rows, []any{&serviceType, &serviceConfig}, func() error {
 		switch serviceType {
@@ -46,11 +47,25 @@ func NewVigil(catalogPool *pgxpool.Pool) (*EverVigil, error) {
 			slackService := slack.New(slackServiceConfig.AuthToken)
 			slackService.AddReceivers(slackServiceConfig.ChannelIDs...)
 			notifier.UseServices(slackService)
+			registeredAtleastOneService = true
 		default:
 			return fmt.Errorf("unknown service type: %s", serviceType)
 		}
 		return nil
 	})
+
+	// vigil is currently useless, marking it as such
+	if !registeredAtleastOneService {
+		notifier.Disabled = true
+	}
+	return notifier, nil
+}
+
+func NewVigil(catalogPool *pgxpool.Pool) (*EverVigil, error) {
+	notifier, err := registerServicesForNotifier(catalogPool)
+	if err != nil {
+		return nil, err
+	}
 
 	return &EverVigil{
 		notifier:    notifier,
@@ -68,6 +83,16 @@ func (ev *EverVigil) Close() {
 // in the past 15 minutes
 func (ev *EverVigil) AlertIf(alertKey string, alertMessage string) {
 	if ev.catalogPool != nil && ev.notifier != nil {
+		// try to make the vigil not useless if possible
+		if ev.notifier.Disabled {
+			var err error
+			ev.notifier, err = registerServicesForNotifier(ev.catalogPool)
+			if err != nil {
+				logrus.Warnf("failed to register services for vigil: %v", err)
+				return
+			}
+		}
+
 		row := ev.catalogPool.QueryRow(context.Background(),
 			`SELECT created_timestamp FROM peerdb_stats.alerts_v1 WHERE alert_key=$1
 		 ORDER BY created_timestamp DESC LIMIT 1`,
