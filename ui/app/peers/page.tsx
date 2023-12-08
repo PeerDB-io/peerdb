@@ -23,17 +23,7 @@ export default async function Peers() {
         <Header
           variant='title2'
           slot={
-            <Button
-              as={Link}
-              style={{
-                width: '10%',
-                height: '2rem',
-                fontSize: 17,
-                boxShadow: '0px 2px 4px rgba(0,0,0,0.2)',
-              }}
-              href={'/peers/create'}
-              variant='normalSolid'
-            >
+            <Button as={Link} href={'/peers/create'} variant='normalSolid'>
               <div
                 style={{
                   display: 'flex',
@@ -42,9 +32,7 @@ export default async function Peers() {
                 }}
               >
                 <Icon name='add' />
-                <Label style={{ marginLeft: '0.5rem', fontSize: 15 }}>
-                  New peer
-                </Label>
+                <Label>New peer</Label>
               </div>
             </Button>
           }
