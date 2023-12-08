@@ -101,7 +101,7 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 		"destinationTable": dstTableName,
 	}).Infof("copying records into %s from stage %s", s.config.DestinationTableIdentifier, stage)
 
-	return numRecords, nil
+	return numRecords, os.Remove(localFilePath)
 }
 
 func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
@@ -275,8 +275,9 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 	var numRecords int
 	if s.config.StagingPath == "" {
 		ocfWriter := avro.NewPeerDBOCFWriterWithCompression(s.connector.ctx, stream, avroSchema)
-		tmpDir, err := os.MkdirTemp("", "peerdb-avro")
-		if err != nil {
+		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
+		err := os.Mkdir(tmpDir, os.ModePerm)
+		if err != nil && !os.IsExist(err) {
 			return 0, "", fmt.Errorf("failed to create temp dir: %w", err)
 		}
 
