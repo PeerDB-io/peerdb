@@ -11,12 +11,12 @@ jobs:
   flow_test:
     strategy:
       matrix:
-        runner: [ubicloud-standard-8, ubuntu-latest]
+        runner: [ubicloud-standard-8-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     services:
       pg_cdc:
-        image: postgis/postgis:15-3.4-alpine
+        image: imresamu/postgis:15-3.4-alpine
         ports:
           - 7132:5432
         env:

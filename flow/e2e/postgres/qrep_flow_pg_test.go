@@ -175,7 +175,6 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
 	s.NoError(err)
 

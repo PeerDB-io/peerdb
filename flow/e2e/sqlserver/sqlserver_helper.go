@@ -23,7 +23,7 @@ type SQLServerHelper struct {
 }
 
 func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
-	port, err := strconv.Atoi(os.Getenv("SQLSERVER_PORT"))
+	port, err := strconv.ParseUint(os.Getenv("SQLSERVER_PORT"), 10, 16)
 	if err != nil {
 		return nil, fmt.Errorf("invalid SQLSERVER_PORT: %s", os.Getenv("SQLSERVER_PORT"))
 	}
