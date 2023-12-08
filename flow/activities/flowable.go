@@ -195,10 +195,13 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 		case <-ticker.C:
 			err := a.handleSlotInfo(ctx, srcConn, slotName, peerName)
 			if err != nil {
-				return nil
+				return err
 			}
 		case <-done:
-			a.handleSlotInfo(ctx, srcConn, slotName, peerName)
+			err := a.handleSlotInfo(ctx, srcConn, slotName, peerName)
+			if err != nil {
+				return err
+			}
 			return nil
 		case <-ctx.Done():
 			return nil
