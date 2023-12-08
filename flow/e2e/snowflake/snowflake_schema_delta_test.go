@@ -3,46 +3,67 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/stretchr/testify/suite"
+	"github.com/sirupsen/logrus"
+	"github.com/ysmood/got"
 )
 
 const schemaDeltaTestSchemaName = "PUBLIC"
 
 type SnowflakeSchemaDeltaTestSuite struct {
-	suite.Suite
+	got.G
+	t *testing.T
+
 	connector    *connsnowflake.SnowflakeConnector
 	sfTestHelper *SnowflakeTestHelper
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) failTestError(err error) {
+func (suite SnowflakeSchemaDeltaTestSuite) failTestError(err error) {
 	if err != nil {
-		suite.FailNow(err.Error())
+		logrus.Errorf("Error in test: %v", err)
+		suite.FailNow()
 	}
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) SetupSuite() {
-	var err error
+func setupSchemaDeltaSuite(
+	t *testing.T,
+	g got.G,
+) SnowflakeSchemaDeltaTestSuite {
+	sfTestHelper, err := NewSnowflakeTestHelper()
+	if err != nil {
+		logrus.Errorf("Error in test: %v", err)
+		t.FailNow()
+	}
 
-	suite.sfTestHelper, err = NewSnowflakeTestHelper()
-	suite.failTestError(err)
+	connector, err := connsnowflake.NewSnowflakeConnector(
+		context.Background(),
+		sfTestHelper.Config,
+	)
+	if err != nil {
+		logrus.Errorf("Error in test: %v", err)
+		t.FailNow()
+	}
 
-	suite.connector, err = connsnowflake.NewSnowflakeConnector(context.Background(),
-		suite.sfTestHelper.Config)
-	suite.failTestError(err)
+	return SnowflakeSchemaDeltaTestSuite{
+		G:            g,
+		t:            t,
+		connector:    connector,
+		sfTestHelper: sfTestHelper,
+	}
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TearDownSuite() {
+func (suite SnowflakeSchemaDeltaTestSuite) tearDownSuite() {
 	err := suite.sfTestHelper.Cleanup()
 	suite.failTestError(err)
 	err = suite.connector.Close()
 	suite.failTestError(err)
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
+func (suite SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	tableName := fmt.Sprintf("%s.SIMPLE_ADD_COLUMN", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	suite.failTestError(err)
@@ -70,7 +91,7 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
+func (suite SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_ALL_COLUMN_TYPES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	suite.failTestError(err)
@@ -116,7 +137,7 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
+func (suite SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_TRICKY_COLUMN_NAMES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(id TEXT PRIMARY KEY)", tableName))
 	suite.failTestError(err)
@@ -160,7 +181,7 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
+func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_WHITESPACE_COLUMN_NAMES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(\" \" TEXT PRIMARY KEY)", tableName))
 	suite.failTestError(err)
@@ -198,6 +219,18 @@ func (suite *SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
-// func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
-// 	suite.Run(t, new(SnowflakeSchemaDeltaTestSuite))
-// }
+func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
+	got.Each(t, func(t *testing.T) SnowflakeSchemaDeltaTestSuite {
+		g := got.New(t)
+
+		g.Parallel()
+
+		suite := setupSchemaDeltaSuite(t, g)
+
+		g.Cleanup(func() {
+			suite.tearDownSuite()
+		})
+
+		return suite
+	})
+}

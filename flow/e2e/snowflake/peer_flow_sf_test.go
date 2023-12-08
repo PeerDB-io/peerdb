@@ -34,7 +34,6 @@ type PeerFlowE2ETestSuiteSF struct {
 }
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
-	// The got.Each can also accept a function to init the g for each test case.
 	got.Each(t, func(t *testing.T) PeerFlowE2ETestSuiteSF {
 		g := got.New(t)
 
