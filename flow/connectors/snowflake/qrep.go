@@ -3,17 +3,18 @@ package connsnowflake
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/jackc/pgx/v5/pgtype"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -26,17 +27,15 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 ) (int, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
-
+	flowLog := slog.Group("sync_metadata",
+		slog.String(string(shared.PartitionIdKey), partition.PartitionId),
+		slog.String("destinationTable", destTable),
+	)
 	tblSchema, err := c.getTableSchema(destTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
-	log.WithFields(log.Fields{
-		"flowName":  config.FlowJobName,
-		"partition": partition.PartitionId,
-	}).Infof("Called QRep sync function and "+
-		"obtained table schema for destination table %s",
-		destTable)
+	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
 	done, err := c.isPartitionSynced(partition.PartitionId)
 	if err != nil {
@@ -44,9 +43,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	}
 
 	if done {
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Infof("Partition %s has already been synced", partition.PartitionId)
+		c.logger.Info("Partition has already been synced", flowLog)
 		return 0, nil
 	}
 
@@ -128,7 +125,8 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) 
 	defer func() {
 		deferErr := createMetadataTablesTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for creating metadata tables: %v", deferErr)
+			c.logger.Error("error while rolling back transaction for creating metadata tables",
+				slog.Any("error", deferErr))
 		}
 	}()
 	err = c.createPeerDBInternalSchema(createMetadataTablesTx)
@@ -177,11 +175,12 @@ func (c *SnowflakeConnector) createQRepMetadataTable(createMetadataTableTx *sql.
 
 	_, err := createMetadataTableTx.Exec(queryString)
 	if err != nil {
-		log.Errorf("failed to create table %s.%s: %v", c.metadataSchema, qRepMetadataTableName, err)
+		c.logger.Error(fmt.Sprintf("failed to create table %s.%s", c.metadataSchema, qRepMetadataTableName),
+			slog.Any("error", err))
 		return fmt.Errorf("failed to create table %s.%s: %w", c.metadataSchema, qRepMetadataTableName, err)
 	}
 
-	log.Infof("Created table %s", qRepMetadataTableName)
+	c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
 	return nil
 }
 
@@ -204,32 +203,24 @@ func (c *SnowflakeConnector) createStage(stageName string, config *protos.QRepCo
 	// Execute the query
 	_, err := c.database.Exec(createStageStmt)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Errorf("failed to create stage %s: %v", stageName, err)
+		c.logger.Error(fmt.Sprintf("failed to create stage %s", stageName), slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
 	}
 
-	log.WithFields(log.Fields{
-		"flowName": config.FlowJobName,
-	}).Infof("Created stage %s", stageName)
+	c.logger.Info(fmt.Sprintf("Created stage %s", stageName))
 	return nil
 }
 
 func (c *SnowflakeConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Errorf("failed to get AWS secrets: %v", err)
+		c.logger.Error("failed to get AWS secrets", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get AWS secrets: %w", err)
 	}
 
 	s3o, err := utils.NewS3BucketAndPrefix(config.StagingPath)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Errorf("failed to extract S3 bucket and prefix: %v", err)
+		c.logger.Error("failed to extract S3 bucket and prefix", slog.Any("error", err))
 		return "", fmt.Errorf("failed to extract S3 bucket and prefix: %w", err)
 	}
 
@@ -257,25 +248,21 @@ func (c *SnowflakeConnector) createExternalStage(stageName string, config *proto
 }
 
 func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	log.Infof("Consolidating partitions for flow job %s", config.FlowJobName)
+	c.logger.Error("Consolidating partitions")
 
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
 	colInfo, err := c.getColsFromTable(destTable)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Errorf("failed to get columns from table %s: %v", destTable, err)
+		c.logger.Error(fmt.Sprintf("failed to get columns from table %s", destTable), slog.Any("error", err))
 		return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
 	}
 
 	allCols := colInfo.Columns
 	err = CopyStageToDestination(c, config, destTable, stageName, allCols)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Errorf("failed to copy stage to destination: %v", err)
+		c.logger.Error("failed to copy stage to destination", slog.Any("error", err))
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
 	}
 
@@ -284,9 +271,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 
 // CleanupQRepFlow function for snowflake connector
 func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	log.WithFields(log.Fields{
-		"flowName": config.FlowJobName,
-	}).Infof("Cleaning up flow job %s", config.FlowJobName)
+	c.logger.Error("Cleaning up flow job")
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
@@ -348,20 +333,16 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 	if strings.HasPrefix(stagingPath, "s3://") {
 		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": job,
-			}).Errorf("failed to create S3 bucket and prefix: %v", err)
+			c.logger.Error("failed to create S3 bucket and prefix", slog.Any("error", err))
 			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 		}
 
-		log.Infof("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job)
+		c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 
 		// deleting the contents of the bucket with prefix
 		s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
 		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": job,
-			}).Errorf("failed to create S3 client: %v", err)
+			c.logger.Error("failed to create S3 client", slog.Any("error", err))
 			return fmt.Errorf("failed to create S3 client: %w", err)
 		}
 
@@ -374,18 +355,14 @@ func (c *SnowflakeConnector) dropStage(stagingPath string, job string) error {
 		// Iterate through the objects in the bucket with the prefix and delete them
 		s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
 		if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
-			log.WithFields(log.Fields{
-				"flowName": job,
-			}).Errorf("failed to delete objects from bucket: %v", err)
+			c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
 			return fmt.Errorf("failed to delete objects from bucket: %w", err)
 		}
 
-		log.Infof("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job)
+		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 	}
 
-	log.WithFields(log.Fields{
-		"flowName": job,
-	}).Infof("Dropped stage %s", stageName)
+	c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
 	return nil
 }
 

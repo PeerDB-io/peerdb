@@ -5,15 +5,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"strings"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
-	log "github.com/sirupsen/logrus"
+
 	"go.temporal.io/sdk/activity"
 )
 
@@ -40,6 +42,7 @@ type GenericSQLQueryExecutor struct {
 	db                 *sqlx.DB
 	dbtypeToQValueKind map[string]qvalue.QValueKind
 	qvalueKindToDBType map[qvalue.QValueKind]string
+	logger             slog.Logger
 }
 
 func NewGenericSQLQueryExecutor(
@@ -48,11 +51,13 @@ func NewGenericSQLQueryExecutor(
 	dbtypeToQValueKind map[string]qvalue.QValueKind,
 	qvalueKindToDBType map[qvalue.QValueKind]string,
 ) *GenericSQLQueryExecutor {
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &GenericSQLQueryExecutor{
 		ctx:                ctx,
 		db:                 db,
 		dbtypeToQValueKind: dbtypeToQValueKind,
 		qvalueKindToDBType: qvalueKindToDBType,
+		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}
 }
 
@@ -161,7 +166,8 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	for i, ct := range dbColTypes {
 		qfield, err := g.columnTypeToQField(ct)
 		if err != nil {
-			log.Errorf("failed to convert column type %v: %v", ct, err)
+			g.logger.Error(fmt.Sprintf("failed to convert column type %v", ct),
+				slog.Any("error", err))
 			return nil, err
 		}
 		qfields[i] = qfield
@@ -225,7 +231,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		for i, val := range values {
 			qv, err := toQValue(qfields[i].Type, val)
 			if err != nil {
-				log.Errorf("failed to convert value: %v", err)
+				g.logger.Error("failed to convert value", slog.Any("error", err))
 				return nil, err
 			}
 			qValues[i] = qv
@@ -246,7 +252,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Errorf("failed to iterate over rows: %v", err)
+		g.logger.Error("failed to iterate over rows", slog.Any("Error", err))
 		return nil, err
 	}
 
