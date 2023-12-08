@@ -202,7 +202,7 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 	defer func() {
 		deferErr := createMetadataTablesTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("unexpected error while rolling back transaction for creating metadata tables",
+			c.logger.Error("error while rolling back transaction for creating metadata tables",
 				slog.Any("error", deferErr))
 		}
 	}()

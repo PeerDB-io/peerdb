@@ -21,7 +21,7 @@ func (c *S3Connector) SyncQRepRecords(
 	if err != nil {
 		c.logger.Error("failed to get schema from stream",
 			slog.Any("error", err),
-			slog.String(string(shared.PartitionIdKey), partition.PartitionId))
+			slog.String(string(shared.PartitionIDKey), partition.PartitionId))
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 

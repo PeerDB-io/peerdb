@@ -63,7 +63,9 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
 		if err != nil {
-			slog.Info(fmt.Sprintf("eventhub %s not reachable. Will re-establish connection and re-create it. Err: %v", name, err))
+			slog.Info(fmt.Sprintf("eventhub %s", name)+
+				"not reachable. Will re-establish connection and re-create it.",
+				slog.Any("error", err))
 			closeError := m.closeProducerClient(ctx, hubTmp)
 			if closeError != nil {
 				slog.Error("failed to close producer client", slog.Any("error", closeError))

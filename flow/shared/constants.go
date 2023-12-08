@@ -25,8 +25,8 @@ const (
 
 	CDCMirrorMonitorKey ContextKey = "cdcMirrorMonitor"
 	FlowNameKey         ContextKey = "flowName"
-	PartitionIdKey      ContextKey = "partitionId"
-	DeploymentUidKey    ContextKey = "deploymentUid"
+	PartitionIDKey      ContextKey = "partitionId"
+	DeploymentUIDKey    ContextKey = "deploymentUid"
 )
 
 type TaskQueueID int64

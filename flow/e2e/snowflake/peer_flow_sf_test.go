@@ -3,22 +3,25 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/got"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,8 +52,14 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 	})
 }
 
-func (s PeerFlowE2ETestSuiteSF) attachSchemaSuffix(tableName string) string {
-	return fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tableName)
+func (s *PeerFlowE2ETestSuiteSF) setupTemporalLogger() {
+	logger := slog.New(logger.NewHandler(
+		slog.NewJSONHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelWarn},
+		)))
+	tlogger := e2e.NewTStructuredLogger(*logger)
+	s.SetLogger(tlogger)
 }
 
 func (s PeerFlowE2ETestSuiteSF) attachSuffix(input string) string {
@@ -62,11 +71,10 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	log.SetReportCaller(true)
-	log.SetLevel(log.WarnLevel)
+	s.setupTemporalLogger()
 
 	suffix := util.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
@@ -368,8 +376,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
         k int
     );
 `, srcTableName))
-	log.Infof("Creating table '%s', err: %v", srcTableName, err)
-	require.NoError(s.t, err)
+	slog.Info(fmt.Sprintf("Creating table '%s', err: %v", srcTableName, err))
+	s.NoError(err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_2"),

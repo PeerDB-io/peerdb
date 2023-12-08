@@ -108,7 +108,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	startTime := time.Now()
 	flowLog := slog.Group("sync_metadata",
 		slog.String(string(shared.FlowNameKey), flowJobName),
-		slog.String(string(shared.PartitionIdKey), partition.PartitionId),
+		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
 		slog.String("destinationTable", dstTableName),
 	)
 	// You will need to define your Avro schema as a string

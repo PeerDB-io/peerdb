@@ -89,7 +89,8 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	if err != nil {
 		return 0, err
 	}
-	s.connector.logger.Info(fmt.Sprintf("copying records into %s from stage %s", s.config.DestinationTableIdentifier, stage))
+	s.connector.logger.Info(fmt.Sprintf("copying records into %s from stage %s",
+		s.config.DestinationTableIdentifier, stage))
 
 	return avroFile.NumRecords, nil
 }
@@ -100,7 +101,7 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 ) (int, error) {
-	partitionLog := slog.String(string(shared.PartitionIdKey), partition.PartitionId)
+	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 
@@ -157,7 +158,7 @@ func (s *SnowflakeAvroSyncMethod) addMissingColumns(
 	dstTableName string,
 	partition *protos.QRepPartition,
 ) error {
-	partitionLog := slog.String(string(shared.PartitionIdKey), partition.PartitionId)
+	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	// check if avro schema has additional columns compared to destination table
 	// if so, we need to add those columns to the destination table
 	colsToTypes := map[string]qvalue.QValueKind{}
@@ -260,7 +261,7 @@ func (s *SnowflakeAvroSyncMethod) writeToAvroFile(
 
 		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
 		s.connector.logger.Info("OCF: Writing records to S3",
-			slog.String(string(shared.PartitionIdKey), partitionID))
+			slog.String(string(shared.PartitionIDKey), partitionID))
 		avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to write records to S3: %w", err)
@@ -381,7 +382,7 @@ func (s *SnowflakeAvroSyncMethod) insertMetadata(
 	flowJobName string,
 	startTime time.Time,
 ) error {
-	partitionLog := slog.String(string(shared.PartitionIdKey), partition.PartitionId)
+	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {
 		s.connector.logger.Error("failed to create metadata insert statement",

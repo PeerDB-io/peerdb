@@ -98,7 +98,7 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 	defer func() {
 		deferErr := setupTx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			logrus.Errorf("unexpected error rolling back setup transaction: %v", err)
+			logrus.Errorf("error rolling back setup transaction: %v", err)
 		}
 	}()
 

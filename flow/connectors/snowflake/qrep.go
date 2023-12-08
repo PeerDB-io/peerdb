@@ -28,7 +28,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	flowLog := slog.Group("sync_metadata",
-		slog.String(string(shared.PartitionIdKey), partition.PartitionId),
+		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
 		slog.String("destinationTable", destTable),
 	)
 	tblSchema, err := c.getTableSchema(destTable)

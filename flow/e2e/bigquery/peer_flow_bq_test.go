@@ -3,18 +3,21 @@ package e2e_bigquery
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/logger"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/ysmood/got"
+	"google.golang.org/appengine/log"
 )
 
 type PeerFlowE2ETestSuiteBQ struct {
@@ -68,17 +71,26 @@ func setupBigQuery(t *testing.T) *BigQueryTestHelper {
 	return bqHelper
 }
 
+func (s *PeerFlowE2ETestSuiteBQ) setupTemporalLogger() {
+	logger := slog.New(logger.NewHandler(
+		slog.NewJSONHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelWarn},
+		)))
+	tlogger := e2e.NewTStructuredLogger(*logger)
+	s.SetLogger(tlogger)
+}
+
 // Implement SetupAllSuite interface to setup the test suite
 func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	log.SetReportCaller(true)
-	log.SetLevel(log.WarnLevel)
+	s.setupTemporalLogger()
 
 	suffix := util.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")

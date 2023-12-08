@@ -74,8 +74,9 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfi
 		}
 
 		if !hasColumn {
-			c.logger.Info(fmt.Sprintf("adding column %s to destination table %s", col.Name, config.DestinationTableIdentifier),
-				slog.String(string(shared.PartitionIdKey), partition.PartitionId))
+			c.logger.Info(fmt.Sprintf("adding column %s to destination table %s",
+				col.Name, config.DestinationTableIdentifier),
+				slog.String(string(shared.PartitionIDKey), partition.PartitionId))
 			tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.DeltaAddedColumn{
 				ColumnName: col.Name,
 				ColumnType: string(col.Type),

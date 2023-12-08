@@ -145,7 +145,7 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 	defer func() {
 		deferErr := createMetadataTablesTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for creating metadata tables", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for creating metadata tables", slog.Any("error", err))
 		}
 	}()
 
@@ -361,7 +361,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	defer func() {
 		deferErr := syncRecordsTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for syncing records", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for syncing records", slog.Any("error", err))
 		}
 	}()
 
@@ -441,7 +441,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	defer func() {
 		deferErr := normalizeRecordsTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for normalizing records", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for normalizing records", slog.Any("error", err))
 		}
 	}()
 
@@ -505,7 +505,7 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	defer func() {
 		deferErr := createRawTableTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for creating raw table.", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for creating raw table.", slog.Any("error", err))
 		}
 	}()
 
@@ -622,7 +622,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 	defer func() {
 		deferErr := createNormalizedTablesTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for creating raw table", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for creating raw table", slog.Any("error", err))
 		}
 	}()
 
@@ -682,7 +682,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 	defer func() {
 		deferErr := tableSchemaModifyTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for table schema modification", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for table schema modification", slog.Any("error", err))
 		}
 	}()
 
@@ -817,7 +817,7 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := pullFlowCleanupTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for flow cleanup", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for flow cleanup", slog.Any("error", err))
 		}
 	}()
 
@@ -848,7 +848,7 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
+			c.logger.Error("error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
 		}
 	}()
 

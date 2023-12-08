@@ -10,7 +10,7 @@ import (
 
 var _ slog.Handler = Handler{}
 
-var fields = []shared.ContextKey{shared.FlowNameKey, shared.PartitionIdKey}
+var fields = []shared.ContextKey{shared.FlowNameKey, shared.PartitionIDKey}
 
 type Handler struct {
 	handler slog.Handler
@@ -32,7 +32,7 @@ func (h Handler) Handle(ctx context.Context, record slog.Record) error {
 			record.AddAttrs(slog.String(string(field), v))
 		}
 	}
-	record.AddAttrs(slog.String(string(shared.DeploymentUidKey), os.Getenv("PEERDB_DEPLOYMENT_UID")))
+	record.AddAttrs(slog.String(string(shared.DeploymentUIDKey), os.Getenv("PEERDB_DEPLOYMENT_UID")))
 	return h.handler.Handle(ctx, record)
 }
 

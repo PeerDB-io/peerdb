@@ -39,7 +39,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 ) (int, error) {
 	syncLog := slog.Group("sync-qrep-log",
 		slog.String(string(shared.FlowNameKey), flowJobName),
-		slog.String(string(shared.PartitionIdKey), partition.PartitionId),
+		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
 		slog.String("destinationTable", dstTableName.String()),
 	)
 	partitionID := partition.PartitionId

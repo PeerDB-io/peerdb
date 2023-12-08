@@ -3,6 +3,7 @@ package e2e_sqlserver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
+
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
@@ -52,10 +53,8 @@ func (s *PeerFlowE2ETestSuiteSQLServer) SetupSuite() {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
-
-	log.SetReportCaller(true)
 
 	pool, err := e2e.SetupPostgres(sqlserverSuffix)
 	if err != nil || pool == nil {

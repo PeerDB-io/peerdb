@@ -40,14 +40,14 @@ func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
 		partitionID: partitionID,
 		logger: *slog.With(
 			slog.String(string(shared.FlowNameKey), flowJobName),
-			slog.String(string(shared.PartitionIdKey), partitionID)),
+			slog.String(string(shared.PartitionIDKey), partitionID)),
 	}
 }
 
 func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string,
 	flowJobName string, partitionID string) (*QRepQueryExecutor, error) {
 	qrepLog := slog.Group("qrep-metadata", slog.String(string(shared.FlowNameKey), flowJobName),
-		slog.String(string(shared.PartitionIdKey), partitionID))
+		slog.String(string(shared.PartitionIDKey), partitionID))
 	slog.Info("Declared new qrep executor for snapshot", qrepLog)
 	CustomTypeMap, err := utils.GetCustomDataTypes(ctx, pool)
 	if err != nil {

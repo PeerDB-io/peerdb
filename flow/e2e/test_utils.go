@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -391,40 +392,39 @@ func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
 //		Warn(msg string, keyvals ...interface{})
 //		Error(msg string, keyvals ...interface{})
 //	}
-type TLogrusLogger struct {
-	logger *log.Logger
+type TStructuredLogger struct {
+	logger *slog.Logger
 }
 
-func NewTLogrusLogger(logger *log.Logger) *TLogrusLogger {
-	return &TLogrusLogger{logger: logger}
+func NewTStructuredLogger(logger slog.Logger) *TStructuredLogger {
+	return &TStructuredLogger{logger: &logger}
 }
 
-func (l *TLogrusLogger) keyvalsToFields(keyvals []interface{}) log.Fields {
-	fields := make(log.Fields)
+func (l *TStructuredLogger) keyvalsToFields(keyvals []interface{}) slog.Attr {
+	var attrs []any
 	for i := 0; i < len(keyvals); i += 2 {
 		key := fmt.Sprintf("%v", keyvals[i])
+		value := fmt.Sprintf("%v", keyvals[i+1])
 		if i+1 < len(keyvals) {
-			fields[key] = keyvals[i+1]
-		} else {
-			// Handle the case where there is no value for the key
-			fields[key] = nil // or some default value
+			attrs = append(attrs, key)
+			attrs = append(attrs, value)
 		}
 	}
-	return fields
+	return slog.Group("test-log", attrs...)
 }
 
-func (l *TLogrusLogger) Debug(msg string, keyvals ...interface{}) {
-	l.logger.WithFields(l.keyvalsToFields(keyvals)).Debug(msg)
+func (l *TStructuredLogger) Debug(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Debug(msg)
 }
 
-func (l *TLogrusLogger) Info(msg string, keyvals ...interface{}) {
-	l.logger.WithFields(l.keyvalsToFields(keyvals)).Info(msg)
+func (l *TStructuredLogger) Info(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Info(msg)
 }
 
-func (l *TLogrusLogger) Warn(msg string, keyvals ...interface{}) {
-	l.logger.WithFields(l.keyvalsToFields(keyvals)).Warn(msg)
+func (l *TStructuredLogger) Warn(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Warn(msg)
 }
 
-func (l *TLogrusLogger) Error(msg string, keyvals ...interface{}) {
-	l.logger.WithFields(l.keyvalsToFields(keyvals)).Error(msg)
+func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
 }

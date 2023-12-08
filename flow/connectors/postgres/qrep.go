@@ -45,7 +45,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	defer func() {
 		deferErr := tx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for get partitions", slog.Any("error", deferErr))
+			c.logger.Error("error rolling back transaction for get partitions", slog.Any("error", deferErr))
 		}
 	}()
 
@@ -276,7 +276,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
 	defer func() {
 		deferErr := tx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("unexpected error rolling back transaction for getting max value", slog.Any("error", err))
+			c.logger.Error("error rolling back transaction for getting max value", slog.Any("error", err))
 		}
 	}()
 
@@ -304,7 +304,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
 func (c *PostgresConnector) PullQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
-	partitionIdLog := slog.String(string(shared.PartitionIdKey), partition.PartitionId)
+	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
 		executor, err := NewQRepQueryExecutorSnapshot(
@@ -372,7 +372,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	partitionIdLog := slog.String(string(shared.PartitionIdKey), partition.PartitionId)
+	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)
 		executor, err := NewQRepQueryExecutorSnapshot(

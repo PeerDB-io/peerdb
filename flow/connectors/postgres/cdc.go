@@ -168,7 +168,7 @@ func (p *PostgresCDCSource) consumeStream(
 	defer func() {
 		err := conn.Close(p.ctx)
 		if err != nil {
-			p.logger.Error("unexpected error closing replication connection", slog.Any("error", err))
+			p.logger.Error("error closing replication connection", slog.Any("error", err))
 		}
 	}()
 
@@ -320,9 +320,6 @@ func (p *PostgresCDCSource) consumeStream(
 
 		msg, ok := rawMsg.(*pgproto3.CopyData)
 		if !ok {
-			if rawMsg != nil {
-				p.logger.Warn(fmt.Sprintf("unexpected message type: %T", rawMsg))
-			}
 			continue
 		}
 
