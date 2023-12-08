@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ysmood/got"
-	"go.temporal.io/sdk/testsuite"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -48,18 +47,6 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 
 		return suite
 	})
-}
-
-func (s PeerFlowE2ETestSuiteSF) newTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
-	testSuite := &testsuite.WorkflowTestSuite{}
-
-	logger := log.New()
-	logger.SetReportCaller(true)
-	logger.SetLevel(log.WarnLevel)
-	tLogger := e2e.NewTLogrusLogger(logger)
-
-	testSuite.SetLogger(tLogger)
-	return testSuite.NewTestWorkflowEnvironment()
 }
 
 func (s PeerFlowE2ETestSuiteSF) attachSchemaSuffix(tableName string) string {
@@ -140,7 +127,7 @@ func (s PeerFlowE2ETestSuiteSF) tearDownSuite() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_sf")
@@ -215,7 +202,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_invalid_geo_sf_avro_cdc")
@@ -300,7 +287,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_1")
@@ -367,7 +354,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_2")
@@ -436,7 +423,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_3")
@@ -509,7 +496,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_4")
@@ -575,7 +562,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_5")
@@ -641,7 +628,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_types_sf")
@@ -718,7 +705,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTable1Name := s.attachSchemaSuffix("test1_sf")
@@ -777,7 +764,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
@@ -937,7 +924,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
@@ -1010,7 +997,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
@@ -1086,7 +1073,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
@@ -1158,7 +1145,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_exclude_sf")
@@ -1240,7 +1227,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel")
@@ -1326,7 +1313,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
@@ -1408,7 +1395,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
@@ -1494,7 +1481,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
-	env := s.newTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	srcTableName := s.attachSchemaSuffix("test_softdel_iad")
