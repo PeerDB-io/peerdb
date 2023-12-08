@@ -21,3 +21,10 @@ export type TableMapRow = {
   exclude: string[];
   selected: boolean;
 };
+
+export type SyncStatusRow = {
+  batchId: bigint;
+  startTime: Date;
+  endTime: Date | null;
+  numRows: number;
+};

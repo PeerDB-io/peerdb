@@ -65,7 +65,7 @@ export default async function EditMirror({
   }
 
   const rows = syncs.map((sync) => ({
-    batchId: sync.id,
+    batchId: sync.batch_id,
     startTime: sync.start_time,
     endTime: sync.end_time,
     numRows: sync.rows_in_batch,

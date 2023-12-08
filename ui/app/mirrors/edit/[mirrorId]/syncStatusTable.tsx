@@ -1,5 +1,6 @@
 'use client';
 
+import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import TimeLabel from '@/components/TimeComponent';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -10,12 +11,6 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
-type SyncStatusRow = {
-  batchId: number;
-  startTime: Date;
-  endTime: Date | null;
-  numRows: number;
-};
 
 type SyncStatusTableProps = {
   rows: SyncStatusRow[];

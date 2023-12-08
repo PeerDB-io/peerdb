@@ -1,17 +1,11 @@
 'use client';
+import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
-
-type SyncStatusRow = {
-  batchId: number;
-  startTime: Date;
-  endTime: Date | null;
-  numRows: number;
-};
 
 function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
   let [aggregateType, setAggregateType] = useState('hour');
