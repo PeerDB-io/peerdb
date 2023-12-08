@@ -160,38 +160,44 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	return conn.SetupNormalizedTables(config)
 }
 
+func (a *FlowableActivity) handleSlotInfo(ctx context.Context, srcConn connectors.CDCPullConnector, slotName string, peerName string) {
+	slotInfo, err := srcConn.GetSlotInfo(slotName)
+	if err != nil {
+		log.Warnf("warning: failed to get slot info: %v", err)
+		time.Sleep(30 * time.Second)
+		return
+	}
+
+	if len(slotInfo) != 0 {
+		a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, peerName, slotInfo[0])
+	}
+}
+
 func (a *FlowableActivity) recordSlotSizePeriodically(
 	ctx context.Context,
 	srcConn connectors.CDCPullConnector,
 	slotName string,
 	done <-chan struct{},
 	peerName string,
-) {
+) error {
 
 	timeout := 10 * time.Minute
 	ticker := time.NewTicker(timeout)
 
 	defer ticker.Stop()
 	for {
-		slotInfo, err := srcConn.GetSlotInfo(slotName)
-		if err != nil {
-			log.Warnf("warning: failed to get slot info: %v", err)
-		}
-
-		if len(slotInfo) == 0 {
-			continue
-		}
-
 		select {
 		case <-ticker.C:
-			a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, peerName, slotInfo[0])
+			a.handleSlotInfo(ctx, srcConn, slotName, peerName)
 		case <-done:
-			a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, peerName, slotInfo[0])
+			a.handleSlotInfo(ctx, srcConn, slotName, peerName)
+		case <-ctx.Done():
+			log.Warn("recordSlotSize: context is done. ignoring")
+			time.Sleep(30 * time.Second)
 		}
 		ticker.Stop()
 		ticker = time.NewTicker(timeout)
 	}
-
 }
 
 // StartFlow implements StartFlow.
@@ -246,7 +252,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		slotNameForMetrics = input.FlowConnectionConfigs.ReplicationSlotName
 	}
 
-	go a.recordSlotSizePeriodically(ctx, srcConn, slotNameForMetrics, done, input.FlowConnectionConfigs.Source.Name)
+	errGroup.Go(func() error {
+		return a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, done, input.FlowConnectionConfigs.Source.Name)
+	})
 	// start a goroutine to pull records from the source
 	errGroup.Go(func() error {
 		return srcConn.PullRecords(&model.PullRecordsRequest{
