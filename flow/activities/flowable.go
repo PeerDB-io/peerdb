@@ -304,6 +304,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 
 	if !hasRecords {
+		done <- struct{}{}
 		// wait for the pull goroutine to finish
 		err = errGroup.Wait()
 		if err != nil {
@@ -338,7 +339,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		log.Warnf("failed to push records: %v", err)
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
-
+	done <- struct{}{}
 	err = errGroup.Wait()
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull records: %w", err)
@@ -386,7 +387,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
-	done <- struct{}{}
 
 	return res, nil
 }
