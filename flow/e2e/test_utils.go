@@ -19,7 +19,6 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -77,7 +76,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				log.Errorln(err)
+				slog.Error(err.Error())
 			}
 
 			if state.SnapshotComplete {
@@ -85,7 +84,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 		} else {
 			// log the error for informational purposes
-			log.Errorln(err)
+			slog.Error(err.Error())
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -106,7 +105,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				log.Errorln(err)
+				slog.Error(err.Error())
 			}
 
 			if len(state.NormalizeFlowStatuses) >= minCount {
@@ -115,7 +114,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 		} else {
 			// log the error for informational purposes
-			log.Errorln(err)
+			slog.Error(err.Error())
 		}
 		time.Sleep(1 * time.Second)
 	}

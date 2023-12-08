@@ -3,13 +3,13 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -98,7 +98,7 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 	defer func() {
 		deferErr := setupTx.Rollback(context.Background())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			logrus.Errorf("error rolling back setup transaction: %v", err)
+			slog.Error("error rolling back setup transaction", slog.Any("error", err))
 		}
 	}()
 
