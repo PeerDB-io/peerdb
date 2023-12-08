@@ -330,7 +330,7 @@ func (p *PostgresCDCSource) consumeStream(
 				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			p.logger.Warn(fmt.Sprintf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
+			p.logger.Debug(fmt.Sprintf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
 				pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested))
 
 			if pkm.ServerWALEnd > clientXLogPos {
