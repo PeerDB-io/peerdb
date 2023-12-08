@@ -9,24 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func (s *PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {
+func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {
 	err := e2e.CreateSourceTableQRep(s.pool, s.bqSuffix, tableName)
-	s.NoError(err)
+	require.NoError(s.t, err)
 	err = e2e.PopulateSourceTable(s.pool, s.bqSuffix, tableName, rowCount)
-	s.NoError(err)
+	require.NoError(s.t, err)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) setupBQDestinationTable(dstTable string) {
+func (s PeerFlowE2ETestSuiteBQ) setupBQDestinationTable(dstTable string) {
 	schema := e2e.GetOwnersSchema()
 	err := s.bqHelper.CreateTable(dstTable, schema)
 
 	// fail if table creation fails
-	require.NoError(s.T(), err)
+	require.NoError(s.t, err)
 
 	fmt.Printf("created table on bigquery: %s.%s. %v\n", s.bqHelper.Config.DatasetId, dstTable, err)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsString string) {
+func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsString string) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
@@ -34,20 +34,20 @@ func (s *PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsSt
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", colsString, s.bqSuffix, tableName),
 	)
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
 	fmt.Printf("running query on bigquery: %s\n", bqSelQuery)
 	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
-	s.NoError(err)
+	require.NoError(s.t, err)
 
-	s.True(pgRows.Equals(bqRows), "rows from source and destination tables are not equal")
+	s.True(pgRows.Equals(bqRows))
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
-	env := s.NewTestWorkflowEnvironment()
+func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env)
 
 	numRows := 10
@@ -65,17 +65,16 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		query,
 		s.bqHelper.Peer,
 		"")
-	s.NoError(err)
+	require.NoError(s.t, err)
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	s.compareTableContentsBQ(tblName, "*")
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }

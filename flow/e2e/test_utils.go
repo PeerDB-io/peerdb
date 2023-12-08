@@ -364,6 +364,18 @@ func GetOwnersSelectorString() string {
 	return strings.Join(fields, ",")
 }
 
+func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
+	testSuite := &testsuite.WorkflowTestSuite{}
+
+	logger := log.New()
+	logger.SetReportCaller(true)
+	logger.SetLevel(log.WarnLevel)
+	tLogger := NewTLogrusLogger(logger)
+
+	testSuite.SetLogger(tLogger)
+	return testSuite.NewTestWorkflowEnvironment()
+}
+
 // implement temporal logger interface with logrus
 //
 //	type Logger interface {
