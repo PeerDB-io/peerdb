@@ -86,7 +86,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
 
@@ -130,7 +129,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
 

@@ -132,7 +132,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	err := env.GetWorkflowError()
 
 	// assert that error contains "invalid connection configs"
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "invalid connection configs")
 
 	env.AssertExpectations(s.t)

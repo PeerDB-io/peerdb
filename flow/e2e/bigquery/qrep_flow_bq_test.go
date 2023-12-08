@@ -71,7 +71,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
 
