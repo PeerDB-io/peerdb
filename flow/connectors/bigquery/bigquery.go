@@ -251,8 +251,8 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 					schemaDelta.DstTableName, err)
 			}
-			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s to table %s", addedColumn.ColumnName,
-				addedColumn.ColumnType, schemaDelta.DstTableName))
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s to table %s",
+				addedColumn.ColumnName, addedColumn.ColumnType, schemaDelta.DstTableName))
 		}
 	}
 
@@ -752,7 +752,8 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 
 	stmts := []string{}
 	// append all the statements to one list
-	c.logger.Info(fmt.Sprintf("merge raw records to corresponding tables: %s %s %v", c.datasetID, rawTableName, distinctTableNames))
+	c.logger.Info(fmt.Sprintf("merge raw records to corresponding tables: %s %s %v",
+		c.datasetID, rawTableName, distinctTableNames))
 
 	release, err := c.grabJobsUpdateLock()
 	if err != nil {
