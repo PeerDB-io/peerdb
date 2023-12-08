@@ -195,7 +195,6 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 		case <-ticker.C:
 			err := a.handleSlotInfo(ctx, srcConn, slotName, peerName)
 			if err != nil {
-				time.Sleep(30 * time.Second)
 				return nil
 			}
 		case <-done:
