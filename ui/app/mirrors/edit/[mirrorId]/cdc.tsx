@@ -1,5 +1,6 @@
 'use client';
 
+import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CDCMirrorStatus,
@@ -271,13 +272,6 @@ const Trigger = styled(
     color: ${({ theme }) => theme.colors.accent.text.highContrast};
   }
 `;
-
-type SyncStatusRow = {
-  batchId: number;
-  startTime: Date;
-  endTime: Date | null;
-  numRows: number;
-};
 
 type CDCMirrorStatusProps = {
   cdc: CDCMirrorStatus;

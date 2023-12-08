@@ -1,4 +1,5 @@
 'use client';
+import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import MirrorInfo from '@/components/MirrorInfo';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
@@ -10,13 +11,6 @@ import { Label } from '@/lib/Label';
 import moment from 'moment';
 import MirrorValues from './configValues';
 import TablePairs from './tablePairs';
-
-type SyncStatusRow = {
-  batchId: number;
-  startTime: Date;
-  endTime: Date | null;
-  numRows: number;
-};
 
 type props = {
   syncs: SyncStatusRow[];
