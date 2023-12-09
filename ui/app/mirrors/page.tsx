@@ -68,17 +68,7 @@ export default async function Mirrors() {
         <Header
           variant='title2'
           slot={
-            <Button
-              as={Link}
-              style={{
-                width: '10%',
-                height: '2rem',
-                fontSize: 17,
-                boxShadow: '0px 2px 4px rgba(0,0,0,0.2)',
-              }}
-              href={'/mirrors/create'}
-              variant='normalSolid'
-            >
+            <Button as={Link} href={'/mirrors/create'} variant='normalSolid'>
               <div
                 style={{
                   display: 'flex',
