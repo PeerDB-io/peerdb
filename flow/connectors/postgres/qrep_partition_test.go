@@ -10,7 +10,6 @@ import (
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type testCase struct {
@@ -58,33 +57,6 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 		want:                  []*protos.QRepPartition{},
 		expectedNumPartitions: expectedNum,
 	}
-}
-
-func (tc *testCase) appendPartition(start time.Time, end time.Time) *testCase {
-	tsRange := &protos.PartitionRange_TimestampRange{
-		TimestampRange: &protos.TimestampPartitionRange{
-			Start: timestamppb.New(start),
-			End:   timestamppb.New(end),
-		},
-	}
-	tc.want = append(tc.want, &protos.QRepPartition{
-		PartitionId: "test_uuid",
-		Range: &protos.PartitionRange{
-			Range: tsRange,
-		},
-	})
-	return tc
-}
-
-func (tc *testCase) appendPartitions(start, end time.Time, numPartitions int) *testCase {
-	duration := end.Sub(start)
-	partitionDuration := duration / time.Duration(numPartitions)
-	for i := 0; i < numPartitions; i++ {
-		partitionStart := start.Add(time.Duration(i) * partitionDuration)
-		partitionEnd := start.Add(time.Duration(i+1) * partitionDuration)
-		tc.appendPartition(partitionStart, partitionEnd)
-	}
-	return tc
 }
 
 func TestGetQRepPartitions(t *testing.T) {

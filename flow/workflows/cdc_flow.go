@@ -280,12 +280,6 @@ func CDCFlowWorkflowWithConfig(
 		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 	}
 
-	heartbeatCancelCtx, cancelHeartbeat := workflow.WithCancel(ctx)
-	walHeartbeatCtx := workflow.WithActivityOptions(heartbeatCancelCtx, workflow.ActivityOptions{
-		StartToCloseTimeout: 7 * 24 * time.Hour,
-	})
-	workflow.ExecuteActivity(walHeartbeatCtx, flowable.SendWALHeartbeat, cfg)
-
 	syncFlowOptions := &protos.SyncFlowOptions{
 		BatchSize: int32(limits.MaxBatchSize),
 	}
@@ -442,9 +436,6 @@ func CDCFlowWorkflowWithConfig(
 		})
 		selector.Select(ctx)
 	}
-
-	// cancel the SendWalHeartbeat activity
-	defer cancelHeartbeat()
 
 	state.TruncateProgress()
 	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
