@@ -263,6 +263,7 @@ export interface SlotInfo {
   active: boolean;
   lagInMb: number;
   confirmedFlushLSN: string;
+  walStatus: string;
 }
 
 export interface StatInfo {
@@ -1984,7 +1985,7 @@ export const PostgresPeerActivityInfoRequest = {
 };
 
 function createBaseSlotInfo(): SlotInfo {
-  return { slotName: "", redoLSN: "", restartLSN: "", active: false, lagInMb: 0, confirmedFlushLSN: "" };
+  return { slotName: "", redoLSN: "", restartLSN: "", active: false, lagInMb: 0, confirmedFlushLSN: "", walStatus: "" };
 }
 
 export const SlotInfo = {
@@ -2006,6 +2007,9 @@ export const SlotInfo = {
     }
     if (message.confirmedFlushLSN !== "") {
       writer.uint32(50).string(message.confirmedFlushLSN);
+    }
+    if (message.walStatus !== "") {
+      writer.uint32(58).string(message.walStatus);
     }
     return writer;
   },
@@ -2059,6 +2063,13 @@ export const SlotInfo = {
 
           message.confirmedFlushLSN = reader.string();
           continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.walStatus = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2076,6 +2087,7 @@ export const SlotInfo = {
       active: isSet(object.active) ? Boolean(object.active) : false,
       lagInMb: isSet(object.lagInMb) ? Number(object.lagInMb) : 0,
       confirmedFlushLSN: isSet(object.confirmedFlushLSN) ? String(object.confirmedFlushLSN) : "",
+      walStatus: isSet(object.walStatus) ? String(object.walStatus) : "",
     };
   },
 
@@ -2099,6 +2111,9 @@ export const SlotInfo = {
     if (message.confirmedFlushLSN !== "") {
       obj.confirmedFlushLSN = message.confirmedFlushLSN;
     }
+    if (message.walStatus !== "") {
+      obj.walStatus = message.walStatus;
+    }
     return obj;
   },
 
@@ -2113,6 +2128,7 @@ export const SlotInfo = {
     message.active = object.active ?? false;
     message.lagInMb = object.lagInMb ?? 0;
     message.confirmedFlushLSN = object.confirmedFlushLSN ?? "";
+    message.walStatus = object.walStatus ?? "";
     return message;
   },
 };

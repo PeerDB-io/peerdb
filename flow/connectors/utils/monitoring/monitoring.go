@@ -257,7 +257,7 @@ func (c *CatalogMirrorMonitor) AppendSlotSizeInfo(
 
 	_, err := c.catalogConn.Exec(ctx,
 		"INSERT INTO peerdb_stats.peer_slot_size"+
-			"(peer_name, slot_name, restart_lsn, redo_lsn, confirmed_flush_lsn, slot_size) "+
+			"(peer_name, slot_name, restart_lsn, redo_lsn, confirmed_flush_lsn, slot_size, wal_status) "+
 			"VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING;",
 		peerName,
 		slotInfo.SlotName,
@@ -265,6 +265,7 @@ func (c *CatalogMirrorMonitor) AppendSlotSizeInfo(
 		slotInfo.RedoLSN,
 		slotInfo.ConfirmedFlushLSN,
 		slotInfo.LagInMb,
+		slotInfo.WalStatus,
 	)
 	if err != nil {
 		return fmt.Errorf("error while upserting row for slot_size: %w", err)
