@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 )
@@ -46,6 +47,9 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	runtimeParams["application_name"] = "peerdb_query_executor"
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
+
+	// set pool size to 3 to avoid connection pool exhaustion
+	connConfig.MaxConns = 3
 
 	pool, err := pgxpool.NewWithConfig(ctx, connConfig)
 	if err != nil {
@@ -167,18 +171,18 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 		log.Infof("No row found for job %s, returning nil", jobName)
 		return nil, nil
 	}
-	var result int64
+	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
-	if result == 0 {
+	if result.Int64 == 0 {
 		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
 		return nil, nil
 	}
 
 	return &protos.LastSyncState{
-		Checkpoint: result,
+		Checkpoint: result.Int64,
 	}, nil
 }
 

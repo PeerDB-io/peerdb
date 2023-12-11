@@ -13,6 +13,7 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
@@ -36,14 +37,14 @@ func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, tas
 }
 
 func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (int32, int32, error) {
-	var id int32
-	var peerType int32
+	var id pgtype.Int4
+	var peerType pgtype.Int4
 	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
 	if err != nil {
 		log.Errorf("unable to query peer id for peer %s: %s", peerName, err.Error())
 		return -1, -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
 	}
-	return id, peerType, nil
+	return id.Int32, peerType.Int32, nil
 }
 
 func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
@@ -639,7 +640,7 @@ func (h *FlowRequestHandler) DropPeer(
 		}, fmt.Errorf("failed to obtain peer ID for peer %s: %v", req.PeerName, err)
 	}
 
-	var inMirror int64
+	var inMirror pgtype.Int8
 	queryErr := h.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM flows WHERE source_peer=$1 or destination_peer=$2",
 		peerID, peerID).Scan(&inMirror)
@@ -650,7 +651,7 @@ func (h *FlowRequestHandler) DropPeer(
 		}, fmt.Errorf("failed to check for existing mirrors with peer %s", req.PeerName)
 	}
 
-	if inMirror != 0 {
+	if inMirror.Int64 != 0 {
 		return &protos.DropPeerResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("Peer %s is currently involved in an ongoing mirror.", req.PeerName),

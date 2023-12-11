@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -77,12 +78,12 @@ func (suite *PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 
 	// Iterate over the publications and drop them
 	for rows.Next() {
-		var pubname string
+		var pubname pgtype.Text
 		err := rows.Scan(&pubname)
 		require.NoError(suite.T(), err)
 
 		// Drop the publication in a new transaction
-		_, err = suite.connector.pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubname))
+		_, err = suite.connector.pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubname.String))
 		require.NoError(suite.T(), err)
 	}
 

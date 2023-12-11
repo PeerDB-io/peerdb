@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/jackc/pgx/v5/pgtype"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -109,12 +110,12 @@ func (c *SnowflakeConnector) isPartitionSynced(partitionID string) (bool, error)
 
 	row := c.database.QueryRow(queryString)
 
-	var count int
+	var count pgtype.Int8
 	if err := row.Scan(&count); err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	return count > 0, nil
+	return count.Int64 > 0, nil
 }
 
 func (c *SnowflakeConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
@@ -315,12 +316,12 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnIn
 
 	columnMap := map[string]string{}
 	for rows.Next() {
-		var colName string
-		var colType string
+		var colName pgtype.Text
+		var colType pgtype.Text
 		if err := rows.Scan(&colName, &colType); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		columnMap[colName] = colType
+		columnMap[colName.String] = colType.String
 	}
 	var cols []string
 	for k := range columnMap {

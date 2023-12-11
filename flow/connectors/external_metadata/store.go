@@ -7,6 +7,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 )
@@ -76,14 +77,14 @@ func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 	// check if schema exists
 	rows := p.pool.QueryRow(p.ctx, "SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname = $1", p.schemaName)
 
-	var exists int64
+	var exists pgtype.Int8
 	err := rows.Scan(&exists)
 	if err != nil {
 		log.Errorf("failed to check if schema exists: %v", err)
 		return false
 	}
 
-	if exists > 0 {
+	if exists.Int64 > 0 {
 		return true
 	}
 
@@ -136,7 +137,7 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyn
 		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
 		WHERE job_name = $1
 	`, jobName)
-	var offset int64
+	var offset pgtype.Int8
 	err := rows.Scan(&offset)
 	if err != nil {
 		// if the job doesn't exist, return 0
@@ -152,10 +153,10 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyn
 		return nil, err
 	}
 
-	log.Infof("got last offset for job `%s`: %d", jobName, offset)
+	log.Infof("got last offset for job `%s`: %d", jobName, offset.Int64)
 
 	return &protos.LastSyncState{
-		Checkpoint: offset,
+		Checkpoint: offset.Int64,
 	}, nil
 }
 
@@ -166,7 +167,7 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 		WHERE job_name = $1
 	`, jobName)
 
-	var syncBatchID int64
+	var syncBatchID pgtype.Int8
 	err := rows.Scan(&syncBatchID)
 	if err != nil {
 		// if the job doesn't exist, return 0
@@ -180,9 +181,9 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 		return 0, err
 	}
 
-	log.Infof("got last sync batch ID for job `%s`: %d", jobName, syncBatchID)
+	log.Infof("got last sync batch ID for job `%s`: %d", jobName, syncBatchID.Int64)
 
-	return syncBatchID, nil
+	return syncBatchID.Int64, nil
 }
 
 // update offset for a job

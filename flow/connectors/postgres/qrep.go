@@ -113,23 +113,23 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		row = tx.QueryRow(c.ctx, countQuery)
 	}
 
-	var totalRows int64
+	var totalRows pgtype.Int8
 	if err = row.Scan(&totalRows); err != nil {
 		return nil, fmt.Errorf("failed to query for total rows: %w", err)
 	}
 
-	if totalRows == 0 {
+	if totalRows.Int64 == 0 {
 		log.Warnf("no records to replicate for flow job %s, returning", config.FlowJobName)
 		return make([]*protos.QRepPartition, 0), nil
 	}
 
 	// Calculate the number of partitions
-	numPartitions := totalRows / numRowsPerPartition
-	if totalRows%numRowsPerPartition != 0 {
+	numPartitions := totalRows.Int64 / numRowsPerPartition
+	if totalRows.Int64%numRowsPerPartition != 0 {
 		numPartitions++
 	}
 	log.Infof("total rows: %d, num partitions: %d, num rows per partition: %d",
-		totalRows, numPartitions, numRowsPerPartition)
+		totalRows.Int64, numPartitions, numRowsPerPartition)
 
 	// Query to get partitions using window functions
 	var rows pgx.Rows
@@ -174,7 +174,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 	partitionHelper := partition_utils.NewPartitionHelper()
 	for rows.Next() {
-		var bucket int64
+		var bucket pgtype.Int8
 		var start, end interface{}
 		if err := rows.Scan(&bucket, &start, &end); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)

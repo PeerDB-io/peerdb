@@ -9,6 +9,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 )
@@ -42,7 +43,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	//nolint:gosec
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
 	var minVal interface{} = nil
-	var totalRows int64
+	var totalRows pgtype.Int8
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -74,18 +75,18 @@ func (c *SQLServerConnector) GetQRepPartitions(
 		}
 	}
 
-	if totalRows == 0 {
+	if totalRows.Int64 == 0 {
 		log.Warnf("no records to replicate for flow job %s, returning", config.FlowJobName)
 		return make([]*protos.QRepPartition, 0), nil
 	}
 
 	// Calculate the number of partitions
-	numPartitions := totalRows / numRowsPerPartition
-	if totalRows%numRowsPerPartition != 0 {
+	numPartitions := totalRows.Int64 / numRowsPerPartition
+	if totalRows.Int64%numRowsPerPartition != 0 {
 		numPartitions++
 	}
 	log.Infof("total rows: %d, num partitions: %d, num rows per partition: %d",
-		totalRows, numPartitions, numRowsPerPartition)
+		totalRows.Int64, numPartitions, numRowsPerPartition)
 	var rows *sqlx.Rows
 	if minVal != nil {
 		// Query to get partitions using window functions
@@ -135,7 +136,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 	partitionHelper := utils.NewPartitionHelper()
 	for rows.Next() {
-		var bucket int64
+		var bucket pgtype.Int8
 		var start, end interface{}
 		if err := rows.Scan(&bucket, &start, &end); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)

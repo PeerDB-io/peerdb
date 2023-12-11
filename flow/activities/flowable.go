@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
@@ -713,7 +714,6 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 }
 
 func getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
-	var peerOptions sql.RawBytes
 	catalogPool, catalogErr := catalog.GetCatalogConnectionPoolFromEnv()
 	if catalogErr != nil {
 		return nil, fmt.Errorf("error getting catalog connection pool: %w", catalogErr)
@@ -729,8 +729,9 @@ func getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
 		return nil, err
 	}
 	defer optionRows.Close()
-	var peerName string
+	var peerName pgtype.Text
 	var postgresPeers []*protos.Peer
+	var peerOptions sql.RawBytes
 	for optionRows.Next() {
 		err := optionRows.Scan(&peerName, &peerOptions)
 		if err != nil {
@@ -742,7 +743,7 @@ func getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
 			return nil, unmarshalErr
 		}
 		postgresPeers = append(postgresPeers, &protos.Peer{
-			Name:   peerName,
+			Name:   peerName.String,
 			Type:   protos.DBType_POSTGRES,
 			Config: &protos.Peer_PostgresConfig{PostgresConfig: &pgPeerConfig},
 		})
