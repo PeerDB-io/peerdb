@@ -404,13 +404,9 @@ func NewTStructuredLogger(logger slog.Logger) *TStructuredLogger {
 
 func (l *TStructuredLogger) keyvalsToFields(keyvals []interface{}) slog.Attr {
 	var attrs []any
-	for i := 0; i < len(keyvals); i += 2 {
+	for i := 0; i < len(keyvals); i += 1 {
 		key := fmt.Sprintf("%v", keyvals[i])
-		value := fmt.Sprintf("%v", keyvals[i+1])
-		if i+1 < len(keyvals) {
-			attrs = append(attrs, key)
-			attrs = append(attrs, value)
-		}
+		attrs = append(attrs, key)
 	}
 	return slog.Group("test-log", attrs...)
 }
