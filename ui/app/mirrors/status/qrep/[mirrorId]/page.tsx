@@ -35,7 +35,8 @@ export default async function QRepMirrorStatus({
       runUuid: run.run_uuid,
       startTime: run.start_time,
       endTime: run.end_time,
-      numRows: run.rows_in_partition,
+      pulledRows: run.rows_in_partition,
+      syncedRows: run.rows_synced,
       status: '',
     };
     return ret;
@@ -50,7 +51,7 @@ export default async function QRepMirrorStatus({
           partitionID: partition.partitionId,
           startTime: partition.startTime,
           endTime: partition.endTime,
-          numRows: partition.numRows,
+          numRows: partition.pulledRows,
         }))}
       />
       <br></br>
