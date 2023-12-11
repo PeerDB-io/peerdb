@@ -37,12 +37,6 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 		return fmt.Errorf("failed to drop e2e_test schema: %w", err)
 	}
 
-	// drop the S3 metadata database if it exists
-	_, err = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS peerdb_s3_metadata CASCADE")
-	if err != nil {
-		return fmt.Errorf("failed to drop metadata schema: %w", err)
-	}
-
 	// drop all open slots with the given suffix
 	_, err = pool.Exec(
 		context.Background(),
