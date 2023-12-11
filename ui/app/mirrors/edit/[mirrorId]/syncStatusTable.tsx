@@ -118,7 +118,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
             >
               <Icon name='refresh' />
             </Button>
-            <div style={{ width: '10em' }}>
+            <div style={{ minWidth: '10em' }}>
               <ReactSelect
                 options={sortOptions}
                 value={{

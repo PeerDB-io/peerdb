@@ -170,7 +170,7 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
               >
                 <Icon name='refresh' />
               </Button>
-              <div style={{ width: '10em' }}>
+              <div style={{ minWidth: '10em' }}>
                 <ReactSelect
                   options={sortOptions}
                   onChange={(val, _) => {
