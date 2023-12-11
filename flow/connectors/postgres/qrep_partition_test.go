@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -163,9 +164,10 @@ func TestGetQRepPartitions(t *testing.T) {
 	// Run the test cases
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			getPartitionCtx := context.WithValue(context.Background(), shared.FlowNameKey, "testGetQRepPartitions")
 			c := &PostgresConnector{
 				connStr: connStr,
-				ctx:     context.Background(),
+				ctx:     getPartitionCtx,
 				config:  &protos.PostgresConfig{},
 				pool:    pool,
 			}

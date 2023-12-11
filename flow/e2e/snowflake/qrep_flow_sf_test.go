@@ -155,7 +155,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf",
-		s.attachSuffix(tblName),
+		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
 		s.sfHelper.Peer,
@@ -242,7 +242,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf_int",
-		s.attachSuffix(tblName),
+		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
 
