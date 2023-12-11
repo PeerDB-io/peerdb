@@ -182,10 +182,10 @@ const SchemaBox = ({
                     row.schema === schema &&
                     row.source.toLowerCase().includes(tableQuery.toLowerCase())
                 )
-                .map((row, index) => {
+                .map((row) => {
                   const columns = getTableColumns(row.source);
                   return (
-                    <div key={index} style={tableBoxStyle}>
+                    <div key={row.source} style={tableBoxStyle}>
                       <div
                         style={{
                           display: 'flex',
@@ -222,6 +222,7 @@ const SchemaBox = ({
                             style={{
                               fontSize: 12,
                               marginTop: '0.5rem',
+                              cursor: 'pointer'
                             }}
                             variant='simple'
                             placeholder={'Enter target table'}
@@ -242,13 +243,13 @@ const SchemaBox = ({
                             Columns
                           </Label>
                           {columns ? (
-                            columns.map((column, index) => {
+                            columns.map((column) => {
                               const columnName = column.split(':')[0];
                               const columnType = column.split(':')[1];
                               const isPkey = column.split(':')[2] === 'true';
                               return (
                                 <RowWithCheckbox
-                                  key={index}
+                                  key={column}
                                   label={
                                     <Label
                                       as='label'
@@ -257,7 +258,7 @@ const SchemaBox = ({
                                         display: 'flex',
                                       }}
                                     >
-                                      {columnName}{' '}
+                                      {columnName}
                                       <p
                                         style={{
                                           marginLeft: '0.5rem',
