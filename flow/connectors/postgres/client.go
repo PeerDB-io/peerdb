@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 )
@@ -218,10 +219,10 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 		var redoLSN string
 		var slotName string
 		var restartLSN string
-		var walStatus string
 		var confirmedFlushLSN string
 		var active bool
 		var lagInMB float32
+		var walStatus pgtype.Text
 		err := rows.Scan(&slotName, &redoLSN, &restartLSN, &walStatus, &confirmedFlushLSN, &active, &lagInMB)
 		if err != nil {
 			return nil, err
@@ -230,7 +231,7 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
 			RedoLSN:           redoLSN,
 			RestartLSN:        restartLSN,
-			WalStatus:         walStatus,
+			WalStatus:         walStatus.String,
 			ConfirmedFlushLSN: confirmedFlushLSN,
 			SlotName:          slotName,
 			Active:            active,
