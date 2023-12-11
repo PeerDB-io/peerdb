@@ -22,7 +22,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
@@ -170,7 +169,7 @@ func (a *FlowableActivity) handleSlotInfo(
 ) error {
 	slotInfo, err := srcConn.GetSlotInfo(slotName)
 	if err != nil {
-		log.Warnf("warning: failed to get slot info: %v", err)
+		slog.Warn("warning: failed to get slot info", slog.Any("error", err))
 		return err
 	}
 

@@ -4,19 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/ysmood/got"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -52,16 +49,6 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 	})
 }
 
-func (s *PeerFlowE2ETestSuiteSF) setupTemporalLogger() {
-	logger := slog.New(logger.NewHandler(
-		slog.NewJSONHandler(
-			os.Stdout,
-			&slog.HandlerOptions{Level: slog.LevelWarn},
-		)))
-	tlogger := e2e.NewTStructuredLogger(*logger)
-	s.SetLogger(tlogger)
-}
-
 func (s PeerFlowE2ETestSuiteSF) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, s.pgSuffix)
 }
@@ -74,21 +61,19 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	s.setupTemporalLogger()
-
 	suffix := util.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	pgSuffix := fmt.Sprintf("sf_%s_%s", strings.ToLower(suffix), tsSuffix)
 
 	pool, err := e2e.SetupPostgres(pgSuffix)
 	if err != nil || pool == nil {
-		log.Errorf("failed to setup Postgres: %v", err)
+		slog.Error("failed to setup Postgres", slog.Any("error", err))
 		g.FailNow()
 	}
 
 	sfHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
-		log.Errorf("failed to setup Snowflake: %v", err)
+		slog.Error("failed to setup Snowflake", slog.Any("error", err))
 		g.FailNow()
 	}
 
@@ -114,14 +99,14 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 func (s PeerFlowE2ETestSuiteSF) tearDownSuite() {
 	err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
 	if err != nil {
-		log.Errorf("failed to tear down Postgres: %v", err)
+		slog.Error("failed to tear down Postgres", slog.Any("error", err))
 		s.FailNow()
 	}
 
 	if s.sfHelper != nil {
 		err = s.sfHelper.Cleanup()
 		if err != nil {
-			log.Errorf("failed to tear down Snowflake: %v", err)
+			slog.Error("failed to tear down Snowflake", slog.Any("error", err))
 			s.FailNow()
 		}
 	}
@@ -129,7 +114,7 @@ func (s PeerFlowE2ETestSuiteSF) tearDownSuite() {
 	err = s.connector.Close()
 
 	if err != nil {
-		log.Errorf("failed to close Snowflake connector: %v", err)
+		slog.Error("failed to close Snowflake connector", slog.Any("error", err))
 		s.FailNow()
 	}
 }
@@ -138,7 +123,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_simple_flow_sf")
+	srcTableName := s.attachSuffix("test_simple_flow_sf")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_flow_sf")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -213,7 +198,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_invalid_geo_sf_avro_cdc")
+	srcTableName := s.attachSuffix("test_invalid_geo_sf_avro_cdc")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_invalid_geo_sf_avro_cdc")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -298,7 +283,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_1")
+	srcTableName := s.attachSuffix("test_toast_sf_1")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_1")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -365,7 +350,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_2")
+	srcTableName := s.attachSuffix("test_toast_sf_2")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_2")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -377,7 +362,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
     );
 `, srcTableName))
 	slog.Info(fmt.Sprintf("Creating table '%s', err: %v", srcTableName, err))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_sf_2"),
@@ -408,7 +393,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 		`, srcTableName, srcTableName))
 
 		if err != nil {
-			log.Errorf("Error executing transaction: %v", err)
+			slog.Error("Error executing transaction", slog.Any("error", err))
 			s.FailNow()
 		}
 
@@ -434,7 +419,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_3")
+	srcTableName := s.attachSuffix("test_toast_sf_3")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_3")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -507,7 +492,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_4")
+	srcTableName := s.attachSuffix("test_toast_sf_4")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_4")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -573,7 +558,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_toast_sf_5")
+	srcTableName := s.attachSuffix("test_toast_sf_5")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_toast_sf_5")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -639,7 +624,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_types_sf")
+	srcTableName := s.attachSuffix("test_types_sf")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_types_sf")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -716,8 +701,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTable1Name := s.attachSchemaSuffix("test1_sf")
-	srcTable2Name := s.attachSchemaSuffix("test2_sf")
+	srcTable1Name := s.attachSuffix("test1_sf")
+	srcTable2Name := s.attachSuffix("test2_sf")
 	dstTable1Name := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test1_sf")
 	dstTable2Name := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test2_sf")
 
@@ -775,7 +760,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
+	srcTableName := s.attachSuffix("test_simple_schema_changes")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_schema_changes")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -935,7 +920,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
+	srcTableName := s.attachSuffix("test_simple_cpkey")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_simple_cpkey")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1008,7 +993,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
+	srcTableName := s.attachSuffix("test_cpkey_toast1")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_cpkey_toast1")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1084,7 +1069,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
+	srcTableName := s.attachSuffix("test_cpkey_toast2")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_cpkey_toast2")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1156,7 +1141,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_exclude_sf")
+	srcTableName := s.attachSuffix("test_exclude_sf")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_exclude_sf")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1238,7 +1223,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	cmpTableName := s.attachSchemaSuffix("test_softdel")
+	cmpTableName := s.attachSuffix("test_softdel")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel")
 
@@ -1324,7 +1309,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
+	cmpTableName := s.attachSuffix("test_softdel_iud")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_iud")
 
@@ -1406,7 +1391,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
+	cmpTableName := s.attachSuffix("test_softdel_ud")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_ud")
 
@@ -1492,7 +1477,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
-	srcTableName := s.attachSchemaSuffix("test_softdel_iad")
+	srcTableName := s.attachSuffix("test_softdel_iad")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_iad")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`

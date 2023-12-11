@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
@@ -374,10 +375,12 @@ func GetOwnersSelectorString() string {
 func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
 	testSuite := &testsuite.WorkflowTestSuite{}
 
-	logger := log.New()
-	logger.SetReportCaller(true)
-	logger.SetLevel(log.WarnLevel)
-	tLogger := NewTLogrusLogger(logger)
+	logger := slog.New(logger.NewHandler(
+		slog.NewJSONHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelWarn},
+		)))
+	tLogger := NewTStructuredLogger(*logger)
 
 	testSuite.SetLogger(tLogger)
 	return testSuite.NewTestWorkflowEnvironment()

@@ -3,12 +3,12 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/sirupsen/logrus"
 	"github.com/ysmood/got"
 )
 
@@ -24,7 +24,7 @@ type SnowflakeSchemaDeltaTestSuite struct {
 
 func (suite SnowflakeSchemaDeltaTestSuite) failTestError(err error) {
 	if err != nil {
-		logrus.Errorf("Error in test: %v", err)
+		slog.Error("Error in test", slog.Any("error", err))
 		suite.FailNow()
 	}
 }
@@ -35,7 +35,7 @@ func setupSchemaDeltaSuite(
 ) SnowflakeSchemaDeltaTestSuite {
 	sfTestHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
-		logrus.Errorf("Error in test: %v", err)
+		slog.Error("Error in test", slog.Any("error", err))
 		t.FailNow()
 	}
 
@@ -44,7 +44,7 @@ func setupSchemaDeltaSuite(
 		sfTestHelper.Config,
 	)
 	if err != nil {
-		logrus.Errorf("Error in test: %v", err)
+		slog.Error("Error in test", slog.Any("error", err))
 		t.FailNow()
 	}
 
