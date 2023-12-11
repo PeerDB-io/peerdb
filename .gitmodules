@@ -1,3 +1,0 @@
-[submodule "nexus/sqlparser-rs"]
-	path = nexus/sqlparser-rs
-	url = https://github.com/PeerDB-io/sqlparser-rs.git

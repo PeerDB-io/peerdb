@@ -11,6 +11,6 @@ async-trait = "0.1"
 futures = "0.3"
 pgerror = { path = "../pgerror" }
 pgwire = "0.17"
-sqlparser = { path = "../sqlparser-rs" }
+sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git" }
 tokio = { version = "1.0", features = ["full"] }
 value = { path = "../value" }

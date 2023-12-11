@@ -50,7 +50,7 @@ peerdb-parser = { path = "../parser" }
 pgwire = "0.17"
 prost = "0.12"
 pt = { path = "../pt" }
-sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }
+sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", features = ["visitor"] }
 serde_json = "1.0"
 rand = "0.8"
 time = "0.3"
