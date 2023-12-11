@@ -153,7 +153,7 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyn
 		return nil, err
 	}
 
-	log.Infof("got last offset for job `%s`: %d", jobName, offset)
+	log.Infof("got last offset for job `%s`: %d", jobName, offset.Int64)
 
 	return &protos.LastSyncState{
 		Checkpoint: offset.Int64,
@@ -181,7 +181,7 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 		return 0, err
 	}
 
-	log.Infof("got last sync batch ID for job `%s`: %d", jobName, syncBatchID)
+	log.Infof("got last sync batch ID for job `%s`: %d", jobName, syncBatchID.Int64)
 
 	return syncBatchID.Int64, nil
 }

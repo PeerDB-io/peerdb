@@ -182,5 +182,5 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 	err = s.pool.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	s.NoError(err)
 
-	s.Equal(numRows, numRowsInDest.Int64)
+	s.Equal(numRows, int(numRowsInDest.Int64))
 }
