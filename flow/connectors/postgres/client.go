@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 )
@@ -205,7 +206,8 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 	if slotName != "" {
 		specificSlotClause = fmt.Sprintf(" WHERE slot_name = '%s'", slotName)
 	}
-	rows, err := c.pool.Query(c.ctx, "SELECT slot_name, redo_lsn::Text,restart_lsn::text,confirmed_flush_lsn::text,active,"+
+	rows, err := c.pool.Query(c.ctx, "SELECT slot_name, redo_lsn::Text,restart_lsn::text,wal_status,"+
+		"confirmed_flush_lsn::text,active,"+
 		"round((pg_current_wal_lsn() - confirmed_flush_lsn) / 1024 / 1024) AS MB_Behind"+
 		" FROM pg_control_checkpoint(), pg_replication_slots"+specificSlotClause+";")
 	if err != nil {
@@ -220,7 +222,8 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 		var confirmedFlushLSN string
 		var active bool
 		var lagInMB float32
-		err := rows.Scan(&slotName, &redoLSN, &restartLSN, &confirmedFlushLSN, &active, &lagInMB)
+		var walStatus pgtype.Text
+		err := rows.Scan(&slotName, &redoLSN, &restartLSN, &walStatus, &confirmedFlushLSN, &active, &lagInMB)
 		if err != nil {
 			return nil, err
 		}
@@ -228,6 +231,7 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
 			RedoLSN:           redoLSN,
 			RestartLSN:        restartLSN,
+			WalStatus:         walStatus.String,
 			ConfirmedFlushLSN: confirmedFlushLSN,
 			SlotName:          slotName,
 			Active:            active,

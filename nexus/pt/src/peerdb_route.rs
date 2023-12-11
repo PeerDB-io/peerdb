@@ -196,6 +196,8 @@ pub struct SlotInfo {
     pub lag_in_mb: f32,
     #[prost(string, tag="6")]
     pub confirmed_flush_l_sn: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub wal_status: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

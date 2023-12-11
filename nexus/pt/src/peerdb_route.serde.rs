@@ -3213,6 +3213,9 @@ impl serde::Serialize for SlotInfo {
         if !self.confirmed_flush_l_sn.is_empty() {
             len += 1;
         }
+        if !self.wal_status.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_route.SlotInfo", len)?;
         if !self.slot_name.is_empty() {
             struct_ser.serialize_field("slotName", &self.slot_name)?;
@@ -3231,6 +3234,9 @@ impl serde::Serialize for SlotInfo {
         }
         if !self.confirmed_flush_l_sn.is_empty() {
             struct_ser.serialize_field("confirmedFlushLSN", &self.confirmed_flush_l_sn)?;
+        }
+        if !self.wal_status.is_empty() {
+            struct_ser.serialize_field("walStatus", &self.wal_status)?;
         }
         struct_ser.end()
     }
@@ -3253,6 +3259,8 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
             "lagInMb",
             "confirmed_flush_lSN",
             "confirmedFlushLSN",
+            "wal_status",
+            "walStatus",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3263,6 +3271,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
             Active,
             LagInMb,
             ConfirmedFlushLSn,
+            WalStatus,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3291,6 +3300,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
                             "active" => Ok(GeneratedField::Active),
                             "lagInMb" | "lag_in_mb" => Ok(GeneratedField::LagInMb),
                             "confirmedFlushLSN" | "confirmed_flush_lSN" => Ok(GeneratedField::ConfirmedFlushLSn),
+                            "walStatus" | "wal_status" => Ok(GeneratedField::WalStatus),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3316,6 +3326,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
                 let mut active__ = None;
                 let mut lag_in_mb__ = None;
                 let mut confirmed_flush_l_sn__ = None;
+                let mut wal_status__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::SlotName => {
@@ -3356,6 +3367,12 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
                             }
                             confirmed_flush_l_sn__ = Some(map.next_value()?);
                         }
+                        GeneratedField::WalStatus => {
+                            if wal_status__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("walStatus"));
+                            }
+                            wal_status__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3368,6 +3385,7 @@ impl<'de> serde::Deserialize<'de> for SlotInfo {
                     active: active__.unwrap_or_default(),
                     lag_in_mb: lag_in_mb__.unwrap_or_default(),
                     confirmed_flush_l_sn: confirmed_flush_l_sn__.unwrap_or_default(),
+                    wal_status: wal_status__.unwrap_or_default(),
                 })
             }
         }
