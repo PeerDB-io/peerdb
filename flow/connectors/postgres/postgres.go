@@ -185,7 +185,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
+		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
 		return nil, nil
 	}
 

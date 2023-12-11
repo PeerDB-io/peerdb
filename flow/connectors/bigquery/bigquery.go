@@ -305,12 +305,12 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
-		c.logger.Info(fmt.Sprintf("no row found for job %s, returning nil", jobName))
+		c.logger.Info("no row found, returning nil")
 		return nil, nil
 	}
 
 	if row[0] == nil {
-		c.logger.Info(fmt.Sprintf("no offset found for job %s, returning nil", jobName))
+		c.logger.Info("no offset found, returning nil")
 		return nil, nil
 	} else {
 		return &protos.LastSyncState{
@@ -332,12 +332,12 @@ func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
-		c.logger.Info(fmt.Sprintf("no row found for job %s", jobName))
+		c.logger.Info("no row found")
 		return 0, nil
 	}
 
 	if row[0] == nil {
-		c.logger.Info(fmt.Sprintf("no sync_batch_id found for job %s, returning 0", jobName))
+		c.logger.Info("no sync_batch_id found, returning 0")
 		return 0, nil
 	} else {
 		return row[0].(int64), nil
@@ -733,7 +733,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	// if job is not yet found in the peerdb_mirror_jobs_table
 	// OR sync is lagging end normalize
 	if !hasJob || normalizeBatchID == syncBatchID {
-		c.logger.Info(fmt.Sprintf("waiting for sync to catch up for job %s, so finishing", req.FlowJobName))
+		c.logger.Info("waiting for sync to catch up, so finishing")
 		return &model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normalizeBatchID,

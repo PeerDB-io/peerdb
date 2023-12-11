@@ -316,7 +316,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		PushParallelism: input.FlowConnectionConfigs.PushParallelism,
 	})
 	if err != nil {
-		slog.Warn(fmt.Sprintf("failed to push records %v", err))
+		slog.Warn("failed to push records", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to push records: %w", err)
 	}
 
