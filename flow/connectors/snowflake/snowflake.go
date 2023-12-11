@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/jackc/pgx/v5/pgtype"
 	log "github.com/sirupsen/logrus"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
@@ -259,19 +260,19 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 		Columns:         make(map[string]string),
 	}
 
-	var columnName, columnType string
+	var columnName, columnType pgtype.Text
 	for rows.Next() {
 		err = rows.Scan(&columnName, &columnType)
 		if err != nil {
 			return nil, fmt.Errorf("error reading row for schema of table %s: %w", tableName, err)
 		}
-		genericColType, err := snowflakeTypeToQValueKind(columnType)
+		genericColType, err := snowflakeTypeToQValueKind(columnType.String)
 		if err != nil {
 			// we use string for invalid types
 			genericColType = qvalue.QValueKindString
 		}
 
-		res.Columns[columnName] = string(genericColType)
+		res.Columns[columnName.String] = string(genericColType)
 	}
 
 	return res, nil
@@ -295,17 +296,17 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 		log.Warnf("No row found for job %s, returning nil", jobName)
 		return nil, nil
 	}
-	var result int64
+	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
-	if result == 0 {
+	if result.Int64 == 0 {
 		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
 		return nil, nil
 	}
 	return &protos.LastSyncState{
-		Checkpoint: result,
+		Checkpoint: result.Int64,
 	}, nil
 }
 
@@ -316,7 +317,7 @@ func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 		return 0, fmt.Errorf("error querying Snowflake peer for last syncBatchId: %w", err)
 	}
 
-	var result int64
+	var result pgtype.Int8
 	if !rows.Next() {
 		log.Warnf("No row found for job %s, returning 0", jobName)
 		return 0, nil
@@ -325,7 +326,7 @@ func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
-	return result, nil
+	return result.Int64, nil
 }
 
 func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
@@ -335,7 +336,7 @@ func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, err
 		return 0, fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
 	}
 
-	var result int64
+	var result pgtype.Int8
 	if !rows.Next() {
 		log.Warnf("No row found for job %s, returning 0", jobName)
 		return 0, nil
@@ -344,7 +345,7 @@ func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, err
 	if err != nil {
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
-	return result, nil
+	return result.Int64, nil
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -357,14 +358,14 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}
 
-	var result string
+	var result pgtype.Text
 	destinationTableNames := make([]string, 0)
 	for rows.Next() {
 		err = rows.Scan(&result)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
-		destinationTableNames = append(destinationTableNames, result)
+		destinationTableNames = append(destinationTableNames, result.String)
 	}
 	return destinationTableNames, nil
 }
@@ -706,13 +707,13 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	}()
 
 	row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, c.metadataSchema)
-	var schemaExists bool
+	var schemaExists pgtype.Bool
 	err = row.Scan(&schemaExists)
 	if err != nil {
 		return fmt.Errorf("unable to check if internal schema exists: %w", err)
 	}
 
-	if schemaExists {
+	if schemaExists.Bool {
 		_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
 			getRawTableIdentifier(jobName)))
 		if err != nil {
@@ -745,13 +746,13 @@ func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableId
 	}
 
 	// this query is guaranteed to return exactly one row
-	var result bool
+	var result pgtype.Bool
 	rows.Next()
 	err = rows.Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
-	return result, nil
+	return result.Bool, nil
 }
 
 func generateCreateTableSQLForNormalizedTable(
@@ -941,13 +942,13 @@ func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
 		return false, fmt.Errorf("failed to check if job exists: %w", err)
 	}
 
-	var result bool
+	var result pgtype.Bool
 	rows.Next()
 	err = rows.Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
-	return result, nil
+	return result.Bool, nil
 }
 
 func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64,

@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
@@ -76,11 +77,11 @@ func (g *GenericSQLQueryExecutor) DropSchema(schemaName string) error {
 
 // the SQL query this function executes appears to be MySQL/MariaDB specific.
 func (g *GenericSQLQueryExecutor) CheckSchemaExists(schemaName string) (bool, error) {
-	var exists bool
+	var exists pgtype.Bool
 	// use information schemata to check if schema exists
 	err := g.db.QueryRowxContext(g.ctx,
 		"SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = $1)", schemaName).Scan(&exists)
-	return exists, err
+	return exists.Bool, err
 }
 
 func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
@@ -119,19 +120,19 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 }
 
 func (g *GenericSQLQueryExecutor) CountRows(schemaName string, tableName string) (int64, error) {
-	var count int64
+	var count pgtype.Int8
 	err := g.db.QueryRowx("SELECT COUNT(*) FROM " + schemaName + "." + tableName).Scan(&count)
-	return count, err
+	return count.Int64, err
 }
 
 func (g *GenericSQLQueryExecutor) CountNonNullRows(
 	schemaName string,
 	tableName string,
 	columnName string) (int64, error) {
-	var count int64
+	var count pgtype.Int8
 	err := g.db.QueryRowx("SELECT COUNT(CASE WHEN " + columnName +
 		" IS NOT NULL THEN 1 END) AS non_null_count FROM " + schemaName + "." + tableName).Scan(&count)
-	return count, err
+	return count.Int64, err
 }
 
 func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (*model.QField, error) {
@@ -290,7 +291,7 @@ func (g *GenericSQLQueryExecutor) NamedExec(query string, arg interface{}) (sql.
 
 // returns true if any of the columns are null in value
 func (g *GenericSQLQueryExecutor) CheckNull(schema string, tableName string, colNames []string) (bool, error) {
-	var count int
+	var count pgtype.Int8
 	joinedString := strings.Join(colNames, " is null or ") + " is null"
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s WHERE %s",
 		schema, tableName, joinedString)
@@ -300,7 +301,7 @@ func (g *GenericSQLQueryExecutor) CheckNull(schema string, tableName string, col
 		return false, err
 	}
 
-	return count == 0, nil
+	return count.Int64 == 0, nil
 }
 
 func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {

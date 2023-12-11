@@ -12,6 +12,7 @@ import (
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
@@ -330,7 +331,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotX
 	query string,
 	args ...interface{},
 ) (int, int64, error) {
-	var currentSnapshotXmin int64
+	var currentSnapshotXmin pgtype.Int8
 	log.WithFields(log.Fields{
 		"flowName":    qe.flowJobName,
 		"partitionID": qe.partitionID,
@@ -346,16 +347,16 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamGettingCurrentSnapshotX
 			"flowName":    qe.flowJobName,
 			"partitionID": qe.partitionID,
 		}).Errorf("[pg_query_executor] failed to begin transaction: %v", err)
-		return 0, currentSnapshotXmin, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
+		return 0, currentSnapshotXmin.Int64, fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 	}
 
 	err = tx.QueryRow(qe.ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin)
 	if err != nil {
-		return 0, currentSnapshotXmin, err
+		return 0, currentSnapshotXmin.Int64, err
 	}
 
 	totalRecordsFetched, err := qe.ExecuteAndProcessQueryStreamWithTx(tx, stream, query, args...)
-	return totalRecordsFetched, currentSnapshotXmin, err
+	return totalRecordsFetched, currentSnapshotXmin.Int64, err
 }
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
