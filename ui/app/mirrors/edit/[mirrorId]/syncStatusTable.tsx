@@ -104,7 +104,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
       title={<Label variant='headline'>CDC Syncs</Label>}
       toolbar={{
         left: (
-          <>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
             <Button variant='normalBorderless' onClick={handlePrevPage}>
               <Icon name='chevron_left' />
             </Button>
@@ -118,24 +118,26 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
             >
               <Icon name='refresh' />
             </Button>
-            <ReactSelect
-              options={sortOptions}
-              value={{
-                value: sortField,
-                label: sortOptions.find((opt) => opt.value === sortField)
-                  ?.label,
-              }}
-              onChange={(val, _) => {
-                const sortVal =
-                  (val?.value as
-                    | 'startTime'
-                    | 'endTime'
-                    | 'numRows'
-                    | 'batchId') ?? 'batchId';
-                setSortField(sortVal);
-              }}
-              defaultValue={{ value: 'batchId', label: 'Batch ID' }}
-            />
+            <div style={{ width: '10em' }}>
+              <ReactSelect
+                options={sortOptions}
+                value={{
+                  value: sortField,
+                  label: sortOptions.find((opt) => opt.value === sortField)
+                    ?.label,
+                }}
+                onChange={(val, _) => {
+                  const sortVal =
+                    (val?.value as
+                      | 'startTime'
+                      | 'endTime'
+                      | 'numRows'
+                      | 'batchId') ?? 'batchId';
+                  setSortField(sortVal);
+                }}
+                defaultValue={{ value: 'batchId', label: 'Batch ID' }}
+              />
+            </div>
             <button
               className='IconButton'
               onClick={() => setSortDir('asc')}
@@ -152,7 +154,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
             >
               <Icon name='arrow_downward' />
             </button>
-          </>
+          </div>
         ),
         right: (
           <SearchField

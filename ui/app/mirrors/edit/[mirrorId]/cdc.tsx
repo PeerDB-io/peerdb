@@ -106,7 +106,7 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(allRows.length / ROWS_PER_PAGE);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('asc');
+  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedRows = useMemo(() => {
     const shownRows = allRows.filter((row: any) =>
       row.tableName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -156,7 +156,7 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
         title={<Label variant='headline'>Initial Copy</Label>}
         toolbar={{
           left: (
-            <>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
               <Button variant='normalBorderless' onClick={handlePrevPage}>
                 <Icon name='chevron_left' />
               </Button>
@@ -170,21 +170,27 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
               >
                 <Icon name='refresh' />
               </Button>
-              <ReactSelect
-                options={sortOptions}
-                onChange={(val, _) => {
-                  const sortVal =
-                    (val?.value as 'cloneStartTime' | 'avgTimePerPartition') ??
-                    'cloneStartTime';
-                  setSortField(sortVal);
-                }}
-                value={{
-                  value: sortField,
-                  label: sortOptions.find((opt) => opt.value === sortField)
-                    ?.label,
-                }}
-                defaultValue={{ value: 'cloneStartTime', label: 'Start Time' }}
-              />
+              <div style={{ width: '10em' }}>
+                <ReactSelect
+                  options={sortOptions}
+                  onChange={(val, _) => {
+                    const sortVal =
+                      (val?.value as
+                        | 'cloneStartTime'
+                        | 'avgTimePerPartition') ?? 'cloneStartTime';
+                    setSortField(sortVal);
+                  }}
+                  value={{
+                    value: sortField,
+                    label: sortOptions.find((opt) => opt.value === sortField)
+                      ?.label,
+                  }}
+                  defaultValue={{
+                    value: 'cloneStartTime',
+                    label: 'Start Time',
+                  }}
+                />
+              </div>
               <button
                 className='IconButton'
                 onClick={() => setSortDir('asc')}
@@ -201,7 +207,7 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
               >
                 <Icon name='arrow_downward' />
               </button>
-            </>
+            </div>
           ),
           right: (
             <SearchField
