@@ -90,9 +90,9 @@ export default function QRepStatusTable({
   );
 
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortField, setSortField] = useState<
-    'startTime' | 'endTime' | 'numRows'
-  >('startTime');
+  const [sortField, setSortField] = useState<'startTime' | 'endTime'>(
+    'startTime'
+  );
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedPartitions = useMemo(() => {
     let currentPartitions = [...visiblePartitions];
@@ -131,7 +131,6 @@ export default function QRepStatusTable({
   const sortOptions = [
     { value: 'startTime', label: 'Start Time' },
     { value: 'endTime', label: 'End Time' },
-    { value: 'numRows', label: 'Rows Synced' },
   ];
   return (
     <Table
@@ -172,8 +171,7 @@ export default function QRepStatusTable({
                 }}
                 onChange={(val, _) => {
                   const sortVal =
-                    (val?.value as 'startTime' | 'endTime' | 'numRows') ??
-                    'startTime';
+                    (val?.value as 'startTime' | 'endTime') ?? 'startTime';
                   setSortField(sortVal);
                 }}
                 defaultValue={{ value: 'startTime', label: 'Start Time' }}
