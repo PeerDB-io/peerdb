@@ -212,6 +212,8 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	if err != nil {
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
+	defer pgConnector.Close()
+
 	slotInfo, err := pgConnector.GetSlotInfo("")
 	if err != nil {
 		return &protos.PeerSlotResponse{SlotData: nil}, err
