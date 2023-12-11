@@ -14,10 +14,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type CatalogMirrorMonitor struct {
-	catalogConn *pgxpool.Pool
-}
-
 type CDCBatchInfo struct {
 	BatchID       int64
 	RowsInBatch   uint32
@@ -26,29 +22,12 @@ type CDCBatchInfo struct {
 	StartTime     time.Time
 }
 
-func NewCatalogMirrorMonitor(catalogConn *pgxpool.Pool) *CatalogMirrorMonitor {
-	return &CatalogMirrorMonitor{
-		catalogConn: catalogConn,
-	}
-}
-
-func (c *CatalogMirrorMonitor) IsActive() bool {
-	return !(c == nil || c.catalogConn == nil)
-}
-
-func (c *CatalogMirrorMonitor) Close() {
-	if c == nil || c.catalogConn == nil {
-		return
-	}
-	c.catalogConn.Close()
-}
-
-func (c *CatalogMirrorMonitor) InitializeCDCFlow(ctx context.Context, flowJobName string) error {
-	if c == nil || c.catalogConn == nil {
+func InitializeCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string) error {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		`INSERT INTO peerdb_stats.cdc_flows(flow_name,latest_lsn_at_source,latest_lsn_at_target) VALUES($1,0,0)
 		 ON CONFLICT DO NOTHING`, flowJobName)
 	if err != nil {
@@ -57,13 +36,13 @@ func (c *CatalogMirrorMonitor) InitializeCDCFlow(ctx context.Context, flowJobNam
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateLatestLSNAtSourceForCDCFlow(ctx context.Context, flowJobName string,
+func UpdateLatestLSNAtSourceForCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
 	latestLSNAtSource pglogrepl.LSN) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_source=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtSource), flowJobName)
 	if err != nil {
@@ -72,13 +51,13 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtSourceForCDCFlow(ctx context.Con
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, flowJobName string,
+func UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
 	latestLSNAtTarget pglogrepl.LSN) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtTarget), flowJobName)
 	if err != nil {
@@ -87,13 +66,13 @@ func (c *CatalogMirrorMonitor) UpdateLatestLSNAtTargetForCDCFlow(ctx context.Con
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) AddCDCBatchForFlow(ctx context.Context, flowJobName string,
+func AddCDCBatchForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
 	batchInfo CDCBatchInfo) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		`INSERT INTO peerdb_stats.cdc_batches(flow_name,batch_id,rows_in_batch,batch_start_lsn,batch_end_lsn,
 		start_time) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
 		flowJobName, batchInfo.BatchID, batchInfo.RowsInBatch,
@@ -105,18 +84,19 @@ func (c *CatalogMirrorMonitor) AddCDCBatchForFlow(ctx context.Context, flowJobNa
 }
 
 // update num records and end-lsn for a cdc batch
-func (c *CatalogMirrorMonitor) UpdateNumRowsAndEndLSNForCDCBatch(
+func UpdateNumRowsAndEndLSNForCDCBatch(
 	ctx context.Context,
+	pool *pgxpool.Pool,
 	flowJobName string,
 	batchID int64,
 	numRows uint32,
 	batchEndLSN pglogrepl.LSN,
 ) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2 WHERE flow_name=$3 AND batch_id=$4",
 		numRows, uint64(batchEndLSN), flowJobName, batchID)
 	if err != nil {
@@ -125,16 +105,17 @@ func (c *CatalogMirrorMonitor) UpdateNumRowsAndEndLSNForCDCBatch(
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateEndTimeForCDCBatch(
+func UpdateEndTimeForCDCBatch(
 	ctx context.Context,
+	pool *pgxpool.Pool,
 	flowJobName string,
 	batchID int64,
 ) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_batches SET end_time=$1 WHERE flow_name=$2 AND batch_id=$3",
 		time.Now(), flowJobName, batchID)
 	if err != nil {
@@ -143,13 +124,13 @@ func (c *CatalogMirrorMonitor) UpdateEndTimeForCDCBatch(
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) AddCDCBatchTablesForFlow(ctx context.Context, flowJobName string,
+func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
 	batchID int64, tableNameRowsMapping map[string]uint32) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	insertBatchTablesTx, err := c.catalogConn.Begin(ctx)
+	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("error while beginning transaction for inserting statistics into cdc_batch_table: %w", err)
 	}
@@ -177,18 +158,19 @@ func (c *CatalogMirrorMonitor) AddCDCBatchTablesForFlow(ctx context.Context, flo
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) InitializeQRepRun(
+func InitializeQRepRun(
 	ctx context.Context,
+	pool *pgxpool.Pool,
 	config *protos.QRepConfig,
 	runUUID string,
 	partitions []*protos.QRepPartition,
 ) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
 	flowJobName := config.GetFlowJobName()
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid) VALUES($1,$2) ON CONFLICT DO NOTHING",
 		flowJobName, runUUID)
 	if err != nil {
@@ -200,7 +182,7 @@ func (c *CatalogMirrorMonitor) InitializeQRepRun(
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
 
-	_, err = c.catalogConn.Exec(ctx,
+	_, err = pool.Exec(ctx,
 		"UPDATE peerdb_stats.qrep_runs SET config_proto = $1 WHERE flow_name = $2",
 		cfgBytes, flowJobName)
 	if err != nil {
@@ -208,7 +190,7 @@ func (c *CatalogMirrorMonitor) InitializeQRepRun(
 	}
 
 	for _, partition := range partitions {
-		if err := c.addPartitionToQRepRun(ctx, flowJobName, runUUID, partition); err != nil {
+		if err := addPartitionToQRepRun(ctx, pool, flowJobName, runUUID, partition); err != nil {
 			return fmt.Errorf("unable to add partition to qrep run: %w", err)
 		}
 	}
@@ -216,12 +198,12 @@ func (c *CatalogMirrorMonitor) InitializeQRepRun(
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateStartTimeForQRepRun(ctx context.Context, runUUID string) error {
-	if c == nil || c.catalogConn == nil {
+func UpdateStartTimeForQRepRun(ctx context.Context, pool *pgxpool.Pool, runUUID string) error {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.qrep_runs SET start_time=$1 WHERE run_uuid=$2",
 		time.Now(), runUUID)
 	if err != nil {
@@ -231,12 +213,12 @@ func (c *CatalogMirrorMonitor) UpdateStartTimeForQRepRun(ctx context.Context, ru
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateEndTimeForQRepRun(ctx context.Context, runUUID string) error {
-	if c == nil || c.catalogConn == nil {
+func UpdateEndTimeForQRepRun(ctx context.Context, pool *pgxpool.Pool, runUUID string) error {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.qrep_runs SET end_time=$1 WHERE run_uuid=$2",
 		time.Now(), runUUID)
 	if err != nil {
@@ -246,16 +228,17 @@ func (c *CatalogMirrorMonitor) UpdateEndTimeForQRepRun(ctx context.Context, runU
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) AppendSlotSizeInfo(
+func AppendSlotSizeInfo(
 	ctx context.Context,
+	pool *pgxpool.Pool,
 	peerName string,
 	slotInfo *protos.SlotInfo,
 ) error {
-	if c == nil || c.catalogConn == nil || slotInfo == nil {
+	if pool == nil || slotInfo == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		"INSERT INTO peerdb_stats.peer_slot_size"+
 			"(peer_name, slot_name, restart_lsn, redo_lsn, confirmed_flush_lsn, slot_size, wal_status) "+
 			"VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING;",
@@ -274,9 +257,9 @@ func (c *CatalogMirrorMonitor) AppendSlotSizeInfo(
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) addPartitionToQRepRun(ctx context.Context, flowJobName string,
+func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
 	runUUID string, partition *protos.QRepPartition) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
@@ -317,7 +300,7 @@ func (c *CatalogMirrorMonitor) addPartitionToQRepRun(ctx context.Context, flowJo
 		return fmt.Errorf("unknown range type: %v", x)
 	}
 
-	_, err := c.catalogConn.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		`INSERT INTO peerdb_stats.qrep_partitions
 		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count)
 		 VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(run_uuid,partition_uuid) DO UPDATE SET
@@ -330,17 +313,18 @@ func (c *CatalogMirrorMonitor) addPartitionToQRepRun(ctx context.Context, flowJo
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateStartTimeForPartition(
+func UpdateStartTimeForPartition(
 	ctx context.Context,
+	pool *pgxpool.Pool,
 	runUUID string,
 	partition *protos.QRepPartition,
 	startTime time.Time,
 ) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET start_time=$1
+	_, err := pool.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET start_time=$1
 	 WHERE run_uuid=$2 AND partition_uuid=$3`, startTime, runUUID, partition.PartitionId)
 	if err != nil {
 		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)
@@ -348,13 +332,13 @@ func (c *CatalogMirrorMonitor) UpdateStartTimeForPartition(
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdatePullEndTimeAndRowsForPartition(ctx context.Context, runUUID string,
+func UpdatePullEndTimeAndRowsForPartition(ctx context.Context, pool *pgxpool.Pool, runUUID string,
 	partition *protos.QRepPartition, rowsInPartition int64) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET pull_end_time=$1,rows_in_partition=$2
+	_, err := pool.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET pull_end_time=$1,rows_in_partition=$2
 	 WHERE run_uuid=$3 AND partition_uuid=$4`, time.Now(), rowsInPartition, runUUID, partition.PartitionId)
 	if err != nil {
 		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)
@@ -362,13 +346,13 @@ func (c *CatalogMirrorMonitor) UpdatePullEndTimeAndRowsForPartition(ctx context.
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateEndTimeForPartition(ctx context.Context, runUUID string,
+func UpdateEndTimeForPartition(ctx context.Context, pool *pgxpool.Pool, runUUID string,
 	partition *protos.QRepPartition) error {
-	if c == nil || c.catalogConn == nil {
+	if pool == nil {
 		return nil
 	}
 
-	_, err := c.catalogConn.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET end_time=$1
+	_, err := pool.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET end_time=$1
 	 WHERE run_uuid=$2 AND partition_uuid=$3`, time.Now(), runUUID, partition.PartitionId)
 	if err != nil {
 		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)

@@ -137,7 +137,7 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	numRows := 10
 	tblName := "test_qrep_flow_avro_ss_append"

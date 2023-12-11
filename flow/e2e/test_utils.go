@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -39,7 +41,12 @@ func ReadFileToBytes(path string) ([]byte, error) {
 	return ret, nil
 }
 
-func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
+func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment, t *testing.T) {
+	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	if err != nil {
+		t.Fatalf("unable to create catalog connection pool: %v", err)
+	}
+
 	// set a 300 second timeout for the workflow to execute a few runs.
 	env.SetTestTimeout(300 * time.Second)
 
@@ -51,7 +58,7 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	env.RegisterWorkflow(peerflow.XminFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
-	env.RegisterActivity(&activities.FlowableActivity{})
+	env.RegisterActivity(&activities.FlowableActivity{CatalogPool: conn})
 	env.RegisterActivity(&activities.SnapshotActivity{})
 }
 
