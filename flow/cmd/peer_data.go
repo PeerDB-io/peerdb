@@ -8,6 +8,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 )
@@ -92,13 +93,13 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	defer rows.Close()
 	var tables []string
 	for rows.Next() {
-		var table string
+		var table pgtype.Text
 		err := rows.Scan(&table)
 		if err != nil {
 			return &protos.SchemaTablesResponse{Tables: nil}, err
 		}
 
-		tables = append(tables, table)
+		tables = append(tables, table.String)
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
@@ -123,13 +124,13 @@ func (h *FlowRequestHandler) GetAllTables(
 	defer rows.Close()
 	var tables []string
 	for rows.Next() {
-		var table string
+		var table pgtype.Text
 		err := rows.Scan(&table)
 		if err != nil {
 			return &protos.AllTablesResponse{Tables: nil}, err
 		}
 
-		tables = append(tables, table)
+		tables = append(tables, table.String)
 	}
 	return &protos.AllTablesResponse{Tables: tables}, nil
 }
@@ -185,14 +186,14 @@ func (h *FlowRequestHandler) GetColumns(
 	defer rows.Close()
 	var columns []string
 	for rows.Next() {
-		var columnName string
-		var datatype string
-		var isPkey bool
+		var columnName pgtype.Text
+		var datatype pgtype.Text
+		var isPkey pgtype.Bool
 		err := rows.Scan(&columnName, &datatype, &isPkey)
 		if err != nil {
 			return &protos.TableColumnsResponse{Columns: nil}, err
 		}
-		column := fmt.Sprintf("%s:%s:%v", columnName, datatype, isPkey)
+		column := fmt.Sprintf("%s:%s:%v", columnName.String, datatype.String, isPkey.Bool)
 		columns = append(columns, column)
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil
@@ -211,6 +212,8 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	if err != nil {
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
+	defer pgConnector.Close()
+
 	slotInfo, err := pgConnector.GetSlotInfo("")
 	if err != nil {
 		return &protos.PeerSlotResponse{SlotData: nil}, err

@@ -78,7 +78,7 @@ const (
 
 // getRelIDForTable returns the relation ID for a table.
 func (c *PostgresConnector) getRelIDForTable(schemaTable *utils.SchemaTable) (uint32, error) {
-	var relID uint32
+	var relID pgtype.Uint32
 	err := c.pool.QueryRow(c.ctx,
 		`SELECT c.oid FROM pg_class c JOIN pg_namespace n
 		 ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
@@ -87,7 +87,7 @@ func (c *PostgresConnector) getRelIDForTable(schemaTable *utils.SchemaTable) (ui
 		return 0, fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
 	}
 
-	return relID, nil
+	return relID.Uint32, nil
 }
 
 // getReplicaIdentity returns the replica identity for a table.
@@ -116,7 +116,7 @@ func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *utils.SchemaTable)
 	}
 
 	// Get the primary key column name
-	var pkCol string
+	var pkCol pgtype.Text
 	pkCols := make([]string, 0)
 	rows, err := c.pool.Query(c.ctx,
 		`SELECT a.attname FROM pg_index i
@@ -135,14 +135,14 @@ func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *utils.SchemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning primary key column for table %s: %w", schemaTable, err)
 		}
-		pkCols = append(pkCols, pkCol)
+		pkCols = append(pkCols, pkCol.String)
 	}
 
 	return pkCols, nil
 }
 
 func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) (bool, error) {
-	var exists bool
+	var exists pgtype.Bool
 	err := c.pool.QueryRow(c.ctx,
 		`SELECT EXISTS (
 			SELECT FROM pg_tables
@@ -156,7 +156,7 @@ func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) (bool, e
 		return false, fmt.Errorf("error checking if table exists: %w", err)
 	}
 
-	return exists, nil
+	return exists.Bool, nil
 }
 
 // checkSlotAndPublication checks if the replication slot and publication exist.
@@ -165,7 +165,7 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 	publicationExists := false
 
 	// Check if the replication slot exists
-	var slotName string
+	var slotName pgtype.Text
 	err := c.pool.QueryRow(c.ctx,
 		"SELECT slot_name FROM pg_replication_slots WHERE slot_name = $1",
 		slot).Scan(&slotName)
@@ -179,7 +179,7 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 	}
 
 	// Check if the publication exists
-	var pubName string
+	var pubName pgtype.Text
 	err = c.pool.QueryRow(c.ctx,
 		"SELECT pubname FROM pg_publication WHERE pubname = $1",
 		publication).Scan(&pubName)
@@ -216,12 +216,12 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 	defer rows.Close()
 	var slotInfoRows []*protos.SlotInfo
 	for rows.Next() {
-		var redoLSN string
-		var slotName string
-		var restartLSN string
-		var confirmedFlushLSN string
-		var active bool
-		var lagInMB float32
+		var redoLSN pgtype.Text
+		var slotName pgtype.Text
+		var restartLSN pgtype.Text
+		var confirmedFlushLSN pgtype.Text
+		var active pgtype.Bool
+		var lagInMB pgtype.Float4
 		var walStatus pgtype.Text
 		err := rows.Scan(&slotName, &redoLSN, &restartLSN, &walStatus, &confirmedFlushLSN, &active, &lagInMB)
 		if err != nil {
@@ -229,13 +229,13 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 		}
 
 		slotInfoRows = append(slotInfoRows, &protos.SlotInfo{
-			RedoLSN:           redoLSN,
-			RestartLSN:        restartLSN,
+			RedoLSN:           redoLSN.String,
+			RestartLSN:        restartLSN.String,
 			WalStatus:         walStatus.String,
-			ConfirmedFlushLSN: confirmedFlushLSN,
-			SlotName:          slotName,
-			Active:            active,
-			LagInMb:           lagInMB,
+			ConfirmedFlushLSN: confirmedFlushLSN.String,
+			SlotName:          slotName.String,
+			Active:            active.Bool,
+			LagInMb:           lagInMB.Float32,
 		})
 	}
 	return slotInfoRows, nil
@@ -379,7 +379,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	}
 	defer rows.Close()
 
-	var result int64
+	var result pgtype.Int8
 	if !rows.Next() {
 		log.Warnf("No row found for job %s, returning 0", jobName)
 		return 0, nil
@@ -388,7 +388,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
-	return result, nil
+	return result.Int64, nil
 }
 
 func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, error) {
@@ -399,7 +399,7 @@ func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, erro
 	}
 	defer rows.Close()
 
-	var result int64
+	var result pgtype.Int8
 	if !rows.Next() {
 		log.Warnf("No row found for job %s, returning 0", jobName)
 		return 0, nil
@@ -408,7 +408,7 @@ func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, erro
 	if err != nil {
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
-	return result, nil
+	return result.Int64, nil
 }
 
 func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
@@ -419,23 +419,23 @@ func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
 	}
 	defer rows.Close()
 
-	var result bool
+	var result pgtype.Bool
 	rows.Next()
 	err = rows.Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
-	return result, nil
+	return result.Bool, nil
 }
 
 func (c *PostgresConnector) majorVersionCheck(majorVersion int) (bool, error) {
-	var version int
+	var version pgtype.Int8
 	err := c.pool.QueryRow(c.ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
 	if err != nil {
 		return false, fmt.Errorf("failed to get server version: %w", err)
 	}
 
-	return version >= majorVersion, nil
+	return int(version.Int64) >= majorVersion, nil
 }
 
 func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64,
@@ -497,7 +497,7 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 
 	// Create a map to store the results
 	resultMap := make(map[string][]string)
-	var destinationTableName string
+	var destinationTableName pgtype.Text
 	var unchangedToastColumns []string
 	// Process the rows and populate the map
 	for rows.Next() {
@@ -505,7 +505,7 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 		if err != nil {
 			log.Fatalf("Failed to scan row: %v", err)
 		}
-		resultMap[destinationTableName] = unchangedToastColumns
+		resultMap[destinationTableName.String] = unchangedToastColumns
 	}
 	if err := rows.Err(); err != nil {
 		log.Fatalf("Error iterating over rows: %v", err)
@@ -640,10 +640,10 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 
 func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
 	row := c.pool.QueryRow(c.ctx, "SELECT pg_current_wal_lsn();")
-	var result string
+	var result pgtype.Text
 	err := row.Scan(&result)
 	if err != nil {
 		return 0, fmt.Errorf("error while running query: %w", err)
 	}
-	return pglogrepl.ParseLSN(result)
+	return pglogrepl.ParseLSN(result.String)
 }

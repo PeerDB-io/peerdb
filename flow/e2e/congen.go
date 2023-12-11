@@ -7,6 +7,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 )
@@ -63,15 +64,15 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 
 	// drop all publications with the given suffix
 	for rows.Next() {
-		var pubName string
+		var pubName pgtype.Text
 		err = rows.Scan(&pubName)
 		if err != nil {
 			return fmt.Errorf("failed to scan publication name: %w", err)
 		}
 
-		_, err = pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName))
+		_, err = pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName.String))
 		if err != nil {
-			return fmt.Errorf("failed to drop publication %s: %w", pubName, err)
+			return fmt.Errorf("failed to drop publication %s: %w", pubName.String, err)
 		}
 	}
 
