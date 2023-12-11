@@ -222,7 +222,7 @@ const SchemaBox = ({
                             style={{
                               fontSize: 12,
                               marginTop: '0.5rem',
-                              cursor: 'pointer'
+                              cursor: 'pointer',
                             }}
                             variant='simple'
                             placeholder={'Enter target table'}
