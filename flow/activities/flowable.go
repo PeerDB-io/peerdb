@@ -724,9 +724,7 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 }
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
-	catalogPool := a.CatalogPool
-
-	optionRows, err := catalogPool.Query(ctx, `
+	optionRows, err := a.CatalogPool.Query(ctx, `
 			SELECT DISTINCT p.name, p.options
 			FROM peers p
 			JOIN flows f ON p.id = f.source_peer

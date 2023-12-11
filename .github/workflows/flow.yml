@@ -80,13 +80,14 @@ jobs:
           name: "gcs_creds.json"
           json: ${{ secrets.GCS_CREDS }}
 
-      - name: create hstore extension and increase logical replication limits
+      - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
           docker exec pg_cdc psql -h localhost -p 5432 -U postgres -c "CREATE EXTENSION hstore;"
           -c "ALTER SYSTEM SET wal_level=logical;"
           -c "ALTER SYSTEM SET max_replication_slots=192;"
           -c "ALTER SYSTEM SET max_wal_senders=256;"
           -c "ALTER SYSTEM SET max_connections=2048;" &&
+          (cat ../nexus/catalog/migrations/V{?,??}__* | docker exec -i pg_cdc psql -h localhost -p 5432 -U postgres) &&
           docker restart pg_cdc
         working-directory: ./flow
         env:
