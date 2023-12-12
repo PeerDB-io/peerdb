@@ -199,7 +199,6 @@ func (c *BigQueryConnector) Close() error {
 	if c == nil || c.client == nil {
 		return nil
 	}
-	c.catalogPool.Close()
 	return c.client.Close()
 }
 

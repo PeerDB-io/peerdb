@@ -1,7 +1,9 @@
 'use client';
 import { PeerConfig } from '@/app/dto/PeersDTO';
-import BQConfig from '@/components/BigqueryConfig';
-import S3ConfigForm from '@/components/S3Form';
+import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
+import PostgresForm from '@/components/PeerForms/PostgresForm';
+import S3Form from '@/components/PeerForms/S3Form';
+import SnowflakeForm from '@/components/PeerForms/SnowflakeForm';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
 import { Label } from '@/lib/Label';
@@ -12,9 +14,8 @@ import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import ConfigForm from '../../../../components/ConfigForm';
 import { handleCreate, handleValidate } from './handlers';
-import { PeerSetting, getBlankSetting } from './helpers/common';
+import { getBlankSetting } from './helpers/common';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
 
@@ -36,18 +37,15 @@ export default function CreateConfig({
   });
   const [loading, setLoading] = useState<boolean>(false);
   const configComponentMap = (dbType: string) => {
-    const configForm = (settingList: PeerSetting[]) => (
-      <ConfigForm settings={settingList} setter={setConfig} />
-    );
     switch (dbType) {
       case 'POSTGRES':
-        return configForm(postgresSetting);
+        return <PostgresForm settings={postgresSetting} setter={setConfig} />;
       case 'SNOWFLAKE':
-        return configForm(snowflakeSetting);
+        return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
-        return <BQConfig setter={setConfig} />;
+        return <BigqueryForm setter={setConfig} />;
       case 'S3':
-        return <S3ConfigForm setter={setConfig} />;
+        return <S3Form setter={setConfig} />;
       default:
         return <></>;
     }
@@ -103,7 +101,7 @@ export default function CreateConfig({
         <Label colorName='lowContrast' variant='subheadline'>
           Configuration
         </Label>
-        {dbType && configComponentMap(dbType)}
+        {configComponentMap(dbType)}
       </Panel>
       <Panel>
         <ButtonGroup>

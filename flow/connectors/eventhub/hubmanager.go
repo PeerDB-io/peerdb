@@ -2,6 +2,7 @@ package conneventhub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -62,6 +63,10 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
 		if err != nil {
 			log.Infof("eventhub %s not reachable. Will re-establish connection and re-create it. Err: %v", name, err)
+			closeError := m.closeProducerClient(ctx, hubTmp)
+			if closeError != nil {
+				log.Errorf("failed to close producer client: %v", closeError)
+			}
 			m.hubs.Delete(name)
 			hubConnectOK = false
 		}
@@ -84,6 +89,30 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 	}
 
 	return hub.(*azeventhubs.ProducerClient), nil
+}
+
+func (m *EventHubManager) closeProducerClient(ctx context.Context, pc *azeventhubs.ProducerClient) error {
+	if pc != nil {
+		return pc.Close(ctx)
+	}
+	return nil
+}
+
+func (m *EventHubManager) Close(ctx context.Context) error {
+	var allErrors error
+
+	m.hubs.Range(func(key any, value any) bool {
+		name := key.(ScopedEventhub)
+		hub := value.(*azeventhubs.ProducerClient)
+		err := m.closeProducerClient(ctx, hub)
+		if err != nil {
+			log.Errorf("failed to close eventhub client for %s: %v", name, err)
+			allErrors = errors.Join(allErrors, err)
+		}
+		return true
+	})
+
+	return allErrors
 }
 
 func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (

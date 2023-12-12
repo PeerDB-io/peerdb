@@ -43,3 +43,4 @@ export type CatalogPeer = {
   type: number;
   options: Buffer;
 };
+export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;

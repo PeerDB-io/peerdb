@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -114,13 +115,6 @@ func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
 	}
 
 	return nil
-}
-
-// Close closes the connection pool
-func (h *FlowRequestHandler) Close() {
-	if h.pool != nil {
-		h.pool.Close()
-	}
 }
 
 func (h *FlowRequestHandler) CreateCDCFlow(
@@ -244,6 +238,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
 		if err != nil {
+			slog.Error("unable to create flow job entry",
+				slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
@@ -258,6 +254,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 			// hack to facilitate migrating from existing xmin sync
 			txid, err := strconv.ParseInt(postColon, 10, 64)
 			if err != nil {
+				slog.Error("invalid xmin txid for xmin rep",
+					slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
 			}
 			state.LastPartition.Range = &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}}}
@@ -269,11 +267,15 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
+		slog.Error("unable to start QRepFlow workflow",
+			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
 	err = h.updateQRepConfigInCatalog(cfg)
 	if err != nil {
+		slog.Error("unable to update qrep config in catalog",
+			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to update qrep config in catalog: %w", err)
 	}
 
@@ -308,6 +310,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	ctx context.Context,
 	req *protos.ShutdownRequest,
 ) (*protos.ShutdownResponse, error) {
+	logs := slog.Group("shutdown-log",
+		slog.String("flowName", req.FlowJobName),
+		slog.String("workflowId", req.WorkflowId),
+	)
 	err := h.temporalClient.SignalWorkflow(
 		ctx,
 		req.WorkflowId,
@@ -316,6 +322,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		shared.ShutdownSignal,
 	)
 	if err != nil {
+		slog.Error("unable to signal PeerFlow workflow",
+			logs,
+			slog.Any("error", err),
+		)
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to signal PeerFlow workflow: %v", err),
@@ -324,6 +334,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 
 	err = h.waitForWorkflowClose(ctx, req.WorkflowId)
 	if err != nil {
+		slog.Error("unable to wait for PeerFlow workflow to close",
+			logs,
+			slog.Any("error", err),
+		)
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to wait for PeerFlow workflow to close: %v", err),
@@ -345,6 +359,9 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		req,                       // workflow input
 	)
 	if err != nil {
+		slog.Error("unable to start DropFlow workflow",
+			logs,
+			slog.Any("error", err))
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to start DropFlow workflow: %v", err),
@@ -362,6 +379,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	select {
 	case err := <-errChan:
 		if err != nil {
+			slog.Error("DropFlow workflow did not execute successfully",
+				logs,
+				slog.Any("error", err),
+			)
 			return &protos.ShutdownResponse{
 				Ok:           false,
 				ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
@@ -370,6 +391,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	case <-time.After(1 * time.Minute):
 		err := h.handleWorkflowNotClosed(ctx, workflowID, "")
 		if err != nil {
+			slog.Error("unable to wait for DropFlow workflow to close",
+				logs,
+				slog.Any("error", err),
+			)
 			return &protos.ShutdownResponse{
 				Ok:           false,
 				ErrorMessage: fmt.Sprintf("unable to wait for DropFlow workflow to close: %v", err),
@@ -380,6 +405,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	if req.RemoveFlowEntry {
 		delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
 		if delErr != nil {
+			slog.Error("unable to remove flow job entry",
+				slog.String("flowName", req.FlowJobName),
+				slog.Any("error", err),
+				slog.String("workflowId", req.WorkflowId))
 			return &protos.ShutdownResponse{
 				Ok:           false,
 				ErrorMessage: err.Error(),
