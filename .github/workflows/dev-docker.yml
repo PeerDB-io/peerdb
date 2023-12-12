@@ -10,7 +10,7 @@ jobs:
   docker-build:
     strategy:
       matrix:
-        runner: [ubicloud-standard-2-ubuntu-2204-arm]
+        runner: [ubuntu-latest]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
