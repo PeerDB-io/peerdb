@@ -9,6 +9,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
 import { useMemo, useState } from 'react';
+import ReactSelect from 'react-select';
 
 export type QRepPartitionStatus = {
   partitionId: string;
@@ -16,7 +17,8 @@ export type QRepPartitionStatus = {
   status: string;
   startTime: Date | null;
   endTime: Date | null;
-  numRows: number | null;
+  pulledRows: number | null;
+  syncedRows: number | null;
 };
 
 function TimeOrProgressBar({ time }: { time: Date | null }) {
@@ -33,7 +35,8 @@ function RowPerPartition({
   status,
   startTime,
   endTime,
-  numRows,
+  pulledRows: numRows,
+  syncedRows,
 }: QRepPartitionStatus) {
   let duration = 'N/A';
   if (startTime && endTime) {
@@ -61,12 +64,13 @@ function RowPerPartition({
         <TimeLabel timeVal={moment(startTime)?.format('YYYY-MM-DD HH:mm:ss')} />
       </TableCell>
       <TableCell>
-        <Label>
-          <TimeOrProgressBar time={endTime} />
-        </Label>
+        <TimeOrProgressBar time={endTime} />
       </TableCell>
       <TableCell>
         <Label>{numRows}</Label>
+      </TableCell>
+      <TableCell>
+        <Label>{syncedRows ?? 0}</Label>
       </TableCell>
     </TableRow>
   );
@@ -91,15 +95,35 @@ export default function QRepStatusTable({
   );
 
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const displayedPartitions = useMemo(
-    () =>
-      visiblePartitions.filter((partition: QRepPartitionStatus) => {
+  const [sortField, setSortField] = useState<'startTime' | 'endTime'>(
+    'startTime'
+  );
+  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
+  const displayedPartitions = useMemo(() => {
+    let currentPartitions = [...visiblePartitions];
+    (currentPartitions = currentPartitions.filter(
+      (partition: QRepPartitionStatus) => {
         return partition.partitionId
           .toLowerCase()
           .includes(searchQuery.toLowerCase());
-      }),
-    [visiblePartitions, searchQuery]
-  );
+      }
+    )),
+      currentPartitions.sort((a, b) => {
+        const aValue = a[sortField];
+        const bValue = b[sortField];
+        if (aValue === null || bValue === null) {
+          return 0;
+        }
+        if (aValue < bValue) {
+          return sortDir === 'dsc' ? 1 : -1;
+        } else if (aValue > bValue) {
+          return sortDir === 'dsc' ? -1 : 1;
+        } else {
+          return 0;
+        }
+      });
+    return currentPartitions;
+  }, [visiblePartitions, searchQuery, sortField, sortDir]);
 
   const handleNext = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -109,12 +133,16 @@ export default function QRepStatusTable({
     if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
 
+  const sortOptions = [
+    { value: 'startTime', label: 'Start Time' },
+    { value: 'endTime', label: 'End Time' },
+  ];
   return (
     <Table
       title={<Label>Progress</Label>}
       toolbar={{
         left: (
-          <>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
             <Button
               variant='normalBorderless'
               onClick={handlePrevious}
@@ -138,12 +166,44 @@ export default function QRepStatusTable({
             <Button variant='normalBorderless' disabled>
               <Icon name='download' />
             </Button>
+            <div style={{ minWidth: '10em' }}>
+              <ReactSelect
+                options={sortOptions}
+                value={{
+                  value: sortField,
+                  label: sortOptions.find((opt) => opt.value === sortField)
+                    ?.label,
+                }}
+                onChange={(val, _) => {
+                  const sortVal =
+                    (val?.value as 'startTime' | 'endTime') ?? 'startTime';
+                  setSortField(sortVal);
+                }}
+                defaultValue={{ value: 'startTime', label: 'Start Time' }}
+              />
+            </div>
+            <button
+              className='IconButton'
+              onClick={() => setSortDir('asc')}
+              aria-label='sort up'
+              style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+            >
+              <Icon name='arrow_upward' />
+            </button>
+            <button
+              className='IconButton'
+              onClick={() => setSortDir('dsc')}
+              aria-label='sort down'
+              style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+            >
+              <Icon name='arrow_downward' />
+            </button>
             <div>
               <Label>
                 {currentPage} of {totalPages}
               </Label>
             </div>
-          </>
+          </div>
         ),
         right: (
           <SearchField
@@ -162,7 +222,8 @@ export default function QRepStatusTable({
             'Duration',
             'Start Time',
             'End Time',
-            'Num Rows Synced',
+            'Rows In Partition',
+            'Rows Synced',
           ].map((heading, index) => (
             <TableCell as='th' key={index}>
               <Label as='label' style={{ fontWeight: 'bold' }}>

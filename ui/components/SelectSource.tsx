@@ -37,6 +37,7 @@ export default function SelectSource({
 
   return (
     <ReactSelect
+      className='w-1/2'
       placeholder='Select a source'
       options={dbTypes}
       defaultValue={dbTypes.find((opt) => opt.value === peerType)}
