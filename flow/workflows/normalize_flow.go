@@ -70,7 +70,7 @@ func NormalizeFlowWorkflow(
 			received, _ = schemaDeltas.ReceiveWithTimeout(ctx, 5*time.Second, &syncSignal)
 		}
 
-		w.logger.Info("NormalizeTest %v %v", received, stopLoop)
+		w.logger.Info("NormalizeTest", received, stopLoop)
 		if received {
 			tableSchemaDeltas := syncSignal.TableSchemaDeltas
 			if len(tableSchemaDeltas) != 0 {
