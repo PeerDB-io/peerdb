@@ -3,9 +3,9 @@ package utils
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 )
 
@@ -37,8 +37,8 @@ func HeartbeatRoutine(
 func RecordHeartbeatWithRecover(ctx context.Context, details ...interface{}) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Warnln("ignoring panic from activity.RecordHeartbeat")
-			log.Warnln("this can happen when function is invoked outside of a Temporal workflow")
+			slog.Warn("ignoring panic from activity.RecordHeartbeat")
+			slog.Warn("this can happen when function is invoked outside of a Temporal workflow")
 		}
 	}()
 	activity.RecordHeartbeat(ctx, details...)

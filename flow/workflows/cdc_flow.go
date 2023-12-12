@@ -8,7 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"go.temporal.io/api/enums/v1"
@@ -140,7 +140,7 @@ func (w *CDCFlowWorkflowExecution) receiveAndHandleSignalAsync(ctx workflow.Cont
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
 	if ok {
-		state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+		state.ActiveSignal = utils.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 	}
 }
 
@@ -206,6 +206,7 @@ func CDCFlowWorkflowWithConfig(
 			SearchAttributes: mirrorNameSearch,
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
+		setupFlowCtx = workflow.WithValue(setupFlowCtx, "flowName", cfg.FlowJobName)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
 		if err := setupFlowFuture.Get(setupFlowCtx, &cfg); err != nil {
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
@@ -233,6 +234,7 @@ func CDCFlowWorkflowWithConfig(
 			SearchAttributes: mirrorNameSearch,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
+		snapshotFlowCtx = workflow.WithValue(snapshotFlowCtx, "flowName", cfg.FlowJobName)
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
@@ -266,6 +268,7 @@ func CDCFlowWorkflowWithConfig(
 				StartToCloseTimeout: 12 * time.Hour,
 				HeartbeatTimeout:    1 * time.Hour,
 			})
+			renameTablesCtx = workflow.WithValue(renameTablesCtx, "flowName", cfg.FlowJobName)
 			renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
 			if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
 				return state, fmt.Errorf("failed to execute rename tables activity: %w", err)
@@ -323,7 +326,7 @@ func CDCFlowWorkflowWithConfig(
 				// only place we block on receive, so signal processing is immediate
 				ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 				if ok {
-					state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+					state.ActiveSignal = utils.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 				}
 			}
 		}
@@ -369,6 +372,7 @@ func CDCFlowWorkflowWithConfig(
 			SearchAttributes: mirrorNameSearch,
 		}
 		ctx = workflow.WithChildOptions(ctx, childSyncFlowOpts)
+		ctx = workflow.WithValue(ctx, "flowName", cfg.FlowJobName)
 		syncFlowOptions.RelationMessageMapping = *state.RelationMessageMapping
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			ctx,

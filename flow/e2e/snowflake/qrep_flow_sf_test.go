@@ -3,12 +3,12 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,7 +28,7 @@ func (s PeerFlowE2ETestSuiteSF) setupSFDestinationTable(dstTable string) {
 		require.FailNow(s.t, "unable to create table on snowflake", err)
 	}
 
-	log.Infof("created table on snowflake: %s.%s. %v\n", s.sfHelper.testSchemaName, dstTable, err)
+	slog.Info(fmt.Sprintf("created table on snowflake: %s.%s.", s.sfHelper.testSchemaName, dstTable))
 }
 
 func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {

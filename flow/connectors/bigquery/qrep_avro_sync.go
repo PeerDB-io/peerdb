@@ -3,6 +3,7 @@ package connbigquery
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	log "github.com/sirupsen/logrus"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/sdk/activity"
 )
 
@@ -86,14 +87,15 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {
 		// just log the error this isn't fatal.
-		log.WithFields(log.Fields{
-			"flowName":         flowJobName,
-			"syncBatchID":      syncBatchID,
-			"destinationTable": dstTableName,
-		}).Errorf("failed to delete staging table %s: %v", stagingTable, err)
+		slog.Error("failed to delete staging table "+stagingTable,
+			slog.Any("error", err),
+			slog.String("syncBatchID", fmt.Sprint(syncBatchID)),
+			slog.String("destinationTable", dstTableName))
 	}
 
-	log.Printf("loaded stage into %s.%s", datasetID, dstTableName)
+	slog.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, dstTableName),
+		slog.String(string(shared.FlowNameKey), flowJobName),
+		slog.String("dstTableName", dstTableName))
 
 	return numRecords, nil
 }
@@ -106,19 +108,18 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int, error) {
 	startTime := time.Now()
-
+	flowLog := slog.Group("sync_metadata",
+		slog.String(string(shared.FlowNameKey), flowJobName),
+		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
+		slog.String("destinationTable", dstTableName),
+	)
 	// You will need to define your Avro schema as a string
 	avroSchema, err := DefineAvroSchema(dstTableName, dstTableMetadata)
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
-	log.WithFields(log.Fields{
-		"flowName": flowJobName,
-	}).Infof("Obtained Avro schema for destination table %s and partition ID %s",
-		dstTableName, partition.PartitionId)
-	log.WithFields(log.Fields{
-		"flowName": flowJobName,
-	}).Infof("Avro schema: %v\n", avroSchema)
+	slog.Info("Obtained Avro schema for destination table", flowLog)
+	slog.Info(fmt.Sprintf("Avro schema: %v\n", avroSchema), flowLog)
 	// create a staging table name with partitionID replace hyphens with underscores
 	stagingTable := fmt.Sprintf("%s_%s_staging", dstTableName, strings.ReplaceAll(partition.PartitionId, "-", "_"))
 	numRecords, err := s.writeToStage(partition.PartitionId, flowJobName, avroSchema, stagingTable, stream)
@@ -145,10 +146,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
-	log.WithFields(log.Fields{
-		"flowName": flowJobName,
-	}).Infof("Performing transaction inside QRep sync function for partition ID %s",
-		partition.PartitionId)
+	slog.Info("Performing transaction inside QRep sync function", flowLog)
 	stmts = append(stmts, insertMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
 	// Execute the statements in a transaction
@@ -160,18 +158,12 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	// drop the staging table
 	if err := bqClient.Dataset(datasetID).Table(stagingTable).Delete(s.connector.ctx); err != nil {
 		// just log the error this isn't fatal.
-		log.WithFields(log.Fields{
-			"flowName":         flowJobName,
-			"partitionID":      partition.PartitionId,
-			"destinationTable": dstTableName,
-		}).Errorf("failed to delete staging table %s: %v", stagingTable, err)
+		slog.Error("failed to delete staging table "+stagingTable,
+			slog.Any("error", err),
+			flowLog)
 	}
 
-	log.WithFields(log.Fields{
-		"flowName":    flowJobName,
-		"partitionID": partition.PartitionId,
-	}).Infof("loaded stage into %s.%s",
-		datasetID, dstTableName)
+	slog.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, dstTableName), flowLog)
 	return numRecords, nil
 }
 
@@ -331,7 +323,11 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	var avroFile *avro.AvroFile
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema,
 		avro.CompressNone, qvalue.QDWHTypeBigQuery)
+	idLog := slog.Group("write-metadata",
+		slog.String("batchOrPartitionID", syncID),
+	)
 	if s.gcsBucket != "" {
+
 		bucket := s.connector.storageClient.Bucket(s.gcsBucket)
 		avroFilePath := fmt.Sprintf("%s/%s.avro", objectFolder, syncID)
 		obj := bucket.Object(avroFilePath)
@@ -354,9 +350,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		}
 
 		avroFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, syncID)
-		log.WithFields(log.Fields{
-			"batchOrPartitionID": syncID,
-		}).Infof("writing records to local file %s", avroFilePath)
+		slog.Info("writing records to local file", idLog)
 		avroFile, err = ocfWriter.WriteRecordsToAvroFile(avroFilePath)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
@@ -367,9 +361,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	if avroFile.NumRecords == 0 {
 		return 0, nil
 	}
-	log.WithFields(log.Fields{
-		"batchOrPartitionID": syncID,
-	}).Infof("wrote %d records to file %s", avroFile.NumRecords, avroFile.FilePath)
+	slog.Info(fmt.Sprintf("wrote %d records", avroFile.NumRecords), idLog)
 
 	bqClient := s.connector.client
 	datasetID := s.connector.datasetID
@@ -391,6 +383,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 
 	loader := bqClient.Dataset(datasetID).Table(stagingTable).LoaderFrom(avroRef)
 	loader.UseAvroLogicalTypes = true
+	loader.WriteDisposition = bigquery.WriteTruncate
 	job, err := loader.Run(s.connector.ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to run BigQuery load job: %w", err)
@@ -401,10 +394,13 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		return 0, fmt.Errorf("failed to wait for BigQuery load job: %w", err)
 	}
 
+	if len(status.Errors) > 0 {
+		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %v", status.Errors)
+	}
+
 	if err := status.Err(); err != nil {
 		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %w", err)
 	}
-	log.Printf("Pushed into %s/%s",
-		avroFile.FilePath, syncID)
+	slog.Info(fmt.Sprintf("Pushed into %s/%s", avroFile.FilePath, syncID))
 	return avroFile.NumRecords, nil
 }

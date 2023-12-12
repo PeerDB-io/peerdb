@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"log/slog"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -15,9 +17,9 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5/pgtype"
-	log "github.com/sirupsen/logrus"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
@@ -89,6 +91,7 @@ type SnowflakeConnector struct {
 	database           *sql.DB
 	tableSchemaMapping map[string]*protos.TableSchema
 	metadataSchema     string
+	logger             slog.Logger
 }
 
 // creating this to capture array results from snowflake.
@@ -149,12 +152,13 @@ func NewSnowflakeConnector(ctx context.Context,
 	if snowflakeProtoConfig.MetadataSchema != nil {
 		metadataSchema = *snowflakeProtoConfig.MetadataSchema
 	}
-
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &SnowflakeConnector{
 		ctx:                ctx,
 		database:           database,
 		tableSchemaMapping: nil,
 		metadataSchema:     metadataSchema,
+		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -198,7 +202,8 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 	defer func() {
 		deferErr := createMetadataTablesTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.Errorf("unexpected error while rolling back transaction for creating metadata tables: %v", deferErr)
+			c.logger.Error("error while rolling back transaction for creating metadata tables",
+				slog.Any("error", deferErr))
 		}
 	}()
 
@@ -251,7 +256,9 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 		// not sure if the errors these two return are same or different?
 		err = errors.Join(rows.Close(), rows.Err())
 		if err != nil {
-			log.Errorf("error while closing rows for reading schema of table %s: %v", tableName, err)
+			c.logger.Error("error while closing rows for reading schema of table",
+				slog.String("tableName", tableName),
+				slog.Any("error", err))
 		}
 	}()
 
@@ -288,12 +295,12 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 		// not sure if the errors these two return are same or different?
 		err = errors.Join(rows.Close(), rows.Err())
 		if err != nil {
-			log.Errorf("error while closing rows for reading last offset of job %s: %v", jobName, err)
+			c.logger.Error("error while closing rows for reading last offset", slog.Any("error", err))
 		}
 	}()
 
 	if !rows.Next() {
-		log.Warnf("No row found for job %s, returning nil", jobName)
+		c.logger.Warn("No row found ,returning nil")
 		return nil, nil
 	}
 	var result pgtype.Int8
@@ -302,7 +309,7 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
-		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
+		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
 		return nil, nil
 	}
 	return &protos.LastSyncState{
@@ -319,7 +326,7 @@ func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 
 	var result pgtype.Int8
 	if !rows.Next() {
-		log.Warnf("No row found for job %s, returning 0", jobName)
+		c.logger.Warn("No row found, returning 0")
 		return 0, nil
 	}
 	err = rows.Scan(&result)
@@ -338,7 +345,7 @@ func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, err
 
 	var result pgtype.Int8
 	if !rows.Next() {
-		log.Warnf("No row found for job %s, returning 0", jobName)
+		c.logger.Warn("No row found, returning 0")
 		return 0, nil
 	}
 	err = rows.Scan(&result)
@@ -445,9 +452,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 	defer func() {
 		deferErr := tableSchemaModifyTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Errorf("unexpected error rolling back transaction for table schema modification: %v", err)
+			c.logger.Error("error rolling back transaction for table schema modification", slog.Any("error", deferErr))
 		}
 	}()
 
@@ -468,12 +473,10 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 					schemaDelta.DstTableName, err)
 			}
-			log.WithFields(log.Fields{
-				"flowName":     flowJobName,
-				"srcTableName": schemaDelta.SrcTableName,
-				"dstTableName": schemaDelta.DstTableName,
-			}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-				addedColumn.ColumnType)
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
+				addedColumn.ColumnType),
+				slog.String("destination table name", schemaDelta.DstTableName),
+				slog.String("source table name", schemaDelta.SrcTableName))
 		}
 	}
 
@@ -488,7 +491,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 
 func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	log.Infof("pushing records to Snowflake table %s", rawTableIdentifier)
+	c.logger.Info(fmt.Sprintf("pushing records to Snowflake table %s", rawTableIdentifier))
 
 	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
 	if err != nil {
@@ -496,7 +499,6 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	}
 	syncBatchID = syncBatchID + 1
 
-	log.Infof("sync mode for flow %s is AVRO", req.FlowJobName)
 	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
 	if err != nil {
 		return nil, err
@@ -511,10 +513,8 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	defer func() {
 		deferErr := syncRecordsTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName":    req.FlowJobName,
-				"syncBatchID": syncBatchID - 1,
-			}).Errorf("unexpected error while rolling back transaction for SyncRecords: %v", deferErr)
+			c.logger.Error("error while rolling back transaction for SyncRecords: %v",
+				slog.Any("error", deferErr), slog.Int64("syncBatchID", syncBatchID))
 		}
 	}()
 
@@ -628,9 +628,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 				syncBatchID, normalizeBatchID,
 				req)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"flowName": req.FlowJobName,
-				}).Errorf("[merge] error while normalizing records: %v", err)
+				c.logger.Error("[merge] error while normalizing records", slog.Any("error", err))
 				return err
 			}
 
@@ -698,9 +696,7 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		deferErr := syncFlowCleanupTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": jobName,
-			}).Errorf("unexpected error while rolling back transaction for flow cleanup: %v", deferErr)
+			c.logger.Error("error while rolling back transaction for flow cleanup", slog.Any("error", deferErr))
 		}
 	}()
 
@@ -764,7 +760,8 @@ func generateCreateTableSQLForNormalizedTable(
 		columnNameUpper := strings.ToUpper(columnName)
 		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
-			log.Warnf("failed to convert column type %s to snowflake type: %v", genericColumnType, err)
+			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
+				slog.Any("error", err))
 			continue
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`"%s" %s,`, columnNameUpper, sfColType))
@@ -906,9 +903,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
 	startTime := time.Now()
-	log.WithFields(log.Fields{
-		"flowName": destinationTableIdentifier,
-	}).Infof("[merge] merging records into %s...", destinationTableIdentifier)
+	c.logger.Info("[merge] merging records...", slog.String("destTable", destinationTableIdentifier))
 
 	result, err := c.database.ExecContext(ctx, mergeStatement, destinationTableIdentifier)
 	if err != nil {
@@ -917,8 +912,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	}
 
 	endTime := time.Now()
-	log.Infof("[merge] merged records into %s, took: %d seconds",
-		destinationTableIdentifier, endTime.Sub(startTime)/time.Second)
+	c.logger.Info(fmt.Sprintf("[merge] merged records into %s, took: %d seconds",
+		destinationTableIdentifier, endTime.Sub(startTime)/time.Second))
 
 	return result.RowsAffected()
 }
@@ -1073,9 +1068,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 	defer func() {
 		deferErr := renameTablesTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-			}).Errorf("unexpected error rolling back transaction for renaming tables: %v", err)
+			c.logger.Error("error rolling back transaction for renaming tables", slog.Any("error", err))
 		}
 	}()
 
@@ -1083,9 +1076,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 		for _, renameRequest := range req.RenameTableOptions {
 			resyncTblName := renameRequest.CurrentName
 
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-			}).Infof("setting synced at column for table '%s'...", resyncTblName)
+			c.logger.Info(fmt.Sprintf("setting synced at column for table '%s'...", resyncTblName))
 
 			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("setting synced at column for table '%s'...",
 				resyncTblName))
@@ -1105,9 +1096,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 			allCols := strings.Join(maps.Keys(renameRequest.TableSchema.Columns), ",")
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-			}).Infof("handling soft-deletes for table '%s'...", dst)
+			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
 			activity.RecordHeartbeat(c.ctx, fmt.Sprintf("handling soft-deletes for table '%s'...", dst))
 
@@ -1126,9 +1115,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 		src := renameRequest.CurrentName
 		dst := renameRequest.NewName
 
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Infof("renaming table '%s' to '%s'...", src, dst)
+		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
 		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
@@ -1144,9 +1131,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
 		}
 
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Infof("successfully renamed table '%s' to '%s'", src, dst)
+		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
 	err = renameTablesTx.Commit()
@@ -1168,16 +1153,12 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(req *protos.CreateTablesFr
 	defer func() {
 		deferErr := createTablesFromExistingTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-			}).Errorf("unexpected error rolling back transaction for creating tables: %v", err)
+			c.logger.Info("error rolling back transaction for creating tables", slog.Any("error", err))
 		}
 	}()
 
 	for newTable, existingTable := range req.NewToExistingTableMapping {
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Infof("creating table '%s' similar to '%s'", newTable, existingTable)
+		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
@@ -1188,9 +1169,7 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(req *protos.CreateTablesFr
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
 		}
 
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Infof("successfully created table '%s'", newTable)
+		c.logger.Info(fmt.Sprintf("successfully created table '%s'", newTable))
 	}
 
 	err = createTablesFromExistingTx.Commit()

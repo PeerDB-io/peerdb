@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -13,12 +14,12 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -76,7 +77,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				log.Errorln(err)
+				slog.Error(err.Error())
 			}
 
 			if state.SnapshotComplete {
@@ -84,7 +85,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 		} else {
 			// log the error for informational purposes
-			log.Errorln(err)
+			slog.Error(err.Error())
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -105,7 +106,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				log.Errorln(err)
+				slog.Error(err.Error())
 			}
 
 			if len(state.NormalizeFlowStatuses) >= minCount {
@@ -114,7 +115,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 		} else {
 			// log the error for informational purposes
-			log.Errorln(err)
+			slog.Error(err.Error())
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -374,57 +375,46 @@ func GetOwnersSelectorString() string {
 func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
 	testSuite := &testsuite.WorkflowTestSuite{}
 
-	logger := log.New()
-	logger.SetReportCaller(true)
-	logger.SetLevel(log.WarnLevel)
-	tLogger := NewTLogrusLogger(logger)
+	logger := slog.New(logger.NewHandler(
+		slog.NewJSONHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelWarn},
+		)))
+	tLogger := NewTStructuredLogger(*logger)
 
 	testSuite.SetLogger(tLogger)
 	return testSuite.NewTestWorkflowEnvironment()
 }
 
-// implement temporal logger interface with logrus
-//
-//	type Logger interface {
-//		Debug(msg string, keyvals ...interface{})
-//		Info(msg string, keyvals ...interface{})
-//		Warn(msg string, keyvals ...interface{})
-//		Error(msg string, keyvals ...interface{})
-//	}
-type TLogrusLogger struct {
-	logger *log.Logger
+type TStructuredLogger struct {
+	logger *slog.Logger
 }
 
-func NewTLogrusLogger(logger *log.Logger) *TLogrusLogger {
-	return &TLogrusLogger{logger: logger}
+func NewTStructuredLogger(logger slog.Logger) *TStructuredLogger {
+	return &TStructuredLogger{logger: &logger}
 }
 
-func (l *TLogrusLogger) keyvalsToFields(keyvals []interface{}) log.Fields {
-	fields := make(log.Fields)
-	for i := 0; i < len(keyvals); i += 2 {
+func (l *TStructuredLogger) keyvalsToFields(keyvals []interface{}) slog.Attr {
+	var attrs []any
+	for i := 0; i < len(keyvals); i += 1 {
 		key := fmt.Sprintf("%v", keyvals[i])
-		if i+1 < len(keyvals) {
-			fields[key] = keyvals[i+1]
-		} else {
-			// Handle the case where there is no value for the key
-			fields[key] = nil // or some default value
-		}
+		attrs = append(attrs, key)
 	}
-	return fields
+	return slog.Group("test-log", attrs...)
 }
 
-func (l *TLogrusLogger) Debug(msg string, keyvals ...interface{}) {
-	l.logger.WithFields(l.keyvalsToFields(keyvals)).Debug(msg)
+func (l *TStructuredLogger) Debug(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Debug(msg)
 }
 
-func (l *TLogrusLogger) Info(msg string, keyvals ...interface{}) {
-	l.logger.WithFields(l.keyvalsToFields(keyvals)).Info(msg)
+func (l *TStructuredLogger) Info(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Info(msg)
 }
 
-func (l *TLogrusLogger) Warn(msg string, keyvals ...interface{}) {
-	l.logger.WithFields(l.keyvalsToFields(keyvals)).Warn(msg)
+func (l *TStructuredLogger) Warn(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Warn(msg)
 }
 
-func (l *TLogrusLogger) Error(msg string, keyvals ...interface{}) {
-	l.logger.WithFields(l.keyvalsToFields(keyvals)).Error(msg)
+func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
 }

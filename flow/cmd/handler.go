@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 )
@@ -42,7 +41,7 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	var peerType pgtype.Int4
 	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
 	if err != nil {
-		log.Errorf("unable to query peer id for peer %s: %s", peerName, err.Error())
+		slog.Error("unable to query peer id for peer "+peerName, slog.Any("error", err))
 		return -1, -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
 	}
 	return id.Int32, peerType.Int32, nil
@@ -131,7 +130,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	maxBatchSize := int(cfg.MaxBatchSize)
 	if maxBatchSize == 0 {
-		maxBatchSize = 100000
+		maxBatchSize = 1_000_000
 		cfg.MaxBatchSize = uint32(maxBatchSize)
 	}
 
@@ -158,7 +157,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if req.CreateCatalogEntry {
 		err := h.createCdcJobEntry(ctx, req, workflowID)
 		if err != nil {
-			log.Errorf("unable to create flow job entry: %v", err)
+			slog.Error("unable to create flow job entry", slog.Any("error", err))
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
@@ -166,7 +165,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	var err error
 	err = h.updateFlowConfigInCatalog(cfg)
 	if err != nil {
-		log.Errorf("unable to update flow config in catalog: %v", err)
+		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
@@ -180,7 +179,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		state,                              // workflow state
 	)
 	if err != nil {
-		log.Errorf("unable to start PeerFlow workflow: %v", err)
+		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
@@ -498,7 +497,7 @@ func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workfl
 	select {
 	case err := <-errChan:
 		if err != nil {
-			log.Errorf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error())
+			slog.Error(fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
 			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 			if err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 				return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
@@ -506,7 +505,7 @@ func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workfl
 		}
 	case <-time.After(1 * time.Minute):
 		// If 1 minute has passed and we haven't received an error, terminate the workflow
-		log.Errorf("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.")
+		slog.Error("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.")
 		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 		if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
@@ -626,8 +625,8 @@ func (h *FlowRequestHandler) CreatePeer(
 		return wrongConfigResponse, nil
 	}
 	if encodingErr != nil {
-		log.Errorf("failed to encode peer configuration for %s peer %s : %v",
-			req.Peer.Type, req.Peer.Name, encodingErr)
+		slog.Error(fmt.Sprintf("failed to encode peer configuration for %s peer %s : %v",
+			req.Peer.Type, req.Peer.Name, encodingErr))
 		return nil, encodingErr
 	}
 

@@ -3,15 +3,17 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5"
-	log "github.com/sirupsen/logrus"
+
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -35,17 +37,18 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	stream *model.QRecordStream,
 	writeMode *protos.QRepWriteMode,
 ) (int, error) {
+	syncLog := slog.Group("sync-qrep-log",
+		slog.String(string(shared.FlowNameKey), flowJobName),
+		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
+		slog.String("destinationTable", dstTableName.String()),
+	)
 	partitionID := partition.PartitionId
 	startTime := time.Now()
 
 	pool := s.connector.pool
 	schema, err := stream.Schema()
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName":         flowJobName,
-			"destinationTable": dstTableName,
-			"partitionID":      partitionID,
-		}).Errorf("failed to get schema from stream: %v", err)
+		slog.Error("failed to get schema from stream", slog.Any("error", err), syncLog)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
@@ -57,11 +60,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	defer func() {
 		if err := tx.Rollback(context.Background()); err != nil {
 			if err != pgx.ErrTxClosed {
-				log.WithFields(log.Fields{
-					"flowName":         flowJobName,
-					"partitionID":      partitionID,
-					"destinationTable": dstTableName,
-				}).Errorf("failed to rollback transaction tx2: %v", err)
+				slog.Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
 			}
 		}
 	}()
@@ -95,7 +94,8 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			dstTableIdentifier.Sanitize(),
 		)
 
-		log.Infof("Creating staging table %s - '%s'", stagingTableName, createStagingTableStmt)
+		slog.Info(fmt.Sprintf("Creating staging table %s - '%s'",
+			stagingTableName, createStagingTableStmt), syncLog)
 		_, err = tx.Exec(context.Background(), createStagingTableStmt)
 
 		if err != nil {
@@ -143,7 +143,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			strings.Join(writeMode.UpsertKeyColumns, ", "),
 			setClause,
 		)
-		log.Infof("Performing upsert operation: %s", upsertStmt)
+		slog.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
 		res, err := tx.Exec(context.Background(), upsertStmt)
 		if err != nil {
 			return -1, fmt.Errorf("failed to perform upsert operation: %v", err)
@@ -156,18 +156,14 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			"DROP TABLE %s;",
 			stagingTableIdentifier.Sanitize(),
 		)
-		log.Infof("Dropping staging table %s", stagingTableName)
+		slog.Info("Dropping staging table", slog.String("stagingTable", stagingTableName), syncLog)
 		_, err = tx.Exec(context.Background(), dropStagingTableStmt)
 		if err != nil {
 			return -1, fmt.Errorf("failed to drop staging table: %v", err)
 		}
 	}
 
-	log.WithFields(log.Fields{
-		"flowName":         flowJobName,
-		"partitionID":      partitionID,
-		"destinationTable": dstTableName,
-	}).Infof("pushed %d records to %s", numRowsSynced, dstTableName)
+	slog.Info(fmt.Sprintf("pushed %d records to %s", numRowsSynced, dstTableName), syncLog)
 
 	// marshal the partition to json using protojson
 	pbytes, err := protojson.Marshal(partition)
@@ -180,11 +176,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		"INSERT INTO %s VALUES ($1, $2, $3, $4, $5);",
 		metadataTableIdentifier.Sanitize(),
 	)
-	log.WithFields(log.Fields{
-		"flowName":         flowJobName,
-		"partitionID":      partitionID,
-		"destinationTable": dstTableName,
-	}).Infof("Executing transaction inside Qrep sync")
+	slog.Info("Executing transaction inside Qrep sync", syncLog)
 	_, err = tx.Exec(
 		context.Background(),
 		insertMetadataStmt,
@@ -204,9 +196,6 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	}
 
 	numRowsInserted := copySource.NumRecords()
-	log.WithFields(log.Fields{
-		"flowName":    flowJobName,
-		"partitionID": partitionID,
-	}).Infof("pushed %d records to %s", numRowsInserted, dstTableName)
+	slog.Info(fmt.Sprintf("pushed %d records to %s", numRowsInserted, dstTableName), syncLog)
 	return numRowsInserted, nil
 }

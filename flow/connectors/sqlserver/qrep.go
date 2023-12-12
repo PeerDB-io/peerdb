@@ -3,6 +3,7 @@ package connsqlserver
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"text/template"
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
@@ -11,13 +12,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
-	log "github.com/sirupsen/logrus"
 )
 
 func (c *SQLServerConnector) GetQRepPartitions(
 	config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
-		log.Infof("watermark table is empty, doing full table refresh")
+		c.logger.Info("watermark table is empty, doing full table refresh")
 		return []*protos.QRepPartition{
 			{
 				PartitionId:        uuid.New().String(),
@@ -51,7 +51,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
-		log.Infof("count query: %s - minVal: %v", countQuery, minVal)
+		c.logger.Info(fmt.Sprintf("count query: %s - minVal: %v", countQuery, minVal))
 		params := map[string]interface{}{
 			"minVal": minVal,
 		}
@@ -76,7 +76,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	}
 
 	if totalRows.Int64 == 0 {
-		log.Warnf("no records to replicate for flow job %s, returning", config.FlowJobName)
+		c.logger.Warn("no records to replicate, returning")
 		return make([]*protos.QRepPartition, 0), nil
 	}
 
@@ -85,8 +85,8 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	if totalRows.Int64%numRowsPerPartition != 0 {
 		numPartitions++
 	}
-	log.Infof("total rows: %d, num partitions: %d, num rows per partition: %d",
-		totalRows.Int64, numPartitions, numRowsPerPartition)
+	c.logger.Info(fmt.Sprintf("total rows: %d, num partitions: %d, num rows per partition: %d",
+		totalRows.Int64, numPartitions, numRowsPerPartition))
 	var rows *sqlx.Rows
 	if minVal != nil {
 		// Query to get partitions using window functions
@@ -105,7 +105,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			config.WatermarkTable,
 			quotedWatermarkColumn,
 		)
-		log.Infof("partitions query: %s - minVal: %v", partitionsQuery, minVal)
+		c.logger.Info(fmt.Sprintf("partitions query: %s - minVal: %v", partitionsQuery, minVal))
 		params := map[string]interface{}{
 			"minVal": minVal,
 		}
@@ -125,7 +125,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			quotedWatermarkColumn,
 			config.WatermarkTable,
 		)
-		log.Infof("partitions query: %s", partitionsQuery)
+		c.logger.Info("partitions query: " + partitionsQuery)
 		rows, err = c.db.Queryx(partitionsQuery)
 	}
 	if err != nil {
@@ -207,6 +207,6 @@ func BuildQuery(query string) (string, error) {
 	}
 	res := buf.String()
 
-	log.Infof("templated query: %s", res)
+	slog.Info("templated query: " + res)
 	return res, nil
 }

@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
@@ -14,7 +16,7 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
 	"github.com/grafana/pyroscope-go"
-	log "github.com/sirupsen/logrus"
+
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 )
@@ -43,7 +45,7 @@ func setupPyroscope(opts *WorkerOptions) {
 		ServerAddress: opts.PyroscopeServer,
 
 		// you can disable logging by setting this to nil
-		Logger: log.StandardLogger(),
+		Logger: pyroscope.StandardLogger,
 
 		// you can provide static tags via a map:
 		Tags: map[string]string{"hostname": os.Getenv("HOSTNAME")},
@@ -92,7 +94,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	}
 
 	if opts.TemporalCert != "" && opts.TemporalKey != "" {
-		log.Info("Using temporal certificate/key for authentication")
+		slog.Info("Using temporal certificate/key for authentication")
 		certs, err := Base64DecodeCertAndKey(opts.TemporalCert, opts.TemporalKey)
 		if err != nil {
 			return fmt.Errorf("unable to process certificate and key: %w", err)
@@ -112,7 +114,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
-	log.Info("Created temporal client")
+	slog.Info("Created temporal client")
 	defer c.Close()
 
 	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)

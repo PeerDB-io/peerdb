@@ -380,6 +380,8 @@ func QRepFlowWorkflow(
 	//   3. For each partition, start a new workflow to replicate the partition.
 	//	 4. Wait for all the workflows to complete.
 	//   5. Sleep for a while and repeat the loop.
+
+	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := workflow.GetLogger(ctx)
 
 	maxParallelWorkers := 16
@@ -501,6 +503,7 @@ func QRepPartitionWorkflow(
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
+	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	q := NewQRepPartitionFlowExecution(ctx, config, runUUID)
 	return q.ReplicatePartitions(ctx, partitions)
 }

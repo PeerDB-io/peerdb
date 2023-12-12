@@ -3,6 +3,7 @@ package conns3
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -10,9 +11,9 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -25,6 +26,7 @@ type S3Connector struct {
 	pgMetadata *metadataStore.PostgresMetadataStore
 	client     s3.S3
 	creds      utils.S3PeerCredentials
+	logger     slog.Logger
 }
 
 func NewS3Connector(ctx context.Context,
@@ -64,31 +66,32 @@ func NewS3Connector(ctx context.Context,
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx,
 		config.GetMetadataDb(), metadataSchemaName)
 	if err != nil {
-		log.Errorf("failed to create postgres metadata store: %v", err)
+		slog.ErrorContext(ctx, "failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
 	}
-
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &S3Connector{
 		ctx:        ctx,
 		url:        config.Url,
 		pgMetadata: pgMetadata,
 		client:     *s3Client,
 		creds:      s3PeerCreds,
+		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
 func (c *S3Connector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	log.Infof("CreateRawTable for S3 is a no-op")
+	c.logger.Info("CreateRawTable for S3 is a no-op")
 	return nil, nil
 }
 
 func (c *S3Connector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	log.Infof("InitializeTableSchema for S3 is a no-op")
+	c.logger.Info("InitializeTableSchema for S3 is a no-op")
 	return nil
 }
 
 func (c *S3Connector) Close() error {
-	log.Debugf("Closing metadata store connection")
+	c.logger.Debug("Closing metadata store connection")
 	return c.pgMetadata.Close()
 }
 
@@ -142,7 +145,7 @@ func (c *S3Connector) ConnectionActive() error {
 
 	validErr := ValidCheck(&c.client, c.url, c.pgMetadata)
 	if validErr != nil {
-		log.Errorf("failed to validate s3 connector: %v", validErr)
+		c.logger.Error("failed to validate s3 connector:", slog.Any("error", validErr))
 		return validErr
 	}
 
@@ -156,7 +159,7 @@ func (c *S3Connector) NeedsSetupMetadataTables() bool {
 func (c *S3Connector) SetupMetadataTables() error {
 	err := c.pgMetadata.SetupMetadata()
 	if err != nil {
-		log.Errorf("failed to setup metadata tables: %v", err)
+		c.logger.Error("failed to setup metadata tables", slog.Any("error", err))
 		return err
 	}
 
@@ -185,7 +188,7 @@ func (c *S3Connector) GetLastOffset(jobName string) (*protos.LastSyncState, erro
 func (c *S3Connector) updateLastOffset(jobName string, offset int64) error {
 	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
 	if err != nil {
-		log.Errorf("failed to update last offset: %v", err)
+		c.logger.Error("failed to update last offset: ", slog.Any("error", err))
 		return err
 	}
 
@@ -217,7 +220,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("Synced %d records", numRecords)
+	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
 	lastCheckpoint, err := req.Records.GetLastCheckpoint()
 	if err != nil {
@@ -226,12 +229,12 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 
 	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
-		log.Errorf("failed to update last offset for s3 cdc: %v", err)
+		c.logger.Error("failed to update last offset for s3 cdc", slog.Any("error", err))
 		return nil, err
 	}
 	err = c.pgMetadata.IncrementID(req.FlowJobName)
 	if err != nil {
-		log.Errorf("%v", err)
+		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -246,7 +249,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
 	*protos.SetupNormalizedTableBatchOutput,
 	error) {
-	log.Infof("SetupNormalizedTables for S3 is a no-op")
+	c.logger.Info("SetupNormalizedTables for S3 is a no-op")
 	return nil, nil
 }
 

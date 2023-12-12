@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -14,7 +16,7 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	log "github.com/sirupsen/logrus"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
@@ -75,9 +77,9 @@ func killExistingHeartbeatFlows(
 	if err != nil {
 		return fmt.Errorf("unable to list workflows: %w", err)
 	}
-	log.Info("Requesting cancellation of pre-existing heartbeat flows")
+	slog.Info("Requesting cancellation of pre-existing heartbeat flows")
 	for _, workflow := range listRes.Executions {
-		log.Info("Cancelling workflow: ", workflow.Execution.WorkflowId)
+		slog.Info("Cancelling workflow", slog.String("workflowId", workflow.Execution.WorkflowId))
 		err := tc.CancelWorkflow(ctx,
 			workflow.Execution.WorkflowId, workflow.Execution.RunId)
 		if err != nil && err.Error() != "workflow execution already completed" {
@@ -94,7 +96,7 @@ func APIMain(args *APIServerParams) error {
 		Namespace: args.TemporalNamespace,
 	}
 	if args.TemporalCert != "" && args.TemporalKey != "" {
-		log.Info("Using temporal certificate/key for authentication")
+		slog.Info("Using temporal certificate/key for authentication")
 
 		certs, err := Base64DecodeCertAndKey(args.TemporalCert, args.TemporalKey)
 		if err != nil {
@@ -155,7 +157,7 @@ func APIMain(args *APIServerParams) error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	log.Printf("Starting API server on port %d", args.Port)
+	slog.Info(fmt.Sprintf("Starting API server on port %d", args.Port))
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)
@@ -167,7 +169,7 @@ func APIMain(args *APIServerParams) error {
 		return fmt.Errorf("unable to setup gateway server: %w", err)
 	}
 
-	log.Infof("Starting API gateway on port %d", args.GatewayPort)
+	slog.Info(fmt.Sprintf("Starting API gateway on port %d", args.GatewayPort))
 	go func() {
 		if err := gateway.ListenAndServe(); err != nil {
 			log.Fatalf("failed to serve http: %v", err)
@@ -177,7 +179,7 @@ func APIMain(args *APIServerParams) error {
 	<-ctx.Done()
 
 	grpcServer.GracefulStop()
-	log.Println("Server has been shut down gracefully. Exiting...")
+	slog.Info("Server has been shut down gracefully. Exiting...")
 
 	return nil
 }
