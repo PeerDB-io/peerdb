@@ -381,7 +381,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 
 	var result pgtype.Int8
 	if !rows.Next() {
-		c.logger.Info("No row found ,returning 0")
+		c.logger.Info("No row found, returning 0")
 		return 0, nil
 	}
 	err = rows.Scan(&result)

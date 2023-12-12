@@ -300,7 +300,7 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 	}()
 
 	if !rows.Next() {
-		c.logger.Warn("No row found ,returning nil")
+		c.logger.Warn("No row found, returning nil")
 		return nil, nil
 	}
 	var result pgtype.Int8
