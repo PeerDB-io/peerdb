@@ -3,6 +3,7 @@ package e2e_bigquery
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +13,6 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/ysmood/got"
 )
@@ -55,13 +55,13 @@ func (s PeerFlowE2ETestSuiteBQ) attachSuffix(input string) string {
 func setupBigQuery(t *testing.T) *BigQueryTestHelper {
 	bqHelper, err := NewBigQueryTestHelper()
 	if err != nil {
-		log.Errorf("Error in test: %v", err)
+		slog.Error("Error in test", slog.Any("error", err))
 		t.FailNow()
 	}
 
 	err = bqHelper.RecreateDataset()
 	if err != nil {
-		log.Errorf("Error in test: %v", err)
+		slog.Error("Error in test", slog.Any("error", err))
 		t.FailNow()
 	}
 
@@ -74,18 +74,15 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
-
-	log.SetReportCaller(true)
-	log.SetLevel(log.WarnLevel)
 
 	suffix := util.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	bqSuffix := fmt.Sprintf("bq_%s_%s", strings.ToLower(suffix), tsSuffix)
 	pool, err := e2e.SetupPostgres(bqSuffix)
 	if err != nil || pool == nil {
-		log.Errorf("failed to setup postgres: %v", err)
+		slog.Error("failed to setup postgres", slog.Any("error", err))
 		t.FailNow()
 	}
 
@@ -104,13 +101,13 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
 func (s PeerFlowE2ETestSuiteBQ) tearDownSuite() {
 	err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
 	if err != nil {
-		log.Errorf("failed to tear down postgres: %v", err)
+		slog.Error("failed to tear down postgres", slog.Any("error", err))
 		s.FailNow()
 	}
 
 	err = s.bqHelper.DropDataset()
 	if err != nil {
-		log.Errorf("failed to tear down bigquery: %v", err)
+		slog.Error("failed to tear down bigquery", slog.Any("error", err))
 		s.FailNow()
 	}
 }

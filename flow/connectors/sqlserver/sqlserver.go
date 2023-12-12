@@ -3,9 +3,11 @@ package connsqlserver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/microsoft/go-mssqldb"
 )
@@ -16,6 +18,7 @@ type SQLServerConnector struct {
 	ctx    context.Context
 	config *protos.SqlServerConfig
 	db     *sqlx.DB
+	logger slog.Logger
 }
 
 // NewSQLServerConnector creates a new SQL Server connection
@@ -36,11 +39,14 @@ func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) 
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
 		ctx, db, sqlServerTypeToQValueKindMap, qValueKindToSQLServerTypeMap)
 
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+
 	return &SQLServerConnector{
 		GenericSQLQueryExecutor: genericExecutor,
 		ctx:                     ctx,
 		config:                  config,
 		db:                      db,
+		logger:                  *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 

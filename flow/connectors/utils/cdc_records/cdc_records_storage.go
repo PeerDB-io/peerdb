@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"os"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/cockroachdb/pebble"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -84,9 +84,9 @@ func (c *cdcRecordsStore) Set(key model.TableWithPkey, rec model.Record) error {
 		c.inMemoryRecords[key] = rec
 	} else {
 		if c.pebbleDB == nil {
-			logrus.WithFields(logrus.Fields{
-				"flowName": c.flowJobName,
-			}).Infof("more than %d primary keys read, spilling to disk", c.numRecordsSwitchThreshold)
+			slog.Info(fmt.Sprintf("more than %d primary keys read, spilling to disk",
+				c.numRecordsSwitchThreshold),
+				slog.String("flowName", c.flowJobName))
 			err := c.initPebbleDB()
 			if err != nil {
 				return err
@@ -136,9 +136,9 @@ func (c *cdcRecordsStore) Get(key model.TableWithPkey) (model.Record, bool, erro
 		defer func() {
 			err := closer.Close()
 			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"flowName": c.flowJobName,
-				}).Warnf("failed to close database: %v", err)
+				slog.Warn("failed to close database",
+					slog.Any("error", err),
+					slog.String("flowName", c.flowJobName))
 			}
 		}()
 

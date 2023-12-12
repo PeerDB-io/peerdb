@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -17,7 +19,6 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zstd"
 	"github.com/linkedin/goavro/v2"
-	log "github.com/sirupsen/logrus"
 	uber_atomic "go.uber.org/atomic"
 )
 
@@ -56,7 +57,7 @@ func (l *AvroFile) Cleanup() {
 	if l.StorageLocation == AvroLocalStorage {
 		err := os.Remove(l.FilePath)
 		if err != nil && !os.IsNotExist(err) {
-			log.Warnf("unable to delete temporary Avro file: %v", err)
+			slog.Warn("unable to delete temporary Avro file", slog.Any("error", err))
 		}
 	}
 }
@@ -119,7 +120,7 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (int, error) {
 	schema, err := p.stream.Schema()
 	if err != nil {
-		log.Errorf("failed to get schema from stream: %v", err)
+		slog.Error("failed to get schema from stream", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
@@ -141,7 +142,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 
 	for qRecordOrErr := range p.stream.Records {
 		if qRecordOrErr.Err != nil {
-			log.Errorf("[avro] failed to get record from stream: %v", qRecordOrErr.Err)
+			slog.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
 			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 
@@ -155,13 +156,13 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 
 		avroMap, err := avroConverter.Convert()
 		if err != nil {
-			log.Errorf("failed to convert QRecord to Avro compatible map: %v", err)
+			slog.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}
 
 		err = ocfWriter.Append([]interface{}{avroMap})
 		if err != nil {
-			log.Errorf("failed to write record to OCF: %v", err)
+			slog.Error("failed to write record to OCF: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
 		}
 
@@ -200,7 +201,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 
 	s3svc, err := utils.CreateS3Client(s3Creds)
 	if err != nil {
-		log.Errorf("failed to create S3 client: %v", err)
+		slog.Error("failed to create S3 client: ", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
@@ -215,11 +216,11 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 	})
 
 	if err != nil {
-		log.Errorf("failed to upload file: %v", err)
+		slog.Error("failed to upload file: ", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to upload file: %w", err)
 	}
 
-	log.Infof("file uploaded to, %s", result.Location)
+	slog.Info("file uploaded to" + result.Location)
 
 	return &AvroFile{
 		NumRecords:      <-numRowsWritten,

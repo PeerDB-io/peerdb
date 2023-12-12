@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
-	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/slog"
 )
 
 // QValueKindAvroSchema defines a structure for representing Avro schemas.
@@ -165,8 +165,8 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindString:
 		if c.TargetDWH == QDWHTypeSnowflake && c.Value.Value != nil &&
 			(len(c.Value.Value.(string)) > 15*1024*1024) {
-			log.Warn("Truncating TEXT value > 15MB for Snowflake!")
-			log.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+			slog.Warn("Truncating TEXT value > 15MB for Snowflake!")
+			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return c.processNullableUnion("string", "")
 		}
 		return c.processNullableUnion("string", c.Value.Value)
@@ -292,16 +292,16 @@ func (c *QValueAvroConverter) processJSON() (interface{}, error) {
 
 	if c.Nullable {
 		if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
-			log.Warn("Truncating JSON value > 15MB for Snowflake!")
-			log.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+			slog.Warn("Truncating JSON value > 15MB for Snowflake!")
+			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return goavro.Union("string", ""), nil
 		}
 		return goavro.Union("string", jsonString), nil
 	}
 
 	if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
-		log.Warn("Truncating JSON value > 15MB for Snowflake!")
-		log.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+		slog.Warn("Truncating JSON value > 15MB for Snowflake!")
+		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return "", nil
 	}
 	return jsonString, nil

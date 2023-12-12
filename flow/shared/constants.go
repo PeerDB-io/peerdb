@@ -24,6 +24,9 @@ const (
 	PauseSignal
 
 	CDCMirrorMonitorKey ContextKey = "cdcMirrorMonitor"
+	FlowNameKey         ContextKey = "flowName"
+	PartitionIDKey      ContextKey = "partitionId"
+	DeploymentUIDKey    ContextKey = "deploymentUid"
 )
 
 type TaskQueueID int64

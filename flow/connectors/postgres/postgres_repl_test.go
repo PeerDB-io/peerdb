@@ -3,13 +3,14 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -104,11 +105,13 @@ func (suite *PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 }
 
 func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
+
 	tables := map[string]string{
 		"pgpeer_repl_test.test_1": "test_1_dst",
 	}
 
 	flowJobName := "test_simple_slot_creation"
+	flowLog := slog.String(string(shared.FlowNameKey), flowJobName)
 	setupReplicationInput := &protos.SetupReplicationInput{
 		FlowJobName:      flowJobName,
 		TableNameMapping: tables,
@@ -122,15 +125,15 @@ func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
 		require.NoError(suite.T(), err)
 	}()
 
-	log.Infof("waiting for slot creation to complete for %s", flowJobName)
+	slog.Info("waiting for slot creation to complete", flowLog)
 	slotInfo := <-signal.SlotCreated
-	log.Infof("slot creation complete for %s: %v", flowJobName, slotInfo)
+	slog.Info(fmt.Sprintf("slot creation complete: %v", slotInfo), flowLog)
 
-	log.Infof("signaling clone complete for %s after waiting for 2 seconds", flowJobName)
+	slog.Info("signaling clone complete after waiting for 2 seconds", flowLog)
 	time.Sleep(2 * time.Second)
 	signal.CloneComplete <- struct{}{}
 
-	log.Infof("successfully setup replication for %s", flowJobName)
+	slog.Info("successfully setup replication", flowLog)
 }
 
 func TestPostgresReplTestSuite(t *testing.T) {

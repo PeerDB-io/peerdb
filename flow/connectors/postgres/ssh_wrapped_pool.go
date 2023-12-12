@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -45,7 +45,7 @@ func NewSSHWrappedPostgresPool(
 			sshConfig.PrivateKey,
 		)
 		if err != nil {
-			logrus.Error("Failed to get SSH client config: ", err)
+			slog.Error("Failed to get SSH client config", slog.Any("error", err))
 			cancel()
 			return nil, err
 		}
@@ -77,41 +77,33 @@ func (swpp *SSHWrappedPostgresPool) connect() error {
 
 		swpp.Pool, err = pgxpool.NewWithConfig(swpp.ctx, swpp.poolConfig)
 		if err != nil {
-			logrus.Errorf("Failed to create pool: %v", err)
+			slog.Error("Failed to create pool:", slog.Any("error", err))
 			return
 		}
-
-		logrus.Infof("Established pool to %s:%d",
-			swpp.poolConfig.ConnConfig.Host, swpp.poolConfig.ConnConfig.Port)
 
 		err = retryWithBackoff(func() error {
 			err = swpp.Ping(swpp.ctx)
 			if err != nil {
-				logrus.Errorf("Failed to ping pool: %v", err)
+				slog.Error("Failed to ping pool", slog.Any("error", err))
 				return err
 			}
 			return nil
 		}, 5, 5*time.Second)
 
 		if err != nil {
-			logrus.Errorf("Failed to create pool: %v", err)
+			slog.Error("Failed to create pool", slog.Any("error", err))
 		}
 	})
-
-	if err == nil {
-		logrus.Info("Successfully connected to Postgres")
-	}
 
 	return err
 }
 
 func (swpp *SSHWrappedPostgresPool) setupSSH() error {
 	if swpp.sshConfig == nil {
-		logrus.Info("SSH config is nil, skipping SSH setup")
 		return nil
 	}
 
-	logrus.Info("Setting up SSH connection to ", swpp.sshServer)
+	slog.Info("Setting up SSH connection to " + swpp.sshServer)
 
 	var err error
 	swpp.sshClient, err = ssh.Dial("tcp", swpp.sshServer, swpp.sshConfig)
@@ -151,7 +143,7 @@ func retryWithBackoff(fn retryFunc, maxRetries int, backoff time.Duration) (err 
 			return nil
 		}
 		if i < maxRetries-1 {
-			logrus.Infof("Attempt #%d failed, retrying in %s", i+1, backoff)
+			slog.Info(fmt.Sprintf("Attempt #%d failed, retrying in %s", i+1, backoff))
 			time.Sleep(backoff)
 		}
 	}

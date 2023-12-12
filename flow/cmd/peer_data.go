@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -211,14 +211,14 @@ func (h *FlowRequestHandler) GetSlotInfo(
 
 	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
 	if err != nil {
-		logrus.Errorf("Failed to create postgres connector: %v", err)
+		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
 	defer pgConnector.Close()
 
 	slotInfo, err := pgConnector.GetSlotInfo("")
 	if err != nil {
-		logrus.Errorf("Failed to get slot info: %v", err)
+		slog.Error("Failed to get slot info", slog.Any("error", err))
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
 
@@ -238,7 +238,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 
 	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
 	if err != nil {
-		logrus.Errorf("Failed to create postgres connector: %v", err)
+		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
 	defer pgConnector.Close()
@@ -251,7 +251,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 		" FROM pg_stat_activity WHERE "+
 		"usename=$1 AND state != 'idle';", peerUser)
 	if err != nil {
-		logrus.Errorf("Failed to get stat info: %v", err)
+		slog.Error("Failed to get stat info", slog.Any("error", err))
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
 	defer rows.Close()
@@ -266,7 +266,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 
 		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration)
 		if err != nil {
-			logrus.Errorf("Failed to scan row: %v", err)
+			slog.Error("Failed to scan row", slog.Any("error", err))
 			return &protos.PeerStatResponse{StatData: nil}, err
 		}
 

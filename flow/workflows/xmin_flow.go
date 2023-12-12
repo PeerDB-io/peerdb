@@ -186,6 +186,7 @@ func XminFlowWorkflow(
 	config *protos.QRepConfig,
 	state *protos.QRepFlowState,
 ) error {
+	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	// get xmin run uuid via side-effect
 	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
 		return uuid.New().String()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"regexp"
 	"strings"
@@ -16,9 +17,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
+
 	"go.temporal.io/sdk/activity"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -66,6 +68,7 @@ type BigQueryConnector struct {
 	tableNameSchemaMapping map[string]*protos.TableSchema
 	datasetID              string
 	catalogPool            *pgxpool.Pool
+	logger                 slog.Logger
 }
 
 type StagingBQRecord struct {
@@ -170,7 +173,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	datasetID := config.GetDatasetId()
 	_, checkErr := client.Dataset(datasetID).Metadata(ctx)
 	if checkErr != nil {
-		log.Errorf("failed to get dataset metadata: %v", checkErr)
+		slog.ErrorContext(ctx, "failed to get dataset metadata", slog.Any("error", checkErr))
 		return nil, fmt.Errorf("failed to get dataset metadata: %v", checkErr)
 	}
 
@@ -184,6 +187,8 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create catalog connection pool: %v", err)
 	}
 
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+
 	return &BigQueryConnector{
 		ctx:           ctx,
 		bqConfig:      config,
@@ -191,6 +196,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		datasetID:     datasetID,
 		storageClient: storageClient,
 		catalogPool:   catalogPool,
+		logger:        *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -243,13 +249,10 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
 				qValueKindToBigQueryType(addedColumn.ColumnType))).Read(c.ctx)
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
-					schemaDelta.SrcTableName, err)
+					schemaDelta.DstTableName, err)
 			}
-			log.WithFields(log.Fields{
-				"flowName":  flowJobName,
-				"tableName": schemaDelta.SrcTableName,
-			}).Infof("[schema delta replay] added column %s with data type %s", addedColumn.ColumnName,
-				addedColumn.ColumnType)
+			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s to table %s",
+				addedColumn.ColumnName, addedColumn.ColumnType, schemaDelta.DstTableName))
 		}
 	}
 
@@ -282,7 +285,7 @@ func (c *BigQueryConnector) SetupMetadataTables() error {
 		if !strings.Contains(err.Error(), "Already Exists") {
 			return fmt.Errorf("failed to create table %s: %w", MirrorJobsTable, err)
 		} else {
-			log.Infof("table %s already exists", MirrorJobsTable)
+			c.logger.Info(fmt.Sprintf("table %s already exists", MirrorJobsTable))
 		}
 	}
 
@@ -302,12 +305,12 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
-		log.Printf("no row found for job %s, returning nil", jobName)
+		c.logger.Info("no row found, returning nil")
 		return nil, nil
 	}
 
 	if row[0] == nil {
-		log.Printf("no offset found for job %s, returning nil", jobName)
+		c.logger.Info("no offset found, returning nil")
 		return nil, nil
 	} else {
 		return &protos.LastSyncState{
@@ -329,12 +332,12 @@ func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
-		log.Printf("no row found for job %s", jobName)
+		c.logger.Info("no row found")
 		return 0, nil
 	}
 
 	if row[0] == nil {
-		log.Printf("no sync_batch_id found for job %s, returning 0", jobName)
+		c.logger.Info("no sync_batch_id found, returning 0")
 		return 0, nil
 	} else {
 		return row[0].(int64), nil
@@ -354,12 +357,12 @@ func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, erro
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
-		log.Printf("no row found for job %s", jobName)
+		c.logger.Info("no row found for job")
 		return 0, nil
 	}
 
 	if row[0] == nil {
-		log.Printf("no normalize_batch_id found for job %s, returning 0", jobName)
+		c.logger.Info("no normalize_batch_id foundreturning 0")
 		return 0, nil
 	} else {
 		return row[0].(int64), nil
@@ -462,7 +465,7 @@ func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
 func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	log.Printf("pushing records to %s.%s...", c.datasetID, rawTableName)
+	c.logger.Info(fmt.Sprintf("pushing records to %s.%s...", c.datasetID, rawTableName))
 
 	// generate a sequential number for the last synced batch
 	// this sequence will be used to keep track of records that are normalized
@@ -697,7 +700,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 		return nil, fmt.Errorf("failed to sync records via avro : %v", err)
 	}
 
-	log.Printf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName)
+	c.logger.Info(fmt.Sprintf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName))
 
 	return &model.SyncResponse{
 		FirstSyncedCheckPointID: firstCP,
@@ -730,7 +733,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	// if job is not yet found in the peerdb_mirror_jobs_table
 	// OR sync is lagging end normalize
 	if !hasJob || normalizeBatchID == syncBatchID {
-		log.Printf("waiting for sync to catch up for job %s, so finishing", req.FlowJobName)
+		c.logger.Info("waiting for sync to catch up, so finishing")
 		return &model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normalizeBatchID,
@@ -749,7 +752,8 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 
 	stmts := []string{}
 	// append all the statements to one list
-	log.Printf("merge raw records to corresponding tables: %s %s %v", c.datasetID, rawTableName, distinctTableNames)
+	c.logger.Info(fmt.Sprintf("merge raw records to corresponding tables: %s %s %v",
+		c.datasetID, rawTableName, distinctTableNames))
 
 	release, err := c.grabJobsUpdateLock()
 	if err != nil {
@@ -759,7 +763,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	defer func() {
 		err := release()
 		if err != nil {
-			log.Errorf("failed to release lock: %v", err)
+			c.logger.Error("failed to release lock", slog.Any("error", err))
 		}
 	}()
 
@@ -961,7 +965,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 
 		tableExistsMapping[tableIdentifier] = false
 		// log that table was created
-		log.Printf("created table %s", tableIdentifier)
+		c.logger.Info(fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	return &protos.SetupNormalizedTableBatchOutput{
@@ -978,7 +982,7 @@ func (c *BigQueryConnector) SyncFlowCleanup(jobName string) error {
 	defer func() {
 		err := release()
 		if err != nil {
-			log.Printf("failed to release lock: %v", err)
+			c.logger.Error("failed to release lock", slog.Any("error", err))
 		}
 	}()
 
@@ -1047,9 +1051,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 	for _, renameRequest := range req.RenameTableOptions {
 		src := renameRequest.CurrentName
 		dst := renameRequest.NewName
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Infof("renaming table '%s' to '%s'...", src, dst)
+		c.logger.Info(fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
 		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("renaming table '%s' to '%s'...", src, dst))
 
@@ -1066,9 +1068,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", src, dst, err)
 		}
 
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Infof("successfully renamed table '%s' to '%s'", src, dst)
+		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
 	return &protos.RenameTablesOutput{
@@ -1079,9 +1079,7 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 func (c *BigQueryConnector) CreateTablesFromExisting(req *protos.CreateTablesFromExistingInput) (
 	*protos.CreateTablesFromExistingOutput, error) {
 	for newTable, existingTable := range req.NewToExistingTableMapping {
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Infof("creating table '%s' similar to '%s'", newTable, existingTable)
+		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		activity.RecordHeartbeat(c.ctx, fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
@@ -1092,9 +1090,7 @@ func (c *BigQueryConnector) CreateTablesFromExisting(req *protos.CreateTablesFro
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
 		}
 
-		log.WithFields(log.Fields{
-			"flowName": req.FlowJobName,
-		}).Infof("successfully created table '%s'", newTable)
+		c.logger.Info(fmt.Sprintf("successfully created table '%s'", newTable))
 	}
 
 	return &protos.CreateTablesFromExistingOutput{

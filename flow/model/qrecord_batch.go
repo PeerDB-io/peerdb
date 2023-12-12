@@ -2,13 +2,13 @@ package model
 
 import (
 	"fmt"
+	"log/slog"
 	"math/big"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	log "github.com/sirupsen/logrus"
 )
 
 // QRecordBatch holds a batch of QRecord objects.
@@ -57,12 +57,12 @@ func (q *QRecordBatch) Equals(other *QRecordBatch) bool {
 func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
 	stream := NewQRecordStream(buffer)
 
-	log.Infof("Converting %d records to QRecordStream", q.NumRecords)
+	slog.Info(fmt.Sprintf("Converting %d records to QRecordStream", q.NumRecords))
 
 	go func() {
 		err := stream.SetSchema(q.Schema)
 		if err != nil {
-			log.Warnf(err.Error())
+			slog.Warn(err.Error())
 		}
 
 		for _, record := range q.Records {

@@ -3,13 +3,14 @@ package connmetadata
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -21,6 +22,7 @@ type PostgresMetadataStore struct {
 	config     *protos.PostgresConfig
 	pool       *pgxpool.Pool
 	schemaName string
+	logger     slog.Logger
 }
 
 func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
@@ -33,23 +35,25 @@ func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConf
 			return nil, fmt.Errorf("failed to create catalog connection pool: %v", poolErr)
 		}
 
-		log.Info("obtained catalog connection pool for metadata store")
+		slog.InfoContext(ctx, "obtained catalog connection pool for metadata store")
 	} else {
 		connectionString := utils.GetPGConnectionString(pgConfig)
 		storePool, poolErr = pgxpool.New(ctx, connectionString)
 		if poolErr != nil {
-			log.Errorf("failed to create connection pool: %v", poolErr)
+			slog.ErrorContext(ctx, "failed to create connection pool", slog.Any("error", poolErr))
 			return nil, poolErr
 		}
 
-		log.Info("created connection pool for metadata store")
+		slog.InfoContext(ctx, "created connection pool for metadata store")
 	}
 
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &PostgresMetadataStore{
 		ctx:        ctx,
 		config:     pgConfig,
 		pool:       storePool,
 		schemaName: schemaName,
+		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -80,7 +84,7 @@ func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 	var exists pgtype.Int8
 	err := rows.Scan(&exists)
 	if err != nil {
-		log.Errorf("failed to check if schema exists: %v", err)
+		p.logger.Error("failed to check if schema exists", slog.Any("error", err))
 		return false
 	}
 
@@ -95,14 +99,14 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 	// start a transaction
 	tx, err := p.pool.Begin(p.ctx)
 	if err != nil {
-		log.Errorf("failed to start transaction: %v", err)
+		p.logger.Error("failed to start transaction", slog.Any("error", err))
 		return err
 	}
 
 	// create the schema
 	_, err = tx.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
 	if err != nil {
-		log.Errorf("failed to create schema: %v", err)
+		p.logger.Error("failed to create schema", slog.Any("error", err))
 		return err
 	}
 
@@ -116,15 +120,16 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 		)
 	`)
 	if err != nil {
-		log.Errorf("failed to create last sync state table: %v", err)
+		p.logger.Error("failed to create last sync state table", slog.Any("error", err))
 		return err
 	}
-	log.Infof("created external metadata table %s.%s", p.schemaName, lastSyncStateTableName)
+
+	p.logger.Info(fmt.Sprintf("created external metadata table %s.%s", p.schemaName, lastSyncStateTableName))
 
 	// commit the transaction
 	err = tx.Commit(p.ctx)
 	if err != nil {
-		log.Errorf("failed to commit transaction: %v", err)
+		p.logger.Error("failed to commit transaction", slog.Any("error", err))
 		return err
 	}
 
@@ -147,13 +152,11 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyn
 			}, nil
 		}
 
-		log.WithFields(log.Fields{
-			"flowName": jobName,
-		}).Errorf("failed to get last offset: %v", err)
+		p.logger.Error("failed to get last offset", slog.Any("error", err))
 		return nil, err
 	}
 
-	log.Infof("got last offset for job `%s`: %d", jobName, offset.Int64)
+	p.logger.Info("got last offset for job", slog.Int64("offset", offset.Int64))
 
 	return &protos.LastSyncState{
 		Checkpoint: offset.Int64,
@@ -175,13 +178,10 @@ func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
 			return 0, nil
 		}
 
-		log.WithFields(log.Fields{
-			"flowName": jobName,
-		}).Errorf("failed to get last offset: %v", err)
+		slog.Error("failed to get last offset", slog.Any("error", err))
 		return 0, err
 	}
-
-	log.Infof("got last sync batch ID for job `%s`: %d", jobName, syncBatchID.Int64)
+	p.logger.Info("got last batch id for job", slog.Int64("batch id", syncBatchID.Int64))
 
 	return syncBatchID.Int64, nil
 }
@@ -191,14 +191,12 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 	// start a transaction
 	tx, err := p.pool.Begin(p.ctx)
 	if err != nil {
-		log.Errorf("failed to start transaction: %v", err)
+		p.logger.Error("failed to start transaction", slog.Any("error", err))
 		return err
 	}
 
 	// update the last offset
-	log.WithFields(log.Fields{
-		"flowName": jobName,
-	}).Infof("updating last offset for job `%s` to `%d`", jobName, offset)
+	p.logger.Info("updating last offset", slog.Int64("offset", offset))
 	_, err = tx.Exec(p.ctx, `
 		INSERT INTO `+p.schemaName+`.`+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
@@ -207,16 +205,14 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 	`, jobName, offset, 0)
 
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName": jobName,
-		}).Errorf("failed to update last offset: %v", err)
+		p.logger.Error("failed to update last offset", slog.Any("error", err))
 		return err
 	}
 
 	// commit the transaction
 	err = tx.Commit(p.ctx)
 	if err != nil {
-		log.Errorf("failed to commit transaction: %v", err)
+		p.logger.Error("failed to commit transaction", slog.Any("error", err))
 		return err
 	}
 
@@ -225,18 +221,14 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 
 // update offset for a job
 func (p *PostgresMetadataStore) IncrementID(jobName string) error {
-	log.WithFields(log.Fields{
-		"flowName": jobName,
-	}).Infof("incrementing sync batch id for job `%s`", jobName)
+	p.logger.Info("incrementing sync batch id for job")
 	_, err := p.pool.Exec(p.ctx, `
 		UPDATE `+p.schemaName+`.`+lastSyncStateTableName+`
 		 SET sync_batch_id=sync_batch_id+1 WHERE job_name=$1
 	`, jobName)
 
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName": jobName,
-		}).Errorf("failed to increment sync batch id: %v", err)
+		p.logger.Error("failed to increment sync batch id", slog.Any("error", err))
 		return err
 	}
 

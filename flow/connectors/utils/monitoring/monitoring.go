@@ -3,14 +3,16 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -109,7 +111,9 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobNa
 	defer func() {
 		err = insertBatchTablesTx.Rollback(ctx)
 		if err != pgx.ErrTxClosed && err != nil {
-			log.Error("unexpected error during transaction rollback: %w", err)
+			slog.Error("error during transaction rollback",
+				slog.Any("error", err),
+				slog.String(string(shared.FlowNameKey), flowJobName))
 		}
 	}()
 
@@ -216,7 +220,9 @@ func AppendSlotSizeInfo(
 func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
 	runUUID string, partition *protos.QRepPartition) error {
 	if partition.Range == nil && partition.FullTablePartition {
-		log.Infof("partition %s is a full table partition. Metrics logging is skipped.", partition.PartitionId)
+		slog.Info("partition"+partition.PartitionId+
+			" is a full table partition. Metrics logging is skipped.",
+			slog.String(string(shared.FlowNameKey), flowJobName))
 		return nil
 	}
 

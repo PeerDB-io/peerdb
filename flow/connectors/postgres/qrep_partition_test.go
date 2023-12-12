@@ -3,10 +3,12 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -168,6 +170,7 @@ func TestGetQRepPartitions(t *testing.T) {
 				ctx:     context.Background(),
 				config:  &protos.PostgresConfig{},
 				pool:    pool,
+				logger:  *slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions")),
 			}
 
 			got, err := c.GetQRepPartitions(tc.config, tc.last)

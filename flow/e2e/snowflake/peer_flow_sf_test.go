@@ -3,6 +3,7 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +19,6 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,11 +62,8 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
-
-	log.SetReportCaller(true)
-	log.SetLevel(log.WarnLevel)
 
 	suffix := util.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
@@ -74,13 +71,13 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 
 	pool, err := e2e.SetupPostgres(pgSuffix)
 	if err != nil || pool == nil {
-		log.Errorf("failed to setup Postgres: %v", err)
+		slog.Error("failed to setup Postgres", slog.Any("error", err))
 		g.FailNow()
 	}
 
 	sfHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
-		log.Errorf("failed to setup Snowflake: %v", err)
+		slog.Error("failed to setup Snowflake", slog.Any("error", err))
 		g.FailNow()
 	}
 
@@ -106,14 +103,14 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 func (s PeerFlowE2ETestSuiteSF) tearDownSuite() {
 	err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
 	if err != nil {
-		log.Errorf("failed to tear down Postgres: %v", err)
+		slog.Error("failed to tear down Postgres", slog.Any("error", err))
 		s.FailNow()
 	}
 
 	if s.sfHelper != nil {
 		err = s.sfHelper.Cleanup()
 		if err != nil {
-			log.Errorf("failed to tear down Snowflake: %v", err)
+			slog.Error("failed to tear down Snowflake", slog.Any("error", err))
 			s.FailNow()
 		}
 	}
@@ -121,7 +118,7 @@ func (s PeerFlowE2ETestSuiteSF) tearDownSuite() {
 	err = s.connector.Close()
 
 	if err != nil {
-		log.Errorf("failed to close Snowflake connector: %v", err)
+		slog.Error("failed to close Snowflake connector", slog.Any("error", err))
 		s.FailNow()
 	}
 }
@@ -368,7 +365,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
         k int
     );
 `, srcTableName))
-	log.Infof("Creating table '%s', err: %v", srcTableName, err)
+	slog.Info(fmt.Sprintf("Creating table '%s', err: %v", srcTableName, err))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -400,7 +397,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 		`, srcTableName, srcTableName))
 
 		if err != nil {
-			log.Errorf("Error executing transaction: %v", err)
+			slog.Error("Error executing transaction", slog.Any("error", err))
 			s.FailNow()
 		}
 
