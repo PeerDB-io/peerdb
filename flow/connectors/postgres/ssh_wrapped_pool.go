@@ -81,9 +81,6 @@ func (swpp *SSHWrappedPostgresPool) connect() error {
 			return
 		}
 
-		slog.Info(fmt.Sprintf("Established pool to %s:%d",
-			swpp.poolConfig.ConnConfig.Host, swpp.poolConfig.ConnConfig.Port))
-
 		err = retryWithBackoff(func() error {
 			err = swpp.Ping(swpp.ctx)
 			if err != nil {
@@ -98,16 +95,11 @@ func (swpp *SSHWrappedPostgresPool) connect() error {
 		}
 	})
 
-	if err == nil {
-		slog.Info("Successfully connected to Postgres")
-	}
-
 	return err
 }
 
 func (swpp *SSHWrappedPostgresPool) setupSSH() error {
 	if swpp.sshConfig == nil {
-		slog.Info("SSH config is nil, skipping SSH setup")
 		return nil
 	}
 
