@@ -284,6 +284,20 @@ func CDCFlowWorkflowWithConfig(
 		BatchSize: int32(limits.MaxBatchSize),
 	}
 
+	// add a signal to change the batch size
+	batchSizeSignalChan := workflow.GetSignalChannel(ctx, shared.CDCBatchSizeSignalName)
+	batchSizeSelector := workflow.NewSelector(ctx)
+	batchSizeSelector.AddReceive(batchSizeSignalChan, func(c workflow.ReceiveChannel, more bool) {
+		var batchSize int32
+		c.Receive(ctx, &batchSize)
+		w.logger.Info("received batch size signal: ", batchSize)
+		syncFlowOptions.BatchSize = batchSize
+	})
+	batchSizeSelector.AddDefault(func() {
+		w.logger.Info("no batch size signal received, batch size remains: ",
+			syncFlowOptions.BatchSize)
+	})
+
 	currentSyncFlowNum := 0
 	totalRecordsSynced := 0
 
@@ -435,6 +449,7 @@ func CDCFlowWorkflowWithConfig(
 			}
 		})
 		selector.Select(ctx)
+		batchSizeSelector.Select(ctx)
 	}
 
 	state.TruncateProgress()
