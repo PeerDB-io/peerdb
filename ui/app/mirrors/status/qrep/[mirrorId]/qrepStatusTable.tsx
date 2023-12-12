@@ -17,7 +17,8 @@ export type QRepPartitionStatus = {
   status: string;
   startTime: Date | null;
   endTime: Date | null;
-  numRows: number | null;
+  pulledRows: number | null;
+  syncedRows: number | null;
 };
 
 function TimeOrProgressBar({ time }: { time: Date | null }) {
@@ -34,7 +35,8 @@ function RowPerPartition({
   status,
   startTime,
   endTime,
-  numRows,
+  pulledRows: numRows,
+  syncedRows,
 }: QRepPartitionStatus) {
   let duration = 'N/A';
   if (startTime && endTime) {
@@ -66,6 +68,9 @@ function RowPerPartition({
       </TableCell>
       <TableCell>
         <Label>{numRows}</Label>
+      </TableCell>
+      <TableCell>
+        <Label>{syncedRows ?? 0}</Label>
       </TableCell>
     </TableRow>
   );
@@ -217,7 +222,8 @@ export default function QRepStatusTable({
             'Duration',
             'Start Time',
             'End Time',
-            'Num Rows Synced',
+            'Rows In Partition',
+            'Rows Synced',
           ].map((heading, index) => (
             <TableCell as='th' key={index}>
               <Label as='label' style={{ fontWeight: 'bold' }}>

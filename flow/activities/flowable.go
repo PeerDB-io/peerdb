@@ -626,12 +626,12 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		shutdown <- struct{}{}
 	}()
 
-	res, err := dstConn.SyncQRepRecords(config, partition, stream)
+	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
 		return fmt.Errorf("failed to sync records: %w", err)
 	}
 
-	if res == 0 {
+	if rowsSynced == 0 {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
 		}).Infof("no records to push for partition %s\n", partition.PartitionId)
@@ -640,9 +640,15 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		if goroutineErr != nil {
 			return goroutineErr
 		}
+
+		err := a.CatalogMirrorMonitor.UpdateRowsSyncedForPartition(ctx, rowsSynced, runUUID, partition)
+		if err != nil {
+			return err
+		}
+
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
-		}).Infof("pushed %d records\n", res)
+		}).Infof("pushed %d records\n", rowsSynced)
 	}
 
 	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
@@ -971,12 +977,12 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		shutdown <- struct{}{}
 	}()
 
-	res, err := dstConn.SyncQRepRecords(config, partition, stream)
+	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
 		return 0, fmt.Errorf("failed to sync records: %w", err)
 	}
 
-	if res == 0 {
+	if rowsSynced == 0 {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
 		}).Info("no records to push for xmin\n")
@@ -985,9 +991,15 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		if err != nil {
 			return 0, err
 		}
+
+		err = a.CatalogMirrorMonitor.UpdateRowsSyncedForPartition(ctx, rowsSynced, runUUID, partition)
+		if err != nil {
+			return 0, err
+		}
+
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
-		}).Infof("pushed %d records\n", res)
+		}).Infof("pushed %d records\n", rowsSynced)
 	}
 
 	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)

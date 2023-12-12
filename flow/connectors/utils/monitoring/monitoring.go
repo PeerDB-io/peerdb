@@ -225,7 +225,7 @@ func (c *CatalogMirrorMonitor) UpdateStartTimeForQRepRun(ctx context.Context, ru
 		"UPDATE peerdb_stats.qrep_runs SET start_time=$1 WHERE run_uuid=$2",
 		time.Now(), runUUID)
 	if err != nil {
-		return fmt.Errorf("error while updating num_rows_to_sync for run_uuid %s in qrep_runs: %w", runUUID, err)
+		return fmt.Errorf("error while updating start time for run_uuid %s in qrep_runs: %w", runUUID, err)
 	}
 
 	return nil
@@ -240,7 +240,7 @@ func (c *CatalogMirrorMonitor) UpdateEndTimeForQRepRun(ctx context.Context, runU
 		"UPDATE peerdb_stats.qrep_runs SET end_time=$1 WHERE run_uuid=$2",
 		time.Now(), runUUID)
 	if err != nil {
-		return fmt.Errorf("error while updating num_rows_to_sync for run_uuid %s in qrep_runs: %w", runUUID, err)
+		return fmt.Errorf("error while updating end time for run_uuid %s in qrep_runs: %w", runUUID, err)
 	}
 
 	return nil
@@ -372,6 +372,20 @@ func (c *CatalogMirrorMonitor) UpdateEndTimeForPartition(ctx context.Context, ru
 	 WHERE run_uuid=$2 AND partition_uuid=$3`, time.Now(), runUUID, partition.PartitionId)
 	if err != nil {
 		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)
+	}
+	return nil
+}
+
+func (c *CatalogMirrorMonitor) UpdateRowsSyncedForPartition(ctx context.Context, rowsSynced int, runUUID string,
+	partition *protos.QRepPartition) error {
+	if c == nil || c.catalogConn == nil {
+		return nil
+	}
+
+	_, err := c.catalogConn.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET rows_synced=$1
+	 WHERE run_uuid=$2 AND partition_uuid=$3`, rowsSynced, runUUID, partition.PartitionId)
+	if err != nil {
+		return fmt.Errorf("error while updating rows_synced in qrep_partitions: %w", err)
 	}
 	return nil
 }

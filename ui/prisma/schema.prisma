@@ -119,6 +119,7 @@ model qrep_partitions {
   restart_count     Int
   metadata          Json?
   id                Int       @id @default(autoincrement())
+  rows_synced       Int?
   qrep_runs         qrep_runs @relation(fields: [flow_name, run_uuid], references: [flow_name, run_uuid], onDelete: Cascade, onUpdate: NoAction, map: "fk_qrep_partitions_run")
 
   @@unique([run_uuid, partition_uuid])
@@ -142,5 +143,19 @@ model qrep_runs {
   @@index([flow_name], map: "idx_qrep_runs_flow_name", type: Hash)
   @@index([run_uuid], map: "idx_qrep_runs_run_uuid", type: Hash)
   @@index([start_time], map: "idx_qrep_runs_start_time")
+  @@schema("peerdb_stats")
+}
+
+model peer_slot_size {
+  id                  Int      @id @default(autoincrement())
+  slot_name           String
+  peer_name           String
+  redo_lsn            String?
+  restart_lsn         String?
+  confirmed_flush_lsn String?
+  slot_size           BigInt?
+  updated_at          DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([slot_name], map: "index_slot_name")
   @@schema("peerdb_stats")
 }

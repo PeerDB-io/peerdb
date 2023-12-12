@@ -182,7 +182,7 @@ export const SyncStatusTable = ({ rows }: SyncStatusTableProps) => {
       {displayedRows.map((row) => (
         <TableRow key={row.batchId}>
           <TableCell>
-            <Label>{row.batchId}</Label>
+            <Label>{Number(row.batchId)}</Label>
           </TableCell>
           <TableCell>
             <Label>
