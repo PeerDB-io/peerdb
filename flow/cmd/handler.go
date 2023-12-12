@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -244,6 +245,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
 		if err != nil {
+			slog.Error("unable to create flow job entry",
+				slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
@@ -258,6 +261,8 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 			// hack to facilitate migrating from existing xmin sync
 			txid, err := strconv.ParseInt(postColon, 10, 64)
 			if err != nil {
+				slog.Error("invalid xmin txid for xmin rep",
+					slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
 			}
 			state.LastPartition.Range = &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}}}
@@ -269,11 +274,15 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}
 	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
+		slog.Error("unable to start QRepFlow workflow",
+			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
 	err = h.updateQRepConfigInCatalog(cfg)
 	if err != nil {
+		slog.Error("unable to update qrep config in catalog",
+			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to update qrep config in catalog: %w", err)
 	}
 
