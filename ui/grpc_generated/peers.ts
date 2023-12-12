@@ -73,6 +73,14 @@ export function dBTypeToJSON(object: DBType): string {
   }
 }
 
+export interface SSHConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  privateKey: string;
+}
+
 export interface SnowflakeConfig {
   accountId: string;
   username: string;
@@ -121,6 +129,7 @@ export interface PostgresConfig {
   transactionSnapshot: string;
   /** defaults to _peerdb_internal */
   metadataSchema?: string | undefined;
+  sshConfig?: SSHConfig | undefined;
 }
 
 export interface EventHubConfig {
@@ -180,6 +189,125 @@ export interface Peer {
   sqlserverConfig?: SqlServerConfig | undefined;
   eventhubGroupConfig?: EventHubGroupConfig | undefined;
 }
+
+function createBaseSSHConfig(): SSHConfig {
+  return { host: "", port: 0, user: "", password: "", privateKey: "" };
+}
+
+export const SSHConfig = {
+  encode(message: SSHConfig, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.host !== "") {
+      writer.uint32(10).string(message.host);
+    }
+    if (message.port !== 0) {
+      writer.uint32(16).uint32(message.port);
+    }
+    if (message.user !== "") {
+      writer.uint32(26).string(message.user);
+    }
+    if (message.password !== "") {
+      writer.uint32(34).string(message.password);
+    }
+    if (message.privateKey !== "") {
+      writer.uint32(42).string(message.privateKey);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): SSHConfig {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSSHConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.host = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.port = reader.uint32();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.user = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.password = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.privateKey = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SSHConfig {
+    return {
+      host: isSet(object.host) ? String(object.host) : "",
+      port: isSet(object.port) ? Number(object.port) : 0,
+      user: isSet(object.user) ? String(object.user) : "",
+      password: isSet(object.password) ? String(object.password) : "",
+      privateKey: isSet(object.privateKey) ? String(object.privateKey) : "",
+    };
+  },
+
+  toJSON(message: SSHConfig): unknown {
+    const obj: any = {};
+    if (message.host !== "") {
+      obj.host = message.host;
+    }
+    if (message.port !== 0) {
+      obj.port = Math.round(message.port);
+    }
+    if (message.user !== "") {
+      obj.user = message.user;
+    }
+    if (message.password !== "") {
+      obj.password = message.password;
+    }
+    if (message.privateKey !== "") {
+      obj.privateKey = message.privateKey;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SSHConfig>, I>>(base?: I): SSHConfig {
+    return SSHConfig.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SSHConfig>, I>>(object: I): SSHConfig {
+    const message = createBaseSSHConfig();
+    message.host = object.host ?? "";
+    message.port = object.port ?? 0;
+    message.user = object.user ?? "";
+    message.password = object.password ?? "";
+    message.privateKey = object.privateKey ?? "";
+    return message;
+  },
+};
 
 function createBaseSnowflakeConfig(): SnowflakeConfig {
   return {
@@ -735,6 +863,7 @@ function createBasePostgresConfig(): PostgresConfig {
     database: "",
     transactionSnapshot: "",
     metadataSchema: undefined,
+    sshConfig: undefined,
   };
 }
 
@@ -760,6 +889,9 @@ export const PostgresConfig = {
     }
     if (message.metadataSchema !== undefined) {
       writer.uint32(58).string(message.metadataSchema);
+    }
+    if (message.sshConfig !== undefined) {
+      SSHConfig.encode(message.sshConfig, writer.uint32(66).fork()).ldelim();
     }
     return writer;
   },
@@ -820,6 +952,13 @@ export const PostgresConfig = {
 
           message.metadataSchema = reader.string();
           continue;
+        case 8:
+          if (tag !== 66) {
+            break;
+          }
+
+          message.sshConfig = SSHConfig.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -838,6 +977,7 @@ export const PostgresConfig = {
       database: isSet(object.database) ? String(object.database) : "",
       transactionSnapshot: isSet(object.transactionSnapshot) ? String(object.transactionSnapshot) : "",
       metadataSchema: isSet(object.metadataSchema) ? String(object.metadataSchema) : undefined,
+      sshConfig: isSet(object.sshConfig) ? SSHConfig.fromJSON(object.sshConfig) : undefined,
     };
   },
 
@@ -864,6 +1004,9 @@ export const PostgresConfig = {
     if (message.metadataSchema !== undefined) {
       obj.metadataSchema = message.metadataSchema;
     }
+    if (message.sshConfig !== undefined) {
+      obj.sshConfig = SSHConfig.toJSON(message.sshConfig);
+    }
     return obj;
   },
 
@@ -879,6 +1022,9 @@ export const PostgresConfig = {
     message.database = object.database ?? "";
     message.transactionSnapshot = object.transactionSnapshot ?? "";
     message.metadataSchema = object.metadataSchema ?? undefined;
+    message.sshConfig = (object.sshConfig !== undefined && object.sshConfig !== null)
+      ? SSHConfig.fromPartial(object.sshConfig)
+      : undefined;
     return message;
   },
 };

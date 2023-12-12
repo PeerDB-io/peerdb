@@ -2,6 +2,14 @@ syntax = "proto3";
 
 package peerdb_peers;
 
+message SSHConfig {
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string private_key = 5;
+}
+
 message SnowflakeConfig {
   string account_id = 1;
   string username = 2;
@@ -48,6 +56,7 @@ message PostgresConfig {
   string transaction_snapshot = 6;
   // defaults to _peerdb_internal
   optional string metadata_schema = 7;
+  optional SSHConfig ssh_config = 8;
 }
 
 message EventHubConfig {
