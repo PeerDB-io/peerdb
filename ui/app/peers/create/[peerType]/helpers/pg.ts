@@ -81,7 +81,7 @@ export const sshSetting = [
   {
     label: 'BASE64 Private Key',
     stateHandler: (value: string, setter: sshSetter) =>
-      setter((curr) => ({ ...curr, database: value })),
+      setter((curr) => ({ ...curr, privateKey: value })),
     tips: 'Private key as a BASE64 string for authentication in order to SSH into your machine.',
   },
 ];

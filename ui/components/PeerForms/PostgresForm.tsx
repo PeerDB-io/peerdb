@@ -18,7 +18,7 @@ interface ConfigProps {
   setter: PeerSetter;
 }
 
-export default function PostgresForm({settings, setter}: ConfigProps) {
+export default function PostgresForm({ settings, setter }: ConfigProps) {
   const [showSSH, setShowSSH] = useState<boolean>(false);
   const [sshConfig, setSSHConfig] = useState<SSHConfig>(blankSSHConfig);
 
@@ -130,6 +130,7 @@ export default function PostgresForm({settings, setter}: ConfigProps) {
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     sshParam.stateHandler(e.target.value, setSSHConfig)
                   }
+                  type={sshParam.type}
                   defaultValue={
                     (sshConfig as SSHConfig)[
                       sshParam.label === 'BASE64 Private Key'
