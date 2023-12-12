@@ -237,7 +237,8 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			_, err := c.client.Query(fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN `%s` %s", c.datasetID,
+			_, err := c.client.Query(fmt.Sprintf(
+				"ALTER TABLE %s.%s ADD COLUMN IF NOT EXISTS `%s` %s", c.datasetID,
 				schemaDelta.DstTableName, addedColumn.ColumnName,
 				qValueKindToBigQueryType(addedColumn.ColumnType))).Read(c.ctx)
 			if err != nil {

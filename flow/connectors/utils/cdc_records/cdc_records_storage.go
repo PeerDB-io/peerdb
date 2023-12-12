@@ -18,9 +18,9 @@ import (
 
 const (
 	/** begin with in-memory store, and then switch to Pebble DB
-		when the number of stored records crosses 1M
+		when the number of stored records crosses 100k
 	**/
-	defaultNumRecordsSwitchThreshold = 1_000_000
+	defaultNumRecordsSwitchThreshold = 1_00_000
 )
 
 func encVal(val any) ([]byte, error) {

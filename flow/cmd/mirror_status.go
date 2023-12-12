@@ -64,26 +64,25 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 	}
 
 	var initialCopyStatus *protos.SnapshotStatus
-	if config.DoInitialCopy {
-		cloneJobNames, err := h.getCloneTableFlowNames(ctx, req.FlowJobName)
+
+	cloneJobNames, err := h.getCloneTableFlowNames(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	cloneStatuses := []*protos.QRepMirrorStatus{}
+	for _, cloneJobName := range cloneJobNames {
+		cloneStatus, err := h.QRepFlowStatus(ctx, &protos.MirrorStatusRequest{
+			FlowJobName: cloneJobName,
+		})
 		if err != nil {
 			return nil, err
 		}
+		cloneStatuses = append(cloneStatuses, cloneStatus)
+	}
 
-		cloneStatuses := []*protos.QRepMirrorStatus{}
-		for _, cloneJobName := range cloneJobNames {
-			cloneStatus, err := h.QRepFlowStatus(ctx, &protos.MirrorStatusRequest{
-				FlowJobName: cloneJobName,
-			})
-			if err != nil {
-				return nil, err
-			}
-			cloneStatuses = append(cloneStatuses, cloneStatus)
-		}
-
-		initialCopyStatus = &protos.SnapshotStatus{
-			Clones: cloneStatuses,
-		}
+	initialCopyStatus = &protos.SnapshotStatus{
+		Clones: cloneStatuses,
 	}
 
 	return &protos.CDCMirrorStatus{
