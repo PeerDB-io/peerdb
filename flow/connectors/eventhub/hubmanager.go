@@ -15,7 +15,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	cmap "github.com/orcaman/concurrent-map/v2"
-	"google.golang.org/appengine/log"
 )
 
 type EventHubManager struct {
@@ -109,7 +108,7 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 		hub := value.(*azeventhubs.ProducerClient)
 		err := m.closeProducerClient(ctx, hub)
 		if err != nil {
-			log.Errorf("failed to close eventhub client for %s: %v", name, err)
+			slog.Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
 		return true
