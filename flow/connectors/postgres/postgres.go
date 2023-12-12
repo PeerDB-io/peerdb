@@ -94,6 +94,11 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}, nil
 }
 
+// GetPool returns the connection pool.
+func (c *PostgresConnector) GetPool() *SSHWrappedPostgresPool {
+	return c.pool
+}
+
 // Close closes all connections.
 func (c *PostgresConnector) Close() error {
 	if c.pool != nil {

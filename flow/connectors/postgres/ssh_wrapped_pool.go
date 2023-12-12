@@ -97,6 +97,11 @@ func (swpp *SSHWrappedPostgresPool) connect() error {
 			logrus.Errorf("Failed to create pool: %v", err)
 		}
 	})
+
+	if err == nil {
+		logrus.Info("Successfully connected to Postgres")
+	}
+
 	return err
 }
 
