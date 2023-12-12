@@ -1,7 +1,8 @@
 package utils
 
 import (
-	"os"
+	"encoding/base64"
+	"fmt"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -22,16 +23,21 @@ func GetSSHClientConfig(user, password, privateKeyString string) (*ssh.ClientCon
 
 	// Private key-based authentication
 	if privateKeyString != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(privateKeyString))
+		pkey, err := base64.StdEncoding.DecodeString(privateKeyString)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to base64 decode private key: %w", err)
+		}
+
+		signer, err := ssh.ParsePrivateKey(pkey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
 		}
 
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
 
 	if len(authMethods) == 0 {
-		return nil, os.ErrInvalid // No authentication method provided
+		return nil, fmt.Errorf("no authentication methods provided")
 	}
 
 	return &ssh.ClientConfig{
