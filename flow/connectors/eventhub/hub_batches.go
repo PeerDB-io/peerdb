@@ -112,7 +112,7 @@ func (h *HubBatches) flushAllBatches(
 	flowName string,
 ) error {
 	if h.Len() == 0 {
-		slog.Info("no events to send")
+		slog.Info("no events to send", slog.String(string(shared.FlowNameKey), flowName))
 		return nil
 	}
 

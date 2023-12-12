@@ -85,6 +85,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}
 
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	flowLog := slog.With(slog.String(string(shared.FlowNameKey), flowName))
 	return &PostgresConnector{
 		connStr:            connectionString,
 		ctx:                ctx,
@@ -93,7 +94,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		replPool:           replPool,
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
-		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:             *flowLog,
 	}, nil
 }
 

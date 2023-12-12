@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -164,12 +165,12 @@ func TestGetQRepPartitions(t *testing.T) {
 	// Run the test cases
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			getPartitionCtx := context.WithValue(context.Background(), shared.FlowNameKey, "testGetQRepPartitions")
 			c := &PostgresConnector{
 				connStr: connStr,
-				ctx:     getPartitionCtx,
+				ctx:     context.Background(),
 				config:  &protos.PostgresConfig{},
 				pool:    pool,
+				logger:  *slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions")),
 			}
 
 			got, err := c.GetQRepPartitions(tc.config, tc.last)

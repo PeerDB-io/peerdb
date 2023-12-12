@@ -93,7 +93,9 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			slog.String("destinationTable", dstTableName))
 	}
 
-	slog.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, dstTableName))
+	slog.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, dstTableName),
+		slog.String(string(shared.FlowNameKey), flowJobName),
+		slog.String("dstTableName", dstTableName))
 
 	return numRecords, nil
 }
