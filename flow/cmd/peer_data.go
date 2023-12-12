@@ -8,7 +8,9 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -92,13 +94,13 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	defer rows.Close()
 	var tables []string
 	for rows.Next() {
-		var table string
+		var table pgtype.Text
 		err := rows.Scan(&table)
 		if err != nil {
 			return &protos.SchemaTablesResponse{Tables: nil}, err
 		}
 
-		tables = append(tables, table)
+		tables = append(tables, table.String)
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
@@ -123,13 +125,13 @@ func (h *FlowRequestHandler) GetAllTables(
 	defer rows.Close()
 	var tables []string
 	for rows.Next() {
-		var table string
+		var table pgtype.Text
 		err := rows.Scan(&table)
 		if err != nil {
 			return &protos.AllTablesResponse{Tables: nil}, err
 		}
 
-		tables = append(tables, table)
+		tables = append(tables, table.String)
 	}
 	return &protos.AllTablesResponse{Tables: tables}, nil
 }
@@ -145,36 +147,36 @@ func (h *FlowRequestHandler) GetColumns(
 
 	defer peerPool.Close()
 	rows, err := peerPool.Query(ctx, `
-		SELECT 
+		SELECT
 			cols.column_name,
 			cols.data_type,
-			CASE 
+			CASE
 				WHEN constraint_type = 'PRIMARY KEY' THEN true
 				ELSE false
 			END AS is_primary_key
-		FROM 
+		FROM
 			information_schema.columns cols
-		LEFT JOIN 
+		LEFT JOIN
 			(
-				SELECT 
+				SELECT
 					kcu.column_name,
 					tc.constraint_type
-				FROM 
+				FROM
 					information_schema.key_column_usage kcu
-				JOIN 
+				JOIN
 					information_schema.table_constraints tc
-				ON 
+				ON
 					kcu.constraint_name = tc.constraint_name
 					AND kcu.constraint_schema = tc.constraint_schema
 					AND kcu.constraint_name = tc.constraint_name
-				WHERE 
+				WHERE
 					tc.constraint_type = 'PRIMARY KEY'
 					AND kcu.table_schema = $1
 					AND kcu.table_name = $2
 			) AS pk
-		ON 
+		ON
 			cols.column_name = pk.column_name
-		WHERE 
+		WHERE
 			cols.table_schema = $3
 			AND cols.table_name = $4;
 	`, req.SchemaName, req.TableName, req.SchemaName, req.TableName)
@@ -185,14 +187,14 @@ func (h *FlowRequestHandler) GetColumns(
 	defer rows.Close()
 	var columns []string
 	for rows.Next() {
-		var columnName string
-		var datatype string
-		var isPkey bool
+		var columnName pgtype.Text
+		var datatype pgtype.Text
+		var isPkey pgtype.Bool
 		err := rows.Scan(&columnName, &datatype, &isPkey)
 		if err != nil {
 			return &protos.TableColumnsResponse{Columns: nil}, err
 		}
-		column := fmt.Sprintf("%s:%s:%v", columnName, datatype, isPkey)
+		column := fmt.Sprintf("%s:%s:%v", columnName.String, datatype.String, isPkey.Bool)
 		columns = append(columns, column)
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil
@@ -209,12 +211,17 @@ func (h *FlowRequestHandler) GetSlotInfo(
 
 	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
 	if err != nil {
+		logrus.Errorf("Failed to create postgres connector: %v", err)
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
+	defer pgConnector.Close()
+
 	slotInfo, err := pgConnector.GetSlotInfo("")
 	if err != nil {
+		logrus.Errorf("Failed to get slot info: %v", err)
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
+
 	return &protos.PeerSlotResponse{
 		SlotData: slotInfo,
 	}, nil
@@ -224,16 +231,27 @@ func (h *FlowRequestHandler) GetStatInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	peerPool, peerUser, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	pgConfig, err := h.getPGPeerConfig(ctx, req.PeerName)
 	if err != nil {
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
-	defer peerPool.Close()
+
+	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
+	if err != nil {
+		logrus.Errorf("Failed to create postgres connector: %v", err)
+		return &protos.PeerStatResponse{StatData: nil}, err
+	}
+	defer pgConnector.Close()
+
+	peerPool := pgConnector.GetPool()
+	peerUser := pgConfig.User
+
 	rows, err := peerPool.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
 		"EXTRACT(epoch FROM(now()-query_start)) AS dur"+
 		" FROM pg_stat_activity WHERE "+
 		"usename=$1 AND state != 'idle';", peerUser)
 	if err != nil {
+		logrus.Errorf("Failed to get stat info: %v", err)
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
 	defer rows.Close()
@@ -248,6 +266,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 
 		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration)
 		if err != nil {
+			logrus.Errorf("Failed to scan row: %v", err)
 			return &protos.PeerStatResponse{StatData: nil}, err
 		}
 
@@ -285,6 +304,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 			Duration:      float32(d),
 		})
 	}
+
 	return &protos.PeerStatResponse{
 		StatData: statInfoRows,
 	}, nil

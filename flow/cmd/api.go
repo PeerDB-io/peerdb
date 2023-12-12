@@ -125,7 +125,6 @@ func APIMain(args *APIServerParams) error {
 	}
 
 	flowHandler := NewFlowRequestHandler(tc, catalogConn, taskQueue)
-	defer flowHandler.Close()
 
 	err = killExistingHeartbeatFlows(ctx, tc, args.TemporalNamespace, taskQueue)
 	if err != nil {

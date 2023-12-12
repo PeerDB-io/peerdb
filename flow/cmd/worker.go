@@ -10,7 +10,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
@@ -108,8 +107,6 @@ func WorkerMain(opts *WorkerOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
-	catalogMirrorMonitor := monitoring.NewCatalogMirrorMonitor(conn)
-	defer catalogMirrorMonitor.Close()
 
 	c, err := client.Dial(clientOptions)
 	if err != nil {
@@ -134,7 +131,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
 	w.RegisterActivity(&activities.FlowableActivity{
-		CatalogMirrorMonitor: catalogMirrorMonitor,
+		CatalogPool: conn,
 	})
 
 	err = w.Run(worker.InterruptCh())

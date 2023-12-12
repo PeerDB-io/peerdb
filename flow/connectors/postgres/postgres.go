@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 )
@@ -24,8 +25,8 @@ type PostgresConnector struct {
 	connStr            string
 	ctx                context.Context
 	config             *protos.PostgresConfig
-	pool               *pgxpool.Pool
-	replPool           *pgxpool.Pool
+	pool               *SSHWrappedPostgresPool
+	replPool           *SSHWrappedPostgresPool
 	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
 	metadataSchema     string
@@ -47,12 +48,15 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
 
-	pool, err := pgxpool.NewWithConfig(ctx, connConfig)
+	// set pool size to 3 to avoid connection pool exhaustion
+	connConfig.MaxConns = 3
+
+	pool, err := NewSSHWrappedPostgresPool(ctx, connConfig, pgConfig.SshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
-	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool)
+	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool.Pool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
@@ -69,7 +73,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 
 	// TODO: replPool not initializing might be intentional, if we only want to use QRep mirrors
 	// and the user doesn't have the REPLICATION permission
-	replPool, err := pgxpool.NewWithConfig(ctx, replConnConfig)
+	replPool, err := NewSSHWrappedPostgresPool(ctx, replConnConfig, pgConfig.SshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
@@ -88,6 +92,11 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
 	}, nil
+}
+
+// GetPool returns the connection pool.
+func (c *PostgresConnector) GetPool() *SSHWrappedPostgresPool {
+	return c.pool
 }
 
 // Close closes all connections.
@@ -167,18 +176,18 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 		log.Infof("No row found for job %s, returning nil", jobName)
 		return nil, nil
 	}
-	var result int64
+	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
 		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
-	if result == 0 {
+	if result.Int64 == 0 {
 		log.Warnf("Assuming zero offset means no sync has happened for job %s, returning nil", jobName)
 		return nil, nil
 	}
 
 	return &protos.LastSyncState{
-		Checkpoint: result,
+		Checkpoint: result.Int64,
 	}, nil
 }
 
@@ -226,7 +235,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:             c.ctx,
-		Connection:             c.replPool,
+		Connection:             c.replPool.Pool,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
 		Publication:            publicationName,
@@ -242,13 +251,13 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 		return err
 	}
 
-	cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
+	catalogPool, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*pgxpool.Pool)
 	if ok {
 		latestLSN, err := c.getCurrentLSN()
 		if err != nil {
 			return fmt.Errorf("failed to get current LSN: %w", err)
 		}
-		err = cdcMirrorMonitor.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, req.FlowJobName, latestLSN)
+		err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, catalogPool, req.FlowJobName, latestLSN)
 		if err != nil {
 			return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 		}

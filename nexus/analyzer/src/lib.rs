@@ -647,6 +647,7 @@ fn parse_db_options(
                     .to_string(),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
+                ssh_config: None,
             };
             let config = Config::PostgresConfig(postgres_config);
             Some(config)

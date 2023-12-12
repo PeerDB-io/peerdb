@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -39,12 +40,12 @@ func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]str
 
 	customTypeMap := map[uint32]string{}
 	for rows.Next() {
-		var typeID uint32
-		var typeName string
+		var typeID pgtype.Uint32
+		var typeName pgtype.Text
 		if err := rows.Scan(&typeID, &typeName); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		customTypeMap[typeID] = typeName
+		customTypeMap[typeID.Uint32] = typeName.String
 	}
 	return customTypeMap, nil
 }

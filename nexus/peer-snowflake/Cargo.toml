@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 catalog = { path = "../catalog" }
 peer-cursor = { path = "../peer-cursor" }
-sqlparser = { path = "../sqlparser-rs" }
+sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git" }
 value = { path = "../value" }
 tracing = "0.1"
 pgerror = { path = "../pgerror" }
@@ -26,7 +26,7 @@ rsa = "0.9.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.3"
-ureq = { version = "*", features = ["json", "charset"] }
+ureq = { version = "2", features = ["json", "charset"] }
 reqwest = { version = "0.11", features = ["json", "gzip"] }
 anyhow = "1.0"
 tokio = { version = "1.21", features = ["full"] }

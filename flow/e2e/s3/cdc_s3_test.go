@@ -20,7 +20,7 @@ func (s *PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
 
 func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_s3")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_s3", "test_simple_flow_s3")
@@ -88,7 +88,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 
 func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 	setupErr := s.setupS3("gcs")
 	if setupErr != nil {
 		s.Fail("failed to setup S3", setupErr)

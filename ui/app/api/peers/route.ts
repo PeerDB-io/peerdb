@@ -65,46 +65,55 @@ const constructPeer = (
 
 export async function POST(request: Request) {
   const body = await request.json();
+  console.log('POST Validate Peer:', body);
   const { name, type, config, mode } = body;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const peer = constructPeer(name, type, config);
   if (mode === 'validate') {
     const validateReq: ValidatePeerRequest = { peer };
-    const validateStatus: ValidatePeerResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/validate`,
-      {
-        method: 'POST',
-        body: JSON.stringify(validateReq),
-      }
-    ).then((res) => {
-      return res.json();
-    });
-    let response: UValidatePeerResponse = {
-      valid:
-        validatePeerStatusFromJSON(validateStatus.status) ===
-        ValidatePeerStatus.VALID,
-      message: validateStatus.message,
-    };
-    return new Response(JSON.stringify(response));
+    try {
+      const validateStatus: ValidatePeerResponse = await fetch(
+        `${flowServiceAddr}/v1/peers/validate`,
+        {
+          method: 'POST',
+          body: JSON.stringify(validateReq),
+        }
+      ).then((res) => {
+        return res.json();
+      });
+      let response: UValidatePeerResponse = {
+        valid:
+          validatePeerStatusFromJSON(validateStatus.status) ===
+          ValidatePeerStatus.VALID,
+        message: validateStatus.message,
+      };
+      return new Response(JSON.stringify(response));
+    } catch (error) {
+      console.error('Error validating peer:', error);
+    }
   } else if (mode === 'create') {
     const req: CreatePeerRequest = { peer };
     console.log('/peer/create req:', req);
-    const createStatus: CreatePeerResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/create`,
-      {
-        method: 'POST',
-        body: JSON.stringify(req),
-      }
-    ).then((res) => {
-      return res.json();
-    });
-    let response: UCreatePeerResponse = {
-      created:
-        createPeerStatusFromJSON(createStatus.status) ===
-        CreatePeerStatus.CREATED,
-      message: createStatus.message,
-    };
-    return new Response(JSON.stringify(response));
+    try {
+      const createStatus: CreatePeerResponse = await fetch(
+        `${flowServiceAddr}/v1/peers/create`,
+        {
+          method: 'POST',
+          body: JSON.stringify(req),
+        }
+      ).then((res) => {
+        return res.json();
+      });
+      let response: UCreatePeerResponse = {
+        created:
+          createPeerStatusFromJSON(createStatus.status) ===
+          CreatePeerStatus.CREATED,
+        message: createStatus.message,
+      };
+      return new Response(JSON.stringify(response));
+    } catch (error) {
+      console.error('Error creating peer:', error);
+    }
   }
 }
 

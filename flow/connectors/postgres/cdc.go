@@ -90,14 +90,14 @@ func getChildToParentRelIDMap(ctx context.Context, pool *pgxpool.Pool) (map[uint
 	defer rows.Close()
 
 	childToParentRelIDMap := make(map[uint32]uint32)
-	var parentRelID uint32
-	var childRelID uint32
+	var parentRelID pgtype.Uint32
+	var childRelID pgtype.Uint32
 	for rows.Next() {
 		err := rows.Scan(&parentRelID, &childRelID)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning child to parent relid map: %w", err)
 		}
-		childToParentRelIDMap[childRelID] = parentRelID
+		childToParentRelIDMap[childRelID.Uint32] = parentRelID.Uint32
 	}
 
 	return childToParentRelIDMap, nil

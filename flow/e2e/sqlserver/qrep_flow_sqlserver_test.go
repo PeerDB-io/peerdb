@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
@@ -136,7 +137,7 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	numRows := 10
 	tblName := "test_qrep_flow_avro_ss_append"
@@ -176,10 +177,10 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 	s.NoError(err)
 
 	// Verify that the destination table has the same number of rows as the source table
-	var numRowsInDest int
+	var numRowsInDest pgtype.Int8
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTableName)
 	err = s.pool.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	s.NoError(err)
 
-	s.Equal(numRows, numRowsInDest)
+	s.Equal(numRows, int(numRowsInDest.Int64))
 }

@@ -70,9 +70,9 @@ func TestGetQRepPartitions(t *testing.T) {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
 
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	pool, err := NewSSHWrappedPostgresPool(context.Background(), config, nil)
 	if err != nil {
-		t.Fatalf("unable to connect to database: %v", err)
+		t.Fatalf("Failed to create pool: %v", err)
 	}
 
 	// Generate a random schema name
@@ -101,7 +101,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
-	numRows := prepareTestData(t, pool, schemaName)
+	numRows := prepareTestData(t, pool.Pool, schemaName)
 
 	secondsInADay := uint32(24 * time.Hour / time.Second)
 	fmt.Printf("secondsInADay: %d\n", secondsInADay)

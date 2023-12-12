@@ -13,13 +13,14 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	catalog "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/sync/errgroup"
@@ -39,7 +40,7 @@ type SlotSnapshotSignal struct {
 }
 
 type FlowableActivity struct {
-	CatalogMirrorMonitor *monitoring.CatalogMirrorMonitor
+	CatalogPool *pgxpool.Pool
 }
 
 // CheckConnection implements CheckConnection.
@@ -113,7 +114,7 @@ func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
-	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
+	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogPool)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -124,7 +125,7 @@ func (a *FlowableActivity) CreateRawTable(
 	if err != nil {
 		return nil, err
 	}
-	err = a.CatalogMirrorMonitor.InitializeCDCFlow(ctx, config.FlowJobName)
+	err = monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +174,7 @@ func (a *FlowableActivity) handleSlotInfo(
 	}
 
 	if len(slotInfo) != 0 {
-		return a.CatalogMirrorMonitor.AppendSlotSizeInfo(ctx, peerName, slotInfo[0])
+		return monitoring.AppendSlotSizeInfo(ctx, a.CatalogPool, peerName, slotInfo[0])
 	}
 	return nil
 }
@@ -208,7 +209,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx, "starting flow...")
 	conn := input.FlowConnectionConfigs
-	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogMirrorMonitor)
+	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogPool)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
@@ -275,13 +276,13 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		"flowName": input.FlowConnectionConfigs.FlowJobName,
 	}).Infof("the current sync flow has records: %v", hasRecords)
 
-	if a.CatalogMirrorMonitor.IsActive() && hasRecords {
+	if a.CatalogPool != nil && hasRecords {
 		syncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
 		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
 			return nil, err
 		}
 
-		err = a.CatalogMirrorMonitor.AddCDCBatchForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
+		err = monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			monitoring.CDCBatchInfo{
 				BatchID:       syncBatchID + 1,
 				RowsInBatch:   0,
@@ -346,8 +347,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
 	}
 
-	err = a.CatalogMirrorMonitor.UpdateNumRowsAndEndLSNForCDCBatch(
+	err = monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx,
+		a.CatalogPool,
 		input.FlowConnectionConfigs.FlowJobName,
 		res.CurrentSyncBatchID,
 		uint32(numRecords),
@@ -357,13 +359,17 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		return nil, err
 	}
 
-	err = a.CatalogMirrorMonitor.
-		UpdateLatestLSNAtTargetForCDCFlow(ctx, input.FlowConnectionConfigs.FlowJobName, pglogrepl.LSN(lastCheckpoint))
+	err = monitoring.UpdateLatestLSNAtTargetForCDCFlow(
+		ctx,
+		a.CatalogPool,
+		input.FlowConnectionConfigs.FlowJobName,
+		pglogrepl.LSN(lastCheckpoint),
+	)
 	if err != nil {
 		return nil, err
 	}
 	if res.TableNameRowsMapping != nil {
-		err = a.CatalogMirrorMonitor.AddCDCBatchTablesForFlow(ctx, input.FlowConnectionConfigs.FlowJobName,
+		err = monitoring.AddCDCBatchTablesForFlow(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			res.CurrentSyncBatchID, res.TableNameRowsMapping)
 		if err != nil {
 			return nil, err
@@ -400,7 +406,7 @@ func (a *FlowableActivity) StartNormalize(
 			return nil, fmt.Errorf("failed to get last sync batch ID: %v", err)
 		}
 
-		err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
+		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			lastSyncBatchID)
 		return nil, err
 	} else if err != nil {
@@ -433,8 +439,12 @@ func (a *FlowableActivity) StartNormalize(
 
 	// normalize flow did not run due to no records, no need to update end time.
 	if res.Done {
-		err = a.CatalogMirrorMonitor.UpdateEndTimeForCDCBatch(ctx, input.FlowConnectionConfigs.FlowJobName,
-			res.EndBatchID)
+		err = monitoring.UpdateEndTimeForCDCBatch(
+			ctx,
+			a.CatalogPool,
+			input.FlowConnectionConfigs.FlowJobName,
+			res.EndBatchID,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -499,8 +509,9 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
 	}
 	if len(partitions) > 0 {
-		err = a.CatalogMirrorMonitor.InitializeQRepRun(
+		err = monitoring.InitializeQRepRun(
 			ctx,
+			a.CatalogPool,
 			config,
 			runUUID,
 			partitions,
@@ -521,7 +532,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-	err := a.CatalogMirrorMonitor.UpdateStartTimeForQRepRun(ctx, runUUID)
+	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	if err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
 	}
@@ -548,12 +559,13 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
-	err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition, time.Now())
+	err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to update start time for partition: %w", err)
 	}
 
-	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
+	pullCtx, pullCancel := context.WithCancel(ctx)
+	srcConn, err := connectors.GetQRepPullConnector(pullCtx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
 	}
@@ -586,7 +598,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 				}).Errorf("failed to pull records: %v", err)
 				goroutineErr = err
 			} else {
-				err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
+				err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx, a.CatalogPool, runUUID, partition, numRecords)
 				if err != nil {
 					log.Errorf("%v", err)
 					goroutineErr = err
@@ -606,7 +618,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			"flowName": config.FlowJobName,
 		}).Infof("pulled %d records\n", len(recordBatch.Records))
 
-		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(ctx, runUUID, partition, numRecords)
+		err = monitoring.UpdatePullEndTimeAndRowsForPartition(ctx, a.CatalogPool, runUUID, partition, numRecords)
 		if err != nil {
 			return err
 		}
@@ -625,12 +637,13 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		shutdown <- struct{}{}
 	}()
 
-	res, err := dstConn.SyncQRepRecords(config, partition, stream)
+	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
 		return fmt.Errorf("failed to sync records: %w", err)
 	}
 
-	if res == 0 {
+	if rowsSynced == 0 {
+		pullCancel()
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
 		}).Infof("no records to push for partition %s\n", partition.PartitionId)
@@ -639,12 +652,18 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		if goroutineErr != nil {
 			return goroutineErr
 		}
+
+		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
+		if err != nil {
+			return err
+		}
+
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
-		}).Infof("pushed %d records\n", res)
+		}).Infof("pushed %d records\n", rowsSynced)
 	}
 
-	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
+	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
 	if err != nil {
 		return err
 	}
@@ -656,7 +675,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	runUUID string) error {
 	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
-		return a.CatalogMirrorMonitor.UpdateEndTimeForQRepRun(ctx, runUUID)
+		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	} else if err != nil {
 		return err
 	}
@@ -674,7 +693,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 		return err
 	}
 
-	return a.CatalogMirrorMonitor.UpdateEndTimeForQRepRun(ctx, runUUID)
+	return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 }
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
@@ -712,15 +731,8 @@ func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.Shutdown
 	return nil
 }
 
-func getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
-	var peerOptions sql.RawBytes
-	catalogPool, catalogErr := catalog.GetCatalogConnectionPoolFromEnv()
-	if catalogErr != nil {
-		return nil, fmt.Errorf("error getting catalog connection pool: %w", catalogErr)
-	}
-	defer catalogPool.Close()
-
-	optionRows, err := catalogPool.Query(ctx, `
+func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
+	optionRows, err := a.CatalogPool.Query(ctx, `
 			SELECT DISTINCT p.name, p.options
 			FROM peers p
 			JOIN flows f ON p.id = f.source_peer
@@ -729,8 +741,9 @@ func getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
 		return nil, err
 	}
 	defer optionRows.Close()
-	var peerName string
+	var peerName pgtype.Text
 	var postgresPeers []*protos.Peer
+	var peerOptions sql.RawBytes
 	for optionRows.Next() {
 		err := optionRows.Scan(&peerName, &peerOptions)
 		if err != nil {
@@ -742,7 +755,7 @@ func getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
 			return nil, unmarshalErr
 		}
 		postgresPeers = append(postgresPeers, &protos.Peer{
-			Name:   peerName,
+			Name:   peerName.String,
 			Type:   protos.DBType_POSTGRES,
 			Config: &protos.Peer_PostgresConfig{PostgresConfig: &pgPeerConfig},
 		})
@@ -761,7 +774,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 			log.Info("context is done, exiting wal heartbeat send loop")
 			return nil
 		case <-ticker.C:
-			pgPeers, err := getPostgresPeerConfigs(ctx)
+			pgPeers, err := a.getPostgresPeerConfigs(ctx)
 			if err != nil {
 				log.Warn("[sendwalheartbeat]: warning: unable to fetch peers." +
 					"Skipping walheartbeat send. error encountered: " + err.Error())
@@ -943,17 +956,17 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 					}},
 			}
 		}
-		updateErr := a.CatalogMirrorMonitor.InitializeQRepRun(ctx, config, runUUID, []*protos.QRepPartition{partitionForMetrics})
+		updateErr := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics})
 		if updateErr != nil {
 			return updateErr
 		}
 
-		err := a.CatalogMirrorMonitor.UpdateStartTimeForPartition(ctx, runUUID, partition, startTime)
+		err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, startTime)
 		if err != nil {
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
 
-		err = a.CatalogMirrorMonitor.UpdatePullEndTimeAndRowsForPartition(errCtx, runUUID, partition, int64(numRecords))
+		err = monitoring.UpdatePullEndTimeAndRowsForPartition(errCtx, a.CatalogPool, runUUID, partition, int64(numRecords))
 		if err != nil {
 			log.Errorf("%v", err)
 			return err
@@ -970,12 +983,12 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		shutdown <- struct{}{}
 	}()
 
-	res, err := dstConn.SyncQRepRecords(config, partition, stream)
+	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
 		return 0, fmt.Errorf("failed to sync records: %w", err)
 	}
 
-	if res == 0 {
+	if rowsSynced == 0 {
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
 		}).Info("no records to push for xmin\n")
@@ -984,12 +997,18 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		if err != nil {
 			return 0, err
 		}
+
+		err = monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
+		if err != nil {
+			return 0, err
+		}
+
 		log.WithFields(log.Fields{
 			"flowName": config.FlowJobName,
-		}).Infof("pushed %d records\n", res)
+		}).Infof("pushed %d records\n", rowsSynced)
 	}
 
-	err = a.CatalogMirrorMonitor.UpdateEndTimeForPartition(ctx, runUUID, partition)
+	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
 	if err != nil {
 		return 0, err
 	}

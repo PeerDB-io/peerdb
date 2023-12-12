@@ -61,9 +61,9 @@ const TableMapping = ({
             ?.filter((schema) => {
               return schema.toLowerCase().includes(schemaQuery.toLowerCase());
             })
-            .map((schema, index) => (
+            .map((schema) => (
               <SchemaBox
-                key={index}
+                key={schema}
                 schema={schema}
                 sourcePeer={sourcePeerName}
                 rows={rows}
