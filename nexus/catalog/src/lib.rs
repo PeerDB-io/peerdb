@@ -7,7 +7,7 @@ use postgres_connection::{connect_postgres, get_pg_connection_string};
 use prost::Message;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
-    peerdb_peers::PostgresConfig,
+    peerdb_peers::{PostgresConfig, SshConfig},
     peerdb_peers::{peer::Config, DbType, Peer},
 };
 use serde_json::Value;
@@ -75,6 +75,7 @@ impl CatalogConfig {
             database: self.database.clone(),
             transaction_snapshot: "".to_string(),
             metadata_schema: Some("".to_string()),
+            ssh_config: None
         }
     }
 

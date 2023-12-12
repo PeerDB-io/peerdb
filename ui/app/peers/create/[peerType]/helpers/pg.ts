@@ -1,4 +1,5 @@
-import { PostgresConfig } from '@/grpc_generated/peers';
+import { PostgresConfig, SSHConfig } from '@/grpc_generated/peers';
+import { Dispatch, SetStateAction } from 'react';
 import { PeerSetting } from './common';
 
 export const postgresSetting: PeerSetting[] = [
@@ -47,6 +48,51 @@ export const postgresSetting: PeerSetting[] = [
     tips: 'This is optional and only needed if this peer is part of any query replication mirror.',
   },
 ];
+
+type sshSetter = Dispatch<SetStateAction<SSHConfig>>;
+export const sshSetting = [
+  {
+    label: 'Host',
+    stateHandler: (value: string, setter: sshSetter) =>
+      setter((curr: SSHConfig) => ({ ...curr, host: value })),
+    tips: 'Specifies the IP host name or address of your instance.',
+  },
+  {
+    label: 'Port',
+    stateHandler: (value: string, setter: sshSetter) =>
+      setter((curr) => ({ ...curr, port: parseInt(value, 10) })),
+    type: 'number',
+    default: 5432,
+    tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which clients can connect.',
+  },
+  {
+    label: 'User',
+    stateHandler: (value: string, setter: sshSetter) =>
+      setter((curr) => ({ ...curr, user: value })),
+    tips: 'Specify the user that we should use to connect to this host.',
+  },
+  {
+    label: 'Password',
+    stateHandler: (value: string, setter: sshSetter) =>
+      setter((curr) => ({ ...curr, password: value })),
+    type: 'password',
+    tips: 'Password associated with the user you provided.',
+  },
+  {
+    label: 'BASE64 Private Key',
+    stateHandler: (value: string, setter: sshSetter) =>
+      setter((curr) => ({ ...curr, database: value })),
+    tips: 'Private key as a BASE64 string for authentication in order to SSH into your machine.',
+  },
+];
+
+export const blankSSHConfig: SSHConfig = {
+  host: '',
+  port: 22,
+  user: '',
+  password: '',
+  privateKey: '',
+};
 
 export const blankPostgresSetting: PostgresConfig = {
   host: '',
