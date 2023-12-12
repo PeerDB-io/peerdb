@@ -394,6 +394,7 @@ func CDCFlowWorkflowWithConfig(
 		}
 
 		w.logger.Info("Total records synced: ", totalRecordsSynced)
+		batchSizeSelector.Select(ctx)
 	}
 
 	workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "StopLoop", true)
