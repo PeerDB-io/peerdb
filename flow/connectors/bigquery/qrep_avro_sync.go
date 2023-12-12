@@ -391,6 +391,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 
 	loader := bqClient.Dataset(datasetID).Table(stagingTable).LoaderFrom(avroRef)
 	loader.UseAvroLogicalTypes = true
+	loader.WriteDisposition = bigquery.WriteTruncate
 	job, err := loader.Run(s.connector.ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to run BigQuery load job: %w", err)
@@ -401,10 +402,14 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		return 0, fmt.Errorf("failed to wait for BigQuery load job: %w", err)
 	}
 
+	if len(status.Errors) > 0 {
+		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %v", status.Errors)
+	}
+
 	if err := status.Err(); err != nil {
 		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %w", err)
 	}
-	log.Printf("Pushed into %s/%s",
-		avroFile.FilePath, syncID)
+
+	log.Infof("Pushed into %s/%s", avroFile.FilePath, syncID)
 	return avroFile.NumRecords, nil
 }
