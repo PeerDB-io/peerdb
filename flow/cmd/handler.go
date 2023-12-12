@@ -317,6 +317,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	ctx context.Context,
 	req *protos.ShutdownRequest,
 ) (*protos.ShutdownResponse, error) {
+	logs := slog.Group("shutdown-log",
+		slog.String("flowName", req.FlowJobName),
+		slog.String("workflowId", req.WorkflowId),
+	)
 	err := h.temporalClient.SignalWorkflow(
 		ctx,
 		req.WorkflowId,
@@ -325,6 +329,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		shared.ShutdownSignal,
 	)
 	if err != nil {
+		slog.Error("unable to signal PeerFlow workflow",
+			logs,
+			slog.Any("error", err),
+		)
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to signal PeerFlow workflow: %v", err),
@@ -333,6 +341,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 
 	err = h.waitForWorkflowClose(ctx, req.WorkflowId)
 	if err != nil {
+		slog.Error("unable to wait for PeerFlow workflow to close",
+			logs,
+			slog.Any("error", err),
+		)
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to wait for PeerFlow workflow to close: %v", err),
@@ -354,6 +366,9 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		req,                       // workflow input
 	)
 	if err != nil {
+		slog.Error("unable to start DropFlow workflow",
+			logs,
+			slog.Any("error", err))
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to start DropFlow workflow: %v", err),
@@ -371,6 +386,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	select {
 	case err := <-errChan:
 		if err != nil {
+			slog.Error("DropFlow workflow did not execute successfully",
+				logs,
+				slog.Any("error", err),
+			)
 			return &protos.ShutdownResponse{
 				Ok:           false,
 				ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
@@ -379,6 +398,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	case <-time.After(1 * time.Minute):
 		err := h.handleWorkflowNotClosed(ctx, workflowID, "")
 		if err != nil {
+			slog.Error("unable to wait for DropFlow workflow to close",
+				logs,
+				slog.Any("error", err),
+			)
 			return &protos.ShutdownResponse{
 				Ok:           false,
 				ErrorMessage: fmt.Sprintf("unable to wait for DropFlow workflow to close: %v", err),
@@ -389,6 +412,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	if req.RemoveFlowEntry {
 		delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
 		if delErr != nil {
+			slog.Error("unable to remove flow job entry",
+				slog.String("flowName", req.FlowJobName),
+				slog.Any("error", err),
+				slog.String("workflowId", req.WorkflowId))
 			return &protos.ShutdownResponse{
 				Ok:           false,
 				ErrorMessage: err.Error(),
