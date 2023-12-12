@@ -75,6 +75,7 @@ impl CatalogConfig {
             database: self.database.clone(),
             transaction_snapshot: "".to_string(),
             metadata_schema: Some("".to_string()),
+            ssh_config: None,
         }
     }
 

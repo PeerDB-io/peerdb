@@ -25,8 +25,8 @@ type PostgresConnector struct {
 	connStr            string
 	ctx                context.Context
 	config             *protos.PostgresConfig
-	pool               *pgxpool.Pool
-	replPool           *pgxpool.Pool
+	pool               *SSHWrappedPostgresPool
+	replPool           *SSHWrappedPostgresPool
 	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
 	metadataSchema     string
@@ -51,12 +51,12 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	// set pool size to 3 to avoid connection pool exhaustion
 	connConfig.MaxConns = 3
 
-	pool, err := pgxpool.NewWithConfig(ctx, connConfig)
+	pool, err := NewSSHWrappedPostgresPool(ctx, connConfig, pgConfig.SshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
-	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool)
+	customTypeMap, err := utils.GetCustomDataTypes(ctx, pool.Pool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
@@ -73,7 +73,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 
 	// TODO: replPool not initializing might be intentional, if we only want to use QRep mirrors
 	// and the user doesn't have the REPLICATION permission
-	replPool, err := pgxpool.NewWithConfig(ctx, replConnConfig)
+	replPool, err := NewSSHWrappedPostgresPool(ctx, replConnConfig, pgConfig.SshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
@@ -92,6 +92,11 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		customTypesMapping: customTypeMap,
 		metadataSchema:     metadataSchema,
 	}, nil
+}
+
+// GetPool returns the connection pool.
+func (c *PostgresConnector) GetPool() *SSHWrappedPostgresPool {
+	return c.pool
 }
 
 // Close closes all connections.
@@ -230,7 +235,7 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:             c.ctx,
-		Connection:             c.replPool,
+		Connection:             c.replPool.Pool,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
 		Publication:            publicationName,
