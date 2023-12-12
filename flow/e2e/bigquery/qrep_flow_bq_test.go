@@ -48,7 +48,7 @@ func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsStr
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10
 

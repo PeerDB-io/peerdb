@@ -246,13 +246,13 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 		return err
 	}
 
-	cdcMirrorMonitor, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*monitoring.CatalogMirrorMonitor)
+	catalogPool, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*pgxpool.Pool)
 	if ok {
 		latestLSN, err := c.getCurrentLSN()
 		if err != nil {
 			return fmt.Errorf("failed to get current LSN: %w", err)
 		}
-		err = cdcMirrorMonitor.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, req.FlowJobName, latestLSN)
+		err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, catalogPool, req.FlowJobName, latestLSN)
 		if err != nil {
 			return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 		}

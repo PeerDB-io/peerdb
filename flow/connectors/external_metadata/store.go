@@ -54,7 +54,7 @@ func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConf
 }
 
 func (p *PostgresMetadataStore) Close() error {
-	if p.pool != nil {
+	if p.config != nil && p.pool != nil {
 		p.pool.Close()
 	}
 
