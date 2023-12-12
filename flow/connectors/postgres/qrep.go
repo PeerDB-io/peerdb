@@ -315,7 +315,8 @@ func (c *PostgresConnector) PullQRepRecords(
 		log.WithFields(log.Fields{
 			"partitionId": partition.PartitionId,
 		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		executor, err := NewQRepQueryExecutorSnapshot(
+			c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return nil, err
@@ -361,7 +362,8 @@ func (c *PostgresConnector) PullQRepRecords(
 		return nil, err
 	}
 
-	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+	executor, err := NewQRepQueryExecutorSnapshot(
+		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return nil, err
@@ -386,7 +388,8 @@ func (c *PostgresConnector) PullQRepRecordStream(
 			"flowName":    config.FlowJobName,
 			"partitionId": partition.PartitionId,
 		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		executor, err := NewQRepQueryExecutorSnapshot(
+			c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, err
@@ -434,7 +437,8 @@ func (c *PostgresConnector) PullQRepRecordStream(
 		return 0, err
 	}
 
-	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+	executor, err := NewQRepQueryExecutorSnapshot(
+		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, err
@@ -558,7 +562,8 @@ func (c *PostgresConnector) PullXminRecordStream(
 		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
 	}
 
-	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+	executor, err := NewQRepQueryExecutorSnapshot(
+		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, currentSnapshotXmin, err

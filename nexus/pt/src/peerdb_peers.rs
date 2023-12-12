@@ -1,6 +1,20 @@
 // @generated
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SshConfig {
+    #[prost(string, tag="1")]
+    pub host: ::prost::alloc::string::String,
+    #[prost(uint32, tag="2")]
+    pub port: u32,
+    #[prost(string, tag="3")]
+    pub user: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub password: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub private_key: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SnowflakeConfig {
     #[prost(string, tag="1")]
     pub account_id: ::prost::alloc::string::String,
@@ -83,6 +97,8 @@ pub struct PostgresConfig {
     /// defaults to _peerdb_internal
     #[prost(string, optional, tag="7")]
     pub metadata_schema: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag="8")]
+    pub ssh_config: ::core::option::Option<SshConfig>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
