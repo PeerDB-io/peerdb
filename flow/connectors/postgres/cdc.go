@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -510,9 +509,6 @@ func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pgl
 
 	case *pglogrepl.TruncateMessage:
 		p.logger.Warn("TruncateMessage not supported")
-	default:
-		// Ignore other message types
-		p.logger.Warn(fmt.Sprintf("Ignoring message type: %T", reflect.TypeOf(logicalMsg)))
 	}
 
 	return nil, nil
