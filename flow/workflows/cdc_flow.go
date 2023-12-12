@@ -27,10 +27,6 @@ type CDCFlowLimits struct {
 	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
 	// This is typically non-zero for testing purposes.
 	TotalSyncFlows int
-	// Number of normalize flows to execute in total.
-	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
-	// This is typically non-zero for testing purposes.
-	TotalNormalizeFlows int
 	// Maximum number of rows in a sync flow batch.
 	MaxBatchSize int
 	// Rows synced after which we can say a test is done.
