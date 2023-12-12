@@ -651,7 +651,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 			return goroutineErr
 		}
 
-		err := a.CatalogMirrorMonitor.UpdateRowsSyncedForPartition(ctx, rowsSynced, runUUID, partition)
+		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 		if err != nil {
 			return err
 		}
@@ -996,7 +996,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 			return 0, err
 		}
 
-		err = a.CatalogMirrorMonitor.UpdateRowsSyncedForPartition(ctx, rowsSynced, runUUID, partition)
+		err = monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
 		if err != nil {
 			return 0, err
 		}

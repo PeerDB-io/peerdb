@@ -300,13 +300,9 @@ func UpdateEndTimeForPartition(ctx context.Context, pool *pgxpool.Pool, runUUID 
 	return nil
 }
 
-func (c *CatalogMirrorMonitor) UpdateRowsSyncedForPartition(ctx context.Context, rowsSynced int, runUUID string,
+func UpdateRowsSyncedForPartition(ctx context.Context, pool *pgxpool.Pool, rowsSynced int, runUUID string,
 	partition *protos.QRepPartition) error {
-	if c == nil || c.catalogConn == nil {
-		return nil
-	}
-
-	_, err := c.catalogConn.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET rows_synced=$1
+	_, err := pool.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET rows_synced=$1
 	 WHERE run_uuid=$2 AND partition_uuid=$3`, rowsSynced, runUUID, partition.PartitionId)
 	if err != nil {
 		return fmt.Errorf("error while updating rows_synced in qrep_partitions: %w", err)
