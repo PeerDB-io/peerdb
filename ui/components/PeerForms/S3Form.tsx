@@ -1,5 +1,5 @@
 'use client';
-import { PeerConfig } from '@/app/dto/PeersDTO';
+import { PeerConfig, PeerSetter } from '@/app/dto/PeersDTO';
 import { postgresSetting } from '@/app/peers/create/[peerType]/helpers/pg';
 import {
   blankS3Setting,
@@ -13,13 +13,12 @@ import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
-import { PeerSetter } from './ConfigForm';
-import { InfoPopover } from './InfoPopover';
+import { InfoPopover } from '../InfoPopover';
 
 interface S3Props {
   setter: PeerSetter;
 }
-const S3ConfigForm = ({ setter }: S3Props) => {
+const S3Form = ({ setter }: S3Props) => {
   const [showMetadata, setShowMetadata] = useState<boolean>(false);
   const [metadataDB, setMetadataDB] = useState<PeerConfig>(
     blankS3Setting.metadataDb!
@@ -31,6 +30,7 @@ const S3ConfigForm = ({ setter }: S3Props) => {
       storageType === 'GCS'
     );
   };
+
   useEffect(() => {
     const endpoint = storageType === 'S3' ? '' : 'storage.googleapis.com';
     setter((prev) => {
@@ -189,7 +189,12 @@ const S3ConfigForm = ({ setter }: S3Props) => {
                       }
                       defaultValue={
                         (metadataDB as PostgresConfig)[
-                          pgSetting.label.toLowerCase() as keyof PostgresConfig
+                          pgSetting.label.toLowerCase() as
+                            | 'host'
+                            | 'port'
+                            | 'user'
+                            | 'password'
+                            | 'database'
                         ] || ''
                       }
                     />
@@ -208,4 +213,4 @@ const S3ConfigForm = ({ setter }: S3Props) => {
   );
 };
 
-export default S3ConfigForm;
+export default S3Form;

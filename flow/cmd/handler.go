@@ -117,13 +117,6 @@ func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
 	return nil
 }
 
-// Close closes the connection pool
-func (h *FlowRequestHandler) Close() {
-	if h.pool != nil {
-		h.pool.Close()
-	}
-}
-
 func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs

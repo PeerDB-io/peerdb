@@ -65,6 +65,7 @@ const constructPeer = (
 
 export async function POST(request: Request) {
   const body = await request.json();
+  console.log('POST Validate Peer:', body);
   const { name, type, config, mode } = body;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   const peer = constructPeer(name, type, config);
