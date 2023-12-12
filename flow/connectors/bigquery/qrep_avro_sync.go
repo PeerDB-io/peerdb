@@ -325,7 +325,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		avro.CompressNone, qvalue.QDWHTypeBigQuery)
 	idLog := slog.Group("write-metadata",
 		slog.String("batchOrPartitionID", syncID),
-		slog.String("avroFilePath", avroFile.FilePath),
 	)
 	if s.gcsBucket != "" {
 
