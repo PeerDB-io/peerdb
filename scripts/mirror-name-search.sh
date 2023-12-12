@@ -1,3 +1,5 @@
+#!/bin/sh
+
 sleep 5
 
 # Check if MirrorName attribute exists
