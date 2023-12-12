@@ -137,21 +137,23 @@ export default function CreateMirrors() {
                     alignItems: 'center',
                   }}
                 >
-                  <ReactSelect
-                    placeholder={`Select the ${
-                      peerEnd === 'src' ? 'source' : 'destination'
-                    } peer`}
-                    onChange={(val, action) =>
-                      handlePeer(val, peerEnd as 'src' | 'dst', setConfig)
-                    }
-                    options={
-                      (peerEnd === 'src'
-                        ? peers.filter((peer) => peer.type == DBType.POSTGRES)
-                        : peers) ?? []
-                    }
-                    getOptionValue={getPeerValue}
-                    formatOptionLabel={getPeerLabel}
-                  />
+                  <div style={{ width: '100%' }}>
+                    <ReactSelect
+                      placeholder={`Select the ${
+                        peerEnd === 'src' ? 'source' : 'destination'
+                      } peer`}
+                      onChange={(val, action) =>
+                        handlePeer(val, peerEnd as 'src' | 'dst', setConfig)
+                      }
+                      options={
+                        (peerEnd === 'src'
+                          ? peers.filter((peer) => peer.type == DBType.POSTGRES)
+                          : peers) ?? []
+                      }
+                      getOptionValue={getPeerValue}
+                      formatOptionLabel={getPeerLabel}
+                    />
+                  </div>
                   <InfoPopover
                     tips={
                       'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.'
