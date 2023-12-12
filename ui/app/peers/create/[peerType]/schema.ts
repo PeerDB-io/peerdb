@@ -81,14 +81,11 @@ export const pgSchema = z.object({
           required_error: 'SSH Password is required',
           invalid_type_error: 'SSH Password must be a string',
         })
-        .min(1, 'SSH Password must be non-empty')
         .max(100, 'SSH Password must be less than 100 characters'),
-      privateKey: z
-        .string({
-          required_error: 'SSH Private Key is required',
-          invalid_type_error: 'SSH Private Key must be a string',
-        })
-        .min(1, { message: 'SSH Private Key must be non-empty' }),
+      privateKey: z.string({
+        required_error: 'SSH Private Key is required',
+        invalid_type_error: 'SSH Private Key must be a string',
+      }),
     })
     .optional(),
 });

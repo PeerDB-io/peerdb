@@ -93,7 +93,7 @@ func (swpp *SSHWrappedPostgresPool) setupSSH(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
+	logrus.Info("SSH connection established")
 	// Automatically pick an available local port
 	localListener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
