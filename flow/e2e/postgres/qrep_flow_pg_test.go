@@ -138,7 +138,7 @@ func (s *PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQuali
 
 func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	numRows := 10
 
