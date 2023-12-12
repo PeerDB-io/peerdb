@@ -107,14 +107,16 @@ export default function PostgresForm({ settings, setter }: ConfigProps) {
             label={
               <Label>
                 {sshParam.label}{' '}
-                <Tooltip
-                  style={{ width: '100%' }}
-                  content={'This is a required field.'}
-                >
-                  <Label colorName='lowContrast' colorSet='destructive'>
-                    *
-                  </Label>
-                </Tooltip>
+                {!sshParam.optional && (
+                  <Tooltip
+                    style={{ width: '100%' }}
+                    content={'This is a required field.'}
+                  >
+                    <Label colorName='lowContrast' colorSet='destructive'>
+                      *
+                    </Label>
+                  </Tooltip>
+                )}
               </Label>
             }
             action={
