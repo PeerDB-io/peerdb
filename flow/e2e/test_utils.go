@@ -386,14 +386,6 @@ func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
 	return testSuite.NewTestWorkflowEnvironment()
 }
 
-// implement temporal logger interface with logrus
-//
-//	type Logger interface {
-//		Debug(msg string, keyvals ...interface{})
-//		Info(msg string, keyvals ...interface{})
-//		Warn(msg string, keyvals ...interface{})
-//		Error(msg string, keyvals ...interface{})
-//	}
 type TStructuredLogger struct {
 	logger *slog.Logger
 }
