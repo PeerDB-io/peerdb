@@ -51,16 +51,23 @@ func NewSSHWrappedPostgresPool(
 		}
 	}
 
-	return &SSHWrappedPostgresPool{
+	pool := &SSHWrappedPostgresPool{
 		poolConfig: poolConfig,
 		sshConfig:  clientConfig,
 		sshServer:  sshServer,
 		ctx:        swCtx,
 		cancel:     cancel,
-	}, nil
+	}
+
+	err := pool.connect()
+	if err != nil {
+		return nil, err
+	}
+
+	return pool, nil
 }
 
-func (swpp *SSHWrappedPostgresPool) Connect() error {
+func (swpp *SSHWrappedPostgresPool) connect() error {
 	var err error
 	swpp.once.Do(func() {
 		err = swpp.setupSSH(swpp.ctx)
@@ -73,8 +80,8 @@ func (swpp *SSHWrappedPostgresPool) Connect() error {
 }
 
 func (swpp *SSHWrappedPostgresPool) setupSSH(ctx context.Context) error {
-	if swpp.sshClient == nil {
-		logrus.Info("SSH client is nil, skipping SSH setup")
+	if swpp.sshConfig == nil {
+		logrus.Info("SSH config is nil, skipping SSH setup")
 		return nil
 	}
 
