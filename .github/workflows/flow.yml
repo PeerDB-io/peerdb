@@ -13,7 +13,7 @@ jobs:
       matrix:
         runner: [ubicloud-standard-8-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    timeout-minutes: 30
     services:
       pg_cdc:
         image: imresamu/postgis:15-3.4-alpine
