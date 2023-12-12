@@ -329,6 +329,7 @@ func CDCFlowWorkflowWithConfig(
 		}
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
+			workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "StopLoop", true)
 			w.logger.Info("peer flow has been shutdown")
 			return state, nil
 		}
@@ -351,6 +352,7 @@ func CDCFlowWorkflowWithConfig(
 
 		syncFlowID, err := GetChildWorkflowID(ctx, "sync-flow", cfg.FlowJobName)
 		if err != nil {
+			workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "StopLoop", true)
 			return state, err
 		}
 
