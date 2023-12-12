@@ -394,13 +394,15 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		return 0, fmt.Errorf("failed to wait for BigQuery load job: %w", err)
 	}
 
-	if len(status.Errors) > 0 {
-		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %v", status.Errors)
-	}
-
 	if err := status.Err(); err != nil {
 		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %w", err)
 	}
 	slog.Info(fmt.Sprintf("Pushed into %s/%s", avroFile.FilePath, syncID))
+
+	err = s.connector.WaitForTableReady(stagingTable)
+	if err != nil {
+		return 0, fmt.Errorf("failed to wait for table to be ready: %w", err)
+	}
+
 	return avroFile.NumRecords, nil
 }

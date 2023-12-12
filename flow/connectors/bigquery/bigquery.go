@@ -233,6 +233,29 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
+func (c *BigQueryConnector) WaitForTableReady(tblName string) error {
+	table := c.client.Dataset(c.datasetID).Table(tblName)
+	maxDuration := 5 * time.Minute
+	deadline := time.Now().Add(maxDuration)
+	sleepInterval := 15 * time.Second
+	attempt := 0
+
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout reached while waiting for table %s to be ready", tblName)
+		}
+
+		_, err := table.Metadata(c.ctx)
+		if err == nil {
+			return nil
+		}
+
+		slog.Info("waiting for table to be ready", slog.String("table", tblName), slog.Int("attempt", attempt))
+		attempt++
+		time.Sleep(sleepInterval)
+	}
+}
+
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
