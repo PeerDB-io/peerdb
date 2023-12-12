@@ -108,8 +108,6 @@ func WorkerMain(opts *WorkerOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
-	catalogMirrorMonitor := monitoring.NewCatalogMirrorMonitor(catalogPool)
-	defer catalogMirrorMonitor.Close()
 	vigil, err := evervigil.NewVigil(catalogPool)
 	if err != nil {
 		return fmt.Errorf("unable to create Vigil: %w", err)
@@ -139,7 +137,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
 	w.RegisterActivity(&activities.FlowableActivity{
-		CatalogPool: conn,
+		CatalogPool: catalogPool,
 		Vigil:       vigil,
 	})
 
