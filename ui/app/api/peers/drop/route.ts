@@ -10,19 +10,23 @@ export async function POST(request: Request) {
     peerName,
   };
   console.log('/drop/peer: req:', req);
-  const dropStatus: DropPeerResponse = await fetch(
-    `${flowServiceAddr}/v1/peers/drop`,
-    {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }
-  ).then((res) => {
-    return res.json();
-  });
-  let response: UDropPeerResponse = {
-    dropped: dropStatus.ok,
-    errorMessage: dropStatus.errorMessage,
-  };
+  try {
+    const dropStatus: DropPeerResponse = await fetch(
+      `${flowServiceAddr}/v1/peers/drop`,
+      {
+        method: 'POST',
+        body: JSON.stringify(req),
+      }
+    ).then((res) => {
+      return res.json();
+    });
+    let response: UDropPeerResponse = {
+      dropped: dropStatus.ok,
+      errorMessage: dropStatus.errorMessage,
+    };
 
-  return new Response(JSON.stringify(response));
+    return new Response(JSON.stringify(response));
+  } catch (e) {
+    console.log(e);
+  }
 }
