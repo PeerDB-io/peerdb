@@ -87,7 +87,7 @@ services:
     image: temporalio/admin-tools:1.22
     stdin_open: true
     tty: true
-    entrypoint: ["bash", "/etc/temporal/entrypoint.sh"]
+    entrypoint: /etc/temporal/entrypoint.sh
     restart: on-failure
     healthcheck:
       test: ["CMD", "tctl", "workflow", "list"]
