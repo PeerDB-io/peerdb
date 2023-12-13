@@ -32,3 +32,8 @@ func GetPeerDBCDCIdleTimeoutSeconds() time.Duration {
 	x := getEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 60)
 	return time.Duration(x) * time.Second
 }
+
+// PEERDB_CDC_DISK_SPILL_THRESHOLD
+func GetPeerDBCDCDiskSpillThreshold() int {
+	return getEnvInt("PEERDB_CDC_DISK_SPILL_THRESHOLD", 1_000_000)
+}
