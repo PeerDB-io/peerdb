@@ -139,9 +139,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
-	eventHubFlushTimeout :=
-		time.Duration(peerdbenv.GetPeerDBEventhubFlushTimeoutSeconds()) *
-			time.Second
+	eventHubFlushTimeout := peerdbenv.GetPeerDBEventhubFlushTimeoutSeconds()
 
 	ticker := time.NewTicker(eventHubFlushTimeout)
 	defer ticker.Stop()
