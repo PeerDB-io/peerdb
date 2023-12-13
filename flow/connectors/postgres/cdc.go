@@ -640,11 +640,11 @@ func (p *PostgresCDCSource) convertTupleToMap(
 ) (*model.RecordItems, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return model.NewRecordItems(), make(map[string]struct{}), nil
+		return model.NewRecordItems(0), make(map[string]struct{}), nil
 	}
 
 	// create empty map of string to interface{}
-	items := model.NewRecordItems()
+	items := model.NewRecordItems(len(tuple.Columns))
 	unchangedToastColumns := make(map[string]struct{})
 
 	for idx, col := range tuple.Columns {

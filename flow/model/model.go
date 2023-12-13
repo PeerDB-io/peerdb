@@ -66,17 +66,15 @@ type RecordItems struct {
 	Values      []qvalue.QValue
 }
 
-func NewRecordItems() *RecordItems {
+func NewRecordItems(capacity int) *RecordItems {
 	return &RecordItems{
-		ColToValIdx: make(map[string]int),
-		// create a slice of 32 qvalues so that we don't have to allocate memory
-		// for each record to reduce GC pressure
-		Values: make([]qvalue.QValue, 0, 32),
+		ColToValIdx: make(map[string]int, capacity),
+		Values:      make([]qvalue.QValue, 0, capacity),
 	}
 }
 
 func NewRecordItemWithData(cols []string, val []qvalue.QValue) *RecordItems {
-	recordItem := NewRecordItems()
+	recordItem := NewRecordItems(len(cols))
 	for i, col := range cols {
 		recordItem.ColToValIdx[col] = len(recordItem.Values)
 		recordItem.Values = append(recordItem.Values, val[i])
