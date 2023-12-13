@@ -8,7 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type mergeStmtGenerator struct {
@@ -33,7 +33,7 @@ func (m *mergeStmtGenerator) generateMergeStmts() []string {
 	// return an empty array for now
 	flattenedCTE := m.generateFlattenedCTE()
 	deDupedCTE := m.generateDeDupedCTE()
-	tempTable := fmt.Sprintf("_peerdb_de_duplicated_data_%s", util.RandomString(5))
+	tempTable := fmt.Sprintf("_peerdb_de_duplicated_data_%s", shared.RandomString(5))
 	// create temp table stmt
 	createTempTableStmt := fmt.Sprintf(
 		"CREATE TEMP TABLE %s AS (%s, %s);",

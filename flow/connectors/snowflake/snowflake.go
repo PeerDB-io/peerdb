@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
@@ -115,7 +114,7 @@ type UnchangedToastColumnResult struct {
 
 func NewSnowflakeConnector(ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig) (*SnowflakeConnector, error) {
-	PrivateKeyRSA, err := util.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
+	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
 		snowflakeProtoConfig.Password)
 	if err != nil {
 		return nil, err

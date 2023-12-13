@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -364,7 +363,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 		}
 	}
 
-	randomUint, err := util.RandomUInt64()
+	randomUint, err := shared.RandomUInt64()
 	if err != nil {
 		stream.Records <- &model.QRecordOrError{
 			Err: fmt.Errorf("failed to generate random uint: %w", err),

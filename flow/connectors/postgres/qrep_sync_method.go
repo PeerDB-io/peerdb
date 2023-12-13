@@ -11,7 +11,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -84,7 +83,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		}
 	} else {
 		// Step 2.1: Create a temp staging table
-		stagingTableName := fmt.Sprintf("_peerdb_staging_%s", util.RandomString(8))
+		stagingTableName := fmt.Sprintf("_peerdb_staging_%s", shared.RandomString(8))
 		stagingTableIdentifier := pgx.Identifier{s.connector.metadataSchema, stagingTableName}
 		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
 

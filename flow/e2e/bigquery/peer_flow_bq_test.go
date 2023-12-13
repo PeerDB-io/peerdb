@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -77,7 +77,7 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	suffix := util.RandomString(8)
+	suffix := shared.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	bqSuffix := fmt.Sprintf("bq_%s_%s", strings.ToLower(suffix), tsSuffix)
 	pool, err := e2e.SetupPostgres(bqSuffix)
