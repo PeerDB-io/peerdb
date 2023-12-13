@@ -183,7 +183,7 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 }
 
 func generate20MBJson() ([]byte, error) {
-	xn := make(map[string]interface{})
+	xn := make(map[string]interface{}, 215000)
 	for i := 0; i < 215000; i++ {
 		xn[uuid.New().String()] = uuid.New().String()
 	}
