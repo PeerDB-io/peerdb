@@ -11,7 +11,7 @@ import (
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -24,7 +24,7 @@ type SnowflakeClient struct {
 }
 
 func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*SnowflakeClient, error) {
-	privateKey, err := util.DecodePKCS8PrivateKey([]byte(config.PrivateKey), config.Password)
+	privateKey, err := shared.DecodePKCS8PrivateKey([]byte(config.PrivateKey), config.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %w", err)
 	}

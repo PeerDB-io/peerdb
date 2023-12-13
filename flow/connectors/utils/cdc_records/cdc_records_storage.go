@@ -13,7 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/cockroachdb/pebble"
 )
 
@@ -42,7 +42,7 @@ func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
 		pebbleDB:                  nil,
 		numRecords:                0,
 		flowJobName:               flowJobName,
-		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, util.RandomString(8)),
+		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
 		numRecordsSwitchThreshold: peerdbenv.GetPeerDBCDCDiskSpillThreshold(),
 	}
 }

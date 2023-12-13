@@ -9,7 +9,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 )
@@ -78,7 +77,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// Generate a random schema name
-	rndUint, err := util.RandomUInt64()
+	rndUint, err := shared.RandomUInt64()
 	if err != nil {
 		t.Fatalf("Failed to generate random uint: %v", err)
 	}

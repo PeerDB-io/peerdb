@@ -14,7 +14,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	_ "github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
 )
@@ -58,7 +57,7 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 		return 0, err
 	}
 
-	partitionID := util.RandomString(16)
+	partitionID := shared.RandomString(16)
 	avroFile, err := s.writeToAvroFile(stream, avroSchema, partitionID, flowJobName)
 	if err != nil {
 		return 0, err
@@ -502,7 +501,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	flowJobName string,
 	copyInfo *CopyInfo,
 ) error {
-	runID, err := util.RandomUInt64()
+	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return fmt.Errorf("failed to generate run ID: %w", err)
 	}
