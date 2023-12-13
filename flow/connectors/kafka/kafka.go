@@ -162,7 +162,6 @@ func (c *KafkaConnector) GetLastOffset(jobName string) (*protos.LastSyncState, e
 	lastMessage, readErr := c.consumer.ReadMessage(60 * time.Second)
 	if readErr != nil {
 		if strings.Contains(readErr.Error(), "Timed out") {
-
 			return nil, nil
 		}
 		return nil, fmt.Errorf("unable to read latest offset: %w", readErr)
