@@ -8,7 +8,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
@@ -365,7 +364,7 @@ func (q *QRepFlowExecution) receiveAndHandleSignalAsync(ctx workflow.Context) {
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
 	if ok {
-		q.activeSignal = util.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+		q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
 	}
 }
 
@@ -483,7 +482,7 @@ func QRepFlowWorkflow(
 			// only place we block on receive, so signal processing is immediate
 			ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 			if ok {
-				q.activeSignal = util.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
+				q.activeSignal = shared.FlowSignalHandler(q.activeSignal, signalVal, q.logger)
 			}
 		}
 	}

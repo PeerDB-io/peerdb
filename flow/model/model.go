@@ -11,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type NameAndExclude struct {
@@ -326,8 +327,9 @@ type CDCRecordStream struct {
 }
 
 func NewCDCRecordStream() *CDCRecordStream {
+	channelBuffer := peerdbenv.GetPeerDBCDCChannelBufferSize()
 	return &CDCRecordStream{
-		records: make(chan Record, 1<<18),
+		records: make(chan Record, channelBuffer),
 		// TODO (kaushik): more than 1024 schema deltas can cause problems!
 		SchemaDeltas:           make(chan *protos.TableSchemaDelta, 1<<10),
 		emptySignal:            make(chan bool, 1),

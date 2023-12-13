@@ -8,7 +8,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"go.temporal.io/api/enums/v1"
@@ -144,7 +143,7 @@ func (w *CDCFlowWorkflowExecution) receiveAndHandleSignalAsync(ctx workflow.Cont
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
 	if ok {
-		state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+		state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 	}
 }
 
@@ -318,7 +317,7 @@ func CDCFlowWorkflowWithConfig(
 				// only place we block on receive, so signal processing is immediate
 				ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 				if ok {
-					state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+					state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 				}
 			}
 		}

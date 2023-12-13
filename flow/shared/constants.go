@@ -3,7 +3,7 @@ package shared
 import (
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 const (
@@ -50,7 +50,7 @@ func GetPeerFlowTaskQueueName(taskQueueID TaskQueueID) (string, error) {
 }
 
 func prependUIDToTaskQueueName(taskQueueName string) string {
-	deploymentUID := utils.GetEnvString("PEERDB_DEPLOYMENT_UID", "")
+	deploymentUID := peerdbenv.GetPeerDBDeploymentUID()
 	if deploymentUID == "" {
 		return taskQueueName
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -138,9 +139,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
-	eventHubFlushTimeout :=
-		time.Duration(utils.GetEnvInt("PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS", 10)) *
-			time.Second
+	eventHubFlushTimeout := peerdbenv.GetPeerDBEventhubFlushTimeoutSeconds()
 
 	ticker := time.NewTicker(eventHubFlushTimeout)
 	defer ticker.Stop()
@@ -232,22 +231,10 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		shutdown <- struct{}{}
 	}()
 
-	// if env var PEERDB_BETA_EVENTHUB_PUSH_ASYNC=true
-	// we kick off processBatch in a goroutine and return immediately.
-	// otherwise, we block until processBatch is done.
-	if utils.GetEnvBool("PEERDB_BETA_EVENTHUB_PUSH_ASYNC", false) {
-		go func() {
-			numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
-			if err != nil {
-				c.logger.Error("[async] failed to process batch", slog.Any("error", err))
-			}
-		}()
-	} else {
-		numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
-		if err != nil {
-			c.logger.Error("failed to process batch", slog.Any("error", err))
-			return nil, err
-		}
+	numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
+	if err != nil {
+		c.logger.Error("failed to process batch", slog.Any("error", err))
+		return nil, err
 	}
 
 	lastCheckpoint, err := req.Records.GetLastCheckpoint()
