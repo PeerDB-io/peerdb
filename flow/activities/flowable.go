@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
@@ -227,8 +228,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	idleTimeout := utils.GetEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 60)
-
 	recordBatch := model.NewCDCRecordStream()
 
 	startTime := time.Now()
@@ -255,7 +254,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			TableNameMapping:            tblNameMapping,
 			LastSyncState:               input.LastSyncState,
 			MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
-			IdleTimeout:                 time.Duration(idleTimeout) * time.Second,
+			IdleTimeout:                 peerdbenv.GetPeerDBCDCIdleTimeoutSeconds(),
 			TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
 			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
@@ -557,6 +556,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 
 	pullCtx, pullCancel := context.WithCancel(ctx)
+	defer pullCancel()
 	srcConn, err := connectors.GetQRepPullConnector(pullCtx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get qrep source connector: %w", err)
@@ -631,7 +631,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 
 	if rowsSynced == 0 {
-		pullCancel()
 		slog.InfoContext(ctx, fmt.Sprintf("no records to push for partition %s\n", partition.PartitionId))
 	} else {
 		wg.Wait()
