@@ -319,8 +319,6 @@ type CDCRecordStream struct {
 	SchemaDeltas chan *protos.TableSchemaDelta
 	// Relation message mapping
 	RelationMessageMapping chan *RelationMessageMapping
-	// firstCheckPointID is the first ID of the commit that corresponds to this batch.
-	firstCheckPointID atomic.Int64
 	// Indicates if the last checkpoint has been set.
 	lastCheckpointSet bool
 	// lastCheckPointID is the last ID of the commit that corresponds to this batch.
@@ -338,23 +336,16 @@ func NewCDCRecordStream() *CDCRecordStream {
 		RelationMessageMapping: make(chan *RelationMessageMapping, 1),
 		lastCheckpointSet:      false,
 		lastCheckPointID:       atomic.Int64{},
-		firstCheckPointID:      atomic.Int64{},
 	}
 }
 
 func (r *CDCRecordStream) UpdateLatestCheckpoint(val int64) {
-	r.firstCheckPointID.CompareAndSwap(0, val)
-
 	// TODO update with https://github.com/golang/go/issues/63999 once implemented
 	// r.lastCheckPointID.Max(val)
 	oldLast := r.lastCheckPointID.Load()
 	for oldLast < val && !r.lastCheckPointID.CompareAndSwap(oldLast, val) {
 		oldLast = r.lastCheckPointID.Load()
 	}
-}
-
-func (r *CDCRecordStream) GetFirstCheckpoint() int64 {
-	return r.firstCheckPointID.Load()
 }
 
 func (r *CDCRecordStream) GetLastCheckpoint() (int64, error) {
@@ -445,8 +436,6 @@ type NormalizeRecordsRequest struct {
 }
 
 type SyncResponse struct {
-	// FirstSyncedCheckPointID is the first ID that was synced.
-	FirstSyncedCheckPointID int64
 	// LastSyncedCheckPointID is the last ID that was synced.
 	LastSyncedCheckPointID int64
 	// NumRecordsSynced is the number of records that were synced.

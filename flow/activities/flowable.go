@@ -274,11 +274,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 		err = monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
 			monitoring.CDCBatchInfo{
-				BatchID:       syncBatchID + 1,
-				RowsInBatch:   0,
-				BatchStartLSN: pglogrepl.LSN(recordBatch.GetFirstCheckpoint()),
-				BatchEndlSN:   0,
-				StartTime:     startTime,
+				BatchID:     syncBatchID + 1,
+				RowsInBatch: 0,
+				BatchEndlSN: 0,
+				StartTime:   startTime,
 			})
 		if err != nil {
 			return nil, err

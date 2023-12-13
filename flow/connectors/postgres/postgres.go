@@ -277,9 +277,6 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	records := make([][]interface{}, 0)
 	tableNameRowsMapping := make(map[string]uint32)
 
-	first := true
-	var firstCP int64 = 0
-
 	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
@@ -340,18 +337,12 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		default:
 			return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 		}
-
-		if first {
-			firstCP = record.GetCheckPointID()
-			first = false
-		}
 	}
 
 	if len(records) == 0 {
 		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
+			LastSyncedCheckPointID: 0,
+			NumRecordsSynced:       0,
 		}, nil
 	}
 
@@ -397,11 +388,10 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
-		NumRecordsSynced:        int64(len(records)),
-		CurrentSyncBatchID:      syncBatchID,
-		TableNameRowsMapping:    tableNameRowsMapping,
+		LastSyncedCheckPointID: lastCP,
+		NumRecordsSynced:       int64(len(records)),
+		CurrentSyncBatchID:     syncBatchID,
+		TableNameRowsMapping:   tableNameRowsMapping,
 	}, nil
 }
 

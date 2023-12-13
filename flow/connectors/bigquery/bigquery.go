@@ -490,8 +490,6 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
-	first := true
-	var firstCP int64 = 0
 	recordStream := model.NewQRecordStream(1 << 20)
 	err := recordStream.SetSchema(&model.QRecordSchema{
 		Fields: []*model.QField{
@@ -649,11 +647,6 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 			return nil, fmt.Errorf("record type %T not supported", r)
 		}
 
-		if first {
-			firstCP = record.GetCheckPointID()
-			first = false
-		}
-
 		entries[0] = qvalue.QValue{
 			Kind:  qvalue.QValueKindString,
 			Value: uuid.New().String(),
@@ -703,11 +696,10 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	c.logger.Info(fmt.Sprintf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName))
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
-		NumRecordsSynced:        int64(numRecords),
-		CurrentSyncBatchID:      syncBatchID,
-		TableNameRowsMapping:    tableNameRowsMapping,
+		LastSyncedCheckPointID: lastCP,
+		NumRecordsSynced:       int64(numRecords),
+		CurrentSyncBatchID:     syncBatchID,
+		TableNameRowsMapping:   tableNameRowsMapping,
 	}, nil
 }
 

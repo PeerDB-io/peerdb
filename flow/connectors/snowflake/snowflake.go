@@ -567,11 +567,10 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	}
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: req.Records.GetFirstCheckpoint(),
-		LastSyncedCheckPointID:  lastCheckpoint,
-		NumRecordsSynced:        int64(numRecords),
-		CurrentSyncBatchID:      syncBatchID,
-		TableNameRowsMapping:    tableNameRowsMapping,
+		LastSyncedCheckPointID: lastCheckpoint,
+		NumRecordsSynced:       int64(numRecords),
+		CurrentSyncBatchID:     syncBatchID,
+		TableNameRowsMapping:   tableNameRowsMapping,
 	}, nil
 }
 

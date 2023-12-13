@@ -17,11 +17,10 @@ import (
 )
 
 type CDCBatchInfo struct {
-	BatchID       int64
-	RowsInBatch   uint32
-	BatchStartLSN pglogrepl.LSN
-	BatchEndlSN   pglogrepl.LSN
-	StartTime     time.Time
+	BatchID     int64
+	RowsInBatch uint32
+	BatchEndlSN pglogrepl.LSN
+	StartTime   time.Time
 }
 
 func InitializeCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string) error {
@@ -61,8 +60,8 @@ func AddCDCBatchForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName str
 	_, err := pool.Exec(ctx,
 		`INSERT INTO peerdb_stats.cdc_batches(flow_name,batch_id,rows_in_batch,batch_start_lsn,batch_end_lsn,
 		start_time) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
-		flowJobName, batchInfo.BatchID, batchInfo.RowsInBatch,
-		uint64(batchInfo.BatchStartLSN), uint64(batchInfo.BatchEndlSN), batchInfo.StartTime)
+		flowJobName, batchInfo.BatchID, batchInfo.RowsInBatch, 0,
+		uint64(batchInfo.BatchEndlSN), batchInfo.StartTime)
 	if err != nil {
 		return fmt.Errorf("error while inserting batch into cdc_batch: %w", err)
 	}

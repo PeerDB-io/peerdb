@@ -239,10 +239,9 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	}
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: req.Records.GetFirstCheckpoint(),
-		LastSyncedCheckPointID:  lastCheckpoint,
-		NumRecordsSynced:        int64(numRecords),
-		TableNameRowsMapping:    tableNameRowsMapping,
+		LastSyncedCheckPointID: lastCheckpoint,
+		NumRecordsSynced:       int64(numRecords),
+		TableNameRowsMapping:   tableNameRowsMapping,
 	}, nil
 }
 
