@@ -8,6 +8,7 @@ import (
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
+	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
@@ -153,6 +154,8 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubGroupConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case *protos.Peer_KafkaConfig:
+		return connkafka.NewKafkaConnector(ctx, config.GetKafkaConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}

@@ -106,6 +106,14 @@ message SqlServerConfig {
   string database = 5;
 }
 
+message KafkaConfig {
+  string servers = 1;
+  string security_protocol = 2;
+  string ssl_certificate = 3;
+  string username = 4;
+  string password = 5;
+}
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
@@ -115,6 +123,7 @@ enum DBType {
   S3 = 5;
   SQLSERVER = 6;
   EVENTHUB_GROUP = 7;
+  KAFKA = 8;
   CLICKHOUSE = 8;  
 }
 
@@ -130,6 +139,7 @@ message Peer {
     S3Config s3_config = 8;
     SqlServerConfig sqlserver_config = 9;
     EventHubGroupConfig eventhub_group_config = 10;
+    KafkaConfig kafka_config = 11;
     ClickhouseConfig clickhouse_config = 11;
   }
 }

@@ -139,6 +139,11 @@ impl Catalog {
                     buf.reserve(config_len);
                     eventhub_group_config.encode(&mut buf)?;
                 }
+                Config::KafkaConfig(kafka_config) => {
+                    let config_len = kafka_config.encoded_len();
+                    buf.reserve(config_len);
+                    kafka_config.encode(&mut buf)?;
+                }
                 Config::ClickhouseConfig(clickhouse_config) => {
                     let config_len = clickhouse_config.encoded_len();
                     buf.reserve(config_len);
@@ -338,6 +343,12 @@ impl Catalog {
                 let eventhub_group_config =
                     pt::peerdb_peers::EventHubGroupConfig::decode(options).context(err)?;
                 Ok(Some(Config::EventhubGroupConfig(eventhub_group_config)))
+            }
+            Some(DbType::Kafka) => {
+                let err = format!("unable to decode {} options for peer {}", "kafka", name);
+                let kafka_config =
+                    pt::peerdb_peers::KafkaConfig::decode(options).context(err)?;
+                Ok(Some(Config::KafkaConfig(kafka_config)))
             }
             Some(DbType::Clickhouse) => {
                 let err = format!(

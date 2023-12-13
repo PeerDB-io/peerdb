@@ -155,6 +155,7 @@ impl NexusBackend {
         let unsupported_peer_types = [
             4, // EVENTHUB
             7, // EVENTHUB_GROUP
+            8, // KAFKA
         ];
         !unsupported_peer_types.contains(&peer_type)
     }
