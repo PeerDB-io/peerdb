@@ -36,7 +36,7 @@ func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
 		_, nullable := qac.NullableFields[key]
 
 		avroConverter := qvalue.NewQValueAvroConverter(
-			&qac.QRecord.Entries[idx],
+			qac.QRecord.Entries[idx],
 			qac.TargetDWH,
 			nullable,
 		)

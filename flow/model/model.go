@@ -63,20 +63,18 @@ type Record interface {
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
 	ColToValIdx map[string]int
-	Values      []*qvalue.QValue
+	Values      []qvalue.QValue
 }
 
-func NewRecordItems() *RecordItems {
+func NewRecordItems(capacity int) *RecordItems {
 	return &RecordItems{
-		ColToValIdx: make(map[string]int),
-		// create a slice of 32 qvalues so that we don't have to allocate memory
-		// for each record to reduce GC pressure
-		Values: make([]*qvalue.QValue, 0, 32),
+		ColToValIdx: make(map[string]int, capacity),
+		Values:      make([]qvalue.QValue, 0, capacity),
 	}
 }
 
-func NewRecordItemWithData(cols []string, val []*qvalue.QValue) *RecordItems {
-	recordItem := NewRecordItems()
+func NewRecordItemWithData(cols []string, val []qvalue.QValue) *RecordItems {
+	recordItem := NewRecordItems(len(cols))
 	for i, col := range cols {
 		recordItem.ColToValIdx[col] = len(recordItem.Values)
 		recordItem.Values = append(recordItem.Values, val[i])
@@ -84,7 +82,7 @@ func NewRecordItemWithData(cols []string, val []*qvalue.QValue) *RecordItems {
 	return recordItem
 }
 
-func (r *RecordItems) AddColumn(col string, val *qvalue.QValue) {
+func (r *RecordItems) AddColumn(col string, val qvalue.QValue) {
 	if idx, ok := r.ColToValIdx[col]; ok {
 		r.Values[idx] = val
 	} else {
@@ -93,11 +91,11 @@ func (r *RecordItems) AddColumn(col string, val *qvalue.QValue) {
 	}
 }
 
-func (r *RecordItems) GetColumnValue(col string) *qvalue.QValue {
+func (r *RecordItems) GetColumnValue(col string) qvalue.QValue {
 	if idx, ok := r.ColToValIdx[col]; ok {
 		return r.Values[idx]
 	}
-	return nil
+	return qvalue.QValue{}
 }
 
 // UpdateIfNotExists takes in a RecordItems as input and updates the values of the
@@ -116,10 +114,10 @@ func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
 	return updatedCols
 }
 
-func (r *RecordItems) GetValueByColName(colName string) (*qvalue.QValue, error) {
+func (r *RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
 	idx, ok := r.ColToValIdx[colName]
 	if !ok {
-		return nil, fmt.Errorf("column name %s not found", colName)
+		return qvalue.QValue{}, fmt.Errorf("column name %s not found", colName)
 	}
 	return r.Values[idx], nil
 }

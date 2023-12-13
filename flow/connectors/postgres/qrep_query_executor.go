@@ -439,7 +439,7 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse field: %w", err)
 			}
-			record.Set(i, *tmp)
+			record.Set(i, tmp)
 		} else {
 			customQKind := customTypeToQKind(typeName)
 			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {

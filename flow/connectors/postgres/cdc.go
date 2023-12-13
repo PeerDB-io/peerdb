@@ -640,11 +640,11 @@ func (p *PostgresCDCSource) convertTupleToMap(
 ) (*model.RecordItems, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return model.NewRecordItems(), make(map[string]struct{}), nil
+		return model.NewRecordItems(0), make(map[string]struct{}), nil
 	}
 
 	// create empty map of string to interface{}
-	items := model.NewRecordItems()
+	items := model.NewRecordItems(len(tuple.Columns))
 	unchangedToastColumns := make(map[string]struct{})
 
 	for idx, col := range tuple.Columns {
@@ -654,7 +654,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 		}
 		switch col.DataType {
 		case 'n': // null
-			val := &qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
+			val := qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
 			items.AddColumn(colName, val)
 		case 't': // text
 			/* bytea also appears here as a hex */
@@ -678,7 +678,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	return items, unchangedToastColumns, nil
 }
 
-func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, formatCode int16) (*qvalue.QValue, error) {
+func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, formatCode int16) (qvalue.QValue, error) {
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
@@ -689,17 +689,17 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
 		if err != nil {
-			return nil, err
+			return qvalue.QValue{}, err
 		}
 		retVal, err := parseFieldFromPostgresOID(dataType, parsedData)
 		if err != nil {
-			return nil, err
+			return qvalue.QValue{}, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
 		retVal, err := parseFieldFromPostgresOID(dataType, string(data))
 		if err != nil {
-			return nil, err
+			return qvalue.QValue{}, err
 		}
 		return retVal, nil
 	}
@@ -710,25 +710,25 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 		if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
 			wkt, err := GeoValidate(string(data))
 			if err != nil {
-				return &qvalue.QValue{
+				return qvalue.QValue{
 					Kind:  customQKind,
 					Value: nil,
 				}, nil
 			} else {
-				return &qvalue.QValue{
+				return qvalue.QValue{
 					Kind:  customQKind,
 					Value: wkt,
 				}, nil
 			}
 		} else {
-			return &qvalue.QValue{
+			return qvalue.QValue{
 				Kind:  customQKind,
 				Value: string(data),
 			}, nil
 		}
 	}
 
-	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
+	return qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }
 
 func convertRelationMessageToProto(msg *pglogrepl.RelationMessage) *protos.RelationMessage {
