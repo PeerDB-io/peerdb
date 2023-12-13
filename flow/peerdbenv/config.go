@@ -1,6 +1,8 @@
 package peerdbenv
 
-import "time"
+import (
+	"time"
+)
 
 // This file contains functions to get the values of various peerdb environment
 // variables. This will help catalog the environment variables that are used
@@ -36,4 +38,30 @@ func GetPeerDBCDCIdleTimeoutSeconds() time.Duration {
 // PEERDB_CDC_DISK_SPILL_THRESHOLD
 func GetPeerDBCDCDiskSpillThreshold() int {
 	return getEnvInt("PEERDB_CDC_DISK_SPILL_THRESHOLD", 1_000_000)
+}
+
+// PEERDB_CATALOG_HOST
+func GetPeerDBCatalogHost() string {
+	return getEnvString("PEERDB_CATALOG_HOST", "")
+}
+
+// PEERDB_CATALOG_PORT
+func GetPeerDBCatalogPort() uint32 {
+	port := getEnvInt("PEERDB_CATALOG_PORT", 5432)
+	return uint32(port)
+}
+
+// PEERDB_CATALOG_USER
+func GetPeerDBCatalogUser() string {
+	return getEnvString("PEERDB_CATALOG_USER", "")
+}
+
+// PEERDB_CATALOG_PASSWORD
+func GetPeerDBCatalogPassword() string {
+	return getEnvString("PEERDB_CATALOG_PASSWORD", "")
+}
+
+// PEERDB_CATALOG_DATABASE
+func GetPeerDBCatalogDatabase() string {
+	return getEnvString("PEERDB_CATALOG_DATABASE", "")
 }
