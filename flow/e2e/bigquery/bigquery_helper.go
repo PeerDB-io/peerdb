@@ -16,7 +16,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"google.golang.org/api/iterator"
 )
 
@@ -36,7 +36,7 @@ type BigQueryTestHelper struct {
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
 func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	// random 64 bit int to namespace stateful schemas.
-	runID, err := util.RandomUInt64()
+	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
 	}

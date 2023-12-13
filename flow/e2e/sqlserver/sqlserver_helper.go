@@ -10,7 +10,7 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SQLServerHelper struct {
@@ -46,7 +46,7 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 		return nil, fmt.Errorf("invalid connection configs: %v", connErr)
 	}
 
-	rndNum, err := util.RandomUInt64()
+	rndNum, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, err
 	}

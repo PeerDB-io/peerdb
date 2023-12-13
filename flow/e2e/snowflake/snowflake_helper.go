@@ -12,7 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SnowflakeTestHelper struct {
@@ -48,7 +48,7 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	}
 
 	peer := generateSFPeer(&config)
-	runID, err := util.RandomUInt64()
+	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
 	}
