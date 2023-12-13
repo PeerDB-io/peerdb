@@ -127,12 +127,12 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 }
 
 type QValueAvroConverter struct {
-	Value     *QValue
+	Value     QValue
 	TargetDWH QDWHType
 	Nullable  bool
 }
 
-func NewQValueAvroConverter(value *QValue, targetDWH QDWHType, nullable bool) *QValueAvroConverter {
+func NewQValueAvroConverter(value QValue, targetDWH QDWHType, nullable bool) *QValueAvroConverter {
 	return &QValueAvroConverter{
 		Value:     value,
 		TargetDWH: targetDWH,

@@ -5,6 +5,7 @@ import "fmt"
 type QValueKind string
 
 const (
+	QValueKindEmpty       QValueKind = ""
 	QValueKindInvalid     QValueKind = "invalid"
 	QValueKindFloat32     QValueKind = "float32"
 	QValueKindFloat64     QValueKind = "float64"

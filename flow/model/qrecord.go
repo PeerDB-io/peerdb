@@ -33,7 +33,7 @@ func (q *QRecord) equals(other *QRecord) bool {
 
 	for i, entry := range q.Entries {
 		otherEntry := other.Entries[i]
-		if !entry.Equals(&otherEntry) {
+		if !entry.Equals(otherEntry) {
 			fmt.Printf("entry %d: %v != %v\n", i, entry, otherEntry)
 			return false
 		}
