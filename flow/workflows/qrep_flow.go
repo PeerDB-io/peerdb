@@ -391,6 +391,7 @@ func QRepFlowWorkflow(
 
 	q := NewQRepFlowExecution(ctx, config, runUUID)
 
+	//QRepSyncConnector.SetupQRepMetadataTables
 	err = q.SetupMetadataTables(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)

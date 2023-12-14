@@ -13,6 +13,7 @@ import (
 	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
+	connClickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 )
@@ -195,6 +196,8 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case *protos.PeerClickhouseConfig:
+		retrun connClickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
