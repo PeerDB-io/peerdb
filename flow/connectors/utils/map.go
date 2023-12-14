@@ -1,15 +1,15 @@
 package utils
 
-import "strings"
+import (
+	"strings"
+
+	"golang.org/x/exp/maps"
+)
 
 func KeysToString(m map[string]struct{}) string {
 	if m == nil {
 		return ""
 	}
 
-	var keys []string
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return strings.Join(keys, ",")
+	return strings.Join(maps.Keys(m), ",")
 }

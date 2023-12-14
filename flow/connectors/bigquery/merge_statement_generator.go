@@ -94,10 +94,13 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
-	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp")
-	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp_nanos")
-	flattenedProjs = append(flattenedProjs, "_peerdb_record_type")
-	flattenedProjs = append(flattenedProjs, "_peerdb_unchanged_toast_columns")
+	flattenedProjs = append(
+		flattenedProjs,
+		"_peerdb_timestamp",
+		"_peerdb_timestamp_nanos",
+		"_peerdb_record_type",
+		"_peerdb_unchanged_toast_columns",
+	)
 
 	// normalize anything between last normalized batch id to last sync batchid
 	return fmt.Sprintf(`WITH _peerdb_flattened AS
@@ -126,8 +129,8 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 // generateMergeStmt generates a merge statement.
 func (m *mergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	// comma separated list of column names
-	backtickColNames := make([]string, 0)
-	pureColNames := make([]string, 0)
+	backtickColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
+	pureColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
 	for colName := range m.NormalizedTableSchema.Columns {
 		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
 		pureColNames = append(pureColNames, colName)

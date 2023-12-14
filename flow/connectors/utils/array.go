@@ -1,7 +1,7 @@
 package utils
 
 func ArrayMinus(first []string, second []string) []string {
-	lookup := make(map[string]struct{})
+	lookup := make(map[string]struct{}, len(second))
 	// Add elements from arrayB to the lookup map
 	for _, element := range second {
 		lookup[element] = struct{}{}

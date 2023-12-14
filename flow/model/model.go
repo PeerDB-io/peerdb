@@ -132,7 +132,7 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 		return nil, errors.New("colToValIdx is nil")
 	}
 
-	jsonStruct := make(map[string]interface{})
+	jsonStruct := make(map[string]interface{}, len(r.ColToValIdx))
 	for col, idx := range r.ColToValIdx {
 		v := r.Values[idx]
 		if v.Value == nil {
@@ -178,7 +178,7 @@ type ToJSONOptions struct {
 }
 
 func NewToJSONOptions(unnestCols []string) *ToJSONOptions {
-	unnestColumns := make(map[string]struct{})
+	unnestColumns := make(map[string]struct{}, len(unnestCols))
 	for _, col := range unnestCols {
 		unnestColumns[col] = struct{}{}
 	}
