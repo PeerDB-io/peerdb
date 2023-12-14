@@ -316,30 +316,10 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 }
 
 func (c *SnowflakeConnector) SetLastOffset(jobName string, lastOffset int64) error {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(setLastOffsetSQL,
+	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(setLastOffsetSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
 	if err != nil {
 		return fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
-	}
-	defer func() {
-		// not sure if the errors these two return are same or different?
-		err = errors.Join(rows.Close(), rows.Err())
-		if err != nil {
-			c.logger.Error("error while closing rows for reading last offset", slog.Any("error", err))
-		}
-	}()
-
-	if !rows.Next() {
-		c.logger.Warn("No row found, returning 0")
-		return nil
-	}
-	var result pgtype.Int8
-	err = rows.Scan(&result)
-	if err != nil {
-		return fmt.Errorf("error while reading result row: %w", err)
-	}
-	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
 	}
 	return nil
 }

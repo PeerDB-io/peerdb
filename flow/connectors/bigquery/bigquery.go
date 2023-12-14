@@ -341,7 +341,13 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
 }
 
 func (c *BigQueryConnector) SetLastOffset(jobName string, lastOffset int64) error {
-	query := fmt.Sprintf("UPDATE %s.%s SET offset = GREATEST(offset, %d) WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, lastOffset, jobName)
+	query := fmt.Sprintf(
+		"UPDATE %s.%s SET offset = GREATEST(offset, %d) WHERE mirror_job_name = '%s'",
+		c.datasetID,
+		MirrorJobsTable,
+		lastOffset,
+		jobName,
+	)
 	q := c.client.Query(query)
 	_, err := q.Read(c.ctx)
 	if err != nil {
