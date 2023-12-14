@@ -412,16 +412,19 @@ func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, erro
 }
 
 func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
-	rows, err := c.pool.Query(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return false, fmt.Errorf("failed to check if job exists: %w", err)
-	}
-	defer rows.Close()
-
 	var result pgtype.Bool
-	rows.Next()
-	err = rows.Scan(&result)
+	err := c.pool.QueryRow(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
+	if err != nil {
+		return false, fmt.Errorf("error reading result row: %w", err)
+	}
+	return result.Bool, nil
+}
+
+func (c *PostgresConnector) jobMetadataExistsTx(tx pgx.Tx, jobName string) (bool, error) {
+	var result pgtype.Bool
+	err := tx.QueryRow(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
@@ -440,7 +443,7 @@ func (c *PostgresConnector) majorVersionCheck(majorVersion int) (bool, error) {
 
 func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64,
 	syncRecordsTx pgx.Tx) error {
-	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
+	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
 	}
@@ -466,7 +469,7 @@ func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64,
 
 func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64,
 	normalizeRecordsTx pgx.Tx) error {
-	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
+	jobMetadataExists, err := c.jobMetadataExistsTx(normalizeRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
 	}
