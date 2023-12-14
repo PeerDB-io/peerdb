@@ -168,31 +168,28 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 }
 
 // GetLastOffset returns the last synced offset for a job.
-func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 	rows, err := c.pool.
 		Query(c.ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return nil, fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
+		return 0, fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
 		c.logger.Info("No row found, returning nil")
-		return nil, nil
+		return 0, nil
 	}
 	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
-		return nil, fmt.Errorf("error while reading result row: %w", err)
+		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
-		return nil, nil
+		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
 
-	return &protos.LastSyncState{
-		Checkpoint: result.Int64,
-	}, nil
+	return result.Int64, nil
 }
 
 // PullRecords pulls records from the source.
@@ -273,7 +270,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 	records := make([][]interface{}, 0)
 	tableNameRowsMapping := make(map[string]uint32)
 

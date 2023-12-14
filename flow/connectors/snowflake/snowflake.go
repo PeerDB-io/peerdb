@@ -284,11 +284,11 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 	return res, nil
 }
 
-func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return nil, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
+		return 0, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
 	}
 	defer func() {
 		// not sure if the errors these two return are same or different?
@@ -300,20 +300,17 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 
 	if !rows.Next() {
 		c.logger.Warn("No row found ,returning nil")
-		return nil, nil
+		return 0, nil
 	}
 	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
-		return nil, fmt.Errorf("error while reading result row: %w", err)
+		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
-		return nil, nil
+		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
-	return &protos.LastSyncState{
-		Checkpoint: result.Int64,
-	}, nil
+	return result.Int64, nil
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
@@ -496,7 +493,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 
 	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
 	if err != nil {
