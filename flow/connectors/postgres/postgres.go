@@ -196,7 +196,7 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState
 }
 
 // PullRecords pulls records from the source.
-func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
+func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error {
 	defer func() {
 		req.RecordStream.Close()
 	}()
@@ -233,9 +233,11 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:             c.ctx,
+		CatalogPool:            catalogPool,
 		Connection:             c.replPool.Pool,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
+		MetadataSchema:         c.metadataSchema,
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		RelationMessageMapping: req.RelationMessageMapping,
@@ -249,16 +251,13 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 		return err
 	}
 
-	catalogPool, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*pgxpool.Pool)
-	if ok {
-		latestLSN, err := c.getCurrentLSN()
-		if err != nil {
-			return fmt.Errorf("failed to get current LSN: %w", err)
-		}
-		err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, catalogPool, req.FlowJobName, latestLSN)
-		if err != nil {
-			return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
-		}
+	latestLSN, err := c.getCurrentLSN()
+	if err != nil {
+		return fmt.Errorf("failed to get current LSN: %w", err)
+	}
+	err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, catalogPool, req.FlowJobName, latestLSN)
+	if err != nil {
+		return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 	}
 
 	return nil
@@ -273,7 +272,7 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 	records := make([][]interface{}, 0)
 	tableNameRowsMapping := make(map[string]uint32)
 

@@ -24,14 +24,15 @@ import (
 
 type PostgresCDCSource struct {
 	ctx                    context.Context
+	catalogPool            *pgxpool.Pool
 	replPool               *pgxpool.Pool
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	slot                   string
+	metadataSchema         string
 	publication            string
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
-	startLSN               pglogrepl.LSN
 	commitLock             bool
 	customTypeMapping      map[uint32]string
 
@@ -42,8 +43,10 @@ type PostgresCDCSource struct {
 
 type PostgresCDCConfig struct {
 	AppContext             context.Context
+	CatalogPool            *pgxpool.Pool
 	Connection             *pgxpool.Pool
 	Slot                   string
+	MetadataSchema         string
 	Publication            string
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
@@ -60,10 +63,12 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 	flowName, _ := cdcConfig.AppContext.Value(shared.FlowNameKey).(string)
 	return &PostgresCDCSource{
 		ctx:                       cdcConfig.AppContext,
+		catalogPool:               cdcConfig.CatalogPool,
 		replPool:                  cdcConfig.Connection,
 		SrcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:          cdcConfig.TableNameMapping,
 		slot:                      cdcConfig.Slot,
+		metadataSchema:            cdcConfig.MetadataSchema,
 		publication:               cdcConfig.Publication,
 		relationMessageMapping:    cdcConfig.RelationMessageMapping,
 		typeMap:                   pgtype.NewMap(),
@@ -142,19 +147,20 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName))
 
 	// start replication
-	p.startLSN = 0
+	var clientXLogPos, startLSN pglogrepl.LSN
 	if req.LastSyncState != nil && req.LastSyncState.Checkpoint > 0 {
 		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastSyncState.Checkpoint))
-		p.startLSN = pglogrepl.LSN(req.LastSyncState.Checkpoint + 1)
+		clientXLogPos = pglogrepl.LSN(req.LastSyncState.Checkpoint)
+		startLSN = clientXLogPos + 1
 	}
 
-	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, p.startLSN, replicationOpts)
+	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, startLSN, replicationOpts)
 	if err != nil {
-		return fmt.Errorf("error starting replication at startLsn - %d: %w", p.startLSN, err)
+		return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 	}
-	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, p.startLSN))
+	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, startLSN))
 
-	return p.consumeStream(pgConn, req, p.startLSN, req.RecordStream)
+	return p.consumeStream(pgConn, req, clientXLogPos, req.RecordStream)
 }
 
 // start consuming the cdc stream
@@ -171,14 +177,24 @@ func (p *PostgresCDCSource) consumeStream(
 		}
 	}()
 
-	// clientXLogPos is the last checkpoint id + 1, we need to ack that we have processed
-	// until clientXLogPos - 1 each time we send a standby status update.
+	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
+	// until clientXLogPos each time we send a standby status update.
 	// consumedXLogPos is the lsn that has been committed on the destination.
 	consumedXLogPos := pglogrepl.LSN(0)
 	if clientXLogPos > 0 {
-		consumedXLogPos = clientXLogPos - 1
+		consumedXLogPos = clientXLogPos
 
-		err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
+		_, err := p.catalogPool.Exec(
+			p.ctx,
+			fmt.Sprintf(updateMetadataForLsnSQL, p.metadataSchema, mirrorJobsTableIdentifier),
+			int64(consumedXLogPos),
+			req.FlowJobName,
+		)
+		if err != nil {
+			return fmt.Errorf("[initial-flush] storing updated LSN failed: %w", err)
+		}
+
+		err = pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
 			pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
 		if err != nil {
 			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
