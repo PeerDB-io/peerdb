@@ -143,9 +143,9 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 
 	// start replication
 	p.startLSN = 0
-	if req.LastSyncState != nil && req.LastSyncState.Checkpoint > 0 {
-		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastSyncState.Checkpoint))
-		p.startLSN = pglogrepl.LSN(req.LastSyncState.Checkpoint + 1)
+	if req.LastOffset > 0 {
+		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastOffset))
+		p.startLSN = pglogrepl.LSN(req.LastOffset + 1)
 	}
 
 	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, p.startLSN, replicationOpts)
