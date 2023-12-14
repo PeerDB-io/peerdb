@@ -120,7 +120,6 @@ func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
-	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogPool)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -215,7 +214,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx, "starting flow...")
 	conn := input.FlowConnectionConfigs
-	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogPool)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination connector: %w", err)
@@ -253,7 +251,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	// start a goroutine to pull records from the source
 	errGroup.Go(func() error {
-		return srcConn.PullRecords(&model.PullRecordsRequest{
+		return srcConn.PullRecords(a.CatalogPool, &model.PullRecordsRequest{
 			FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
 			SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
 			TableNameMapping:            tblNameMapping,

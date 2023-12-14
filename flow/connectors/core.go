@@ -14,6 +14,7 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
@@ -37,7 +38,7 @@ type CDCPullConnector interface {
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(req *model.PullRecordsRequest) error
+	PullRecords(catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
