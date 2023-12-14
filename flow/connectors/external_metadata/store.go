@@ -196,7 +196,7 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 		INSERT INTO `+p.schemaName+`.`+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
-		DO UPDATE SET last_offset = $2, updated_at = NOW()
+		DO UPDATE SET last_offset = GREATEST(last_offset, $2), updated_at = NOW()
 	`, jobName, offset, 0)
 
 	if err != nil {
