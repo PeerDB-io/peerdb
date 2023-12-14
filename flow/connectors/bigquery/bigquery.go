@@ -315,7 +315,6 @@ func (c *BigQueryConnector) SetupMetadataTables() error {
 	return nil
 }
 
-// GetLastOffset returns the last synced ID.
 func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
 	query := fmt.Sprintf("SELECT offset FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
@@ -512,7 +511,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 
 	res, err := c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
 	if err != nil {

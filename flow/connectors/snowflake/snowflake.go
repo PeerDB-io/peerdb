@@ -309,7 +309,7 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
+		c.logger.Warn("Assuming zero offset means no sync has happened")
 		return 0, nil
 	}
 	return result.Int64, nil
@@ -504,7 +504,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 
 	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
 	if err != nil {
@@ -742,15 +742,8 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 }
 
 func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) (bool, error) {
-	rows, err := c.database.QueryContext(c.ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier)
-	if err != nil {
-		return false, err
-	}
-
-	// this query is guaranteed to return exactly one row
 	var result pgtype.Bool
-	rows.Next()
-	err = rows.Scan(&result)
+	err := c.database.QueryRowContext(c.ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
@@ -937,15 +930,18 @@ func parseTableName(tableName string) (*tableNameComponents, error) {
 }
 
 func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
-	rows, err := c.database.QueryContext(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return false, fmt.Errorf("failed to check if job exists: %w", err)
-	}
-
 	var result pgtype.Bool
-	rows.Next()
-	err = rows.Scan(&result)
+	err := c.database.QueryRowContext(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
+	if err != nil {
+		return false, fmt.Errorf("error reading result row: %w", err)
+	}
+	return result.Bool, nil
+}
+func (c *SnowflakeConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bool, error) {
+	var result pgtype.Bool
+	err := tx.QueryRowContext(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
@@ -954,7 +950,7 @@ func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
 
 func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64,
 	syncBatchID int64, syncRecordsTx *sql.Tx) error {
-	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
+	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
 	}

@@ -419,7 +419,6 @@ func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
-
 	return result.Bool, nil
 }
 

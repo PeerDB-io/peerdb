@@ -167,21 +167,11 @@ func (c *S3Connector) SetupMetadataTables() error {
 }
 
 func (c *S3Connector) GetLastSyncBatchID(jobName string) (int64, error) {
-	syncBatchID, err := c.pgMetadata.GetLastBatchID(jobName)
-	if err != nil {
-		return 0, err
-	}
-
-	return syncBatchID, nil
+	return c.pgMetadata.GetLastBatchID(jobName)
 }
 
 func (c *S3Connector) GetLastOffset(jobName string) (int64, error) {
-	res, err := c.pgMetadata.FetchLastOffset(jobName)
-	if err != nil {
-		return 0, err
-	}
-
-	return res, nil
+	return c.pgMetadata.FetchLastOffset(jobName)
 }
 
 // update offset for a job
@@ -200,7 +190,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 
 	tableNameRowsMapping := make(map[string]uint32)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)

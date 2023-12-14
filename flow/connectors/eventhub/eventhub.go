@@ -102,21 +102,11 @@ func (c *EventHubConnector) SetupMetadataTables() error {
 }
 
 func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	syncBatchID, err := c.pgMetadata.GetLastBatchID(jobName)
-	if err != nil {
-		return 0, err
-	}
-
-	return syncBatchID, nil
+	return c.pgMetadata.GetLastBatchID(jobName)
 }
 
 func (c *EventHubConnector) GetLastOffset(jobName string) (int64, error) {
-	res, err := c.pgMetadata.FetchLastOffset(jobName)
-	if err != nil {
-		return 0, err
-	}
-
-	return res, nil
+	return c.pgMetadata.FetchLastOffset(jobName)
 }
 
 func (c *EventHubConnector) SetLastOffset(jobName string, offset int64) error {
