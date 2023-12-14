@@ -12,6 +12,17 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'switch',
   },
   {
+    label: 'Pull Batch Size',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        maxBatchSize: (value as boolean) || false,
+      })),
+    tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 100,000 rows.',
+    type: 'number',
+    advanced: true,
+  },
+  {
     label: 'Publication Name',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
