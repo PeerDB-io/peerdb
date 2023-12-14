@@ -20,6 +20,7 @@ export const cdcSettings: MirrorSetting[] = [
       })),
     tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 100,000 rows.',
     type: 'number',
+    default: '100000',
     advanced: true,
   },
   {
