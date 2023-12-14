@@ -81,14 +81,19 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 func (a *FlowableActivity) GetLastSyncedID(
 	ctx context.Context,
 	config *protos.GetLastSyncedIDInput,
-) (int64, error) {
+) (*protos.LastSyncState, error) {
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get connector: %w", err)
+		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	return dstConn.GetLastOffset(config.FlowJobName)
+	var lastOffset int64
+	lastOffset, err = dstConn.GetLastOffset(config.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	return &protos.LastSyncState{Checkpoint: lastOffset}, nil
 }
 
 // EnsurePullability implements EnsurePullability.
