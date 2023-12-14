@@ -39,12 +39,12 @@ async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
 }
 
 #[derive(Debug, Clone)]
-pub struct CatalogConfig {
-    pub host: String,
+pub struct CatalogConfig<'a> {
+    pub host: &'a str,
     pub port: u16,
-    pub user: String,
-    pub password: String,
-    pub database: String,
+    pub user: &'a str,
+    pub password: &'a str,
+    pub database: &'a str,
 }
 
 #[derive(Debug, Clone)]
@@ -54,25 +54,15 @@ pub struct WorkflowDetails {
     pub destination_peer: pt::peerdb_peers::Peer,
 }
 
-impl CatalogConfig {
-    pub fn new(host: String, port: u16, user: String, password: String, database: String) -> Self {
-        Self {
-            host,
-            port,
-            user,
-            password,
-            database,
-        }
-    }
-
+impl<'a> CatalogConfig<'a> {
     // convert catalog config to PostgresConfig
     pub fn to_postgres_config(&self) -> pt::peerdb_peers::PostgresConfig {
         PostgresConfig {
-            host: self.host.clone(),
+            host: self.host.to_string(),
             port: self.port as u32,
-            user: self.user.clone(),
-            password: self.password.clone(),
-            database: self.database.clone(),
+            user: self.user.to_string(),
+            password: self.password.to_string(),
+            database: self.database.to_string(),
             transaction_snapshot: "".to_string(),
             metadata_schema: Some("".to_string()),
             ssh_config: None,
@@ -85,7 +75,7 @@ impl CatalogConfig {
 }
 
 impl Catalog {
-    pub async fn new(catalog_config: &CatalogConfig) -> anyhow::Result<Self> {
+    pub async fn new<'a>(catalog_config: &CatalogConfig<'a>) -> anyhow::Result<Self> {
         let pt_config = catalog_config.to_postgres_config();
         let client = connect_postgres(&pt_config).await?;
         let executor = PostgresQueryExecutor::new(None, &pt_config).await?;
@@ -100,8 +90,8 @@ impl Catalog {
         run_migrations(&mut self.pg).await
     }
 
-    pub fn get_executor(&self) -> Arc<dyn QueryExecutor> {
-        self.executor.clone()
+    pub fn get_executor(&self) -> &Arc<dyn QueryExecutor> {
+        &self.executor
     }
 
     pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
