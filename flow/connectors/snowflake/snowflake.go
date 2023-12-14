@@ -73,6 +73,7 @@ const (
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
 	checkIfJobMetadataExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
@@ -284,11 +285,11 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 	return res, nil
 }
 
-func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return nil, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
+		return 0, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
 	}
 	defer func() {
 		// not sure if the errors these two return are same or different?
@@ -299,21 +300,48 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 	}()
 
 	if !rows.Next() {
-		c.logger.Warn("No row found ,returning nil")
-		return nil, nil
+		c.logger.Warn("No row found, returning 0")
+		return 0, nil
 	}
 	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
-		return nil, fmt.Errorf("error while reading result row: %w", err)
+		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
-		return nil, nil
+		return 0, nil
 	}
-	return &protos.LastSyncState{
-		Checkpoint: result.Int64,
-	}, nil
+	return result.Int64, nil
+}
+
+func (c *SnowflakeConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(setLastOffsetSQL,
+		c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
+	if err != nil {
+		return fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
+	}
+	defer func() {
+		// not sure if the errors these two return are same or different?
+		err = errors.Join(rows.Close(), rows.Err())
+		if err != nil {
+			c.logger.Error("error while closing rows for reading last offset", slog.Any("error", err))
+		}
+	}()
+
+	if !rows.Next() {
+		c.logger.Warn("No row found, returning 0")
+		return nil
+	}
+	var result pgtype.Int8
+	err = rows.Scan(&result)
+	if err != nil {
+		return fmt.Errorf("error while reading result row: %w", err)
+	}
+	if result.Int64 == 0 {
+		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
+	}
+	return nil
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {

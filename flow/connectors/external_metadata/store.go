@@ -136,7 +136,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 	return nil
 }
 
-func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 	rows := p.pool.QueryRow(p.ctx, `
 		SELECT last_offset
 		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
@@ -145,22 +145,17 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyn
 	var offset pgtype.Int8
 	err := rows.Scan(&offset)
 	if err != nil {
-		// if the job doesn't exist, return 0
 		if err.Error() == "no rows in result set" {
-			return &protos.LastSyncState{
-				Checkpoint: 0,
-			}, nil
+			return 0, nil
 		}
 
 		p.logger.Error("failed to get last offset", slog.Any("error", err))
-		return nil, err
+		return 0, err
 	}
 
 	p.logger.Info("got last offset for job", slog.Int64("offset", offset.Int64))
 
-	return &protos.LastSyncState{
-		Checkpoint: offset.Int64,
-	}, nil
+	return offset.Int64, nil
 }
 
 func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {

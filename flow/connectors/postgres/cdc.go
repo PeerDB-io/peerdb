@@ -24,12 +24,11 @@ import (
 
 type PostgresCDCSource struct {
 	ctx                    context.Context
-	catalogPool            *pgxpool.Pool
 	replPool               *pgxpool.Pool
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	slot                   string
-	metadataSchema         string
+	SetLastOffset          func(int64) error
 	publication            string
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
@@ -43,14 +42,13 @@ type PostgresCDCSource struct {
 
 type PostgresCDCConfig struct {
 	AppContext             context.Context
-	CatalogPool            *pgxpool.Pool
 	Connection             *pgxpool.Pool
 	Slot                   string
-	MetadataSchema         string
 	Publication            string
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	RelationMessageMapping model.RelationMessageMapping
+	SetLastOffset          func(int64) error
 }
 
 // Create a new PostgresCDCSource
@@ -63,12 +61,11 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 	flowName, _ := cdcConfig.AppContext.Value(shared.FlowNameKey).(string)
 	return &PostgresCDCSource{
 		ctx:                       cdcConfig.AppContext,
-		catalogPool:               cdcConfig.CatalogPool,
 		replPool:                  cdcConfig.Connection,
 		SrcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:          cdcConfig.TableNameMapping,
 		slot:                      cdcConfig.Slot,
-		metadataSchema:            cdcConfig.MetadataSchema,
+		SetLastOffset:             cdcConfig.SetLastOffset,
 		publication:               cdcConfig.Publication,
 		relationMessageMapping:    cdcConfig.RelationMessageMapping,
 		typeMap:                   pgtype.NewMap(),
@@ -148,9 +145,9 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 
 	// start replication
 	var clientXLogPos, startLSN pglogrepl.LSN
-	if req.LastSyncState != nil && req.LastSyncState.Checkpoint > 0 {
-		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastSyncState.Checkpoint))
-		clientXLogPos = pglogrepl.LSN(req.LastSyncState.Checkpoint)
+	if req.LastOffset > 0 {
+		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastOffset))
+		clientXLogPos = pglogrepl.LSN(req.LastOffset)
 		startLSN = clientXLogPos + 1
 	}
 
@@ -184,12 +181,7 @@ func (p *PostgresCDCSource) consumeStream(
 	if clientXLogPos > 0 {
 		consumedXLogPos = clientXLogPos
 
-		_, err := p.catalogPool.Exec(
-			p.ctx,
-			fmt.Sprintf(updateMetadataForLsnSQL, p.metadataSchema, mirrorJobsTableIdentifier),
-			int64(consumedXLogPos),
-			req.FlowJobName,
-		)
+		err := p.SetLastOffset(int64(consumedXLogPos))
 		if err != nil {
 			return fmt.Errorf("[initial-flush] storing updated LSN failed: %w", err)
 		}

@@ -175,17 +175,17 @@ func (c *S3Connector) GetLastSyncBatchID(jobName string) (int64, error) {
 	return syncBatchID, nil
 }
 
-func (c *S3Connector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *S3Connector) GetLastOffset(jobName string) (int64, error) {
 	res, err := c.pgMetadata.FetchLastOffset(jobName)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	return res, nil
 }
 
 // update offset for a job
-func (c *S3Connector) updateLastOffset(jobName string, offset int64) error {
+func (c *S3Connector) SetLastOffset(jobName string, offset int64) error {
 	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
 	if err != nil {
 		c.logger.Error("failed to update last offset: ", slog.Any("error", err))
@@ -227,7 +227,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		return nil, fmt.Errorf("failed to get last checkpoint: %w", err)
 	}
 
-	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
+	err = c.SetLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to update last offset for s3 cdc", slog.Any("error", err))
 		return nil, err

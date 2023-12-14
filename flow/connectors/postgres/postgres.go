@@ -168,31 +168,39 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 }
 
 // GetLastOffset returns the last synced offset for a job.
-func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 	rows, err := c.pool.
 		Query(c.ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return nil, fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
+		return 0, fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
 		c.logger.Info("No row found, returning nil")
-		return nil, nil
+		return 0, nil
 	}
 	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
-		return nil, fmt.Errorf("error while reading result row: %w", err)
-	}
-	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
-		return nil, nil
+		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 
-	return &protos.LastSyncState{
-		Checkpoint: result.Int64,
-	}, nil
+	if result.Int64 == 0 {
+		c.logger.Warn("Assuming zero offset means no sync has happened")
+	}
+	return result.Int64, nil
+}
+
+// SetLastOffset updates the last synced offset for a job.
+func (c *PostgresConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	_, err := c.pool.
+		Exec(c.ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName, lastOffset)
+	if err != nil {
+		return fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
+	}
+
+	return nil
 }
 
 // PullRecords pulls records from the source.
@@ -233,14 +241,13 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 
 	cdc, err := NewPostgresCDCSource(&PostgresCDCConfig{
 		AppContext:             c.ctx,
-		CatalogPool:            catalogPool,
 		Connection:             c.replPool.Pool,
 		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
 		Slot:                   slotName,
-		MetadataSchema:         c.metadataSchema,
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		RelationMessageMapping: req.RelationMessageMapping,
+		SetLastOffset:          req.SetLastOffset,
 	}, c.customTypesMapping)
 	if err != nil {
 		return fmt.Errorf("failed to create cdc source: %w", err)

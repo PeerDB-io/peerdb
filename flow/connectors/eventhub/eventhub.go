@@ -110,16 +110,16 @@ func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	return syncBatchID, nil
 }
 
-func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *EventHubConnector) GetLastOffset(jobName string) (int64, error) {
 	res, err := c.pgMetadata.FetchLastOffset(jobName)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	return res, nil
 }
 
-func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error {
+func (c *EventHubConnector) SetLastOffset(jobName string, offset int64) error {
 	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to update last offset: %v", err))
@@ -197,7 +197,7 @@ func (c *EventHubConnector) processBatch(
 			}
 
 			if lastSeenLSN > lastUpdatedOffset {
-				err = c.updateLastOffset(flowJobName, lastSeenLSN)
+				err = c.SetLastOffset(flowJobName, lastSeenLSN)
 				lastUpdatedOffset = lastSeenLSN
 				c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeenLSN))
 				if err != nil {
@@ -243,7 +243,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
-	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
+	err = c.SetLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
 		c.logger.Error("failed to update last offset", slog.Any("error", err))
 		return nil, err

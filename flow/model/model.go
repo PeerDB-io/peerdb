@@ -30,13 +30,13 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 type PullRecordsRequest struct {
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
-	// LastSyncedID is the last ID that was synced.
-	LastSyncState *protos.LastSyncState
+	// LastOffset is the latest LSN that was synced.
+	LastOffset int64
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
-	//relId to name Mapping
+	// relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
 	TableNameMapping map[string]NameAndExclude
@@ -50,6 +50,8 @@ type PullRecordsRequest struct {
 	RelationMessageMapping RelationMessageMapping
 	// record batch for pushing changes into
 	RecordStream *CDCRecordStream
+	// last offset may be forwarded while processing records
+	SetLastOffset func(int64) error
 }
 
 type Record interface {

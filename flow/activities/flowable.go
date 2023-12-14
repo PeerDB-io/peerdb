@@ -81,10 +81,10 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 func (a *FlowableActivity) GetLastSyncedID(
 	ctx context.Context,
 	config *protos.GetLastSyncedIDInput,
-) (*protos.LastSyncState, error) {
+) (int64, error) {
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		return 0, fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
 
@@ -115,7 +115,6 @@ func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
-	ctx = context.WithValue(ctx, shared.CDCMirrorMonitorKey, a.CatalogPool)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -251,7 +250,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
 			SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
 			TableNameMapping:            tblNameMapping,
-			LastSyncState:               input.LastSyncState,
+			LastOffset:                  input.LastSyncState.Checkpoint,
 			MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
 			IdleTimeout:                 peerdbenv.GetPeerDBCDCIdleTimeoutSeconds(),
 			TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
@@ -259,6 +258,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
 			RelationMessageMapping:      input.RelationMessageMapping,
 			RecordStream:                recordBatch,
+			SetLastOffset: func(lastOffset int64) error {
+				return dstConn.SetLastOffset(input.FlowConnectionConfigs.FlowJobName, lastOffset)
+			},
 		})
 	})
 
