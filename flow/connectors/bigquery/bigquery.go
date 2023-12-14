@@ -315,30 +315,27 @@ func (c *BigQueryConnector) SetupMetadataTables() error {
 	return nil
 }
 
-// GetLastOffset returns the last synced ID.
-func (c *BigQueryConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
 	query := fmt.Sprintf("SELECT offset FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return nil, err
+		return 0, err
 	}
 
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
 		c.logger.Info("no row found, returning nil")
-		return nil, nil
+		return 0, nil
 	}
 
 	if row[0] == nil {
 		c.logger.Info("no offset found, returning nil")
-		return nil, nil
+		return 0, nil
 	} else {
-		return &protos.LastSyncState{
-			Checkpoint: row[0].(int64),
-		}, nil
+		return row[0].(int64), nil
 	}
 }
 
@@ -497,7 +494,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 
 	res, err := c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
 	if err != nil {

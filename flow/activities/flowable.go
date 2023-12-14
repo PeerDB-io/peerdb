@@ -88,7 +88,12 @@ func (a *FlowableActivity) GetLastSyncedID(
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	return dstConn.GetLastOffset(config.FlowJobName)
+	var lastOffset int64
+	lastOffset, err = dstConn.GetLastOffset(config.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	return &protos.LastSyncState{Checkpoint: lastOffset}, nil
 }
 
 // EnsurePullability implements EnsurePullability.
@@ -250,7 +255,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			FlowJobName:                 input.FlowConnectionConfigs.FlowJobName,
 			SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
 			TableNameMapping:            tblNameMapping,
-			LastSyncState:               input.LastSyncState,
+			LastOffset:                  input.LastSyncState.Checkpoint,
 			MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
 			IdleTimeout:                 peerdbenv.GetPeerDBCDCIdleTimeoutSeconds(),
 			TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
