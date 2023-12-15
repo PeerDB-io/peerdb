@@ -963,7 +963,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 			columns[idx] = &bigquery.FieldSchema{
 				Name:     colName,
 				Type:     qValueKindToBigQueryType(genericColType),
-				Repeated: strings.Contains(genericColType, "array"),
+				Repeated: qvalue.QValueKind(genericColType).IsArray(),
 			}
 			idx++
 		}
