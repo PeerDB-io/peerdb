@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Write,
     sync::Arc,
     time::Duration,
 };
@@ -1376,8 +1377,7 @@ pub async fn main() -> anyhow::Result<()> {
                         buf.put_i32(0);
                         buf.put(&b"FATAL"[..]);
                         buf.put_u8(0);
-                        let error_message = format!("Failed to connect to catalog: {}", e);
-                        buf.put(error_message.as_bytes());
+                        write!(buf, "Failed to connect to catalog: {e}").ok();
                         buf.put_u8(0);
                         buf.put_u8(b'\0');
 
