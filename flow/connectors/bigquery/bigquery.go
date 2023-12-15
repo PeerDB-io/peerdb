@@ -382,7 +382,7 @@ func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, erro
 	}
 
 	if row[0] == nil {
-		c.logger.Info("no normalize_batch_id foundreturning 0")
+		c.logger.Info("no normalize_batch_id found returning 0")
 		return 0, nil
 	} else {
 		return row[0].(int64), nil
@@ -963,7 +963,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 			columns[idx] = &bigquery.FieldSchema{
 				Name:     colName,
 				Type:     qValueKindToBigQueryType(genericColType),
-				Repeated: strings.Contains(genericColType, "array"),
+				Repeated: qvalue.QValueKind(genericColType).IsArray(),
 			}
 			idx++
 		}

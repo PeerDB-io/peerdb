@@ -49,9 +49,10 @@ func (q QRecordValueSaver) Save() (map[string]bigquery.Value, string, error) {
 	for i, v := range q.Record.Entries {
 		k := q.ColumnNames[i]
 		if v.Value == nil {
-			bqValues[k] = nil
-			if qvalue.QValueKindIsArray(v.Kind) {
+			if v.Kind.IsArray() {
 				bqValues[k] = make([]interface{}, 0)
+			} else {
+				bqValues[k] = nil
 			}
 			continue
 		}
