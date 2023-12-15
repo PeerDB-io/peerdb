@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 
 const DIALECT: PostgreSqlDialect = PostgreSqlDialect {};
 
+#[derive(Clone)]
 pub struct NexusQueryParser {
     catalog: Arc<Mutex<Catalog>>,
 }
