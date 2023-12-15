@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Write,
     sync::Arc,
     time::Duration,
 };
@@ -1279,7 +1280,7 @@ async fn run_migrations<'a>(config: &CatalogConfig<'a>) -> anyhow::Result<()> {
     // retry connecting to the catalog 3 times with 30 seconds delay
     // if it fails, return an error
     for _ in 0..3 {
-        let catalog = Catalog::new(config).await;
+        let catalog = Catalog::new(config.to_postgres_config()).await;
         match catalog {
             Ok(mut catalog) => {
                 catalog.run_migrations().await?;
@@ -1339,50 +1340,53 @@ pub async fn main() -> anyhow::Result<()> {
             v = listener.accept() => v,
         }
         .unwrap();
-        let catalog = match Catalog::new(&catalog_config).await {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!("Failed to connect to catalog: {}", e);
-
-                let mut buf = BytesMut::with_capacity(1024);
-                buf.put_u8(b'E');
-                buf.put_i32(0);
-                buf.put(&b"FATAL"[..]);
-                buf.put_u8(0);
-                let error_message = format!("Failed to connect to catalog: {}", e);
-                buf.put(error_message.as_bytes());
-                buf.put_u8(0);
-                buf.put_u8(b'\0');
-
-                socket.write_all(&buf).await?;
-                socket.shutdown().await?;
-                continue;
-            }
-        };
-
-        let conn_uuid = uuid::Uuid::new_v4();
-        let tracker = PeerConnectionTracker::new(conn_uuid, peer_conns.clone());
-
-        let authenticator_ref = authenticator.make();
-
+        let conn_flow_handler = flow_handler.clone();
+        let conn_peer_conns = peer_conns.clone();
         let peerdb_fdw_mode = args.peerdb_fwd_mode == "true";
-        let processor = Arc::new(NexusBackend::new(
-            Arc::new(Mutex::new(catalog)),
-            tracker,
-            flow_handler.clone(),
-            peerdb_fdw_mode,
-        ));
+        let authenticator_ref = authenticator.make();
+        let pg_config = catalog_config.to_postgres_config();
+
         tokio::task::Builder::new()
             .name("tcp connection handler")
             .spawn(async move {
-                process_socket(
-                    socket,
-                    None,
-                    authenticator_ref,
-                    processor.clone(),
-                    processor,
-                )
-                .await
+                match Catalog::new(pg_config).await {
+                    Ok(catalog) => {
+                        let conn_uuid = uuid::Uuid::new_v4();
+                        let tracker = PeerConnectionTracker::new(conn_uuid, conn_peer_conns);
+
+                        let processor = Arc::new(NexusBackend::new(
+                            Arc::new(Mutex::new(catalog)),
+                            tracker,
+                            conn_flow_handler,
+                            peerdb_fdw_mode,
+                        ));
+                        process_socket(
+                            socket,
+                            None,
+                            authenticator_ref,
+                            processor.clone(),
+                            processor,
+                        )
+                        .await
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to connect to catalog: {}", e);
+
+                        let mut buf = BytesMut::with_capacity(1024);
+                        buf.put_u8(b'E');
+                        buf.put_i32(0);
+                        buf.put(&b"FATAL"[..]);
+                        buf.put_u8(0);
+                        write!(buf, "Failed to connect to catalog: {e}").ok();
+                        buf.put_u8(0);
+                        buf.put_u8(b'\0');
+
+                        socket.write_all(&buf).await?;
+                        socket.shutdown().await?;
+
+                        Ok(())
+                    }
+                }
             })?;
     }
 }
