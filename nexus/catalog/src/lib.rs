@@ -38,7 +38,7 @@ async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct CatalogConfig<'a> {
     pub host: &'a str,
     pub port: u16,
@@ -75,8 +75,7 @@ impl<'a> CatalogConfig<'a> {
 }
 
 impl Catalog {
-    pub async fn new<'a>(catalog_config: &CatalogConfig<'a>) -> anyhow::Result<Self> {
-        let pt_config = catalog_config.to_postgres_config();
+    pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
         let client = connect_postgres(&pt_config).await?;
         let executor = PostgresQueryExecutor::new(None, &pt_config).await?;
 
