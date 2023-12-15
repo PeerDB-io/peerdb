@@ -188,8 +188,6 @@ message CreateRawTableOutput { string table_identifier = 1; }
 
 message TableSchema {
   string table_identifier = 1;
-  // list of column names and types, types can be one of the following:
-  // "string", "int", "float", "bool", "timestamp".
   map<string, string> columns = 2;
   repeated string primary_key_columns = 3;
   bool is_replica_identity_full = 4;
