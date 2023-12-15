@@ -526,7 +526,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Warn(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Debug(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -561,7 +561,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Warn(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Debug(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
