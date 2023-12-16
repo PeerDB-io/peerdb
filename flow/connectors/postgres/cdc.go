@@ -251,7 +251,7 @@ func (p *PostgresCDCSource) consumeStream(
 				consumedXLogPos = proposedConsumedXLogPos
 				err := p.SetLastOffset(int64(consumedXLogPos))
 				if err != nil {
-					return fmt.Errorf("[initial-flush] storing updated LSN failed: %w", err)
+					return fmt.Errorf("storing updated LSN failed: %w", err)
 				}
 			}
 

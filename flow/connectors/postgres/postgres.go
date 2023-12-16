@@ -195,9 +195,9 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 // SetLastOffset updates the last synced offset for a job.
 func (c *PostgresConnector) SetLastOffset(jobName string, lastOffset int64) error {
 	_, err := c.pool.
-		Exec(c.ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName, lastOffset)
+		Exec(c.ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
 	if err != nil {
-		return fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
+		return fmt.Errorf("error setting last offset for job %s: %w", jobName, err)
 	}
 
 	return nil
