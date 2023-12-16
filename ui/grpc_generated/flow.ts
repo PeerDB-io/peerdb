@@ -299,10 +299,6 @@ export interface CreateRawTableOutput {
 
 export interface TableSchema {
   tableIdentifier: string;
-  /**
-   * list of column names and types, types can be one of the following:
-   * "string", "int", "float", "bool", "timestamp".
-   */
   columns: { [key: string]: string };
   primaryKeyColumns: string[];
   isReplicaIdentityFull: boolean;

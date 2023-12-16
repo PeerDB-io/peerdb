@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use anyhow::Context;
 use cursor::BigQueryCursorManager;
@@ -22,7 +22,7 @@ pub struct BigQueryQueryExecutor {
     peer_name: String,
     project_id: String,
     dataset_id: String,
-    peer_connections: Arc<PeerConnectionTracker>,
+    peer_connections: PeerConnectionTracker,
     client: Box<Client>,
     cursor_manager: BigQueryCursorManager,
 }
@@ -51,7 +51,7 @@ impl BigQueryQueryExecutor {
     pub async fn new(
         peer_name: String,
         config: &BigqueryConfig,
-        peer_connections: Arc<PeerConnectionTracker>,
+        peer_connections: PeerConnectionTracker,
     ) -> anyhow::Result<Self> {
         let client = bq_client_from_config(config).await?;
         let client = Box::new(client);
