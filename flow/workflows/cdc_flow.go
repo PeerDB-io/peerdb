@@ -9,7 +9,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
-	"github.com/hashicorp/go-multierror"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -50,9 +49,9 @@ type CDCFlowWorkflowState struct {
 	// SnapshotComplete indicates whether the initial snapshot workflow has completed.
 	SnapshotComplete bool
 	// Errors encountered during child sync flow executions.
-	SyncFlowErrors error
+	SyncFlowErrors []shared.JSONErr
 	// Errors encountered during child sync flow executions.
-	NormalizeFlowErrors error
+	NormalizeFlowErrors []shared.JSONErr
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
 	RelationMessageMapping *model.RelationMessageMapping
@@ -79,7 +78,7 @@ func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
 }
 
 // truncate the progress and other arrays to a max of 10 elements
-func (s *CDCFlowWorkflowState) TruncateProgress() {
+func (s *CDCFlowWorkflowState) TruncateProgress(logger log.Logger) {
 	if len(s.Progress) > 10 {
 		s.Progress = s.Progress[len(s.Progress)-10:]
 	}
@@ -91,12 +90,12 @@ func (s *CDCFlowWorkflowState) TruncateProgress() {
 	}
 
 	if s.SyncFlowErrors != nil {
-		fmt.Println("SyncFlowErrors: ", s.SyncFlowErrors)
+		logger.Warn("SyncFlowErrors: ", s.SyncFlowErrors)
 		s.SyncFlowErrors = nil
 	}
 
 	if s.NormalizeFlowErrors != nil {
-		fmt.Println("NormalizeFlowErrors: ", s.NormalizeFlowErrors)
+		logger.Warn("NormalizeFlowErrors: ", s.NormalizeFlowErrors)
 		s.NormalizeFlowErrors = nil
 	}
 }
@@ -373,7 +372,7 @@ func CDCFlowWorkflowWithConfig(
 		var childSyncFlowRes *model.SyncResponse
 		if err := childSyncFlowFuture.Get(ctx, &childSyncFlowRes); err != nil {
 			w.logger.Error("failed to execute sync flow: ", err)
-			state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+			state.SyncFlowErrors = append(state.SyncFlowErrors, shared.JSONErr{E: err})
 		} else {
 			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			if childSyncFlowRes != nil {
@@ -426,7 +425,7 @@ func CDCFlowWorkflowWithConfig(
 			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
 			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
 				w.logger.Error("failed to execute schema update at source: ", err)
-				state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+				state.SyncFlowErrors = append(state.SyncFlowErrors, shared.JSONErr{E: err})
 			} else {
 				for i := range modifiedSrcTables {
 					cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
@@ -446,7 +445,7 @@ func CDCFlowWorkflowWithConfig(
 			var childNormalizeFlowRes *model.NormalizeResponse
 			if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
 				w.logger.Error("failed to execute normalize flow: ", err)
-				state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
+				state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, shared.JSONErr{E: err})
 			} else {
 				state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
 			}
@@ -455,6 +454,6 @@ func CDCFlowWorkflowWithConfig(
 		batchSizeSelector.Select(ctx)
 	}
 
-	state.TruncateProgress()
+	state.TruncateProgress(w.logger)
 	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
 }
