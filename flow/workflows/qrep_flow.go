@@ -72,7 +72,8 @@ func NewQRepFlowExecution(ctx workflow.Context, config *protos.QRepConfig, runUU
 
 // NewQRepFlowExecution creates a new instance of QRepFlowExecution.
 func NewQRepPartitionFlowExecution(ctx workflow.Context,
-	config *protos.QRepConfig, runUUID string) *QRepPartitionFlowExecution {
+	config *protos.QRepConfig, runUUID string,
+) *QRepPartitionFlowExecution {
 	return &QRepPartitionFlowExecution{
 		config:          config,
 		flowExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
@@ -161,7 +162,8 @@ func (q *QRepFlowExecution) GetPartitions(
 
 // ReplicatePartitions replicates the partition batch.
 func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
-	partitions *protos.QRepPartitionBatch) error {
+	partitions *protos.QRepPartitionBatch,
+) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    5 * time.Minute,
@@ -194,7 +196,8 @@ func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) (string
 // startChildWorkflow starts a single child workflow.
 func (q *QRepFlowExecution) startChildWorkflow(
 	ctx workflow.Context,
-	partitions *protos.QRepPartitionBatch) (workflow.ChildWorkflowFuture, error) {
+	partitions *protos.QRepPartitionBatch,
+) (workflow.ChildWorkflowFuture, error) {
 	wid, err := q.getPartitionWorkflowID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get child workflow ID: %w", err)

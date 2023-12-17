@@ -211,7 +211,8 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 
 // StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
-	input *protos.StartFlowInput) (*model.SyncResponse, error) {
+	input *protos.StartFlowInput,
+) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(ctx, "starting flow...")
 	conn := input.FlowConnectionConfigs
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
@@ -658,7 +659,8 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 }
 
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
-	runUUID string) error {
+	runUUID string,
+) error {
 	dstConn, err := connectors.GetQRepConsolidateConnector(ctx, config.DestinationPeer)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
@@ -802,7 +804,8 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
-	config *protos.QRepConfig, last *protos.QRepPartition) error {
+	config *protos.QRepConfig, last *protos.QRepPartition,
+) error {
 	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
 		return nil
 	}
@@ -838,7 +841,8 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (
-	*protos.RenameTablesOutput, error) {
+	*protos.RenameTablesOutput, error,
+) {
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -862,7 +866,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 }
 
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
-	*protos.CreateTablesFromExistingOutput, error) {
+	*protos.CreateTablesFromExistingOutput, error,
+) {
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, req.Peer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -932,7 +937,8 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 				Range: &protos.PartitionRange{
 					Range: &protos.PartitionRange_IntRange{
 						IntRange: &protos.IntPartitionRange{Start: 0, End: int64(numRecords)},
-					}},
+					},
+				},
 			}
 		}
 		updateErr := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics})

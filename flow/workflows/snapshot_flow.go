@@ -88,7 +88,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 	snapshotName string,
 	mapping *protos.TableMapping,
 ) error {
-
 	flowName := s.config.FlowJobName
 	cloneLog := slog.Group("clone-log",
 		slog.String(string(shared.FlowNameKey), flowName),
@@ -231,7 +230,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		logger: logger,
 	}
 
-	var replCtx = ctx
+	replCtx := ctx
 	replCtx = workflow.WithValue(replCtx, shared.FlowNameKey, config.FlowJobName)
 	if config.DoInitialCopy {
 		sessionOpts := &workflow.SessionOptions{
