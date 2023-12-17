@@ -365,6 +365,9 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	defer avroFile.Cleanup()
 
 	if avroFile.NumRecords == 0 {
+		log.WithFields(log.Fields{
+			"batchOrPartitionID": syncID,
+		}).Infof("no records to write to file %s", avroFile.FilePath)
 		return 0, nil
 	}
 	log.WithFields(log.Fields{
