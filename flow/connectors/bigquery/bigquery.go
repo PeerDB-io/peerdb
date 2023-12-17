@@ -690,8 +690,8 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 			Kind:  qvalue.QValueKindInt64,
 			Value: syncBatchID,
 		}
-		recordStream.Records <- &model.QRecordOrError{
-			Record: &model.QRecord{
+		recordStream.Records <- model.QRecordOrError{
+			Record: model.QRecord{
 				NumEntries: 10,
 				Entries:    entries[:],
 			},

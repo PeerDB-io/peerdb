@@ -306,7 +306,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
 
-	var records []*model.QRecord
+	var records []model.QRecord
 	for {
 		var row []bigquery.Value
 		err := it.Next(&row)

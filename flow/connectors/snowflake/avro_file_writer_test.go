@@ -92,7 +92,7 @@ func generateRecords(
 	// Create sample records
 	records := &model.QRecordBatch{
 		NumRecords: numRows,
-		Records:    make([]*model.QRecord, numRows),
+		Records:    make([]model.QRecord, numRows),
 		Schema:     schema,
 	}
 
@@ -115,7 +115,7 @@ func generateRecords(
 			}
 		}
 
-		records.Records[row] = &model.QRecord{
+		records.Records[row] = model.QRecord{
 			Entries: entries,
 		}
 	}
