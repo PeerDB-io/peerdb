@@ -4,10 +4,20 @@ run:
 linters:
   enable-all: true
   disable:
+    - cyclop
+    - depguard
+    - exhaustivestruct
     - funlen
     - gocognit
     - godox
     - golint # deprecated in favor of revive
+    - gomnd
+    - nosnakecase
+    - paralleltest
+    - tagliatelle
+    - testpackage
+    - wrapcheck
+    - wsl
 linters-settings:
   forbidigo:
     tests: false
