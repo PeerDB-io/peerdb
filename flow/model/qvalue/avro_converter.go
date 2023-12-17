@@ -23,44 +23,38 @@ type QValueKindAvroSchema struct {
 //
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
-//
-// The function currently does not support the following QValueKinds:
-// - QValueKindBit
-//
-// Please note that for QValueKindNumeric and QValueKindETime, RespectNull is always
-// set to false, regardless of the nullable value passed in.
-func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvroSchema, error) {
+func GetAvroSchemaFromQValueKind(kind QValueKind) (QValueKindAvroSchema, error) {
 	switch kind {
 	case QValueKindString, QValueKindUUID:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: "string",
 		}, nil
 	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: "string",
 		}, nil
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: "long",
 		}, nil
 	case QValueKindFloat32:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: "float",
 		}, nil
 	case QValueKindFloat64:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: "double",
 		}, nil
 	case QValueKindBoolean:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: "boolean",
 		}, nil
 	case QValueKindBytes, QValueKindBit:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: "bytes",
 		}, nil
 	case QValueKindNumeric:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]interface{}{
 				"type":        "bytes",
 				"logicalType": "decimal",
@@ -69,48 +63,48 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 			},
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]string{
 				"type": "string",
 			},
 		}, nil
 	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]interface{}{
 				"type":   "string",
 				"values": "string",
 			},
 		}, nil
 	case QValueKindArrayFloat32:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]interface{}{
 				"type":  "array",
 				"items": "float",
 			},
 		}, nil
 	case QValueKindArrayFloat64:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]interface{}{
 				"type":  "array",
 				"items": "double",
 			},
 		}, nil
 	case QValueKindArrayInt32:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]interface{}{
 				"type":  "array",
 				"items": "int",
 			},
 		}, nil
 	case QValueKindArrayInt64:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]interface{}{
 				"type":  "array",
 				"items": "long",
 			},
 		}, nil
 	case QValueKindArrayString:
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: map[string]interface{}{
 				"type":  "array",
 				"items": "string",
@@ -118,11 +112,13 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 		}, nil
 	case QValueKindInvalid:
 		// lets attempt to do invalid as a string
-		return &QValueKindAvroSchema{
+		return QValueKindAvroSchema{
 			AvroLogicalSchema: "string",
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported QValueKind type: %s", kind)
+		return QValueKindAvroSchema{
+			AvroLogicalSchema: nil,
+		}, fmt.Errorf("unsupported QValueKind type: %s", kind)
 	}
 }
 

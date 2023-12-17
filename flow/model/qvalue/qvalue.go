@@ -227,7 +227,7 @@ func compareStruct(value1, value2 interface{}) bool {
 	return true
 }
 
-func compareJSON(value1, value2 interface{}) bool {
+func compareJSON(_, _ interface{}) bool {
 	// TODO (kaushik): fix for tests
 	return true
 }

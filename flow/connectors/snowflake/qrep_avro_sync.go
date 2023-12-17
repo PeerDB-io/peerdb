@@ -112,7 +112,6 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 	s.connector.logger.Info("sync function called and schema acquired", partitionLog)
 
 	err = s.addMissingColumns(
-		config.FlowJobName,
 		schema,
 		dstTableSchema,
 		dstTableName,
@@ -152,7 +151,6 @@ func (s *SnowflakeAvroSyncMethod) SyncQRepRecords(
 }
 
 func (s *SnowflakeAvroSyncMethod) addMissingColumns(
-	flowJobName string,
 	schema *model.QRecordSchema,
 	dstTableSchema []*sql.ColumnType,
 	dstTableName string,
