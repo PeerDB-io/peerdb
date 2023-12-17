@@ -11,8 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var poolMutex = &sync.Mutex{}
-var pool *pgxpool.Pool
+var (
+	poolMutex = &sync.Mutex{}
+	pool      *pgxpool.Pool
+)
 
 func GetCatalogConnectionPoolFromEnv() (*pgxpool.Pool, error) {
 	var err error

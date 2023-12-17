@@ -30,7 +30,8 @@ type SnowflakeAvroSyncMethod struct {
 
 func NewSnowflakeAvroSyncMethod(
 	config *protos.QRepConfig,
-	connector *SnowflakeConnector) *SnowflakeAvroSyncMethod {
+	connector *SnowflakeConnector,
+) *SnowflakeAvroSyncMethod {
 	return &SnowflakeAvroSyncMethod{
 		config:    config,
 		connector: connector,
@@ -422,7 +423,8 @@ func NewSnowflakeAvroWriteHandler(
 }
 
 func (s *SnowflakeAvroWriteHandler) HandleAppendMode(
-	copyInfo *CopyInfo) error {
+	copyInfo *CopyInfo,
+) error {
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
 		s.dstTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))

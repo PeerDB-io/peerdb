@@ -45,7 +45,6 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 		grpc.WithBlock(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("unable to dial grpc server: %w", err)
 	}
@@ -68,7 +67,8 @@ func killExistingHeartbeatFlows(
 	ctx context.Context,
 	tc client.Client,
 	namespace string,
-	taskQueue string) error {
+	taskQueue string,
+) error {
 	listRes, err := tc.ListWorkflow(ctx,
 		&workflowservice.ListWorkflowExecutionsRequest{
 			Namespace: namespace,

@@ -112,7 +112,8 @@ type UnchangedToastColumnResult struct {
 }
 
 func NewSnowflakeConnector(ctx context.Context,
-	snowflakeProtoConfig *protos.SnowflakeConfig) (*SnowflakeConnector, error) {
+	snowflakeProtoConfig *protos.SnowflakeConfig,
+) (*SnowflakeConnector, error) {
 	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
 		snowflakeProtoConfig.Password)
 	if err != nil {
@@ -224,7 +225,8 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 
 // only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
 func (c *SnowflakeConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
+	req *protos.GetTableSchemaBatchInput,
+) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(strings.ToUpper(tableName))
@@ -351,7 +353,8 @@ func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, err
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) ([]string, error) {
+	normalizeBatchID int64,
+) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.metadataSchema,
@@ -373,7 +376,8 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 }
 
 func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) (map[string][]string, error) {
+	normalizeBatchID int64,
+) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNametoUnchangedColsSQL, c.metadataSchema,
@@ -399,7 +403,8 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTables(
-	req *protos.SetupNormalizedTableBatchInput) (*protos.SetupNormalizedTableBatchOutput, error) {
+	req *protos.SetupNormalizedTableBatchInput,
+) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
 		normalizedTableNameComponents, err := parseTableName(tableIdentifier)
@@ -438,7 +443,8 @@ func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableS
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
-	schemaDeltas []*protos.TableSchemaDelta) error {
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	tableSchemaModifyTx, err := c.database.Begin()
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification: %w",
@@ -926,6 +932,7 @@ func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
 	}
 	return result.Bool, nil
 }
+
 func (c *SnowflakeConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bool, error) {
 	var result pgtype.Bool
 	err := tx.QueryRowContext(c.ctx,
@@ -937,7 +944,8 @@ func (c *SnowflakeConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bo
 }
 
 func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64,
-	syncBatchID int64, syncRecordsTx *sql.Tx) error {
+	syncBatchID int64, syncRecordsTx *sql.Tx,
+) error {
 	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
@@ -1014,7 +1022,8 @@ and updating the other columns.
 */
 func (c *SnowflakeConnector) generateUpdateStatements(
 	syncedAtCol string, softDeleteCol string, softDelete bool,
-	allCols []string, unchangedToastCols []string) []string {
+	allCols []string, unchangedToastCols []string,
+) []string {
 	updateStmts := make([]string, 0, len(unchangedToastCols))
 
 	for _, cols := range unchangedToastCols {
@@ -1137,7 +1146,8 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 }
 
 func (c *SnowflakeConnector) CreateTablesFromExisting(req *protos.CreateTablesFromExistingInput) (
-	*protos.CreateTablesFromExistingOutput, error) {
+	*protos.CreateTablesFromExistingOutput, error,
+) {
 	createTablesFromExistingTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
