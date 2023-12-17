@@ -863,17 +863,18 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 }
 
 func (c *PostgresConnector) SendWALHeartbeat() error {
-	command := `
-	BEGIN;
-	DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
-	CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-	DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
-	END;
-	`
-	_, err := c.pool.Exec(c.ctx, command)
-	if err != nil {
-		return fmt.Errorf("error bumping wal position: %w", err)
-	}
+	// command := `
+	// BEGIN;
+	// DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
+	// CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
+	// DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
+	// END;
+	// `
+	// _, err := c.pool.Exec(c.ctx, command)
+	// if err != nil {
+	// 	return fmt.Errorf("error bumping wal position: %w", err)
+	// }
 
+	log.Info("ignoring wal heartbeat")
 	return nil
 }
