@@ -512,7 +512,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	tableNameRowsMapping := make(map[string]uint32)
 	recordStream := model.NewQRecordStream(1 << 20)
 	err := recordStream.SetSchema(&model.QRecordSchema{
-		Fields: []*model.QField{
+		Fields: []model.QField{
 			{
 				Name:     "_peerdb_uid",
 				Type:     qvalue.QValueKindString,

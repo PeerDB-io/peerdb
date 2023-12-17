@@ -86,7 +86,7 @@ func generateRecords(
 	numKinds := len(allQValueKinds)
 
 	schema := &model.QRecordSchema{
-		Fields: make([]*model.QField, numKinds),
+		Fields: make([]model.QField, numKinds),
 	}
 
 	// Create sample records
@@ -97,7 +97,7 @@ func generateRecords(
 	}
 
 	for i, kind := range allQValueKinds {
-		schema.Fields[i] = &model.QField{
+		schema.Fields[i] = model.QField{
 			Name:     string(kind),
 			Type:     kind,
 			Nullable: nullable,

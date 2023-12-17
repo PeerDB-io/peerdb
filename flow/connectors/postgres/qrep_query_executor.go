@@ -99,7 +99,7 @@ func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetc
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
 func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) *model.QRecordSchema {
-	qfields := make([]*model.QField, len(fds))
+	qfields := make([]model.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
 		ctype := postgresOIDToQValueKind(fd.DataTypeOID)
@@ -117,7 +117,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		// there isn't a way to know if a column is nullable or not
 		// TODO fix this.
 		cnullable := true
-		qfields[i] = &model.QField{
+		qfields[i] = model.QField{
 			Name:     cname,
 			Type:     ctype,
 			Nullable: cnullable,
