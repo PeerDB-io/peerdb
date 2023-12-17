@@ -240,6 +240,8 @@ func (p *PostgresCDCSource) consumeStream(
 
 	pkmRequiresResponse := false
 	waitingForCommit := false
+	maxBatchSize := req.MaxBatchSize
+	maxBatchSize = 1000
 
 	for {
 		if pkmRequiresResponse {
@@ -260,7 +262,7 @@ func (p *PostgresCDCSource) consumeStream(
 			pkmRequiresResponse = false
 		}
 
-		if (cdcRecordsStorage.Len() >= int(req.MaxBatchSize)) && !p.commitLock {
+		if (cdcRecordsStorage.Len() >= int(maxBatchSize)) && !p.commitLock {
 			return nil
 		}
 
