@@ -3,6 +3,9 @@ run:
     - generated
 linters:
   enable-all: true
+  disable:
+    - funlen
+    - godox
 linters-settings:
   lll:
     line-length: 120
