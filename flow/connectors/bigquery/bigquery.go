@@ -241,6 +241,7 @@ func (c *BigQueryConnector) WaitForTableReady(tblName string) error {
 
 		_, err := table.Metadata(c.ctx)
 		if err == nil {
+			log.Infof("table %s is ready", tblName)
 			return nil
 		}
 
