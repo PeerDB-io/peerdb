@@ -8,6 +8,8 @@ linters:
     - gocognit
     - godox
 linters-settings:
+  forbidigo:
+    tests: false
   lll:
     line-length: 120
     tab-width: 4

@@ -458,28 +458,11 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 			break
 		}
 		if err != nil {
-			fmt.Printf("Error while iterating through results: %v\n", err)
-			return nil, err
+			return nil, fmt.Errorf("Error while iterating through results: %v", err)
 		}
 		resultMap[row.Tablename] = row.UnchangedToastColumns
 	}
 	return resultMap, nil
-}
-
-// ValueSaver interface for bqRecord
-func (r StagingBQRecord) Save() (map[string]bigquery.Value, string, error) {
-	return map[string]bigquery.Value{
-		"_peerdb_uid":                     r.uid,
-		"_peerdb_timestamp":               r.timestamp,
-		"_peerdb_timestamp_nanos":         r.timestampNanos,
-		"_peerdb_destination_table_name":  r.destinationTableName,
-		"_peerdb_data":                    r.data,
-		"_peerdb_record_type":             r.recordType,
-		"_peerdb_match_data":              r.matchData,
-		"_peerdb_batch_id":                r.batchID,
-		"_peerdb_staging_batch_id":        r.stagingBatchID,
-		"_peerdb_unchanged_toast_columns": r.unchangedToastColumns,
-	}, bigquery.NoDedupeID, nil
 }
 
 // SyncRecords pushes records to the destination.
