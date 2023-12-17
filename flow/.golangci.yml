@@ -2,23 +2,7 @@ run:
   skip-dirs:
     - generated
 linters:
-  enable:
-    - dogsled
-    - dupl
-    - gofmt
-    - gosec
-    - misspell
-    - nakedret
-    - stylecheck
-    - unconvert
-    - unparam
-    - whitespace
-    - errcheck
-    - gosimple
-    - staticcheck
-    - ineffassign
-    - unused
-    - lll
+  enable-all: true
 linters-settings:
   lll:
     line-length: 120
