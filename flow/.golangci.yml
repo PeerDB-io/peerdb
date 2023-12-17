@@ -7,6 +7,7 @@ linters:
     - funlen
     - gocognit
     - godox
+    - golint # deprecated in favor of revive
 linters-settings:
   forbidigo:
     tests: false
