@@ -236,7 +236,8 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		RelationMessageMapping: req.RelationMessageMapping,
-		CatalogConnection:      catalogPool,
+		CatalogPool:            catalogPool,
+		FlowJobName:            req.FlowJobName,
 	}, c.customTypesMapping)
 	if err != nil {
 		return fmt.Errorf("failed to create cdc source: %w", err)
