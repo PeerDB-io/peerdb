@@ -1,3 +1,5 @@
+'use client';
+
 import { QRepConfig } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Header } from '@/lib/Header';
@@ -5,12 +7,13 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
-import { getTruePeer } from '../api/peers/route';
-import prisma from '../utils/prisma';
+import useSWR from 'swr';
 import { CDCFlows, QRepFlows } from './tables';
 export const dynamic = 'force-dynamic';
 
+const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
 const stringifyConfig = (flowArray: any[]) => {
   flowArray.forEach((flow) => {
     if (flow.config_proto) {
@@ -19,29 +22,14 @@ const stringifyConfig = (flowArray: any[]) => {
   });
 };
 
-export default async function Mirrors() {
-  let mirrors = await prisma.flows.findMany({
-    distinct: 'name',
-    include: {
-      sourcePeer: true,
-      destinationPeer: true,
-    },
-  });
+export default function Mirrors() {
+  const { data: flows, error, isLoading } = useSWR('/api/mirrors', fetcher);
 
-  const flows = mirrors.map((mirror) => {
-    let newMirror: any = {
-      ...mirror,
-      sourcePeer: getTruePeer(mirror.sourcePeer),
-      destinationPeer: getTruePeer(mirror.destinationPeer),
-    };
-    return newMirror;
-  });
-
-  let cdcFlows = flows.filter((flow) => {
+  let cdcFlows = flows?.filter((flow: any) => {
     return !flow.query_string;
   });
 
-  let qrepFlows = flows.filter((flow) => {
+  let qrepFlows = flows?.filter((flow: any) => {
     if (flow.config_proto && flow.query_string) {
       let config = QRepConfig.decode(flow.config_proto);
       const watermarkCol = config.watermarkColumn.toLowerCase();
@@ -50,7 +38,7 @@ export default async function Mirrors() {
     return false;
   });
 
-  let xminFlows = flows.filter((flow) => {
+  let xminFlows = flows?.filter((flow: any) => {
     if (flow.config_proto && flow.query_string) {
       let config = QRepConfig.decode(flow.config_proto);
       return config.watermarkColumn.toLowerCase() === 'xmin';
@@ -58,9 +46,11 @@ export default async function Mirrors() {
     return false;
   });
 
-  stringifyConfig(cdcFlows);
-  stringifyConfig(qrepFlows);
-  stringifyConfig(xminFlows);
+  if (!isLoading) {
+    stringifyConfig(cdcFlows);
+    stringifyConfig(qrepFlows);
+    stringifyConfig(xminFlows);
+  }
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
@@ -84,15 +74,26 @@ export default async function Mirrors() {
           Mirrors
         </Header>
       </Panel>
-      <Panel>
-        <CDCFlows cdcFlows={cdcFlows} />
-      </Panel>
-      <Panel className='mt-10'>
-        <QRepFlows title='Query Replication' qrepFlows={qrepFlows} />
-      </Panel>
-      <Panel className='mt-10'>
-        <QRepFlows title='XMIN Mirrors' qrepFlows={xminFlows} />
-      </Panel>
+      {isLoading && (
+        <div className='h-screen flex items-center justify-center'>
+          <ProgressCircle variant='determinate_progress_circle' />
+        </div>
+      )}
+      {!isLoading && (
+        <Panel>
+          <CDCFlows cdcFlows={cdcFlows} />
+        </Panel>
+      )}
+      {!isLoading && (
+        <Panel className='mt-10'>
+          <QRepFlows title='Query Replication' qrepFlows={qrepFlows} />
+        </Panel>
+      )}
+      {!isLoading && (
+        <Panel className='mt-10'>
+          <QRepFlows title='XMIN Mirrors' qrepFlows={xminFlows} />
+        </Panel>
+      )}
     </LayoutMain>
   );
 }
