@@ -148,9 +148,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 
-		qRecord := qRecordOrErr.Record
 		avroConverter := model.NewQRecordAvroConverter(
-			qRecord,
+			qRecordOrErr.Record,
 			p.targetDWH,
 			p.avroSchema.NullableFields,
 			colNames,

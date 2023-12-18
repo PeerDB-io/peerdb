@@ -174,7 +174,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		qfields[i] = qfield
 	}
 
-	var records []*model.QRecord
+	var records []model.QRecord
 	totalRowsProcessed := 0
 	const heartBeatNumRows = 25000
 
