@@ -35,6 +35,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 	writeMode *protos.QRepWriteMode,
+	syncedAtCol string,
 ) (int, error) {
 	syncLog := slog.Group("sync-qrep-log",
 		slog.String(string(shared.FlowNameKey), flowJobName),
@@ -81,6 +82,19 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into destination table: %v", err)
 		}
+
+		if syncedAtCol != "" {
+			updateSyncedAtStmt := fmt.Sprintf(
+				`UPDATE %s SET "%s" = CURRENT_TIMESTAMP WHERE "%s" IS NULL;`,
+				pgx.Identifier{dstTableName.Schema, dstTableName.Table}.Sanitize(),
+				syncedAtCol,
+				syncedAtCol,
+			)
+			_, err = tx.Exec(context.Background(), updateSyncedAtStmt)
+			if err != nil {
+				return -1, fmt.Errorf("failed to update synced_at column: %v", err)
+			}
+		}
 	} else {
 		// Step 2.1: Create a temp staging table
 		stagingTableName := fmt.Sprintf("_peerdb_staging_%s", shared.RandomString(8))
@@ -88,7 +102,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
 
 		createStagingTableStmt := fmt.Sprintf(
-			"CREATE UNLOGGED TABLE %s (LIKE %s);",
+			"CREATE UNLOGGED TABLE %s (LIKE %s INCLUDING INDEXES);",
 			stagingTableIdentifier.Sanitize(),
 			dstTableIdentifier.Sanitize(),
 		)
@@ -128,16 +142,19 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 			}
 			selectStrArray = append(selectStrArray, fmt.Sprintf(`"%s"`, col))
 		}
-
+		setClauseArray = append(setClauseArray,
+			fmt.Sprintf(`"%s" = CURRENT_TIMESTAMP`, syncedAtCol))
 		setClause := strings.Join(setClauseArray, ",")
-		selectStr := strings.Join(selectStrArray, ",")
+		selectStrColsSQL := strings.Join(append(selectStrArray,
+			fmt.Sprintf(`"%s"`, syncedAtCol)), ",")
+		selectStrValuesSQL := strings.Join(append(selectStrArray, `CURRENT_TIMESTAMP`), ",")
 
 		// Step 2.3: Perform the upsert operation, ON CONFLICT UPDATE
 		upsertStmt := fmt.Sprintf(
 			"INSERT INTO %s (%s) SELECT %s FROM %s ON CONFLICT (%s) DO UPDATE SET %s;",
 			dstTableIdentifier.Sanitize(),
-			selectStr,
-			selectStr,
+			selectStrColsSQL,
+			selectStrValuesSQL,
 			stagingTableIdentifier.Sanitize(),
 			strings.Join(writeMode.UpsertKeyColumns, ", "),
 			setClause,
