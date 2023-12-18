@@ -241,7 +241,6 @@ func (p *PostgresCDCSource) consumeStream(
 	pkmRequiresResponse := false
 	waitingForCommit := false
 	maxBatchSize := req.MaxBatchSize
-	maxBatchSize = 1000
 
 	for {
 		if pkmRequiresResponse {
