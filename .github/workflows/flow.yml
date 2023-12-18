@@ -2,8 +2,8 @@ name: Flow build and test
 
 on:
   pull_request:
-    branches:
-      - "main"
+    branches: [main]
+    paths: [flow/**]
   push:
     branches: [main]
 

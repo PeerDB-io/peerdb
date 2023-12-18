@@ -2,11 +2,10 @@ name: Build & Test UI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+    paths: [ui/**]
 
 jobs:
   build-test:
