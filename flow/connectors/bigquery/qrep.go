@@ -50,7 +50,8 @@ func (c *BigQueryConnector) SyncQRepRecords(
 }
 
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfig, partition *protos.QRepPartition,
-	srcSchema *model.QRecordSchema) (*bigquery.TableMetadata, error) {
+	srcSchema *model.QRecordSchema,
+) (*bigquery.TableMetadata, error) {
 	destTable := config.DestinationTableIdentifier
 	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
 	dstTableMetadata, err := bqTable.Metadata(c.ctx)

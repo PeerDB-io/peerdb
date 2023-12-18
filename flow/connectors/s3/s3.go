@@ -30,7 +30,8 @@ type S3Connector struct {
 }
 
 func NewS3Connector(ctx context.Context,
-	config *protos.S3Config) (*S3Connector, error) {
+	config *protos.S3Config,
+) (*S3Connector, error) {
 	keyID := ""
 	if config.AccessKeyId != nil {
 		keyID = *config.AccessKeyId
@@ -237,7 +238,8 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 
 func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
 	*protos.SetupNormalizedTableBatchOutput,
-	error) {
+	error,
+) {
 	c.logger.Info("SetupNormalizedTables for S3 is a no-op")
 	return nil, nil
 }

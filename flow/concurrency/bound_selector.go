@@ -13,7 +13,7 @@ type BoundSelector struct {
 	ferrors []error
 }
 
-func NewBoundSelector(limit int, total int, ctx workflow.Context) *BoundSelector {
+func NewBoundSelector(limit int, ctx workflow.Context) *BoundSelector {
 	return &BoundSelector{
 		ctx:   ctx,
 		limit: limit,

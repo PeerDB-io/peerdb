@@ -3,7 +3,7 @@ package model
 import "fmt"
 
 type QRecordOrError struct {
-	Record *QRecord
+	Record QRecord
 	Err    error
 }
 
@@ -13,8 +13,8 @@ type QRecordSchemaOrError struct {
 }
 
 type QRecordStream struct {
-	schema      chan *QRecordSchemaOrError
-	Records     chan *QRecordOrError
+	schema      chan QRecordSchemaOrError
+	Records     chan QRecordOrError
 	schemaSet   bool
 	schemaCache *QRecordSchema
 }
@@ -47,8 +47,8 @@ type RecordsToStreamResponse struct {
 
 func NewQRecordStream(buffer int) *QRecordStream {
 	return &QRecordStream{
-		schema:      make(chan *QRecordSchemaOrError, 1),
-		Records:     make(chan *QRecordOrError, buffer),
+		schema:      make(chan QRecordSchemaOrError, 1),
+		Records:     make(chan QRecordOrError, buffer),
 		schemaSet:   false,
 		schemaCache: nil,
 	}
@@ -69,7 +69,7 @@ func (s *QRecordStream) SetSchema(schema *QRecordSchema) error {
 		return fmt.Errorf("Schema already set")
 	}
 
-	s.schema <- &QRecordSchemaOrError{
+	s.schema <- QRecordSchemaOrError{
 		Schema: schema,
 	}
 	s.schemaSet = true
@@ -80,6 +80,6 @@ func (s *QRecordStream) IsSchemaSet() bool {
 	return s.schemaSet
 }
 
-func (s *QRecordStream) SchemaChan() chan *QRecordSchemaOrError {
+func (s *QRecordStream) SchemaChan() chan QRecordSchemaOrError {
 	return s.schema
 }

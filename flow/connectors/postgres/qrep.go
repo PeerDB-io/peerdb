@@ -268,7 +268,8 @@ func (c *PostgresConnector) getMinMaxValues(
 }
 
 func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
-	last *protos.QRepPartition) (bool, error) {
+	last *protos.QRepPartition,
+) (bool, error) {
 	tx, err := c.pool.Begin(c.ctx)
 	if err != nil {
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
@@ -303,7 +304,8 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
 
 func (c *PostgresConnector) PullQRepRecords(
 	config *protos.QRepConfig,
-	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+	partition *protos.QRepPartition,
+) (*model.QRecordBatch, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
 		c.logger.Info("pulling full table partition", partitionIdLog)

@@ -13,8 +13,8 @@ import (
 
 // QRecordBatch holds a batch of QRecord objects.
 type QRecordBatch struct {
-	NumRecords uint32     // NumRecords represents the number of records in the batch.
-	Records    []*QRecord // Records is a slice of pointers to QRecord objects.
+	NumRecords uint32 // NumRecords represents the number of records in the batch.
+	Records    []QRecord
 	Schema     *QRecordSchema
 }
 
@@ -66,7 +66,7 @@ func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
 		}
 
 		for _, record := range q.Records {
-			stream.Records <- &QRecordOrError{
+			stream.Records <- QRecordOrError{
 				Record: record,
 			}
 		}
@@ -79,7 +79,7 @@ func (q *QRecordBatch) ToQRecordStream(buffer int) (*QRecordStream, error) {
 type QRecordBatchCopyFromSource struct {
 	numRecords    int
 	stream        *QRecordStream
-	currentRecord *QRecordOrError
+	currentRecord QRecordOrError
 	err           error
 }
 
@@ -89,7 +89,7 @@ func NewQRecordBatchCopyFromSource(
 	return &QRecordBatchCopyFromSource{
 		numRecords:    0,
 		stream:        stream,
-		currentRecord: nil,
+		currentRecord: QRecordOrError{},
 		err:           nil,
 	}
 }

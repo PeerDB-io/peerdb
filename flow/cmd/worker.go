@@ -66,7 +66,6 @@ func setupPyroscope(opts *WorkerOptions) {
 			pyroscope.ProfileBlockDuration,
 		},
 	})
-
 	if err != nil {
 		log.Fatal(err)
 	}

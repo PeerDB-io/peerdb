@@ -348,7 +348,8 @@ func getRawTableIdentifier(jobName string) string {
 }
 
 func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
-	sourceTableSchema *protos.TableSchema) string {
+	sourceTableSchema *protos.TableSchema,
+) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
@@ -445,7 +446,8 @@ func (c *PostgresConnector) majorVersionCheck(majorVersion int) (bool, error) {
 }
 
 func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64,
-	syncRecordsTx pgx.Tx) error {
+	syncRecordsTx pgx.Tx,
+) error {
 	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
@@ -471,7 +473,8 @@ func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64,
 }
 
 func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64,
-	normalizeRecordsTx pgx.Tx) error {
+	normalizeRecordsTx pgx.Tx,
+) error {
 	jobMetadataExists, err := c.jobMetadataExistsTx(normalizeRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
@@ -491,7 +494,8 @@ func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normaliz
 }
 
 func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) (map[string][]string, error) {
+	normalizeBatchID int64,
+) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getTableNameToUnchangedToastColsSQL, c.metadataSchema,
@@ -520,7 +524,8 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 }
 
 func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifier string,
-	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool) []string {
+	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool,
+) []string {
 	if supportsMerge {
 		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns, rawTableIdentifier)}
 	}
@@ -530,7 +535,8 @@ func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifi
 }
 
 func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string,
-	rawTableIdentifier string) []string {
+	rawTableIdentifier string,
+) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
@@ -578,7 +584,8 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 }
 
 func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier string, unchangedToastColumns []string,
-	rawTableIdentifier string) string {
+	rawTableIdentifier string,
+) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := maps.Keys(normalizedTableSchema.Columns)
 	for i, columnName := range columnNames {

@@ -64,7 +64,8 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment, t *t
 }
 
 func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
-	connectionGen FlowConnectionGenerationConfig) {
+	connectionGen FlowConnectionGenerationConfig,
+) {
 	// wait for PeerFlowStatusQuery to finish setup
 	// sleep for 5 second to allow the workflow to start
 	time.Sleep(5 * time.Second)
@@ -93,7 +94,8 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 
 func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig,
-	minCount int) {
+	minCount int,
+) {
 	// wait for PeerFlowStatusQuery to finish setup
 	// sleep for 5 second to allow the workflow to start
 	time.Sleep(5 * time.Second)
@@ -321,7 +323,7 @@ func RunXminFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.
 
 func GetOwnersSchema() *model.QRecordSchema {
 	return &model.QRecordSchema{
-		Fields: []*model.QField{
+		Fields: []model.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},

@@ -364,8 +364,10 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}()
 
 	syncedRecordsCount, err := syncRecordsTx.CopyFrom(c.ctx, pgx.Identifier{c.metadataSchema, rawTableIdentifier},
-		[]string{"_peerdb_uid", "_peerdb_timestamp", "_peerdb_destination_table_name", "_peerdb_data",
-			"_peerdb_record_type", "_peerdb_match_data", "_peerdb_batch_id", "_peerdb_unchanged_toast_columns"},
+		[]string{
+			"_peerdb_uid", "_peerdb_timestamp", "_peerdb_destination_table_name", "_peerdb_data",
+			"_peerdb_record_type", "_peerdb_match_data", "_peerdb_batch_id", "_peerdb_unchanged_toast_columns",
+		},
 		pgx.CopyFromRows(records))
 	if err != nil {
 		return nil, fmt.Errorf("error syncing records: %w", err)
@@ -535,7 +537,8 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 
 // GetTableSchema returns the schema for a table, implementing the Connector interface.
 func (c *PostgresConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
+	req *protos.GetTableSchemaBatchInput,
+) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(tableName)
@@ -608,7 +611,8 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
 func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
-	*protos.SetupNormalizedTableBatchOutput, error) {
+	*protos.SetupNormalizedTableBatchOutput, error,
+) {
 	tableExistsMapping := make(map[string]bool)
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	createNormalizedTablesTx, err := c.pool.Begin(c.ctx)
@@ -669,7 +673,8 @@ func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSc
 // ReplayTableSchemaDelta changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
-	schemaDeltas []*protos.TableSchemaDelta) error {
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
@@ -748,7 +753,8 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 		tableIdentifierMapping[tableName] = &protos.TableIdentifier{
 			TableIdentifier: &protos.TableIdentifier_PostgresTableIdentifier{
 				PostgresTableIdentifier: &protos.PostgresTableIdentifier{
-					RelId: relID},
+					RelId: relID,
+				},
 			},
 		}
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))

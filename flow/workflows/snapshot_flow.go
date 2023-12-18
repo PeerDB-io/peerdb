@@ -88,7 +88,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 	snapshotName string,
 	mapping *protos.TableMapping,
 ) error {
-
 	flowName := s.config.FlowJobName
 	cloneLog := slog.Group("clone-log",
 		slog.String(string(shared.FlowNameKey), flowName),
@@ -187,7 +186,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 	return nil
 }
 
-// startChildQrepWorkflow starts a child workflow for query based replication.
 func (s *SnapshotFlowExecution) cloneTables(
 	ctx workflow.Context,
 	slotInfo *protos.SetupReplicationOutput,
@@ -196,8 +194,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	slog.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
 		slotInfo.SlotName, slotInfo.SnapshotName))
 
-	numTables := len(s.config.TableMappings)
-	boundSelector := concurrency.NewBoundSelector(maxParallelClones, numTables, ctx)
+	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
 
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
@@ -231,7 +228,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		logger: logger,
 	}
 
-	var replCtx = ctx
+	replCtx := ctx
 	replCtx = workflow.WithValue(replCtx, shared.FlowNameKey, config.FlowJobName)
 	if config.DoInitialCopy {
 		sessionOpts := &workflow.SessionOptions{
