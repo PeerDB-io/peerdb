@@ -18,18 +18,21 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 			" AND _peerdb_unchanged_toast_columns='' " +
 			"THEN UPDATE SET `col1` = _peerdb_deduped.col1," +
 			" `col2` = _peerdb_deduped.col2," +
-			" `col3` = _peerdb_deduped.col3",
+			" `col3` = _peerdb_deduped.col3," +
+			"`synced_at`=CURRENT_TIMESTAMP," + "`deleted`=FALSE",
 		"WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type != 2)" +
 			" AND _peerdb_unchanged_toast_columns='col2, col3' " +
-			"THEN UPDATE SET `col1` = _peerdb_deduped.col1",
+			"THEN UPDATE SET `col1` = _peerdb_deduped.col1," +
+			"`synced_at`=CURRENT_TIMESTAMP," + "`deleted`=FALSE",
 		"WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type != 2)" +
 			" AND _peerdb_unchanged_toast_columns='col2'" +
 			"THEN UPDATE SET `col1` = _peerdb_deduped.col1," +
-			" `col3` = _peerdb_deduped.col3",
+			" `col3` = _peerdb_deduped.col3," +
+			"`synced_at`=CURRENT_TIMESTAMP," + "`deleted`=FALSE",
 		"WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type != 2)" +
 			" AND _peerdb_unchanged_toast_columns='col3'" +
 			"THEN UPDATE SET `col1` = _peerdb_deduped.col1," +
-			" `col2` = _peerdb_deduped.col2",
+			" `col2` = _peerdb_deduped.col2," + "`synced_at`=CURRENT_TIMESTAMP," + "`deleted`=FALSE",
 	}
 
 	result := m.generateUpdateStatements(allCols, unchangedToastCols, &protos.PeerDBColumns{
@@ -59,7 +62,9 @@ func TestGenerateUpdateStatement_NoUnchangedToastCols(t *testing.T) {
 			"THEN UPDATE SET " +
 			"`col1` = _peerdb_deduped.col1," +
 			" `col2` = _peerdb_deduped.col2," +
-			" `col3` = _peerdb_deduped.col3",
+			" `col3` = _peerdb_deduped.col3," +
+			" `synced_at`=CURRENT_TIMESTAMP," +
+			"`deleted`=FALSE",
 	}
 
 	result := m.generateUpdateStatements(allCols, unchangedToastCols,
