@@ -137,21 +137,15 @@ func (m *mergeStmtGenerator) generateMergeStmt(tempTable string, peerdbCols *pro
 		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
 		pureColNames = append(pureColNames, colName)
 	}
-	// append synced_at column
-	colsArray := append(backtickColNames,
-		fmt.Sprintf("`%s`", strings.ToUpper(peerdbCols.SyncedAtColName)),
-	)
-	valuesArray := append(backtickColNames, "CURRENT_TIMESTAMP")
-	insertColumnsSQL := strings.Join(colsArray, ", ")
-	// fill in synced_at column
-	insertValuesSQL := strings.Join(valuesArray, ", ")
+	csep := strings.Join(backtickColNames, ", ")
+	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", peerdbCols.SyncedAtColName)
+	insertValuesSQL := csep + ",CURRENT_TIMESTAMP"
 
 	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames,
 		m.UnchangedToastColumns, peerdbCols)
 	if m.peerdbCols.SoftDelete {
-		softDeleteInsertColumnsSQL := strings.Join(append(colsArray,
-			m.peerdbCols.SoftDeleteColName), ",")
-		softDeleteInsertValuesSQL := strings.Join(append(valuesArray, "TRUE"), ",")
+		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(", `%s`", peerdbCols.SoftDeleteColName)
+		softDeleteInsertValuesSQL := insertValuesSQL + ", TRUE"
 
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
 			fmt.Sprintf("WHEN NOT MATCHED AND (_peerdb_deduped._PEERDB_RECORD_TYPE = 2) THEN INSERT (%s) VALUES(%s)",

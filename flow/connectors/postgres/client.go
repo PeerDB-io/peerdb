@@ -536,7 +536,8 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 
 func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifier string,
 	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool,
-	peerdbCols *protos.PeerDBColumns) []string {
+	peerdbCols *protos.PeerDBColumns,
+) []string {
 	if supportsMerge {
 		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns,
 			rawTableIdentifier, peerdbCols)}
@@ -547,7 +548,8 @@ func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifi
 }
 
 func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string,
-	rawTableIdentifier string, peerdbCols *protos.PeerDBColumns) []string {
+	rawTableIdentifier string, peerdbCols *protos.PeerDBColumns,
+) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
@@ -642,7 +644,6 @@ func (c *PostgresConnector) generateMergeStatement(
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
-		fmt.Println("MERGE columnName: ", columnName)
 		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("src.%s", columnName))
 	}
 
@@ -693,7 +694,8 @@ func (c *PostgresConnector) generateMergeStatement(
 }
 
 func (c *PostgresConnector) generateUpdateStatement(allCols []string,
-	unchangedToastColsLists []string, peerdbCols *protos.PeerDBColumns) []string {
+	unchangedToastColsLists []string, peerdbCols *protos.PeerDBColumns,
+) []string {
 	updateStmts := make([]string, 0, len(unchangedToastColsLists))
 
 	for _, cols := range unchangedToastColsLists {
