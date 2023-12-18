@@ -69,9 +69,11 @@ export default function Mirrors() {
         </Header>
       </Panel>
       {isLoading && (
-        <div className='h-screen flex items-center justify-center'>
-          <ProgressCircle variant='determinate_progress_circle' />
-        </div>
+        <Panel>
+          <div className='h-screen flex items-center justify-center'>
+            <ProgressCircle variant='determinate_progress_circle' />
+          </div>
+        </Panel>
       )}
       {!isLoading && (
         <Panel>
