@@ -16,11 +16,6 @@ type AvroSchemaArray struct {
 	Items string `json:"items"`
 }
 
-type AvroSchemaMap struct {
-	Type   string `json:"type"`
-	Values string `json:"values"`
-}
-
 type AvroSchemaNumeric struct {
 	Type        string `json:"type"`
 	LogicalType string `json:"logicalType"`
@@ -61,10 +56,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind) (interface{}, error) {
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		return "string", nil
 	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
-		return AvroSchemaMap{
-			Type:   "map",
-			Values: "string",
-		}, nil
+		return "string", nil
 	case QValueKindArrayFloat32:
 		return AvroSchemaArray{
 			Type:  "array",
