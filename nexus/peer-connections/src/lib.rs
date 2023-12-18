@@ -21,6 +21,7 @@ impl PeerConnections {
     }
 }
 
+#[derive(Clone)]
 pub struct PeerConnectionTracker {
     conn_uuid: uuid::Uuid,
     peer_connections: Arc<PeerConnections>,

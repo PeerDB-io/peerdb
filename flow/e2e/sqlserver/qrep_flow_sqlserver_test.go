@@ -120,7 +120,7 @@ func (s *PeerFlowE2ETestSuiteSQLServer) setupPGDestinationTable(tableName string
 
 func getSimpleTableSchema() *model.QRecordSchema {
 	return &model.QRecordSchema{
-		Fields: []*model.QField{
+		Fields: []model.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "v_from", Type: qvalue.QValueKindTimestamp, Nullable: true},

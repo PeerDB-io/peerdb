@@ -8,7 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type mergeStmtGenerator struct {
@@ -33,7 +33,7 @@ func (m *mergeStmtGenerator) generateMergeStmts() []string {
 	// return an empty array for now
 	flattenedCTE := m.generateFlattenedCTE()
 	deDupedCTE := m.generateDeDupedCTE()
-	tempTable := fmt.Sprintf("_peerdb_de_duplicated_data_%s", util.RandomString(5))
+	tempTable := fmt.Sprintf("_peerdb_de_duplicated_data_%s", shared.RandomString(5))
 	// create temp table stmt
 	createTempTableStmt := fmt.Sprintf(
 		"CREATE TEMP TABLE %s AS (%s, %s);",
@@ -61,17 +61,17 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 
 		switch qvalue.QValueKind(colType) {
 		case qvalue.QValueKindJSON:
-			//if the type is JSON, then just extract JSON
-			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT(_peerdb_data, '$.%s') AS %s) AS `%s`",
+			// if the type is JSON, then just extract JSON
+			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				colName, bqType, colName)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
-			castStmt = fmt.Sprintf("FROM_BASE64(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s')) AS `%s`",
+			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data, '$.%s')) AS `%s`",
 				colName, colName)
 		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
 			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
-				"UNNEST(CAST(JSON_EXTRACT_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element) AS `%s`",
+				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element) AS `%s`",
 				bqType, colName, colName)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
 		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
@@ -89,15 +89,18 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		// 		" AS int64))) AS %s",
 		// 		colName, colName)
 		default:
-			castStmt = fmt.Sprintf("CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s') AS %s) AS `%s`",
+			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				colName, bqType, colName)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
 	}
-	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp")
-	flattenedProjs = append(flattenedProjs, "_peerdb_timestamp_nanos")
-	flattenedProjs = append(flattenedProjs, "_peerdb_record_type")
-	flattenedProjs = append(flattenedProjs, "_peerdb_unchanged_toast_columns")
+	flattenedProjs = append(
+		flattenedProjs,
+		"_peerdb_timestamp",
+		"_peerdb_timestamp_nanos",
+		"_peerdb_record_type",
+		"_peerdb_unchanged_toast_columns",
+	)
 
 	// normalize anything between last normalized batch id to last sync batchid
 	return fmt.Sprintf(`WITH _peerdb_flattened AS
@@ -126,8 +129,8 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 // generateMergeStmt generates a merge statement.
 func (m *mergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	// comma separated list of column names
-	backtickColNames := make([]string, 0)
-	pureColNames := make([]string, 0)
+	backtickColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
+	pureColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
 	for colName := range m.NormalizedTableSchema.Columns {
 		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
 		pureColNames = append(pureColNames, colName)

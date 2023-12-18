@@ -233,10 +233,34 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
+func (c *BigQueryConnector) WaitForTableReady(tblName string) error {
+	table := c.client.Dataset(c.datasetID).Table(tblName)
+	maxDuration := 5 * time.Minute
+	deadline := time.Now().Add(maxDuration)
+	sleepInterval := 15 * time.Second
+	attempt := 0
+
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout reached while waiting for table %s to be ready", tblName)
+		}
+
+		_, err := table.Metadata(c.ctx)
+		if err == nil {
+			return nil
+		}
+
+		slog.Info("waiting for table to be ready", slog.String("table", tblName), slog.Int("attempt", attempt))
+		attempt++
+		time.Sleep(sleepInterval)
+	}
+}
+
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
-	schemaDeltas []*protos.TableSchemaDelta) error {
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
 			continue
@@ -292,30 +316,27 @@ func (c *BigQueryConnector) SetupMetadataTables() error {
 	return nil
 }
 
-// GetLastOffset returns the last synced ID.
-func (c *BigQueryConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
 	query := fmt.Sprintf("SELECT offset FROM %s.%s WHERE mirror_job_name = '%s'", c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return nil, err
+		return 0, err
 	}
 
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
 		c.logger.Info("no row found, returning nil")
-		return nil, nil
+		return 0, nil
 	}
 
 	if row[0] == nil {
 		c.logger.Info("no offset found, returning nil")
-		return nil, nil
+		return 0, nil
 	} else {
-		return &protos.LastSyncState{
-			Checkpoint: row[0].(int64),
-		}, nil
+		return row[0].(int64), nil
 	}
 }
 
@@ -362,7 +383,7 @@ func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, erro
 	}
 
 	if row[0] == nil {
-		c.logger.Info("no normalize_batch_id foundreturning 0")
+		c.logger.Info("no normalize_batch_id found returning 0")
 		return 0, nil
 	} else {
 		return row[0].(int64), nil
@@ -370,7 +391,8 @@ func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, erro
 }
 
 func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) ([]string, error) {
+	normalizeBatchID int64,
+) ([]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
@@ -406,7 +428,8 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syn
 }
 
 func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) (map[string][]string, error) {
+	normalizeBatchID int64,
+) (map[string][]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
@@ -473,7 +496,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 
 	res, err := c.syncRecordsViaAvro(req, rawTableName, syncBatchID)
 	if err != nil {
@@ -489,11 +512,9 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := make(map[string]uint32)
-	first := true
-	var firstCP int64 = 0
 	recordStream := model.NewQRecordStream(1 << 20)
 	err := recordStream.SetSchema(&model.QRecordSchema{
-		Fields: []*model.QField{
+		Fields: []model.QField{
 			{
 				Name:     "_peerdb_uid",
 				Type:     qvalue.QValueKindString,
@@ -648,11 +669,6 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 			return nil, fmt.Errorf("record type %T not supported", r)
 		}
 
-		if first {
-			firstCP = record.GetCheckPointID()
-			first = false
-		}
-
 		entries[0] = qvalue.QValue{
 			Kind:  qvalue.QValueKindString,
 			Value: uuid.New().String(),
@@ -673,8 +689,8 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 			Kind:  qvalue.QValueKindInt64,
 			Value: syncBatchID,
 		}
-		recordStream.Records <- &model.QRecordOrError{
-			Record: &model.QRecord{
+		recordStream.Records <- model.QRecordOrError{
+			Record: model.QRecord{
 				NumEntries: 10,
 				Entries:    entries[:],
 			},
@@ -702,11 +718,10 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	c.logger.Info(fmt.Sprintf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName))
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
-		NumRecordsSynced:        int64(numRecords),
-		CurrentSyncBatchID:      syncBatchID,
-		TableNameRowsMapping:    tableNameRowsMapping,
+		LastSyncedCheckPointID: lastCP,
+		NumRecordsSynced:       int64(numRecords),
+		CurrentSyncBatchID:     syncBatchID,
+		TableNameRowsMapping:   tableNameRowsMapping,
 	}, nil
 }
 
@@ -778,7 +793,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		mergeStmts := mergeGen.generateMergeStmts()
 		stmts = append(stmts, mergeStmts...)
 	}
-	//update metadata to make the last normalized batch id to the recent last sync batch id.
+	// update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
 		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name = '%s';",
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
@@ -877,7 +892,8 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 
 // getUpdateMetadataStmt updates the metadata tables for a given job.
 func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedCheckpointID int64,
-	batchID int64) (string, error) {
+	batchID int64,
+) (string, error) {
 	hasJob, err := c.metadataHasJob(jobName)
 	if err != nil {
 		return "", fmt.Errorf("failed to check if job exists: %w", err)
@@ -946,7 +962,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 			columns[idx] = &bigquery.FieldSchema{
 				Name:     colName,
 				Type:     qValueKindToBigQueryType(genericColType),
-				Repeated: strings.Contains(genericColType, "array"),
+				Repeated: qvalue.QValueKind(genericColType).IsArray(),
 			}
 			idx++
 		}
@@ -1072,7 +1088,8 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 }
 
 func (c *BigQueryConnector) CreateTablesFromExisting(req *protos.CreateTablesFromExistingInput) (
-	*protos.CreateTablesFromExistingOutput, error) {
+	*protos.CreateTablesFromExistingOutput, error,
+) {
 	for newTable, existingTable := range req.NewToExistingTableMapping {
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 

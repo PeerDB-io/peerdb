@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
@@ -114,8 +113,9 @@ type UnchangedToastColumnResult struct {
 }
 
 func NewSnowflakeConnector(ctx context.Context,
-	snowflakeProtoConfig *protos.SnowflakeConfig) (*SnowflakeConnector, error) {
-	PrivateKeyRSA, err := util.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
+	snowflakeProtoConfig *protos.SnowflakeConfig,
+) (*SnowflakeConnector, error) {
+	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
 		snowflakeProtoConfig.Password)
 	if err != nil {
 		return nil, err
@@ -226,7 +226,8 @@ func (c *SnowflakeConnector) SetupMetadataTables() error {
 
 // only used for testing atm. doesn't return info about pkey or ReplicaIdentity [which is PG specific anyway].
 func (c *SnowflakeConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
+	req *protos.GetTableSchemaBatchInput,
+) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(strings.ToUpper(tableName))
@@ -285,11 +286,11 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 	return res, nil
 }
 
-func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return nil, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
+		return 0, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
 	}
 	defer func() {
 		// not sure if the errors these two return are same or different?
@@ -300,21 +301,18 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (*protos.LastSyncStat
 	}()
 
 	if !rows.Next() {
-		c.logger.Warn("No row found, returning nil")
-		return nil, nil
+		c.logger.Warn("No row found, returning 0")
+		return 0, nil
 	}
 	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
-		return nil, fmt.Errorf("error while reading result row: %w", err)
+		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
-		return nil, nil
+		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
-	return &protos.LastSyncState{
-		Checkpoint: result.Int64,
-	}, nil
+	return result.Int64, nil
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
@@ -356,7 +354,8 @@ func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, err
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) ([]string, error) {
+	normalizeBatchID int64,
+) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.metadataSchema,
@@ -378,7 +377,8 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 }
 
 func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) (map[string][]string, error) {
+	normalizeBatchID int64,
+) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getTableNametoUnchangedColsSQL, c.metadataSchema,
@@ -404,7 +404,8 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTables(
-	req *protos.SetupNormalizedTableBatchInput) (*protos.SetupNormalizedTableBatchOutput, error) {
+	req *protos.SetupNormalizedTableBatchInput,
+) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
 		normalizedTableNameComponents, err := parseTableName(tableIdentifier)
@@ -443,7 +444,8 @@ func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableS
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
-	schemaDeltas []*protos.TableSchemaDelta) error {
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	tableSchemaModifyTx, err := c.database.Begin()
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification: %w",
@@ -497,7 +499,7 @@ func (c *SnowflakeConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 
 	res, err := c.syncRecordsViaAvro(req, rawTableIdentifier, syncBatchID)
 	if err != nil {
@@ -567,11 +569,10 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	}
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: req.Records.GetFirstCheckpoint(),
-		LastSyncedCheckPointID:  lastCheckpoint,
-		NumRecordsSynced:        int64(numRecords),
-		CurrentSyncBatchID:      syncBatchID,
-		TableNameRowsMapping:    tableNameRowsMapping,
+		LastSyncedCheckPointID: lastCheckpoint,
+		NumRecordsSynced:       int64(numRecords),
+		CurrentSyncBatchID:     syncBatchID,
+		TableNameRowsMapping:   tableNameRowsMapping,
 	}, nil
 }
 
@@ -734,15 +735,8 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 }
 
 func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) (bool, error) {
-	rows, err := c.database.QueryContext(c.ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier)
-	if err != nil {
-		return false, err
-	}
-
-	// this query is guaranteed to return exactly one row
 	var result pgtype.Bool
-	rows.Next()
-	err = rows.Scan(&result)
+	err := c.database.QueryRowContext(c.ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
@@ -929,15 +923,19 @@ func parseTableName(tableName string) (*tableNameComponents, error) {
 }
 
 func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
-	rows, err := c.database.QueryContext(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return false, fmt.Errorf("failed to check if job exists: %w", err)
-	}
-
 	var result pgtype.Bool
-	rows.Next()
-	err = rows.Scan(&result)
+	err := c.database.QueryRowContext(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
+	if err != nil {
+		return false, fmt.Errorf("error reading result row: %w", err)
+	}
+	return result.Bool, nil
+}
+
+func (c *SnowflakeConnector) jobMetadataExistsTx(tx *sql.Tx, jobName string) (bool, error) {
+	var result pgtype.Bool
+	err := tx.QueryRowContext(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
@@ -945,8 +943,9 @@ func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
 }
 
 func (c *SnowflakeConnector) updateSyncMetadata(flowJobName string, lastCP int64,
-	syncBatchID int64, syncRecordsTx *sql.Tx) error {
-	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
+	syncBatchID int64, syncRecordsTx *sql.Tx,
+) error {
+	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
 	}
@@ -1022,7 +1021,8 @@ and updating the other columns.
 */
 func (c *SnowflakeConnector) generateUpdateStatements(
 	syncedAtCol string, softDeleteCol string, softDelete bool,
-	allCols []string, unchangedToastCols []string) []string {
+	allCols []string, unchangedToastCols []string,
+) []string {
 	updateStmts := make([]string, 0, len(unchangedToastCols))
 
 	for _, cols := range unchangedToastCols {
@@ -1145,7 +1145,8 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 }
 
 func (c *SnowflakeConnector) CreateTablesFromExisting(req *protos.CreateTablesFromExistingInput) (
-	*protos.CreateTablesFromExistingOutput, error) {
+	*protos.CreateTablesFromExistingOutput, error,
+) {
 	createTablesFromExistingTx, err := c.database.BeginTx(c.ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)

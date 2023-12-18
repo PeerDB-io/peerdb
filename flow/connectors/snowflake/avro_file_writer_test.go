@@ -86,18 +86,18 @@ func generateRecords(
 	numKinds := len(allQValueKinds)
 
 	schema := &model.QRecordSchema{
-		Fields: make([]*model.QField, numKinds),
+		Fields: make([]model.QField, numKinds),
 	}
 
 	// Create sample records
 	records := &model.QRecordBatch{
 		NumRecords: numRows,
-		Records:    make([]*model.QRecord, numRows),
+		Records:    make([]model.QRecord, numRows),
 		Schema:     schema,
 	}
 
 	for i, kind := range allQValueKinds {
-		schema.Fields[i] = &model.QField{
+		schema.Fields[i] = model.QField{
 			Name:     string(kind),
 			Type:     kind,
 			Nullable: nullable,
@@ -115,7 +115,7 @@ func generateRecords(
 			}
 		}
 
-		records.Records[row] = &model.QRecord{
+		records.Records[row] = model.QRecord{
 			Entries: entries,
 		}
 	}

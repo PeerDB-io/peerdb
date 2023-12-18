@@ -31,7 +31,7 @@ func (s *CDCRecordStorageTestSuite) genKeyAndRec() (model.TableWithPkey, model.R
 		CommitID:             2,
 		Items: &model.RecordItems{
 			ColToValIdx: map[string]int{"id": 0},
-			Values: []*qvalue.QValue{{
+			Values: []qvalue.QValue{{
 				Kind:  qvalue.QValueKindInt64,
 				Value: 1,
 			}},

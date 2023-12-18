@@ -1,4 +1,4 @@
-package util
+package shared
 
 import (
 	"crypto/rand"
@@ -30,7 +30,7 @@ func RandomUInt64() (uint64, error) {
 
 func RandomString(n int) string {
 	const alphanum = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	var bytes = make([]byte, n)
+	bytes := make([]byte, n)
 	_, err := rand.Read(bytes)
 	if err != nil {
 		return "temp"

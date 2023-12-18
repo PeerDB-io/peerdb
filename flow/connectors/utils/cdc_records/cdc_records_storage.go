@@ -12,15 +12,9 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/model"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/cockroachdb/pebble"
-)
-
-const (
-	/** begin with in-memory store, and then switch to Pebble DB
-		when the number of stored records crosses 100k
-	**/
-	defaultNumRecordsSwitchThreshold = 1_00_000
 )
 
 func encVal(val any) ([]byte, error) {
@@ -48,8 +42,8 @@ func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
 		pebbleDB:                  nil,
 		numRecords:                0,
 		flowJobName:               flowJobName,
-		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, util.RandomString(8)),
-		numRecordsSwitchThreshold: defaultNumRecordsSwitchThreshold,
+		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
+		numRecordsSwitchThreshold: peerdbenv.GetPeerDBCDCDiskSpillThreshold(),
 	}
 }
 
@@ -80,7 +74,7 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 
 func (c *cdcRecordsStore) Set(key model.TableWithPkey, rec model.Record) error {
 	_, ok := c.inMemoryRecords[key]
-	if ok || len(c.inMemoryRecords) < defaultNumRecordsSwitchThreshold {
+	if ok || len(c.inMemoryRecords) < c.numRecordsSwitchThreshold {
 		c.inMemoryRecords[key] = rec
 	} else {
 		if c.pebbleDB == nil {

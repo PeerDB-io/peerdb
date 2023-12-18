@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -346,7 +347,8 @@ func getRawTableIdentifier(jobName string) string {
 }
 
 func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
-	sourceTableSchema *protos.TableSchema) string {
+	sourceTableSchema *protos.TableSchema,
+) string {
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
@@ -412,16 +414,19 @@ func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, erro
 }
 
 func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
-	rows, err := c.pool.Query(c.ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-	if err != nil {
-		return false, fmt.Errorf("failed to check if job exists: %w", err)
-	}
-	defer rows.Close()
-
 	var result pgtype.Bool
-	rows.Next()
-	err = rows.Scan(&result)
+	err := c.pool.QueryRow(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
+	if err != nil {
+		return false, fmt.Errorf("error reading result row: %w", err)
+	}
+	return result.Bool, nil
+}
+
+func (c *PostgresConnector) jobMetadataExistsTx(tx pgx.Tx, jobName string) (bool, error) {
+	var result pgtype.Bool
+	err := tx.QueryRow(c.ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
@@ -439,8 +444,9 @@ func (c *PostgresConnector) majorVersionCheck(majorVersion int) (bool, error) {
 }
 
 func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64, syncBatchID int64,
-	syncRecordsTx pgx.Tx) error {
-	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
+	syncRecordsTx pgx.Tx,
+) error {
+	jobMetadataExists, err := c.jobMetadataExistsTx(syncRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
 	}
@@ -465,8 +471,9 @@ func (c *PostgresConnector) updateSyncMetadata(flowJobName string, lastCP int64,
 }
 
 func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normalizeBatchID int64,
-	normalizeRecordsTx pgx.Tx) error {
-	jobMetadataExists, err := c.jobMetadataExists(flowJobName)
+	normalizeRecordsTx pgx.Tx,
+) error {
+	jobMetadataExists, err := c.jobMetadataExistsTx(normalizeRecordsTx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get sync status for flow job: %w", err)
 	}
@@ -485,7 +492,8 @@ func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normaliz
 }
 
 func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) (map[string][]string, error) {
+	normalizeBatchID int64,
+) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
 	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getTableNameToUnchangedToastColsSQL, c.metadataSchema,
@@ -514,7 +522,8 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 }
 
 func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifier string,
-	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool) []string {
+	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool,
+) []string {
 	if supportsMerge {
 		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns, rawTableIdentifier)}
 	}
@@ -524,7 +533,8 @@ func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifi
 }
 
 func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string,
-	rawTableIdentifier string) []string {
+	rawTableIdentifier string,
+) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
@@ -532,7 +542,7 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		columnNames = append(columnNames, fmt.Sprintf("\"%s\"", columnName))
 		pgType := qValueKindToPostgresType(genericColumnType)
-		if strings.Contains(genericColumnType, "array") {
+		if qvalue.QValueKind(genericColumnType).IsArray() {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS \"%s\"",
 					strings.Trim(columnName, "\""), pgType, columnName))
@@ -572,7 +582,8 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 }
 
 func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier string, unchangedToastColumns []string,
-	rawTableIdentifier string) string {
+	rawTableIdentifier string,
+) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := maps.Keys(normalizedTableSchema.Columns)
 	for i, columnName := range columnNames {
@@ -586,7 +597,7 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		pgType := qValueKindToPostgresType(genericColumnType)
-		if strings.Contains(genericColumnType, "array") {
+		if qvalue.QValueKind(genericColumnType).IsArray() {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS \"%s\"",
 					strings.Trim(columnName, "\""), pgType, columnName))

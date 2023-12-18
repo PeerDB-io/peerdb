@@ -15,7 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -65,7 +65,7 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	suffix := util.RandomString(8)
+	suffix := shared.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	pgSuffix := fmt.Sprintf("sf_%s_%s", strings.ToLower(suffix), tsSuffix)
 
@@ -455,7 +455,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	// and execute a transaction touching toast columns
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		//complex transaction with random DMLs on a table with toast columns
+		// complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s (t1,t2,k) SELECT random_string(9000),random_string(9000),
@@ -527,7 +527,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	// and execute a transaction touching toast columns
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		//complex transaction with random DMLs on a table with toast columns
+		// complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s (t1,k) SELECT random_string(9000),
@@ -688,10 +688,12 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{"c41", "c1", "c2", "c3", "c4",
+	noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{
+		"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46"})
+		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46",
+	})
 	if err != nil {
 		fmt.Println("error  %w", err)
 	}

@@ -30,7 +30,8 @@ type S3Connector struct {
 }
 
 func NewS3Connector(ctx context.Context,
-	config *protos.S3Config) (*S3Connector, error) {
+	config *protos.S3Config,
+) (*S3Connector, error) {
 	keyID := ""
 	if config.AccessKeyId != nil {
 		keyID = *config.AccessKeyId
@@ -167,21 +168,11 @@ func (c *S3Connector) SetupMetadataTables() error {
 }
 
 func (c *S3Connector) GetLastSyncBatchID(jobName string) (int64, error) {
-	syncBatchID, err := c.pgMetadata.GetLastBatchID(jobName)
-	if err != nil {
-		return 0, err
-	}
-
-	return syncBatchID, nil
+	return c.pgMetadata.GetLastBatchID(jobName)
 }
 
-func (c *S3Connector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
-	res, err := c.pgMetadata.FetchLastOffset(jobName)
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
+func (c *S3Connector) GetLastOffset(jobName string) (int64, error) {
+	return c.pgMetadata.FetchLastOffset(jobName)
 }
 
 // update offset for a job
@@ -200,7 +191,7 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 
 	tableNameRowsMapping := make(map[string]uint32)
 	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
@@ -239,16 +230,16 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 	}
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: req.Records.GetFirstCheckpoint(),
-		LastSyncedCheckPointID:  lastCheckpoint,
-		NumRecordsSynced:        int64(numRecords),
-		TableNameRowsMapping:    tableNameRowsMapping,
+		LastSyncedCheckPointID: lastCheckpoint,
+		NumRecordsSynced:       int64(numRecords),
+		TableNameRowsMapping:   tableNameRowsMapping,
 	}, nil
 }
 
 func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
 	*protos.SetupNormalizedTableBatchOutput,
-	error) {
+	error,
+) {
 	c.logger.Info("SetupNormalizedTables for S3 is a no-op")
 	return nil, nil
 }

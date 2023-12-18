@@ -26,7 +26,8 @@ type PostgresMetadataStore struct {
 }
 
 func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
-	schemaName string) (*PostgresMetadataStore, error) {
+	schemaName string,
+) (*PostgresMetadataStore, error) {
 	var storePool *pgxpool.Pool
 	var poolErr error
 	if pgConfig == nil {
@@ -136,7 +137,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 	return nil
 }
 
-func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 	rows := p.pool.QueryRow(p.ctx, `
 		SELECT last_offset
 		FROM `+p.schemaName+`.`+lastSyncStateTableName+`
@@ -147,20 +148,16 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (*protos.LastSyn
 	if err != nil {
 		// if the job doesn't exist, return 0
 		if err.Error() == "no rows in result set" {
-			return &protos.LastSyncState{
-				Checkpoint: 0,
-			}, nil
+			return 0, nil
 		}
 
 		p.logger.Error("failed to get last offset", slog.Any("error", err))
-		return nil, err
+		return 0, err
 	}
 
 	p.logger.Info("got last offset for job", slog.Int64("offset", offset.Int64))
 
-	return &protos.LastSyncState{
-		Checkpoint: offset.Int64,
-	}, nil
+	return offset.Int64, nil
 }
 
 func (p *PostgresMetadataStore) GetLastBatchID(jobName string) (int64, error) {
@@ -226,7 +223,6 @@ func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 		UPDATE `+p.schemaName+`.`+lastSyncStateTableName+`
 		 SET sync_batch_id=sync_batch_id+1 WHERE job_name=$1
 	`, jobName)
-
 	if err != nil {
 		p.logger.Error("failed to increment sync batch id", slog.Any("error", err))
 		return err

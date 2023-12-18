@@ -55,7 +55,8 @@ func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
 }
 
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
-	req *protos.CreateCDCFlowRequest, workflowID string) error {
+	req *protos.CreateCDCFlowRequest, workflowID string,
+) error {
 	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.Source.Name)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
@@ -86,7 +87,8 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 }
 
 func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
-	req *protos.CreateQRepFlowRequest, workflowID string) error {
+	req *protos.CreateQRepFlowRequest, workflowID string,
+) error {
 	sourcePeerName := req.QrepConfig.SourcePeer.Name
 	sourcePeerID, _, srcErr := h.getPeerID(ctx, sourcePeerName)
 	if srcErr != nil {
@@ -117,7 +119,8 @@ func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
 }
 
 func (h *FlowRequestHandler) CreateCDCFlow(
-	ctx context.Context, req *protos.CreateCDCFlowRequest) (*protos.CreateCDCFlowResponse, error) {
+	ctx context.Context, req *protos.CreateCDCFlowRequest,
+) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
@@ -223,7 +226,8 @@ func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 }
 
 func (h *FlowRequestHandler) CreateQRepFlow(
-	ctx context.Context, req *protos.CreateQRepFlowRequest) (*protos.CreateQRepFlowResponse, error) {
+	ctx context.Context, req *protos.CreateQRepFlowRequest,
+) (*protos.CreateQRepFlowResponse, error) {
 	cfg := req.QrepConfig
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
@@ -696,5 +700,4 @@ func (h *FlowRequestHandler) DropPeer(
 	return &protos.DropPeerResponse{
 		Ok: true,
 	}, nil
-
 }

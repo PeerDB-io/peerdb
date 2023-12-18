@@ -133,22 +133,23 @@ func (g *GenericSQLQueryExecutor) CountRows(schemaName string, tableName string)
 func (g *GenericSQLQueryExecutor) CountNonNullRows(
 	schemaName string,
 	tableName string,
-	columnName string) (int64, error) {
+	columnName string,
+) (int64, error) {
 	var count pgtype.Int8
 	err := g.db.QueryRowx("SELECT COUNT(CASE WHEN " + columnName +
 		" IS NOT NULL THEN 1 END) AS non_null_count FROM " + schemaName + "." + tableName).Scan(&count)
 	return count.Int64, err
 }
 
-func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (*model.QField, error) {
+func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {
-		return nil, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
+		return model.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
 	}
 
 	nullable, ok := ct.Nullable()
 
-	return &model.QField{
+	return model.QField{
 		Name:     ct.Name(),
 		Type:     qvKind,
 		Nullable: ok && nullable,
@@ -162,7 +163,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	}
 
 	// Convert dbColTypes to QFields
-	qfields := make([]*model.QField, len(dbColTypes))
+	qfields := make([]model.QField, len(dbColTypes))
 	for i, ct := range dbColTypes {
 		qfield, err := g.columnTypeToQField(ct)
 		if err != nil {
@@ -173,7 +174,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		qfields[i] = qfield
 	}
 
-	var records []*model.QRecord
+	var records []model.QRecord
 	totalRowsProcessed := 0
 	const heartBeatNumRows = 25000
 
@@ -265,7 +266,8 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 }
 
 func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
-	query string, args ...interface{}) (*model.QRecordBatch, error) {
+	query string, args ...interface{},
+) (*model.QRecordBatch, error) {
 	rows, err := g.db.QueryxContext(g.ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -276,7 +278,8 @@ func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
 }
 
 func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
-	query string, arg interface{}) (*model.QRecordBatch, error) {
+	query string, arg interface{},
+) (*model.QRecordBatch, error) {
 	rows, err := g.db.NamedQueryContext(g.ctx, query, arg)
 	if err != nil {
 		return nil, err

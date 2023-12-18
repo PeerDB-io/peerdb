@@ -14,6 +14,7 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
@@ -37,7 +38,7 @@ type CDCPullConnector interface {
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(req *model.PullRecordsRequest) error
+	PullRecords(catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
@@ -59,7 +60,7 @@ type CDCSyncConnector interface {
 	SetupMetadataTables() error
 
 	// GetLastOffset gets the last offset from the metadata table on the destination
-	GetLastOffset(jobName string) (*protos.LastSyncState, error)
+	GetLastOffset(jobName string) (int64, error)
 
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(jobName string) (int64, error)
@@ -160,7 +161,8 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 }
 
 func GetCDCNormalizeConnector(ctx context.Context,
-	config *protos.Peer) (CDCNormalizeConnector, error) {
+	config *protos.Peer,
+) (CDCNormalizeConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -245,7 +247,8 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 }
 
 func GetQRepConsolidateConnector(ctx context.Context,
-	config *protos.Peer) (QRepConsolidateConnector, error) {
+	config *protos.Peer,
+) (QRepConsolidateConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_SnowflakeConfig:

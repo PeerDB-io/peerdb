@@ -42,7 +42,8 @@ func NewEventHubManager(
 }
 
 func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
-	*azeventhubs.ProducerClient, error) {
+	*azeventhubs.ProducerClient, error,
+) {
 	ehConfig, ok := m.peerConfig.Get(name.PeerName)
 	if !ok {
 		return nil, fmt.Errorf("eventhub '%s' not configured", name)
@@ -118,7 +119,8 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 }
 
 func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (
-	*azeventhubs.EventDataBatch, error) {
+	*azeventhubs.EventDataBatch, error,
+) {
 	hub, err := m.GetOrCreateHubClient(ctx, name)
 	if err != nil {
 		return nil, err

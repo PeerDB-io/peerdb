@@ -45,7 +45,7 @@ func setupPyroscope(opts *WorkerOptions) {
 		ServerAddress: opts.PyroscopeServer,
 
 		// you can disable logging by setting this to nil
-		Logger: pyroscope.StandardLogger,
+		Logger: nil,
 
 		// you can provide static tags via a map:
 		Tags: map[string]string{"hostname": os.Getenv("HOSTNAME")},
@@ -66,7 +66,6 @@ func setupPyroscope(opts *WorkerOptions) {
 			pyroscope.ProfileBlockDuration,
 		},
 	})
-
 	if err != nil {
 		log.Fatal(err)
 	}

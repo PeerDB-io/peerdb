@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type NameAndExclude struct {
@@ -29,13 +30,13 @@ func NewNameAndExclude(name string, exclude []string) NameAndExclude {
 type PullRecordsRequest struct {
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
-	// LastSyncedID is the last ID that was synced.
-	LastSyncState *protos.LastSyncState
+	// LastOffset is the latest LSN that was synced.
+	LastOffset int64
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
-	//relId to name Mapping
+	// relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
 	TableNameMapping map[string]NameAndExclude
@@ -63,20 +64,18 @@ type Record interface {
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
 	ColToValIdx map[string]int
-	Values      []*qvalue.QValue
+	Values      []qvalue.QValue
 }
 
-func NewRecordItems() *RecordItems {
+func NewRecordItems(capacity int) *RecordItems {
 	return &RecordItems{
-		ColToValIdx: make(map[string]int),
-		// create a slice of 32 qvalues so that we don't have to allocate memory
-		// for each record to reduce GC pressure
-		Values: make([]*qvalue.QValue, 0, 32),
+		ColToValIdx: make(map[string]int, capacity),
+		Values:      make([]qvalue.QValue, 0, capacity),
 	}
 }
 
-func NewRecordItemWithData(cols []string, val []*qvalue.QValue) *RecordItems {
-	recordItem := NewRecordItems()
+func NewRecordItemWithData(cols []string, val []qvalue.QValue) *RecordItems {
+	recordItem := NewRecordItems(len(cols))
 	for i, col := range cols {
 		recordItem.ColToValIdx[col] = len(recordItem.Values)
 		recordItem.Values = append(recordItem.Values, val[i])
@@ -84,7 +83,7 @@ func NewRecordItemWithData(cols []string, val []*qvalue.QValue) *RecordItems {
 	return recordItem
 }
 
-func (r *RecordItems) AddColumn(col string, val *qvalue.QValue) {
+func (r *RecordItems) AddColumn(col string, val qvalue.QValue) {
 	if idx, ok := r.ColToValIdx[col]; ok {
 		r.Values[idx] = val
 	} else {
@@ -93,11 +92,11 @@ func (r *RecordItems) AddColumn(col string, val *qvalue.QValue) {
 	}
 }
 
-func (r *RecordItems) GetColumnValue(col string) *qvalue.QValue {
+func (r *RecordItems) GetColumnValue(col string) qvalue.QValue {
 	if idx, ok := r.ColToValIdx[col]; ok {
 		return r.Values[idx]
 	}
-	return nil
+	return qvalue.QValue{}
 }
 
 // UpdateIfNotExists takes in a RecordItems as input and updates the values of the
@@ -116,10 +115,10 @@ func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
 	return updatedCols
 }
 
-func (r *RecordItems) GetValueByColName(colName string) (*qvalue.QValue, error) {
+func (r *RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
 	idx, ok := r.ColToValIdx[colName]
 	if !ok {
-		return nil, fmt.Errorf("column name %s not found", colName)
+		return qvalue.QValue{}, fmt.Errorf("column name %s not found", colName)
 	}
 	return r.Values[idx], nil
 }
@@ -133,7 +132,7 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 		return nil, errors.New("colToValIdx is nil")
 	}
 
-	jsonStruct := make(map[string]interface{})
+	jsonStruct := make(map[string]interface{}, len(r.ColToValIdx))
 	for col, idx := range r.ColToValIdx {
 		v := r.Values[idx]
 		if v.Value == nil {
@@ -179,7 +178,7 @@ type ToJSONOptions struct {
 }
 
 func NewToJSONOptions(unnestCols []string) *ToJSONOptions {
-	unnestColumns := make(map[string]struct{})
+	unnestColumns := make(map[string]struct{}, len(unnestCols))
 	for _, col := range unnestCols {
 		unnestColumns[col] = struct{}{}
 	}
@@ -319,59 +318,41 @@ type CDCRecordStream struct {
 	SchemaDeltas chan *protos.TableSchemaDelta
 	// Relation message mapping
 	RelationMessageMapping chan *RelationMessageMapping
-	// Mutex for synchronizing access to the checkpoint fields
-	checkpointMutex sync.Mutex
-	// firstCheckPointID is the first ID of the commit that corresponds to this batch.
-	firstCheckPointID int64
 	// Indicates if the last checkpoint has been set.
 	lastCheckpointSet bool
 	// lastCheckPointID is the last ID of the commit that corresponds to this batch.
-	lastCheckPointID int64
+	lastCheckPointID atomic.Int64
 	// empty signal to indicate if the records are going to be empty or not.
 	emptySignal chan bool
 }
 
 func NewCDCRecordStream() *CDCRecordStream {
+	channelBuffer := peerdbenv.GetPeerDBCDCChannelBufferSize()
 	return &CDCRecordStream{
-		records: make(chan Record, 1<<18),
+		records: make(chan Record, channelBuffer),
 		// TODO (kaushik): more than 1024 schema deltas can cause problems!
 		SchemaDeltas:           make(chan *protos.TableSchemaDelta, 1<<10),
 		emptySignal:            make(chan bool, 1),
 		RelationMessageMapping: make(chan *RelationMessageMapping, 1),
 		lastCheckpointSet:      false,
-		lastCheckPointID:       0,
-		firstCheckPointID:      0,
+		lastCheckPointID:       atomic.Int64{},
 	}
 }
 
 func (r *CDCRecordStream) UpdateLatestCheckpoint(val int64) {
-	r.checkpointMutex.Lock()
-	defer r.checkpointMutex.Unlock()
-
-	if r.firstCheckPointID == 0 {
-		r.firstCheckPointID = val
+	// TODO update with https://github.com/golang/go/issues/63999 once implemented
+	// r.lastCheckPointID.Max(val)
+	oldLast := r.lastCheckPointID.Load()
+	for oldLast < val && !r.lastCheckPointID.CompareAndSwap(oldLast, val) {
+		oldLast = r.lastCheckPointID.Load()
 	}
-
-	if val > r.lastCheckPointID {
-		r.lastCheckPointID = val
-	}
-}
-
-func (r *CDCRecordStream) GetFirstCheckpoint() int64 {
-	r.checkpointMutex.Lock()
-	defer r.checkpointMutex.Unlock()
-
-	return r.firstCheckPointID
 }
 
 func (r *CDCRecordStream) GetLastCheckpoint() (int64, error) {
-	r.checkpointMutex.Lock()
-	defer r.checkpointMutex.Unlock()
-
 	if !r.lastCheckpointSet {
 		return 0, errors.New("last checkpoint not set, stream is still active")
 	}
-	return r.lastCheckPointID, nil
+	return r.lastCheckPointID.Load(), nil
 }
 
 func (r *CDCRecordStream) AddRecord(record Record) {
@@ -456,8 +437,6 @@ type NormalizeRecordsRequest struct {
 }
 
 type SyncResponse struct {
-	// FirstSyncedCheckPointID is the first ID that was synced.
-	FirstSyncedCheckPointID int64
 	// LastSyncedCheckPointID is the last ID that was synced.
 	LastSyncedCheckPointID int64
 	// NumRecordsSynced is the number of records that were synced.

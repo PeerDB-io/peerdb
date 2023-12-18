@@ -8,14 +8,14 @@ import (
 )
 
 type QRecordAvroConverter struct {
-	QRecord        *QRecord
+	QRecord        QRecord
 	TargetDWH      qvalue.QDWHType
 	NullableFields map[string]struct{}
 	ColNames       []string
 }
 
 func NewQRecordAvroConverter(
-	q *QRecord,
+	q QRecord,
 	targetDWH qvalue.QDWHType,
 	nullableFields map[string]struct{},
 	colNames []string,
@@ -36,7 +36,7 @@ func (qac *QRecordAvroConverter) Convert() (map[string]interface{}, error) {
 		_, nullable := qac.NullableFields[key]
 
 		avroConverter := qvalue.NewQValueAvroConverter(
-			&qac.QRecord.Entries[idx],
+			qac.QRecord.Entries[idx],
 			qac.TargetDWH,
 			nullable,
 		)

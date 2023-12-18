@@ -1,15 +1,12 @@
 'use client';
-import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepSyncMode } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
-import { Label } from '@/lib/Label';
-import { RowWithSwitch, RowWithTextField } from '@/lib/Layout';
-import { Switch } from '@/lib/Switch';
-import { TextField } from '@/lib/TextField';
-import { Dispatch, SetStateAction } from 'react';
-import { InfoPopover } from '../../../../components/InfoPopover';
+import { Button } from '@/lib/Button';
+import { Icon } from '@/lib/Icon';
+import { Dispatch, SetStateAction, useMemo, useState } from 'react';
 import { CDCConfig, MirrorSetter, TableMapRow } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from '../helpers/common';
+import CDCFields from './fields';
 import TableMapping from './tablemapping';
 
 interface MirrorConfigProps {
@@ -40,10 +37,19 @@ export default function CDCConfigForm({
   rows,
   setRows,
 }: MirrorConfigProps) {
+  const [show, setShow] = useState(false);
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
     let stateVal: string | boolean | QRepSyncMode = val;
     setting.stateHandler(stateVal, setter);
   };
+
+  const normalSettings = useMemo(() => {
+    return settings.filter((setting) => setting.advanced != true);
+  }, [settings]);
+
+  const advancedSettings = useMemo(() => {
+    return settings.filter((setting) => setting.advanced == true);
+  }, [settings]);
 
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
@@ -66,72 +72,46 @@ export default function CDCConfigForm({
           setRows={setRows}
           peerType={mirrorConfig.destination?.type}
         />
-        {settings.map((setting, id) => {
+        {normalSettings.map((setting, id) => {
           return (
-            paramDisplayCondition(setting) &&
-            (setting.type === 'switch' ? (
-              <RowWithSwitch
+            paramDisplayCondition(setting) && (
+              <CDCFields
                 key={id}
-                label={<Label>{setting.label}</Label>}
-                action={
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Switch
-                      onCheckedChange={(state: boolean) =>
-                        handleChange(state, setting)
-                      }
-                    />
-                    {setting.tips && (
-                      <InfoPopover
-                        tips={setting.tips}
-                        link={setting.helpfulLink}
-                      />
-                    )}
-                  </div>
-                }
+                handleChange={handleChange}
+                setting={setting}
               />
-            ) : (
-              <RowWithTextField
-                key={id}
-                label={
-                  <Label>
-                    {setting.label}
-                    {RequiredIndicator(setting.required)}
-                  </Label>
-                }
-                action={
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <TextField
-                      variant='simple'
-                      type={setting.type}
-                      defaultValue={setting.default}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        handleChange(e.target.value, setting)
-                      }
-                    />
-                    {setting.tips && (
-                      <InfoPopover
-                        tips={setting.tips}
-                        link={setting.helpfulLink}
-                      />
-                    )}
-                  </div>
-                }
-              />
-            ))
+            )
           );
         })}
+        <Button
+          className='IconButton'
+          aria-label='collapse'
+          onClick={() => {
+            setShow((prev) => !prev);
+          }}
+          style={{
+            width: '13em',
+            height: '2.5em',
+            marginTop: '2rem',
+            marginBottom: '1rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <h3 style={{ marginRight: '10px' }}>Advanced Settings</h3>
+            <Icon name={`keyboard_double_arrow_${show ? 'up' : 'down'}`} />
+          </div>
+        </Button>
+
+        {show &&
+          advancedSettings.map((setting, id) => {
+            return (
+              <CDCFields
+                key={id}
+                handleChange={handleChange}
+                setting={setting}
+              />
+            );
+          })}
       </>
     );
 }

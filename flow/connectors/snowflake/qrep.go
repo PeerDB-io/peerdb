@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/jackc/pgx/v5/pgtype"
+	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -308,14 +309,10 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnIn
 		}
 		columnMap[colName.String] = colType.String
 	}
-	var cols []string
-	for k := range columnMap {
-		cols = append(cols, k)
-	}
 
 	return &model.ColumnInformation{
 		ColumnMap: columnMap,
-		Columns:   cols,
+		Columns:   maps.Keys(columnMap),
 	}, nil
 }
 

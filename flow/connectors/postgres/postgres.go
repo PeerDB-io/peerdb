@@ -168,35 +168,32 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 }
 
 // GetLastOffset returns the last synced offset for a job.
-func (c *PostgresConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
+func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 	rows, err := c.pool.
 		Query(c.ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return nil, fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
+		return 0, fmt.Errorf("error getting last offset for job %s: %w", jobName, err)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
 		c.logger.Info("No row found, returning nil")
-		return nil, nil
+		return 0, nil
 	}
 	var result pgtype.Int8
 	err = rows.Scan(&result)
 	if err != nil {
-		return nil, fmt.Errorf("error while reading result row: %w", err)
+		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	if result.Int64 == 0 {
-		c.logger.Warn("Assuming zero offset means no sync has happened, returning nil")
-		return nil, nil
+		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
 
-	return &protos.LastSyncState{
-		Checkpoint: result.Int64,
-	}, nil
+	return result.Int64, nil
 }
 
 // PullRecords pulls records from the source.
-func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
+func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error {
 	defer func() {
 		req.RecordStream.Close()
 	}()
@@ -249,16 +246,13 @@ func (c *PostgresConnector) PullRecords(req *model.PullRecordsRequest) error {
 		return err
 	}
 
-	catalogPool, ok := c.ctx.Value(shared.CDCMirrorMonitorKey).(*pgxpool.Pool)
-	if ok {
-		latestLSN, err := c.getCurrentLSN()
-		if err != nil {
-			return fmt.Errorf("failed to get current LSN: %w", err)
-		}
-		err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, catalogPool, req.FlowJobName, latestLSN)
-		if err != nil {
-			return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
-		}
+	latestLSN, err := c.getCurrentLSN()
+	if err != nil {
+		return fmt.Errorf("failed to get current LSN: %w", err)
+	}
+	err = monitoring.UpdateLatestLSNAtSourceForCDCFlow(c.ctx, catalogPool, req.FlowJobName, latestLSN)
+	if err != nil {
+		return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 	}
 
 	return nil
@@ -273,12 +267,9 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	if err != nil {
 		return nil, fmt.Errorf("failed to get previous syncBatchID: %w", err)
 	}
-	syncBatchID = syncBatchID + 1
+	syncBatchID += 1
 	records := make([][]interface{}, 0)
 	tableNameRowsMapping := make(map[string]uint32)
-
-	first := true
-	var firstCP int64 = 0
 
 	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
@@ -340,18 +331,12 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		default:
 			return nil, fmt.Errorf("unsupported record type for Postgres flow connector: %T", typedRecord)
 		}
-
-		if first {
-			firstCP = record.GetCheckPointID()
-			first = false
-		}
 	}
 
 	if len(records) == 0 {
 		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
+			LastSyncedCheckPointID: 0,
+			NumRecordsSynced:       0,
 		}, nil
 	}
 
@@ -367,8 +352,10 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}()
 
 	syncedRecordsCount, err := syncRecordsTx.CopyFrom(c.ctx, pgx.Identifier{c.metadataSchema, rawTableIdentifier},
-		[]string{"_peerdb_uid", "_peerdb_timestamp", "_peerdb_destination_table_name", "_peerdb_data",
-			"_peerdb_record_type", "_peerdb_match_data", "_peerdb_batch_id", "_peerdb_unchanged_toast_columns"},
+		[]string{
+			"_peerdb_uid", "_peerdb_timestamp", "_peerdb_destination_table_name", "_peerdb_data",
+			"_peerdb_record_type", "_peerdb_match_data", "_peerdb_batch_id", "_peerdb_unchanged_toast_columns",
+		},
 		pgx.CopyFromRows(records))
 	if err != nil {
 		return nil, fmt.Errorf("error syncing records: %w", err)
@@ -397,11 +384,10 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
-		NumRecordsSynced:        int64(len(records)),
-		CurrentSyncBatchID:      syncBatchID,
-		TableNameRowsMapping:    tableNameRowsMapping,
+		LastSyncedCheckPointID: lastCP,
+		NumRecordsSynced:       int64(len(records)),
+		CurrentSyncBatchID:     syncBatchID,
+		TableNameRowsMapping:   tableNameRowsMapping,
 	}, nil
 }
 
@@ -537,7 +523,8 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 
 // GetTableSchema returns the schema for a table, implementing the Connector interface.
 func (c *PostgresConnector) GetTableSchema(
-	req *protos.GetTableSchemaBatchInput) (*protos.GetTableSchemaBatchOutput, error) {
+	req *protos.GetTableSchemaBatchInput,
+) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(tableName)
@@ -610,7 +597,8 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.
 func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
-	*protos.SetupNormalizedTableBatchOutput, error) {
+	*protos.SetupNormalizedTableBatchOutput, error,
+) {
 	tableExistsMapping := make(map[string]bool)
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	createNormalizedTablesTx, err := c.pool.Begin(c.ctx)
@@ -671,7 +659,8 @@ func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSc
 // ReplayTableSchemaDelta changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
-	schemaDeltas []*protos.TableSchemaDelta) error {
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
@@ -750,7 +739,8 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 		tableIdentifierMapping[tableName] = &protos.TableIdentifier{
 			TableIdentifier: &protos.TableIdentifier_PostgresTableIdentifier{
 				PostgresTableIdentifier: &protos.PostgresTableIdentifier{
-					RelId: relID},
+					RelId: relID,
+				},
 			},
 		}
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))

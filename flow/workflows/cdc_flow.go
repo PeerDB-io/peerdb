@@ -8,9 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
-	util "github.com/PeerDB-io/peer-flow/utils"
 	"github.com/google/uuid"
-	"github.com/hashicorp/go-multierror"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -47,9 +45,9 @@ type CDCFlowWorkflowState struct {
 	// SnapshotComplete indicates whether the initial snapshot workflow has completed.
 	SnapshotComplete bool
 	// Errors encountered during child sync flow executions.
-	SyncFlowErrors error
+	SyncFlowErrors []string
 	// Errors encountered during child sync flow executions.
-	NormalizeFlowErrors error
+	NormalizeFlowErrors []string
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
 	RelationMessageMapping *model.RelationMessageMapping
@@ -76,7 +74,7 @@ func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
 }
 
 // truncate the progress and other arrays to a max of 10 elements
-func (s *CDCFlowWorkflowState) TruncateProgress() {
+func (s *CDCFlowWorkflowState) TruncateProgress(logger log.Logger) {
 	if len(s.Progress) > 10 {
 		s.Progress = s.Progress[len(s.Progress)-10:]
 	}
@@ -88,12 +86,12 @@ func (s *CDCFlowWorkflowState) TruncateProgress() {
 	}
 
 	if s.SyncFlowErrors != nil {
-		fmt.Println("SyncFlowErrors: ", s.SyncFlowErrors)
+		logger.Warn("SyncFlowErrors: ", s.SyncFlowErrors)
 		s.SyncFlowErrors = nil
 	}
 
 	if s.NormalizeFlowErrors != nil {
-		fmt.Println("NormalizeFlowErrors: ", s.NormalizeFlowErrors)
+		logger.Warn("NormalizeFlowErrors: ", s.NormalizeFlowErrors)
 		s.NormalizeFlowErrors = nil
 	}
 }
@@ -140,7 +138,7 @@ func (w *CDCFlowWorkflowExecution) receiveAndHandleSignalAsync(ctx workflow.Cont
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
 	if ok {
-		state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+		state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 	}
 }
 
@@ -326,7 +324,7 @@ func CDCFlowWorkflowWithConfig(
 				// only place we block on receive, so signal processing is immediate
 				ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 				if ok {
-					state.ActiveSignal = util.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+					state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 				}
 			}
 		}
@@ -386,7 +384,7 @@ func CDCFlowWorkflowWithConfig(
 		var childSyncFlowRes *model.SyncResponse
 		if err := childSyncFlowFuture.Get(ctx, &childSyncFlowRes); err != nil {
 			w.logger.Error("failed to execute sync flow: ", err)
-			state.SyncFlowErrors = multierror.Append(state.SyncFlowErrors, err)
+			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 		} else {
 			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			if childSyncFlowRes != nil {

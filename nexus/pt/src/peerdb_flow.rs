@@ -298,8 +298,6 @@ pub struct CreateRawTableOutput {
 pub struct TableSchema {
     #[prost(string, tag="1")]
     pub table_identifier: ::prost::alloc::string::String,
-    /// list of column names and types, types can be one of the following:
-    /// "string", "int", "float", "bool", "timestamp".
     #[prost(map="string, string", tag="2")]
     pub columns: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(string, repeated, tag="3")]

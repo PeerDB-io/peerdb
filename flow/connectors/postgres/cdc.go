@@ -143,9 +143,9 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 
 	// start replication
 	p.startLSN = 0
-	if req.LastSyncState != nil && req.LastSyncState.Checkpoint > 0 {
-		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastSyncState.Checkpoint))
-		p.startLSN = pglogrepl.LSN(req.LastSyncState.Checkpoint + 1)
+	if req.LastOffset > 0 {
+		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastOffset))
+		p.startLSN = pglogrepl.LSN(req.LastOffset + 1)
 	}
 
 	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, p.startLSN, replicationOpts)
@@ -349,7 +349,6 @@ func (p *PostgresCDCSource) consumeStream(
 			p.logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
 			rec, err := p.processMessage(records, xld)
-
 			if err != nil {
 				return fmt.Errorf("error processing message: %w", err)
 			}
@@ -526,7 +525,7 @@ func (p *PostgresCDCSource) processInsertMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Warn(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Debug(fmt.Sprintf("InsertMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -561,7 +560,7 @@ func (p *PostgresCDCSource) processUpdateMessage(
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Warn(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
+	p.logger.Debug(fmt.Sprintf("UpdateMessage => LSN: %d, RelationID: %d, Relation Name: %s",
 		lsn, relID, tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
@@ -640,11 +639,11 @@ func (p *PostgresCDCSource) convertTupleToMap(
 ) (*model.RecordItems, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
-		return model.NewRecordItems(), make(map[string]struct{}), nil
+		return model.NewRecordItems(0), make(map[string]struct{}), nil
 	}
 
 	// create empty map of string to interface{}
-	items := model.NewRecordItems()
+	items := model.NewRecordItems(len(tuple.Columns))
 	unchangedToastColumns := make(map[string]struct{})
 
 	for idx, col := range tuple.Columns {
@@ -654,7 +653,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 		}
 		switch col.DataType {
 		case 'n': // null
-			val := &qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
+			val := qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}
 			items.AddColumn(colName, val)
 		case 't': // text
 			/* bytea also appears here as a hex */
@@ -678,7 +677,7 @@ func (p *PostgresCDCSource) convertTupleToMap(
 	return items, unchangedToastColumns, nil
 }
 
-func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, formatCode int16) (*qvalue.QValue, error) {
+func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, formatCode int16) (qvalue.QValue, error) {
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
@@ -689,17 +688,17 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
 		if err != nil {
-			return nil, err
+			return qvalue.QValue{}, err
 		}
 		retVal, err := parseFieldFromPostgresOID(dataType, parsedData)
 		if err != nil {
-			return nil, err
+			return qvalue.QValue{}, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
 		retVal, err := parseFieldFromPostgresOID(dataType, string(data))
 		if err != nil {
-			return nil, err
+			return qvalue.QValue{}, err
 		}
 		return retVal, nil
 	}
@@ -710,25 +709,25 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 		if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
 			wkt, err := GeoValidate(string(data))
 			if err != nil {
-				return &qvalue.QValue{
+				return qvalue.QValue{
 					Kind:  customQKind,
 					Value: nil,
 				}, nil
 			} else {
-				return &qvalue.QValue{
+				return qvalue.QValue{
 					Kind:  customQKind,
 					Value: wkt,
 				}, nil
 			}
 		} else {
-			return &qvalue.QValue{
+			return qvalue.QValue{
 				Kind:  customQKind,
 				Value: string(data),
 			}, nil
 		}
 	}
 
-	return &qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
+	return qvalue.QValue{Kind: qvalue.QValueKindString, Value: string(data)}, nil
 }
 
 func convertRelationMessageToProto(msg *pglogrepl.RelationMessage) *protos.RelationMessage {
@@ -812,7 +811,8 @@ func (p *PostgresCDCSource) processRelationMessage(
 }
 
 func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
-	rec model.Record) (*model.TableWithPkey, error) {
+	rec model.Record,
+) (*model.TableWithPkey, error) {
 	tableName := rec.GetTableName()
 	pkeyColsMerged := make([]byte, 0)
 

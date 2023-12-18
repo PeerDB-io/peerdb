@@ -1,10 +1,14 @@
 package qvalue
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type QValueKind string
 
 const (
+	QValueKindEmpty       QValueKind = ""
 	QValueKindInvalid     QValueKind = "invalid"
 	QValueKindFloat32     QValueKind = "float32"
 	QValueKindFloat64     QValueKind = "float64"
@@ -37,17 +41,8 @@ const (
 	QValueKindArrayString  QValueKind = "array_string"
 )
 
-func QValueKindIsArray(kind QValueKind) bool {
-	switch kind {
-	case QValueKindArrayFloat32,
-		QValueKindArrayFloat64,
-		QValueKindArrayInt32,
-		QValueKindArrayInt64,
-		QValueKindArrayString:
-		return true
-	default:
-		return false
-	}
+func (kind QValueKind) IsArray() bool {
+	return strings.HasPrefix(string(kind), "array_")
 }
 
 var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
