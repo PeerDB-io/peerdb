@@ -285,7 +285,7 @@ func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (model.QField, err
 
 // bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
 func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, error) {
-	var fields []model.QField
+	fields := make([]model.QField, 0, len(schema))
 	for _, fieldSchema := range schema {
 		qField, err := bqFieldSchemaToQField(fieldSchema)
 		if err != nil {
@@ -433,7 +433,7 @@ func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 }
 
 func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
-	var fields []string
+	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		bqType, err := qValueKindToBqColTypeString(field.Type)
 		if err != nil {
