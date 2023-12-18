@@ -23,13 +23,20 @@ const stringifyConfig = (flowArray: any[]) => {
 };
 
 export default function Mirrors() {
-  const { data: flows, error, isLoading } = useSWR('/api/mirrors', fetcher);
+  const {
+    data: flows,
+    error,
+    isLoading,
+  }: { data: [any]; error: any; isLoading: boolean } = useSWR(
+    '/api/mirrors',
+    fetcher
+  );
 
-  let cdcFlows = flows?.filter((flow: any) => {
+  let cdcFlows = flows?.filter((flow) => {
     return !flow.query_string;
   });
 
-  let qrepFlows = flows?.filter((flow: any) => {
+  let qrepFlows = flows?.filter((flow) => {
     if (flow.config_proto && flow.query_string) {
       let config = QRepConfig.decode(flow.config_proto);
       const watermarkCol = config.watermarkColumn.toLowerCase();
@@ -38,7 +45,7 @@ export default function Mirrors() {
     return false;
   });
 
-  let xminFlows = flows?.filter((flow: any) => {
+  let xminFlows = flows?.filter((flow) => {
     if (flow.config_proto && flow.query_string) {
       let config = QRepConfig.decode(flow.config_proto);
       return config.watermarkColumn.toLowerCase() === 'xmin';
