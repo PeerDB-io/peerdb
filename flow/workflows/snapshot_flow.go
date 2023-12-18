@@ -186,7 +186,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 	return nil
 }
 
-// startChildQrepWorkflow starts a child workflow for query based replication.
 func (s *SnapshotFlowExecution) cloneTables(
 	ctx workflow.Context,
 	slotInfo *protos.SetupReplicationOutput,
@@ -195,8 +194,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	slog.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
 		slotInfo.SlotName, slotInfo.SnapshotName))
 
-	numTables := len(s.config.TableMappings)
-	boundSelector := concurrency.NewBoundSelector(maxParallelClones, numTables, ctx)
+	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
 
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
