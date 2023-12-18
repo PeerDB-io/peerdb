@@ -518,6 +518,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.peer,
+		SoftDelete:       true,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()

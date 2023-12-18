@@ -966,7 +966,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		}
 
 		// convert the column names and types to bigquery types
-		columns := make([]*bigquery.FieldSchema, len(tableSchema.Columns))
+		columns := make([]*bigquery.FieldSchema, len(tableSchema.Columns), len(tableSchema.Columns)+2)
 		idx := 0
 		for colName, genericColType := range tableSchema.Columns {
 			columns[idx] = &bigquery.FieldSchema{

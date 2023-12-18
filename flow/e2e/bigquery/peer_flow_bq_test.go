@@ -52,9 +52,10 @@ func (s PeerFlowE2ETestSuiteBQ) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, s.bqSuffix)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstSchemaQualified string, rowID int8) error {
+func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, rowID int8) error {
+	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, dstQualified)
 	query := fmt.Sprintf("SELECT `_PEERDB_IS_DELETED`,`_PEERDB_SYNCED_AT` FROM %s WHERE id = %d",
-		dstSchemaQualified, rowID)
+		qualifiedTableName, rowID)
 
 	recordBatch, err := s.bqHelper.ExecuteAndProcessQuery(query)
 	if err != nil {
@@ -456,7 +457,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k,_PEERDB_IS_DELETED, _PEERDB_SYNCED_AT")
+	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
 	env.AssertExpectations(s.t)
 	<-done
 }
@@ -1133,13 +1134,12 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
-	dstTableName := s.attachSchemaSuffix("test_peerdb_cols_dst")
-
+	dstTableName := "test_peerdb_cols_dst"
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
@@ -1154,6 +1154,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		SoftDelete:       true,
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
@@ -1179,7 +1180,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns() {
 			DELETE FROM %s WHERE id=1
 		`, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Inserted 10 rows into the source table")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1189,7 +1189,6 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	err = s.checkPeerdbColumns(dstTableName, 1)

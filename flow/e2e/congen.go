@@ -171,6 +171,7 @@ type FlowConnectionGenerationConfig struct {
 	PostgresPort     int
 	Destination      *protos.Peer
 	CdcStagingPath   string
+	SoftDelete       bool
 }
 
 // GenerateSnowflakePeer generates a snowflake peer config for testing.
@@ -201,8 +202,10 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
 	ret.Destination = c.Destination
 	ret.CdcStagingPath = c.CdcStagingPath
-	ret.SoftDelete = true
-	ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
+	ret.SoftDelete = c.SoftDelete
+	if ret.SoftDelete {
+		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
+	}
 	ret.SyncedAtColName = "_PEERDB_SYNCED_AT"
 	return ret, nil
 }

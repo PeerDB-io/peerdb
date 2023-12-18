@@ -1176,8 +1176,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 				Exclude:                    []string{"c2"},
 			},
 		},
-		Source:         e2e.GeneratePostgresPeer(e2e.PostgresPort),
-		CdcStagingPath: connectionGen.CdcStagingPath,
+		Source:          e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		CdcStagingPath:  connectionGen.CdcStagingPath,
+		SyncedAtColName: "_PEERDB_SYNCED_AT",
 	}
 
 	limits := peerflow.CDCFlowLimits{
@@ -1221,7 +1222,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	for _, field := range sfRows.Schema.Fields {
 		require.NotEqual(s.t, field.Name, "c2")
 	}
-	s.Equal(4, len(sfRows.Schema.Fields))
+	s.Equal(5, len(sfRows.Schema.Fields))
 	s.Equal(10, len(sfRows.Records))
 }
 
