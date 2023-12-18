@@ -442,8 +442,13 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	mergeStatementsBatch := &pgx.Batch{}
 	totalRowsAffected := 0
 	for destinationTableName, unchangedToastCols := range unchangedToastColsMap {
+		peerdbCols := protos.PeerDBColumns{
+			SoftDeleteColName: req.SoftDeleteColName,
+			SyncedAtColName:   req.SyncedAtColName,
+			SoftDelete:        req.SoftDelete,
+		}
 		normalizeStatements := c.generateNormalizeStatements(destinationTableName, unchangedToastCols,
-			rawTableIdentifier, supportsMerge)
+			rawTableIdentifier, supportsMerge, &peerdbCols)
 		for _, normalizeStatement := range normalizeStatements {
 			mergeStatementsBatch.Queue(normalizeStatement, normalizeBatchID, syncBatchID, destinationTableName).Exec(
 				func(ct pgconn.CommandTag) error {
@@ -634,7 +639,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 		// convert the column names and types to Postgres types
 		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-			parsedNormalizedTable.String(), tableSchema)
+			parsedNormalizedTable.String(), tableSchema, req.SoftDeleteColName, req.SyncedAtColName)
 		_, err = createNormalizedTablesTx.Exec(c.ctx, normalizedTableCreateSQL)
 		if err != nil {
 			return nil, fmt.Errorf("error while creating normalized table: %w", err)

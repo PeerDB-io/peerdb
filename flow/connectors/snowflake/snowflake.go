@@ -847,17 +847,21 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	for _, columnName := range columnNames {
 		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(columnName)))
 	}
+	// append synced_at column
+	quotedUpperColNames = append(quotedUpperColNames,
+		fmt.Sprintf(`"%s"`, strings.ToUpper(normalizeReq.SyncedAtColName)),
+	)
 
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
 
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
 		quotedUpperColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", quotedUpperColumnName))
+		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s", quotedUpperColumnName))
 	}
-
-	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
-
+	// fill in synced_at column
+	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
+	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
 	updateStatementsforToastCols := c.generateUpdateStatements(normalizeReq.SyncedAtColName,
 		normalizeReq.SoftDeleteColName, normalizeReq.SoftDelete,
 		columnNames, unchangedToastColumns)
@@ -866,10 +870,9 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
 	// the current merge statement doesn't do that, so we add another case to insert the DeleteRecord
 	if normalizeReq.SoftDelete {
-		softDeleteInsertColumnsSQL := strings.TrimSuffix(strings.Join(append(quotedUpperColNames,
-			normalizeReq.SoftDeleteColName), ","), ",")
-		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), "")
-
+		softDeleteInsertColumnsSQL := strings.Join(append(quotedUpperColNames,
+			normalizeReq.SoftDeleteColName), ",")
+		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
 			fmt.Sprintf("WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN INSERT (%s) VALUES(%s)",
 				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))

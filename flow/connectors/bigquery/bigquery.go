@@ -793,6 +793,11 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			SyncBatchID:           syncBatchID,
 			NormalizeBatchID:      normalizeBatchID,
 			UnchangedToastColumns: tableNametoUnchangedToastCols[tableName],
+			peerdbCols: &protos.PeerDBColumns{
+				SoftDeleteColName: req.SoftDeleteColName,
+				SyncedAtColName:   req.SyncedAtColName,
+				SoftDelete:        req.SoftDelete,
+			},
 		}
 		// normalize anything between last normalized batch id to last sync batchid
 		mergeStmts := mergeGen.generateMergeStmts()
@@ -970,6 +975,22 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 				Repeated: qvalue.QValueKind(genericColType).IsArray(),
 			}
 			idx++
+		}
+
+		if req.SoftDeleteColName != "" {
+			columns = append(columns, &bigquery.FieldSchema{
+				Name:     req.SoftDeleteColName,
+				Type:     bigquery.BooleanFieldType,
+				Repeated: false,
+			})
+		}
+
+		if req.SyncedAtColName != "" {
+			columns = append(columns, &bigquery.FieldSchema{
+				Name:     req.SyncedAtColName,
+				Type:     bigquery.TimestampFieldType,
+				Repeated: false,
+			})
 		}
 
 		// create the table using the columns

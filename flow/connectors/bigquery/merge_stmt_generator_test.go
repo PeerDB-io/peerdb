@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
 
 func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
@@ -30,7 +32,11 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 			" `col2` = _peerdb_deduped.col2",
 	}
 
-	result := m.generateUpdateStatements(allCols, unchangedToastCols)
+	result := m.generateUpdateStatements(allCols, unchangedToastCols, &protos.PeerDBColumns{
+		SoftDelete:        true,
+		SoftDeleteColName: "deleted",
+		SyncedAtColName:   "synced_at",
+	})
 
 	for i := range expected {
 		expected[i] = removeSpacesTabsNewlines(expected[i])
@@ -56,7 +62,12 @@ func TestGenerateUpdateStatement_NoUnchangedToastCols(t *testing.T) {
 			" `col3` = _peerdb_deduped.col3",
 	}
 
-	result := m.generateUpdateStatements(allCols, unchangedToastCols)
+	result := m.generateUpdateStatements(allCols, unchangedToastCols,
+		&protos.PeerDBColumns{
+			SoftDelete:        true,
+			SoftDeleteColName: "deleted",
+			SyncedAtColName:   "synced_at",
+		})
 
 	for i := range expected {
 		expected[i] = removeSpacesTabsNewlines(expected[i])
