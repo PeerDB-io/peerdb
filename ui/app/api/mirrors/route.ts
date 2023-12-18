@@ -3,6 +3,15 @@ import prisma from '@/app/utils/prisma';
 
 export const dynamic = 'force-dynamic';
 
+const stringifyConfig = (flowArray: any[]) => {
+  flowArray.forEach((flow) => {
+    if (flow.config_proto) {
+      flow.config_proto = new TextDecoder().decode(flow.config_proto);
+    }
+  });
+  return flowArray;
+};
+
 export async function GET(request: Request) {
   const mirrors = await prisma.flows.findMany({
     distinct: 'name',
@@ -20,5 +29,5 @@ export async function GET(request: Request) {
     };
     return newMirror;
   });
-  return new Response(JSON.stringify(flows));
+  return new Response(JSON.stringify(stringifyConfig(flows)));
 }

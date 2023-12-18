@@ -14,13 +14,6 @@ import { CDCFlows, QRepFlows } from './tables';
 export const dynamic = 'force-dynamic';
 
 const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
-const stringifyConfig = (flowArray: any[]) => {
-  flowArray.forEach((flow) => {
-    if (flow.config_proto) {
-      flow.config_proto = new TextDecoder().decode(flow.config_proto);
-    }
-  });
-};
 
 export default function Mirrors() {
   const {
@@ -52,12 +45,6 @@ export default function Mirrors() {
     }
     return false;
   });
-
-  if (!isLoading) {
-    stringifyConfig(cdcFlows);
-    stringifyConfig(qrepFlows);
-    stringifyConfig(xminFlows);
-  }
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
