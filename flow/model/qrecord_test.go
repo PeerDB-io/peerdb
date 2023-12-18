@@ -70,17 +70,17 @@ func TestEquals(t *testing.T) {
 
 	tests := []struct {
 		name string
-		q1   *QRecord
-		q2   *QRecord
+		q1   QRecord
+		q2   QRecord
 		want bool
 	}{
 		{
 			name: "Equal - Same UUID",
-			q1: &QRecord{
+			q1: QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal1}},
 			},
-			q2: &QRecord{
+			q2: QRecord{
 				NumEntries: 1,
 				Entries: []qvalue.QValue{
 					{Kind: qvalue.QValueKindString, Value: uuidVal1.String()},
@@ -90,11 +90,11 @@ func TestEquals(t *testing.T) {
 		},
 		{
 			name: "Not Equal - Different UUID",
-			q1: &QRecord{
+			q1: QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal1}},
 			},
-			q2: &QRecord{
+			q2: QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal2}},
 			},
@@ -102,13 +102,13 @@ func TestEquals(t *testing.T) {
 		},
 		{
 			name: "Equal - Same numeric",
-			q1: &QRecord{
+			q1: QRecord{
 				NumEntries: 1,
 				Entries: []qvalue.QValue{
 					{Kind: qvalue.QValueKindNumeric, Value: big.NewRat(10, 2)},
 				},
 			},
-			q2: &QRecord{
+			q2: QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindString, Value: "5"}},
 			},
@@ -116,13 +116,13 @@ func TestEquals(t *testing.T) {
 		},
 		{
 			name: "Not Equal - Different numeric",
-			q1: &QRecord{
+			q1: QRecord{
 				NumEntries: 1,
 				Entries: []qvalue.QValue{
 					{Kind: qvalue.QValueKindNumeric, Value: big.NewRat(10, 2)},
 				},
 			},
-			q2: &QRecord{
+			q2: QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: "4.99"}},
 			},

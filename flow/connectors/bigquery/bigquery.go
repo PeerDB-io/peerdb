@@ -498,7 +498,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	tableNameRowsMapping := make(map[string]uint32)
 	recordStream := model.NewQRecordStream(1 << 20)
 	err := recordStream.SetSchema(&model.QRecordSchema{
-		Fields: []*model.QField{
+		Fields: []model.QField{
 			{
 				Name:     "_peerdb_uid",
 				Type:     qvalue.QValueKindString,
@@ -673,8 +673,8 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 			Kind:  qvalue.QValueKindInt64,
 			Value: syncBatchID,
 		}
-		recordStream.Records <- &model.QRecordOrError{
-			Record: &model.QRecord{
+		recordStream.Records <- model.QRecordOrError{
+			Record: model.QRecord{
 				NumEntries: 10,
 				Entries:    entries[:],
 			},

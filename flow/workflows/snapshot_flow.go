@@ -186,7 +186,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 	return nil
 }
 
-// startChildQrepWorkflow starts a child workflow for query based replication.
 func (s *SnapshotFlowExecution) cloneTables(
 	ctx workflow.Context,
 	slotInfo *protos.SetupReplicationOutput,

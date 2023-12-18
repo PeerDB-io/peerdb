@@ -10,8 +10,8 @@ type QRecord struct {
 }
 
 // create a new QRecord with n values
-func NewQRecord(n int) *QRecord {
-	return &QRecord{
+func NewQRecord(n int) QRecord {
+	return QRecord{
 		NumEntries: n,
 		Entries:    make([]qvalue.QValue, n),
 	}
