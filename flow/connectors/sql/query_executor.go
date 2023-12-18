@@ -141,15 +141,15 @@ func (g *GenericSQLQueryExecutor) CountNonNullRows(
 	return count.Int64, err
 }
 
-func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (*model.QField, error) {
+func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {
-		return nil, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
+		return model.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
 	}
 
 	nullable, ok := ct.Nullable()
 
-	return &model.QField{
+	return model.QField{
 		Name:     ct.Name(),
 		Type:     qvKind,
 		Nullable: ok && nullable,
@@ -163,7 +163,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	}
 
 	// Convert dbColTypes to QFields
-	qfields := make([]*model.QField, len(dbColTypes))
+	qfields := make([]model.QField, len(dbColTypes))
 	for i, ct := range dbColTypes {
 		qfield, err := g.columnTypeToQField(ct)
 		if err != nil {

@@ -13,11 +13,11 @@ type QField struct {
 }
 
 type QRecordSchema struct {
-	Fields []*QField
+	Fields []QField
 }
 
 // NewQRecordSchema creates a new QRecordSchema.
-func NewQRecordSchema(fields []*QField) *QRecordSchema {
+func NewQRecordSchema(fields []QField) *QRecordSchema {
 	return &QRecordSchema{
 		Fields: fields,
 	}
