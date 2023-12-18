@@ -1,3 +1,4 @@
+'use client';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -5,18 +6,23 @@ import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import Link from 'next/link';
 import { Header } from '../../lib/Header';
-import { getTruePeer } from '../api/peers/route';
-import prisma from '../utils/prisma';
 import PeersTable from './peersTable';
 export const dynamic = 'force-dynamic';
 
-async function fetchPeers() {
-  const peers = await prisma.peers.findMany({});
-  return peers;
-}
+import { ProgressCircle } from '@/lib/ProgressCircle';
 
-export default async function Peers() {
-  let peers = await fetchPeers();
+import useSWR from 'swr';
+
+const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
+
+export default function Peers() {
+  const {
+    data: peers,
+    error,
+    isLoading,
+    isValidating,
+  } = useSWR('/api/peers', fetcher);
+
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
       <Panel>
@@ -41,10 +47,17 @@ export default async function Peers() {
         </Header>
       </Panel>
       <Panel>
-        <PeersTable
-          title='All peers'
-          peers={peers.map((peer) => getTruePeer(peer))}
-        />
+        {isLoading && (
+          <div className='h-screen flex items-center justify-center'>
+            <ProgressCircle variant='determinate_progress_circle' />
+          </div>
+        )}
+        {!isLoading && (
+          <PeersTable
+            title='All peers'
+            peers={peers.map((peer: any) => peer)}
+          />
+        )}
       </Panel>
     </LayoutMain>
   );
