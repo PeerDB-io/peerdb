@@ -15,8 +15,10 @@ const (
 
 const MirrorNameSearchAttribute = "MirrorName"
 
-type CDCFlowSignal int64
-type ContextKey string
+type (
+	CDCFlowSignal int64
+	ContextKey    string
+)
 
 const (
 	NoopSignal CDCFlowSignal = iota

@@ -217,7 +217,8 @@ type QRepFlowConnectionGenerationConfig struct {
 
 // GenerateQRepConfig generates a qrep config for testing.
 func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
-	query string, watermark string) (*protos.QRepConfig, error) {
+	query string, watermark string,
+) (*protos.QRepConfig, error) {
 	ret := &protos.QRepConfig{}
 	ret.FlowJobName = c.FlowJobName
 	ret.WatermarkTable = c.WatermarkTable

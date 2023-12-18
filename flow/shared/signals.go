@@ -5,7 +5,8 @@ import (
 )
 
 func FlowSignalHandler(activeSignal CDCFlowSignal,
-	v CDCFlowSignal, logger log.Logger) CDCFlowSignal {
+	v CDCFlowSignal, logger log.Logger,
+) CDCFlowSignal {
 	if v == ShutdownSignal {
 		logger.Info("received shutdown signal")
 		return v

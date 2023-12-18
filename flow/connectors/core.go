@@ -161,7 +161,8 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 }
 
 func GetCDCNormalizeConnector(ctx context.Context,
-	config *protos.Peer) (CDCNormalizeConnector, error) {
+	config *protos.Peer,
+) (CDCNormalizeConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -246,7 +247,8 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 }
 
 func GetQRepConsolidateConnector(ctx context.Context,
-	config *protos.Peer) (QRepConsolidateConnector, error) {
+	config *protos.Peer,
+) (QRepConsolidateConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_SnowflakeConfig:

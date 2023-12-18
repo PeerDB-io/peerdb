@@ -22,7 +22,6 @@ func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) 
 func (s PeerFlowE2ETestSuiteSF) setupSFDestinationTable(dstTable string) {
 	schema := e2e.GetOwnersSchema()
 	err := s.sfHelper.CreateTable(dstTable, schema)
-
 	// fail if table creation fails
 	if err != nil {
 		require.FailNow(s.t, "unable to create table on snowflake", err)

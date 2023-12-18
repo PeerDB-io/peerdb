@@ -428,8 +428,7 @@ func CDCFlowWorkflowWithConfig(
 				state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 			} else {
 				for i := range modifiedSrcTables {
-					cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
-						getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
+					cfg.TableNameSchemaMapping[modifiedDstTables[i]] = getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
 				}
 			}
 		}

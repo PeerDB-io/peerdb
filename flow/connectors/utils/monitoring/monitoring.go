@@ -34,7 +34,8 @@ func InitializeCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName stri
 }
 
 func UpdateLatestLSNAtSourceForCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	latestLSNAtSource pglogrepl.LSN) error {
+	latestLSNAtSource pglogrepl.LSN,
+) error {
 	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_source=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtSource), flowJobName)
@@ -45,7 +46,8 @@ func UpdateLatestLSNAtSourceForCDCFlow(ctx context.Context, pool *pgxpool.Pool, 
 }
 
 func UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	latestLSNAtTarget pglogrepl.LSN) error {
+	latestLSNAtTarget pglogrepl.LSN,
+) error {
 	_, err := pool.Exec(ctx,
 		"UPDATE peerdb_stats.cdc_flows SET latest_lsn_at_target=$1 WHERE flow_name=$2",
 		uint64(latestLSNAtTarget), flowJobName)
@@ -56,7 +58,8 @@ func UpdateLatestLSNAtTargetForCDCFlow(ctx context.Context, pool *pgxpool.Pool, 
 }
 
 func AddCDCBatchForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	batchInfo CDCBatchInfo) error {
+	batchInfo CDCBatchInfo,
+) error {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO peerdb_stats.cdc_batches(flow_name,batch_id,rows_in_batch,batch_start_lsn,batch_end_lsn,
 		start_time) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
@@ -102,7 +105,8 @@ func UpdateEndTimeForCDCBatch(
 }
 
 func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	batchID int64, tableNameRowsMapping map[string]uint32) error {
+	batchID int64, tableNameRowsMapping map[string]uint32,
+) error {
 	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("error while beginning transaction for inserting statistics into cdc_batch_table: %w", err)
@@ -217,7 +221,8 @@ func AppendSlotSizeInfo(
 }
 
 func addPartitionToQRepRun(ctx context.Context, pool *pgxpool.Pool, flowJobName string,
-	runUUID string, partition *protos.QRepPartition) error {
+	runUUID string, partition *protos.QRepPartition,
+) error {
 	if partition.Range == nil && partition.FullTablePartition {
 		slog.Info("partition"+partition.PartitionId+
 			" is a full table partition. Metrics logging is skipped.",
@@ -286,7 +291,8 @@ func UpdateStartTimeForPartition(
 }
 
 func UpdatePullEndTimeAndRowsForPartition(ctx context.Context, pool *pgxpool.Pool, runUUID string,
-	partition *protos.QRepPartition, rowsInPartition int64) error {
+	partition *protos.QRepPartition, rowsInPartition int64,
+) error {
 	_, err := pool.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET pull_end_time=$1,rows_in_partition=$2
 	 WHERE run_uuid=$3 AND partition_uuid=$4`, time.Now(), rowsInPartition, runUUID, partition.PartitionId)
 	if err != nil {
@@ -296,7 +302,8 @@ func UpdatePullEndTimeAndRowsForPartition(ctx context.Context, pool *pgxpool.Poo
 }
 
 func UpdateEndTimeForPartition(ctx context.Context, pool *pgxpool.Pool, runUUID string,
-	partition *protos.QRepPartition) error {
+	partition *protos.QRepPartition,
+) error {
 	_, err := pool.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET end_time=$1
 	 WHERE run_uuid=$2 AND partition_uuid=$3`, time.Now(), runUUID, partition.PartitionId)
 	if err != nil {
@@ -306,7 +313,8 @@ func UpdateEndTimeForPartition(ctx context.Context, pool *pgxpool.Pool, runUUID 
 }
 
 func UpdateRowsSyncedForPartition(ctx context.Context, pool *pgxpool.Pool, rowsSynced int, runUUID string,
-	partition *protos.QRepPartition) error {
+	partition *protos.QRepPartition,
+) error {
 	_, err := pool.Exec(ctx, `UPDATE peerdb_stats.qrep_partitions SET rows_synced=$1
 	 WHERE run_uuid=$2 AND partition_uuid=$3`, rowsSynced, runUUID, partition.PartitionId)
 	if err != nil {

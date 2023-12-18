@@ -349,7 +349,6 @@ func (p *PostgresCDCSource) consumeStream(
 			p.logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
 			rec, err := p.processMessage(records, xld)
-
 			if err != nil {
 				return fmt.Errorf("error processing message: %w", err)
 			}
@@ -812,7 +811,8 @@ func (p *PostgresCDCSource) processRelationMessage(
 }
 
 func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
-	rec model.Record) (*model.TableWithPkey, error) {
+	rec model.Record,
+) (*model.TableWithPkey, error) {
 	tableName := rec.GetTableName()
 	pkeyColsMerged := make([]byte, 0)
 

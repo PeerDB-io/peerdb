@@ -25,7 +25,8 @@ type QRepAvroSyncMethod struct {
 }
 
 func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string,
-	flowJobName string) *QRepAvroSyncMethod {
+	flowJobName string,
+) *QRepAvroSyncMethod {
 	return &QRepAvroSyncMethod{
 		connector:   connector,
 		gcsBucket:   gcsBucket,
@@ -179,7 +180,8 @@ type AvroSchema struct {
 }
 
 func DefineAvroSchema(dstTableName string,
-	dstTableMetadata *bigquery.TableMetadata) (*model.QRecordAvroSchemaDefinition, error) {
+	dstTableMetadata *bigquery.TableMetadata,
+) (*model.QRecordAvroSchemaDefinition, error) {
 	avroFields := []AvroField{}
 	nullableFields := make(map[string]struct{})
 

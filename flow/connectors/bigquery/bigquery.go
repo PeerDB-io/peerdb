@@ -259,7 +259,8 @@ func (c *BigQueryConnector) WaitForTableReady(tblName string) error {
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(flowJobName string,
-	schemaDeltas []*protos.TableSchemaDelta) error {
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	for _, schemaDelta := range schemaDeltas {
 		if schemaDelta == nil || len(schemaDelta.AddedColumns) == 0 {
 			continue
@@ -390,7 +391,8 @@ func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, erro
 }
 
 func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) ([]string, error) {
+	normalizeBatchID int64,
+) ([]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
@@ -426,7 +428,8 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syn
 }
 
 func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
-	normalizeBatchID int64) (map[string][]string, error) {
+	normalizeBatchID int64,
+) (map[string][]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
@@ -795,7 +798,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		mergeStmts := mergeGen.generateMergeStmts()
 		stmts = append(stmts, mergeStmts...)
 	}
-	//update metadata to make the last normalized batch id to the recent last sync batch id.
+	// update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
 		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name = '%s';",
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
@@ -894,7 +897,8 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 
 // getUpdateMetadataStmt updates the metadata tables for a given job.
 func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedCheckpointID int64,
-	batchID int64) (string, error) {
+	batchID int64,
+) (string, error) {
 	hasJob, err := c.metadataHasJob(jobName)
 	if err != nil {
 		return "", fmt.Errorf("failed to check if job exists: %w", err)
@@ -1089,7 +1093,8 @@ func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos
 }
 
 func (c *BigQueryConnector) CreateTablesFromExisting(req *protos.CreateTablesFromExistingInput) (
-	*protos.CreateTablesFromExistingOutput, error) {
+	*protos.CreateTablesFromExistingOutput, error,
+) {
 	for newTable, existingTable := range req.NewToExistingTableMapping {
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
