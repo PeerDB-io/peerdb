@@ -13,7 +13,7 @@ jobs:
       pull-requests: write
     strategy:
       matrix:
-        runner: [ubicloud-standard-2-ubuntu-2204-arm]
+        runner: [ubicloud-standard-4-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout

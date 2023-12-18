@@ -5,7 +5,7 @@ linters:
   enable:
     - dogsled
     - dupl
-    - gofmt
+    - gofumpt
     - gosec
     - misspell
     - nakedret

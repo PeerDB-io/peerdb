@@ -90,7 +90,6 @@ func (h *S3TestHelper) ListAllFiles(
 	ctx context.Context,
 	jobName string,
 ) ([]*s3.Object, error) {
-
 	Bucket := h.bucketName
 	Prefix := fmt.Sprintf("%s/%s/", h.prefix, jobName)
 	files, err := h.client.ListObjects(&s3.ListObjectsInput{

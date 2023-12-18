@@ -30,7 +30,8 @@ type QRepQueryExecutor struct {
 }
 
 func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
-	flowJobName string, partitionID string) *QRepQueryExecutor {
+	flowJobName string, partitionID string,
+) *QRepQueryExecutor {
 	return &QRepQueryExecutor{
 		pool:        pool,
 		ctx:         ctx,
@@ -44,7 +45,8 @@ func NewQRepQueryExecutor(pool *pgxpool.Pool, ctx context.Context,
 }
 
 func NewQRepQueryExecutorSnapshot(pool *pgxpool.Pool, ctx context.Context, snapshot string,
-	flowJobName string, partitionID string) (*QRepQueryExecutor, error) {
+	flowJobName string, partitionID string,
+) (*QRepQueryExecutor, error) {
 	qrepLog := slog.Group("qrep-metadata", slog.String(string(shared.FlowNameKey), flowJobName),
 		slog.String(string(shared.PartitionIDKey), partitionID))
 	slog.Info("Declared new qrep executor for snapshot", qrepLog)
@@ -421,7 +423,8 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStreamWithTx(
 }
 
 func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
-	customTypeMap map[uint32]string) (*model.QRecord, error) {
+	customTypeMap map[uint32]string,
+) (*model.QRecord, error) {
 	// make vals an empty array of QValue of size len(fds)
 	record := model.NewQRecord(len(fds))
 

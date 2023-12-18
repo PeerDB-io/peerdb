@@ -105,7 +105,6 @@ func (suite *PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 }
 
 func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
-
 	tables := map[string]string{
 		"pgpeer_repl_test.test_1": "test_1_dst",
 	}
