@@ -20,7 +20,6 @@ export default function Peers() {
     data: peers,
     error,
     isLoading,
-    isValidating,
   } = useSWR('/api/peers', fetcher);
 
   return (
