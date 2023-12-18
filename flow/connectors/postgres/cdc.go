@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
+	"go.temporal.io/sdk/activity"
 )
 
 type PostgresCDCSource struct {
@@ -38,6 +40,9 @@ type PostgresCDCSource struct {
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
 	logger                    slog.Logger
+
+	// for storing chema delta audit logs to catalog
+	catalogPool *pgxpool.Pool
 }
 
 type PostgresCDCConfig struct {
@@ -48,6 +53,7 @@ type PostgresCDCConfig struct {
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	RelationMessageMapping model.RelationMessageMapping
+	CatalogConnection      *pgxpool.Pool
 }
 
 // Create a new PostgresCDCSource
@@ -71,6 +77,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		commitLock:                false,
 		customTypeMapping:         customTypeMap,
 		logger:                    *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		catalogPool:               cdcConfig.CatalogConnection,
 	}, nil
 }
 
@@ -329,8 +336,9 @@ func (p *PostgresCDCSource) consumeStream(
 				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			p.logger.Debug(fmt.Sprintf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
-				pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested))
+			p.logger.Debug(
+				fmt.Sprintf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
+					pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested))
 
 			if pkm.ServerWALEnd > clientXLogPos {
 				clientXLogPos = pkm.ServerWALEnd
@@ -348,7 +356,8 @@ func (p *PostgresCDCSource) consumeStream(
 
 			p.logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
-			rec, err := p.processMessage(records, xld)
+			rec, err := p.processMessage(records, xld, req.FlowJobName, clientXLogPos)
+
 			if err != nil {
 				return fmt.Errorf("error processing message: %w", err)
 			}
@@ -464,7 +473,8 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 }
 
-func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pglogrepl.XLogData) (model.Record, error) {
+func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pglogrepl.XLogData,
+	flowJobName string, currentClientXlogPos pglogrepl.LSN) (model.Record, error) {
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
@@ -503,7 +513,7 @@ func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pgl
 		if p.relationMessageMapping[msg.RelationID] == nil {
 			p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)
 		} else {
-			return p.processRelationMessage(xld.WALStart, convertRelationMessageToProto(msg))
+			return p.processRelationMessage(currentClientXlogPos, convertRelationMessageToProto(msg), flowJobName)
 		}
 
 	case *pglogrepl.TruncateMessage:
@@ -746,10 +756,31 @@ func convertRelationMessageToProto(msg *pglogrepl.RelationMessage) *protos.Relat
 	}
 }
 
-// processRelationMessage processes a delete message and returns a TableSchemaDelta
+func (p *PostgresCDCSource) genSchemaDeltaAuditLog(flowJobName string, rec *model.RelationRecord) error {
+	activityInfo := activity.GetInfo(p.ctx)
+	workflowID := activityInfo.WorkflowExecution.ID
+	runID := activityInfo.WorkflowExecution.RunID
+	recJSON, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("failed to marshal schema delta to JSON: %w", err)
+	}
+
+	_, err = p.catalogPool.Exec(p.ctx,
+		`INSERT INTO
+		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
+		 VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+		flowJobName, workflowID, runID, recJSON)
+	if err != nil {
+		return fmt.Errorf("failed to insert row into table: %w", err)
+	}
+	return nil
+}
+
+// processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
 func (p *PostgresCDCSource) processRelationMessage(
 	lsn pglogrepl.LSN,
 	currRel *protos.RelationMessage,
+	flowJobName string,
 ) (model.Record, error) {
 	// retrieve initial RelationMessage for table changed.
 	prevRel := p.relationMessageMapping[currRel.RelationId]
@@ -804,10 +835,11 @@ func (p *PostgresCDCSource) processRelationMessage(
 	}
 
 	p.relationMessageMapping[currRel.RelationId] = currRel
-	return &model.RelationRecord{
+	rec := &model.RelationRecord{
 		TableSchemaDelta: schemaDelta,
 		CheckPointID:     int64(lsn),
-	}, nil
+	}
+	return rec, p.genSchemaDeltaAuditLog(flowJobName, rec)
 }
 
 func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
