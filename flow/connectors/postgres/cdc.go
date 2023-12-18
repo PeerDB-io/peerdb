@@ -516,6 +516,9 @@ func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pgl
 		if p.relationMessageMapping[msg.RelationID] == nil {
 			p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)
 		} else {
+			// RelationMessages don't contain an LSN, so we use current clientXlogPos instead.
+			//nolint:lll
+			// https://github.com/postgres/postgres/blob/8b965c549dc8753be8a38c4a1b9fabdb535a4338/src/backend/replication/logical/proto.c#L670
 			return p.processRelationMessage(currentClientXlogPos, convertRelationMessageToProto(msg))
 		}
 
