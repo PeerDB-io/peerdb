@@ -22,8 +22,10 @@ import (
 	uber_atomic "go.uber.org/atomic"
 )
 
-type AvroCompressionCodec int64
-type AvroStorageLocation int64
+type (
+	AvroCompressionCodec int64
+	AvroStorageLocation  int64
+)
 
 const (
 	CompressNone AvroCompressionCodec = iota
@@ -146,9 +148,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
 
-		qRecord := qRecordOrErr.Record
 		avroConverter := model.NewQRecordAvroConverter(
-			qRecord,
+			qRecordOrErr.Record,
 			p.targetDWH,
 			p.avroSchema.NullableFields,
 			colNames,
@@ -214,7 +215,6 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(bucketName, key string, s3Creds utils
 		Key:    aws.String(key),
 		Body:   r,
 	})
-
 	if err != nil {
 		slog.Error("failed to upload file: ", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to upload file: %w", err)

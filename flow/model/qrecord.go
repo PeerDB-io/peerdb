@@ -12,8 +12,8 @@ type QRecord struct {
 }
 
 // create a new QRecord with n values
-func NewQRecord(n int) *QRecord {
-	return &QRecord{
+func NewQRecord(n int) QRecord {
+	return QRecord{
 		NumEntries: n,
 		Entries:    make([]qvalue.QValue, n),
 	}
@@ -25,7 +25,7 @@ func (q *QRecord) Set(idx int, value qvalue.QValue) {
 }
 
 // equals checks if two QRecords are identical.
-func (q *QRecord) equals(other *QRecord) bool {
+func (q QRecord) equals(other QRecord) bool {
 	// First check simple attributes
 	if q.NumEntries != other.NumEntries {
 		return false

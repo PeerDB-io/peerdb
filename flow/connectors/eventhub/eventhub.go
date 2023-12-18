@@ -281,7 +281,8 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 
 func (c *EventHubConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (
-	*protos.SetupNormalizedTableBatchOutput, error) {
+	*protos.SetupNormalizedTableBatchOutput, error,
+) {
 	c.logger.Info("normalization for event hub is a no-op")
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: nil,

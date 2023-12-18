@@ -54,7 +54,7 @@ func compareValues(prevEnd interface{}, start interface{}) int {
 				return 0
 			}
 		}
-	case uint32: //xmin
+	case uint32: // xmin
 		if prevEnd.(uint32) < v {
 			return -1
 		} else if prevEnd.(uint32) > v {

@@ -455,7 +455,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	// and execute a transaction touching toast columns
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		//complex transaction with random DMLs on a table with toast columns
+		// complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s (t1,t2,k) SELECT random_string(9000),random_string(9000),
@@ -527,7 +527,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	// and execute a transaction touching toast columns
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		//complex transaction with random DMLs on a table with toast columns
+		// complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s (t1,k) SELECT random_string(9000),
@@ -688,10 +688,12 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{"c41", "c1", "c2", "c3", "c4",
+	noNulls, err := s.sfHelper.CheckNull("test_types_sf", []string{
+		"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46"})
+		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46",
+	})
 	if err != nil {
 		fmt.Println("error  %w", err)
 	}

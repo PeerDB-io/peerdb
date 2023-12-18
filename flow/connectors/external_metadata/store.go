@@ -26,7 +26,8 @@ type PostgresMetadataStore struct {
 }
 
 func NewPostgresMetadataStore(ctx context.Context, pgConfig *protos.PostgresConfig,
-	schemaName string) (*PostgresMetadataStore, error) {
+	schemaName string,
+) (*PostgresMetadataStore, error) {
 	var storePool *pgxpool.Pool
 	var poolErr error
 	if pgConfig == nil {
@@ -222,7 +223,6 @@ func (p *PostgresMetadataStore) IncrementID(jobName string) error {
 		UPDATE `+p.schemaName+`.`+lastSyncStateTableName+`
 		 SET sync_batch_id=sync_batch_id+1 WHERE job_name=$1
 	`, jobName)
-
 	if err != nil {
 		p.logger.Error("failed to increment sync batch id", slog.Any("error", err))
 		return err

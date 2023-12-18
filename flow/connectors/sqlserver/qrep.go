@@ -15,7 +15,8 @@ import (
 )
 
 func (c *SQLServerConnector) GetQRepPartitions(
-	config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
+	config *protos.QRepConfig, last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
 		c.logger.Info("watermark table is empty, doing full table refresh")
 		return []*protos.QRepPartition{
@@ -152,7 +153,8 @@ func (c *SQLServerConnector) GetQRepPartitions(
 }
 
 func (c *SQLServerConnector) PullQRepRecords(
-	config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+	config *protos.QRepConfig, partition *protos.QRepPartition,
+) (*model.QRecordBatch, error) {
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
 	query, err := BuildQuery(config.Query)

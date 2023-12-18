@@ -270,13 +270,13 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	}
 }
 
-func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (*model.QField, error) {
+func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (model.QField, error) {
 	qValueKind, err := peer_bq.BigQueryTypeToQValueKind(fieldSchema.Type)
 	if err != nil {
-		return nil, err
+		return model.QField{}, err
 	}
 
-	return &model.QField{
+	return model.QField{
 		Name:     fieldSchema.Name,
 		Type:     qValueKind,
 		Nullable: !fieldSchema.Required,
@@ -285,7 +285,7 @@ func bqFieldSchemaToQField(fieldSchema *bigquery.FieldSchema) (*model.QField, er
 
 // bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
 func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, error) {
-	var fields []*model.QField
+	fields := make([]model.QField, 0, len(schema))
 	for _, fieldSchema := range schema {
 		qField, err := bqFieldSchemaToQField(fieldSchema)
 		if err != nil {
@@ -306,7 +306,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
 
-	var records []*model.QRecord
+	var records []model.QRecord
 	for {
 		var row []bigquery.Value
 		err := it.Next(&row)
@@ -433,7 +433,7 @@ func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 }
 
 func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
-	var fields []string
+	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		bqType, err := qValueKindToBqColTypeString(field.Type)
 		if err != nil {

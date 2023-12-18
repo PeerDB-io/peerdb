@@ -30,7 +30,8 @@ type SnowflakeAvroSyncMethod struct {
 
 func NewSnowflakeAvroSyncMethod(
 	config *protos.QRepConfig,
-	connector *SnowflakeConnector) *SnowflakeAvroSyncMethod {
+	connector *SnowflakeConnector,
+) *SnowflakeAvroSyncMethod {
 	return &SnowflakeAvroSyncMethod{
 		config:    config,
 		connector: connector,
@@ -305,8 +306,8 @@ func (c *SnowflakeConnector) GetCopyTransformation(
 		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
 	}
 
-	var transformations []string
-	var columnOrder []string
+	transformations := make([]string, 0, len(colInfo.ColumnMap))
+	columnOrder := make([]string, 0, len(colInfo.ColumnMap))
 	for colName, colType := range colInfo.ColumnMap {
 		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
 		switch colType {
@@ -422,7 +423,8 @@ func NewSnowflakeAvroWriteHandler(
 }
 
 func (s *SnowflakeAvroWriteHandler) HandleAppendMode(
-	copyInfo *CopyInfo) error {
+	copyInfo *CopyInfo,
+) error {
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
 		s.dstTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))

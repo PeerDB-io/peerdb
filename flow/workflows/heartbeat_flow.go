@@ -8,7 +8,6 @@ import (
 
 // HeartbeatFlowWorkflow is the workflow that sets up heartbeat sending.
 func HeartbeatFlowWorkflow(ctx workflow.Context) error {
-
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,
 	})
