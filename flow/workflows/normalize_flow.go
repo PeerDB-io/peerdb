@@ -5,7 +5,6 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/hashicorp/go-multierror"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -19,7 +18,7 @@ type NormalizeFlowExecution struct {
 
 type NormalizeFlowResult struct {
 	NormalizeFlowStatuses []*model.NormalizeResponse
-	NormalizeFlowErrors   error
+	NormalizeFlowErrors   []string
 }
 
 func NewNormalizeFlowExecution(ctx workflow.Context) *NormalizeFlowExecution {
@@ -95,7 +94,7 @@ func NormalizeFlowWorkflow(
 				var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
 				if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {
 					w.logger.Error("failed to execute schema update at source: ", err)
-					res.NormalizeFlowErrors = multierror.Append(res.NormalizeFlowErrors, err)
+					res.NormalizeFlowErrors = append(res.NormalizeFlowErrors, err.Error())
 				} else {
 					for i := range modifiedSrcTables {
 						cfg.TableNameSchemaMapping[modifiedDstTables[i]] =
@@ -120,7 +119,7 @@ func NormalizeFlowWorkflow(
 
 			var normalizeResponse *model.NormalizeResponse
 			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-				res.NormalizeFlowErrors = multierror.Append(res.NormalizeFlowErrors, err)
+				res.NormalizeFlowErrors = append(res.NormalizeFlowErrors, err.Error())
 			} else {
 				res.NormalizeFlowStatuses = append(res.NormalizeFlowStatuses, normalizeResponse)
 			}

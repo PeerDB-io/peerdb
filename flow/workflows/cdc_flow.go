@@ -401,12 +401,12 @@ func CDCFlowWorkflowWithConfig(
 	var childNormalizeFlowRes *NormalizeFlowResult
 	if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
 		w.logger.Error("failed to execute normalize flow: ", err)
-		state.NormalizeFlowErrors = multierror.Append(state.NormalizeFlowErrors, err)
+		state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
 	} else {
 		state.NormalizeFlowStatuses = childNormalizeFlowRes.NormalizeFlowStatuses
 		state.NormalizeFlowErrors = childNormalizeFlowRes.NormalizeFlowErrors
 	}
 
-	state.TruncateProgress()
+	state.TruncateProgress(w.logger)
 	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
 }
