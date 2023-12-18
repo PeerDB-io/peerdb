@@ -236,6 +236,8 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		RelationMessageMapping: req.RelationMessageMapping,
+		CatalogPool:            catalogPool,
+		FlowJobName:            req.FlowJobName,
 	}, c.customTypesMapping)
 	if err != nil {
 		return fmt.Errorf("failed to create cdc source: %w", err)
@@ -365,7 +367,8 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			len(records), syncedRecordsCount)
 	}
 
-	c.logger.Info(fmt.Sprintf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier))
+	c.logger.Info(fmt.Sprintf("synced %d records to Postgres table %s via COPY",
+		syncedRecordsCount, rawTableIdentifier))
 
 	lastCP, err := req.Records.GetLastCheckpoint()
 	if err != nil {
