@@ -1,5 +1,8 @@
-import { getTruePeer } from '@/app/api/peers/route';
+import { getTruePeer } from '@/app/api/peers/getTruePeer';
 import prisma from '@/app/utils/prisma';
+
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   const mirrors = await prisma.flows.findMany({
     distinct: 'name',
