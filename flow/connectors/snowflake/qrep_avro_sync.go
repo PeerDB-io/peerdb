@@ -306,8 +306,8 @@ func (c *SnowflakeConnector) GetCopyTransformation(
 		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
 	}
 
-	var transformations []string
-	var columnOrder []string
+	transformations := make([]string, 0, len(colInfo.ColumnMap))
+	columnOrder := make([]string, 0, len(colInfo.ColumnMap))
 	for colName, colType := range colInfo.ColumnMap {
 		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
 		switch colType {
