@@ -366,7 +366,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 
 func GetOwnersSelectorString() string {
 	schema := GetOwnersSchema()
-	var fields []string
+	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		// append quoted field name
 		fields = append(fields, fmt.Sprintf(`"%s"`, field.Name))
