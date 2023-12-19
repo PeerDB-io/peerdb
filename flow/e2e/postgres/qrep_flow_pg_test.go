@@ -153,10 +153,7 @@ func (s *PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error 
 		}
 	}
 
-	if rows.Err() != nil {
-		return rows.Err()
-	}
-	return nil
+	return rows.Err()
 }
 
 func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
