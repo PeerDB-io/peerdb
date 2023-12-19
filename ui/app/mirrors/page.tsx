@@ -31,7 +31,7 @@ export default function Mirrors() {
 
   let qrepFlows = flows?.filter((flow) => {
     if (flow.config_proto && flow.query_string) {
-      let config = QRepConfig.decode(flow.config_proto);
+      let config = QRepConfig.decode(flow.config_proto.data);
       const watermarkCol = config.watermarkColumn.toLowerCase();
       return watermarkCol !== 'xmin' && watermarkCol !== 'ctid';
     }
@@ -40,7 +40,7 @@ export default function Mirrors() {
 
   let xminFlows = flows?.filter((flow) => {
     if (flow.config_proto && flow.query_string) {
-      let config = QRepConfig.decode(flow.config_proto);
+      let config = QRepConfig.decode(flow.config_proto.data);
       return config.watermarkColumn.toLowerCase() === 'xmin';
     }
     return false;
