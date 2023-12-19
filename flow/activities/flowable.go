@@ -631,6 +631,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 
 	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
+		pullCancel()
 		return fmt.Errorf("failed to sync records: %w", err)
 	}
 
