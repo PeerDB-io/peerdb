@@ -471,7 +471,8 @@ func (c *PostgresConnector) SyncQRepRecords(
 
 	stagingTableSync := &QRepStagingTableSync{connector: c}
 	return stagingTableSync.SyncQRepRecords(
-		config.FlowJobName, dstTable, partition, stream, config.WriteMode)
+		config.FlowJobName, dstTable, partition, stream,
+		config.WriteMode, config.SyncedAtColName)
 }
 
 // SetupQRepMetadataTables function for postgres connector
