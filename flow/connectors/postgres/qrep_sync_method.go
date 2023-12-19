@@ -102,7 +102,7 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		dstTableIdentifier := pgx.Identifier{dstTableName.Schema, dstTableName.Table}
 
 		createStagingTableStmt := fmt.Sprintf(
-			"CREATE UNLOGGED TABLE %s (LIKE %s INCLUDING INDEXES);",
+			"CREATE UNLOGGED TABLE %s (LIKE %s);",
 			stagingTableIdentifier.Sanitize(),
 			dstTableIdentifier.Sanitize(),
 		)
@@ -145,16 +145,15 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		setClauseArray = append(setClauseArray,
 			fmt.Sprintf(`"%s" = CURRENT_TIMESTAMP`, syncedAtCol))
 		setClause := strings.Join(setClauseArray, ",")
-		selectStrColsSQL := strings.Join(append(selectStrArray,
-			fmt.Sprintf(`"%s"`, syncedAtCol)), ",")
-		selectStrValuesSQL := strings.Join(append(selectStrArray, `CURRENT_TIMESTAMP`), ",")
+		selectSQL := strings.Join(selectStrArray, ",")
 
 		// Step 2.3: Perform the upsert operation, ON CONFLICT UPDATE
 		upsertStmt := fmt.Sprintf(
-			"INSERT INTO %s (%s) SELECT %s FROM %s ON CONFLICT (%s) DO UPDATE SET %s;",
+			`INSERT INTO %s (%s, "%s") SELECT %s, CURRENT_TIMESTAMP FROM %s ON CONFLICT (%s) DO UPDATE SET %s;`,
 			dstTableIdentifier.Sanitize(),
-			selectStrColsSQL,
-			selectStrValuesSQL,
+			selectSQL,
+			syncedAtCol,
+			selectSQL,
 			stagingTableIdentifier.Sanitize(),
 			strings.Join(writeMode.UpsertKeyColumns, ", "),
 			setClause,
