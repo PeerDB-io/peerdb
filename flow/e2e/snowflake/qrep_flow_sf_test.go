@@ -13,7 +13,7 @@ import (
 )
 
 func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) {
-	err := e2e.CreateSourceTableQRep(s.pool, s.pgSuffix, tableName)
+	err := e2e.CreateTableForQRep(s.pool, s.pgSuffix, tableName)
 	require.NoError(s.t, err)
 	err = e2e.PopulateSourceTable(s.pool, s.pgSuffix, tableName, numRows)
 	require.NoError(s.t, err)
@@ -77,6 +77,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 		query,
 		s.sfHelper.Peer,
 		"",
+		false,
+		"",
 	)
 	require.NoError(s.t, err)
 
@@ -115,6 +117,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 		dstSchemaQualified,
 		query,
 		s.sfHelper.Peer,
+		"",
+		false,
 		"",
 	)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
@@ -159,6 +163,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 		query,
 		s.sfHelper.Peer,
 		"",
+		false,
+		"",
 	)
 	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
@@ -198,6 +204,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 		dstSchemaQualified,
 		query,
 		s.sfHelper.Peer,
+		"",
+		false,
 		"",
 	)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
@@ -246,6 +254,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 		query,
 
 		sfPeer,
+		"",
+		false,
 		"",
 	)
 	require.NoError(s.t, err)

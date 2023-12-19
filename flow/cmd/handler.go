@@ -268,6 +268,13 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	} else {
 		workflowFn = peerflow.QRepFlowWorkflow
 	}
+
+	if req.QrepConfig.SyncedAtColName == "" {
+		cfg.SyncedAtColName = "_PEERDB_SYNCED_AT"
+	} else {
+		// make them all uppercase
+		cfg.SyncedAtColName = strings.ToUpper(req.QrepConfig.SyncedAtColName)
+	}
 	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
 		slog.Error("unable to start QRepFlow workflow",

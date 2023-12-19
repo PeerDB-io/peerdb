@@ -46,7 +46,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := &QRepAvroSyncMethod{connector: c, gcsBucket: config.StagingPath}
-	return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, stream)
+	return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition, tblMetadata, stream, config.SyncedAtColName)
 }
 
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfig, partition *protos.QRepPartition,
