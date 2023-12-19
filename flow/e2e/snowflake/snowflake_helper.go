@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"time"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -174,4 +175,26 @@ func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
 	default:
 		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec.Entries[0].Kind)
 	}
+}
+
+// runs a query that returns an int result
+func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
+	recordBatch, err := s.testClient.ExecuteAndProcessQuery(query)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range recordBatch.Records {
+		for _, entry := range record.Entries {
+			if entry.Kind != qvalue.QValueKindTimestamp {
+				return fmt.Errorf("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
+			}
+			_, ok := entry.Value.(time.Time)
+			if !ok {
+				return fmt.Errorf("synced_at column failed: _PEERDB_SYNCED_AT is not valid")
+			}
+		}
+	}
+
+	return nil
 }

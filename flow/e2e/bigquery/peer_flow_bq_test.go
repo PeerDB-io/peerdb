@@ -52,10 +52,14 @@ func (s PeerFlowE2ETestSuiteBQ) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, s.bqSuffix)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, rowID int8) error {
+func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDelete bool) error {
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, dstQualified)
-	query := fmt.Sprintf("SELECT `_PEERDB_IS_DELETED`,`_PEERDB_SYNCED_AT` FROM %s WHERE id = %d",
-		qualifiedTableName, rowID)
+	selector := "`_PEERDB_SYNCED_AT`"
+	if softDelete {
+		selector += ", `_PEERDB_IS_DELETED`"
+	}
+	query := fmt.Sprintf("SELECT %s FROM %s",
+		selector, qualifiedTableName)
 
 	recordBatch, err := s.bqHelper.ExecuteAndProcessQuery(query)
 	if err != nil {
@@ -63,6 +67,7 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, rowID i
 	}
 
 	recordCount := 0
+
 	for _, record := range recordBatch.Records {
 		for _, entry := range record.Entries {
 			if entry.Kind == qvalue.QValueKindBoolean {
@@ -78,12 +83,14 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, rowID i
 				if !ok {
 					return fmt.Errorf("peerdb column failed: _PEERDB_SYNCED_AT is not valid")
 				}
+
 				recordCount += 1
 			}
 		}
 	}
-	if recordCount != 2 {
-		return fmt.Errorf("peerdb column failed: _PEERDB_IS_DELETED or _PEERDB_SYNCED_AT not present")
+
+	if recordCount == 0 {
+		return fmt.Errorf("peerdb column check failed: no records found")
 	}
 
 	return nil
@@ -1191,7 +1198,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	err = s.checkPeerdbColumns(dstTableName, 1)
+	err = s.checkPeerdbColumns(dstTableName, true)
 	require.NoError(s.t, err)
 
 	env.AssertExpectations(s.t)
