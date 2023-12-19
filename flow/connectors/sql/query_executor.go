@@ -104,7 +104,7 @@ func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
 }
 
 func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error {
-	var fields []string
+	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		dbType, ok := g.qvalueKindToDBType[field.Type]
 		if !ok {

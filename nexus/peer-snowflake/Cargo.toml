@@ -20,9 +20,7 @@ dashmap = "5.0"
 pgwire = "0.17"
 sha2 = "0.10"
 pt = { path = "../pt" }
-pkcs8 = { version = "0.10.2", features = ["std", "pem", "encryption"] }
-pkcs1 = "0.7.5"
-rsa = "0.9.2"
+rsa = { version = "0.9.2", features = ["pem", "pkcs5"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.3"

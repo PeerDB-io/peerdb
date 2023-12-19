@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
+	"go.temporal.io/sdk/activity"
 )
 
 type PostgresCDCSource struct {
@@ -38,6 +40,10 @@ type PostgresCDCSource struct {
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
 	logger                    slog.Logger
+
+	// for storing chema delta audit logs to catalog
+	catalogPool *pgxpool.Pool
+	flowJobName string
 }
 
 type PostgresCDCConfig struct {
@@ -48,6 +54,8 @@ type PostgresCDCConfig struct {
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	RelationMessageMapping model.RelationMessageMapping
+	CatalogPool            *pgxpool.Pool
+	FlowJobName            string
 	SetLastOffset          func(int64) error
 }
 
@@ -73,6 +81,8 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		commitLock:                false,
 		customTypeMapping:         customTypeMap,
 		logger:                    *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		catalogPool:               cdcConfig.CatalogPool,
+		flowJobName:               cdcConfig.FlowJobName,
 	}, nil
 }
 
@@ -190,7 +200,7 @@ func (p *PostgresCDCSource) consumeStream(
 	proposedConsumedXLogPos := consumedXLogPos
 
 	var standByLastLogged time.Time
-	cdcRecordsStorage := cdc_records.NewCDCRecordsStore(req.FlowJobName)
+	cdcRecordsStorage := cdc_records.NewCDCRecordsStore(p.flowJobName)
 	defer func() {
 		if cdcRecordsStorage.IsEmpty() {
 			records.SignalAsEmpty()
@@ -204,7 +214,7 @@ func (p *PostgresCDCSource) consumeStream(
 	}()
 
 	shutdown := utils.HeartbeatRoutine(p.ctx, 10*time.Second, func() string {
-		jobName := req.FlowJobName
+		jobName := p.flowJobName
 		currRecords := cdcRecordsStorage.Len()
 		return fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
 	})
@@ -276,7 +286,7 @@ func (p *PostgresCDCSource) consumeStream(
 		if waitingForCommit && !p.commitLock {
 			p.logger.Info(fmt.Sprintf(
 				"[%s] commit received, returning currently accumulated records - %d",
-				req.FlowJobName,
+				p.flowJobName,
 				cdcRecordsStorage.Len()),
 			)
 			return nil
@@ -286,7 +296,7 @@ func (p *PostgresCDCSource) consumeStream(
 		if time.Now().After(nextStandbyMessageDeadline) {
 			if !cdcRecordsStorage.IsEmpty() {
 				p.logger.Info(fmt.Sprintf("[%s] standby deadline reached, have %d records, will return at next commit",
-					req.FlowJobName,
+					p.flowJobName,
 					cdcRecordsStorage.Len()),
 				)
 
@@ -298,7 +308,7 @@ func (p *PostgresCDCSource) consumeStream(
 				waitingForCommit = true
 			} else {
 				p.logger.Info(fmt.Sprintf("[%s] standby deadline reached, no records accumulated, continuing to wait",
-					req.FlowJobName),
+					p.flowJobName),
 				)
 			}
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
@@ -341,8 +351,9 @@ func (p *PostgresCDCSource) consumeStream(
 				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			p.logger.Debug(fmt.Sprintf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
-				pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested))
+			p.logger.Debug(
+				fmt.Sprintf("Primary Keepalive Message => ServerWALEnd: %s ServerTime: %s ReplyRequested: %t",
+					pkm.ServerWALEnd, pkm.ServerTime, pkm.ReplyRequested))
 
 			if pkm.ServerWALEnd > clientXLogPos {
 				clientXLogPos = pkm.ServerWALEnd
@@ -360,7 +371,8 @@ func (p *PostgresCDCSource) consumeStream(
 
 			p.logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
-			rec, err := p.processMessage(records, xld)
+			rec, err := p.processMessage(records, xld, clientXLogPos)
+
 			if err != nil {
 				return fmt.Errorf("error processing message: %w", err)
 			}
@@ -476,7 +488,8 @@ func (p *PostgresCDCSource) consumeStream(
 	}
 }
 
-func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pglogrepl.XLogData) (model.Record, error) {
+func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pglogrepl.XLogData,
+	currentClientXlogPos pglogrepl.LSN) (model.Record, error) {
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
@@ -515,7 +528,10 @@ func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pgl
 		if p.relationMessageMapping[msg.RelationID] == nil {
 			p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)
 		} else {
-			return p.processRelationMessage(xld.WALStart, convertRelationMessageToProto(msg))
+			// RelationMessages don't contain an LSN, so we use current clientXlogPos instead.
+			//nolint:lll
+			// https://github.com/postgres/postgres/blob/8b965c549dc8753be8a38c4a1b9fabdb535a4338/src/backend/replication/logical/proto.c#L670
+			return p.processRelationMessage(currentClientXlogPos, convertRelationMessageToProto(msg))
 		}
 
 	case *pglogrepl.TruncateMessage:
@@ -758,7 +774,27 @@ func convertRelationMessageToProto(msg *pglogrepl.RelationMessage) *protos.Relat
 	}
 }
 
-// processRelationMessage processes a delete message and returns a TableSchemaDelta
+func (p *PostgresCDCSource) auditSchemaDelta(flowJobName string, rec *model.RelationRecord) error {
+	activityInfo := activity.GetInfo(p.ctx)
+	workflowID := activityInfo.WorkflowExecution.ID
+	runID := activityInfo.WorkflowExecution.RunID
+	recJSON, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("failed to marshal schema delta to JSON: %w", err)
+	}
+
+	_, err = p.catalogPool.Exec(p.ctx,
+		`INSERT INTO
+		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
+		 VALUES($1,$2,$3,$4)`,
+		flowJobName, workflowID, runID, recJSON)
+	if err != nil {
+		return fmt.Errorf("failed to insert row into table: %w", err)
+	}
+	return nil
+}
+
+// processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
 func (p *PostgresCDCSource) processRelationMessage(
 	lsn pglogrepl.LSN,
 	currRel *protos.RelationMessage,
@@ -816,10 +852,11 @@ func (p *PostgresCDCSource) processRelationMessage(
 	}
 
 	p.relationMessageMapping[currRel.RelationId] = currRel
-	return &model.RelationRecord{
+	rec := &model.RelationRecord{
 		TableSchemaDelta: schemaDelta,
 		CheckPointID:     int64(lsn),
-	}, nil
+	}
+	return rec, p.auditSchemaDelta(p.flowJobName, rec)
 }
 
 func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,

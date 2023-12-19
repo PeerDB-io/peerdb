@@ -59,7 +59,7 @@ const (
 	INSERT (%s) VALUES (%s)
 	%s
 	WHEN MATCHED AND src._peerdb_record_type=2 THEN
-	DELETE`
+	%s`
 	fallbackUpsertStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
@@ -72,7 +72,7 @@ const (
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
 		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
 	)
-	DELETE FROM %s USING src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
+	%s src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
 
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
@@ -347,13 +347,26 @@ func getRawTableIdentifier(jobName string) string {
 	return fmt.Sprintf("%s_%s", rawTablePrefix, strings.ToLower(jobName))
 }
 
-func generateCreateTableSQLForNormalizedTable(sourceTableIdentifier string,
+func generateCreateTableSQLForNormalizedTable(
+	sourceTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
+	softDeleteColName string,
+	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
+	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
 			qValueKindToPostgresType(genericColumnType)))
+	}
+
+	if softDeleteColName != "" {
+		createTableSQLArray = append(createTableSQLArray,
+			fmt.Sprintf(`"%s" BOOL DEFAULT FALSE,`, softDeleteColName))
+	}
+
+	if syncedAtColName != "" {
+		createTableSQLArray = append(createTableSQLArray,
+			fmt.Sprintf(`"%s" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, syncedAtColName))
 	}
 
 	// add composite primary key to the table
@@ -384,7 +397,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 
 	var result pgtype.Int8
 	if !rows.Next() {
-		c.logger.Info("No row found ,returning 0")
+		c.logger.Info("No row found, returning 0")
 		return 0, nil
 	}
 	err = rows.Scan(&result)
@@ -525,17 +538,19 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, sync
 
 func (c *PostgresConnector) generateNormalizeStatements(destinationTableIdentifier string,
 	unchangedToastColumns []string, rawTableIdentifier string, supportsMerge bool,
+	peerdbCols *protos.PeerDBColumns,
 ) []string {
 	if supportsMerge {
-		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns, rawTableIdentifier)}
+		return []string{c.generateMergeStatement(destinationTableIdentifier, unchangedToastColumns,
+			rawTableIdentifier, peerdbCols)}
 	}
 	c.logger.Warn("Postgres version is not high enough to support MERGE, falling back to UPSERT + DELETE")
 	c.logger.Warn("TOAST columns will not be updated properly, use REPLICA IDENTITY FULL or upgrade Postgres")
-	return c.generateFallbackStatements(destinationTableIdentifier, rawTableIdentifier)
+	return c.generateFallbackStatements(destinationTableIdentifier, rawTableIdentifier, peerdbCols)
 }
 
 func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifier string,
-	rawTableIdentifier string,
+	rawTableIdentifier string, peerdbCols *protos.PeerDBColumns,
 ) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
@@ -571,20 +586,35 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 			parsedDstTable.String(), columnName, columnCast))
 	}
 	deleteWhereClauseSQL := strings.TrimSuffix(strings.Join(deleteWhereClauseArray, ""), "AND ")
+	deletePart := fmt.Sprintf(
+		"DELETE FROM %s USING",
+		parsedDstTable.String())
 
+	if peerdbCols.SoftDelete {
+		deletePart = fmt.Sprintf(`UPDATE %s SET "%s" = TRUE`,
+			parsedDstTable.String(), peerdbCols.SoftDeleteColName)
+		if peerdbCols.SyncedAtColName != "" {
+			deletePart = fmt.Sprintf(`%s, "%s" = CURRENT_TIMESTAMP`,
+				deletePart, peerdbCols.SyncedAtColName)
+		}
+		deletePart += " FROM"
+	}
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
 		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), c.metadataSchema,
 		rawTableIdentifier, parsedDstTable.String(), insertColumnsSQL, flattenedCastsSQL,
 		strings.Join(normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
 		strings.Join(maps.Values(primaryKeyColumnCasts), ","), c.metadataSchema,
-		rawTableIdentifier, parsedDstTable.String(), deleteWhereClauseSQL)
+		rawTableIdentifier, deletePart, deleteWhereClauseSQL)
 
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
 
-func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier string, unchangedToastColumns []string,
+func (c *PostgresConnector) generateMergeStatement(
+	destinationTableIdentifier string,
+	unchangedToastColumns []string,
 	rawTableIdentifier string,
+	peerdbCols *protos.PeerDBColumns,
 ) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
 	columnNames := maps.Keys(normalizedTableSchema.Columns)
@@ -614,21 +644,60 @@ func (c *PostgresConnector) generateMergeStatement(destinationTableIdentifier st
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
-
-	insertColumnsSQL := strings.TrimSuffix(strings.Join(columnNames, ","), ",")
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
 		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("src.%s", columnName))
 	}
-	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ","), ",")
-	updateStatements := c.generateUpdateStatement(columnNames, unchangedToastColumns)
 
-	return fmt.Sprintf(mergeStatementSQL, strings.Join(maps.Values(primaryKeyColumnCasts), ","),
-		c.metadataSchema, rawTableIdentifier, parsedDstTable.String(), flattenedCastsSQL,
-		strings.Join(primaryKeySelectSQLArray, " AND "), insertColumnsSQL, insertValuesSQL, updateStatements)
+	updateStatementsforToastCols := c.generateUpdateStatement(columnNames, unchangedToastColumns, peerdbCols)
+	// append synced_at column
+	columnNames = append(columnNames, fmt.Sprintf(`"%s"`, peerdbCols.SyncedAtColName))
+	insertColumnsSQL := strings.Join(columnNames, ",")
+	// fill in synced_at column
+	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
+	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ","), ",")
+
+	if peerdbCols.SoftDelete {
+		softDeleteInsertColumnsSQL := strings.TrimSuffix(strings.Join(append(columnNames,
+			fmt.Sprintf(`"%s"`, peerdbCols.SoftDeleteColName)), ","), ",")
+		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), ",")
+
+		updateStatementsforToastCols = append(updateStatementsforToastCols,
+			fmt.Sprintf("WHEN NOT MATCHED AND (src._peerdb_record_type = 2) THEN INSERT (%s) VALUES(%s)",
+				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))
+	}
+	updateStringToastCols := strings.Join(updateStatementsforToastCols, "\n")
+
+	deletePart := "DELETE"
+	if peerdbCols.SoftDelete {
+		colName := peerdbCols.SoftDeleteColName
+		deletePart = fmt.Sprintf(`UPDATE SET "%s" = TRUE`, colName)
+		if peerdbCols.SyncedAtColName != "" {
+			deletePart = fmt.Sprintf(`%s, "%s" = CURRENT_TIMESTAMP`,
+				deletePart, peerdbCols.SyncedAtColName)
+		}
+	}
+
+	mergeStmt := fmt.Sprintf(
+		mergeStatementSQL,
+		strings.Join(maps.Values(primaryKeyColumnCasts), ","),
+		c.metadataSchema,
+		rawTableIdentifier,
+		parsedDstTable.String(),
+		flattenedCastsSQL,
+		strings.Join(primaryKeySelectSQLArray, " AND "),
+		insertColumnsSQL,
+		insertValuesSQL,
+		updateStringToastCols,
+		deletePart,
+	)
+
+	return mergeStmt
 }
 
-func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedToastColsLists []string) string {
+func (c *PostgresConnector) generateUpdateStatement(allCols []string,
+	unchangedToastColsLists []string, peerdbCols *protos.PeerDBColumns,
+) []string {
 	updateStmts := make([]string, 0, len(unchangedToastColsLists))
 
 	for _, cols := range unchangedToastColsLists {
@@ -642,13 +711,24 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string, unchangedT
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
+		// set the synced at column to the current timestamp
+		if peerdbCols.SyncedAtColName != "" {
+			tmpArray = append(tmpArray, fmt.Sprintf(`"%s" = CURRENT_TIMESTAMP`,
+				peerdbCols.SyncedAtColName))
+		}
+		// set soft-deleted to false, tackles insert after soft-delete
+		if peerdbCols.SoftDeleteColName != "" {
+			tmpArray = append(tmpArray, fmt.Sprintf(`"%s" = FALSE`,
+				peerdbCols.SoftDeleteColName))
+		}
+
 		ssep := strings.Join(tmpArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 			src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
 			THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 	}
-	return strings.Join(updateStmts, "\n")
+	return updateStmts
 }
 
 func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
