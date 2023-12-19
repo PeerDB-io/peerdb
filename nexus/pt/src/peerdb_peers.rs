@@ -152,6 +152,20 @@ pub struct S3Config {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClickhouseConfig {
+    #[prost(string, tag="1")]
+    pub host: ::prost::alloc::string::String,
+    #[prost(uint32, tag="2")]
+    pub port: u32,
+    #[prost(string, tag="3")]
+    pub user: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub password: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub database: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SqlServerConfig {
     #[prost(string, tag="1")]
     pub server: ::prost::alloc::string::String,
@@ -171,7 +185,7 @@ pub struct Peer {
     pub name: ::prost::alloc::string::String,
     #[prost(enumeration="DbType", tag="2")]
     pub r#type: i32,
-    #[prost(oneof="peer::Config", tags="3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(oneof="peer::Config", tags="3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub config: ::core::option::Option<peer::Config>,
 }
 /// Nested message and enum types in `Peer`.
@@ -195,6 +209,8 @@ pub mod peer {
         SqlserverConfig(super::SqlServerConfig),
         #[prost(message, tag="10")]
         EventhubGroupConfig(super::EventHubGroupConfig),
+        #[prost(message, tag="11")]
+        ClickhouseConfig(super::ClickhouseConfig),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -208,6 +224,7 @@ pub enum DbType {
     S3 = 5,
     Sqlserver = 6,
     EventhubGroup = 7,
+    Clickhouse = 8,
 }
 impl DbType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -224,6 +241,7 @@ impl DbType {
             DbType::S3 => "S3",
             DbType::Sqlserver => "SQLSERVER",
             DbType::EventhubGroup => "EVENTHUB_GROUP",
+            DbType::Clickhouse => "CLICKHOUSE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -237,6 +255,7 @@ impl DbType {
             "S3" => Some(Self::S3),
             "SQLSERVER" => Some(Self::Sqlserver),
             "EVENTHUB_GROUP" => Some(Self::EventhubGroup),
+            "CLICKHOUSE" => Some(Self::Clickhouse),
             _ => None,
         }
     }

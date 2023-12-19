@@ -13,6 +13,7 @@ export enum DBType {
   S3 = 5,
   SQLSERVER = 6,
   EVENTHUB_GROUP = 7,
+  CLICKHOUSE = 8,
   UNRECOGNIZED = -1,
 }
 
@@ -42,6 +43,9 @@ export function dBTypeFromJSON(object: any): DBType {
     case 7:
     case "EVENTHUB_GROUP":
       return DBType.EVENTHUB_GROUP;
+    case 8:
+    case "CLICKHOUSE":
+      return DBType.CLICKHOUSE;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -67,6 +71,8 @@ export function dBTypeToJSON(object: DBType): string {
       return "SQLSERVER";
     case DBType.EVENTHUB_GROUP:
       return "EVENTHUB_GROUP";
+    case DBType.CLICKHOUSE:
+      return "CLICKHOUSE";
     case DBType.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -169,6 +175,14 @@ export interface S3Config {
   metadataDb: PostgresConfig | undefined;
 }
 
+export interface ClickhouseConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+}
+
 export interface SqlServerConfig {
   server: string;
   port: number;
@@ -188,6 +202,7 @@ export interface Peer {
   s3Config?: S3Config | undefined;
   sqlserverConfig?: SqlServerConfig | undefined;
   eventhubGroupConfig?: EventHubGroupConfig | undefined;
+  clickhouseConfig?: ClickhouseConfig | undefined;
 }
 
 function createBaseSSHConfig(): SSHConfig {
@@ -1540,6 +1555,125 @@ export const S3Config = {
   },
 };
 
+function createBaseClickhouseConfig(): ClickhouseConfig {
+  return { host: "", port: 0, user: "", password: "", database: "" };
+}
+
+export const ClickhouseConfig = {
+  encode(message: ClickhouseConfig, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.host !== "") {
+      writer.uint32(10).string(message.host);
+    }
+    if (message.port !== 0) {
+      writer.uint32(16).uint32(message.port);
+    }
+    if (message.user !== "") {
+      writer.uint32(26).string(message.user);
+    }
+    if (message.password !== "") {
+      writer.uint32(34).string(message.password);
+    }
+    if (message.database !== "") {
+      writer.uint32(42).string(message.database);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): ClickhouseConfig {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseClickhouseConfig();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.host = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.port = reader.uint32();
+          continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.user = reader.string();
+          continue;
+        case 4:
+          if (tag !== 34) {
+            break;
+          }
+
+          message.password = reader.string();
+          continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.database = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ClickhouseConfig {
+    return {
+      host: isSet(object.host) ? String(object.host) : "",
+      port: isSet(object.port) ? Number(object.port) : 0,
+      user: isSet(object.user) ? String(object.user) : "",
+      password: isSet(object.password) ? String(object.password) : "",
+      database: isSet(object.database) ? String(object.database) : "",
+    };
+  },
+
+  toJSON(message: ClickhouseConfig): unknown {
+    const obj: any = {};
+    if (message.host !== "") {
+      obj.host = message.host;
+    }
+    if (message.port !== 0) {
+      obj.port = Math.round(message.port);
+    }
+    if (message.user !== "") {
+      obj.user = message.user;
+    }
+    if (message.password !== "") {
+      obj.password = message.password;
+    }
+    if (message.database !== "") {
+      obj.database = message.database;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ClickhouseConfig>, I>>(base?: I): ClickhouseConfig {
+    return ClickhouseConfig.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ClickhouseConfig>, I>>(object: I): ClickhouseConfig {
+    const message = createBaseClickhouseConfig();
+    message.host = object.host ?? "";
+    message.port = object.port ?? 0;
+    message.user = object.user ?? "";
+    message.password = object.password ?? "";
+    message.database = object.database ?? "";
+    return message;
+  },
+};
+
 function createBaseSqlServerConfig(): SqlServerConfig {
   return { server: "", port: 0, user: "", password: "", database: "" };
 }
@@ -1671,6 +1805,7 @@ function createBasePeer(): Peer {
     s3Config: undefined,
     sqlserverConfig: undefined,
     eventhubGroupConfig: undefined,
+    clickhouseConfig: undefined,
   };
 }
 
@@ -1705,6 +1840,9 @@ export const Peer = {
     }
     if (message.eventhubGroupConfig !== undefined) {
       EventHubGroupConfig.encode(message.eventhubGroupConfig, writer.uint32(82).fork()).ldelim();
+    }
+    if (message.clickhouseConfig !== undefined) {
+      ClickhouseConfig.encode(message.clickhouseConfig, writer.uint32(90).fork()).ldelim();
     }
     return writer;
   },
@@ -1786,6 +1924,13 @@ export const Peer = {
 
           message.eventhubGroupConfig = EventHubGroupConfig.decode(reader, reader.uint32());
           continue;
+        case 11:
+          if (tag !== 90) {
+            break;
+          }
+
+          message.clickhouseConfig = ClickhouseConfig.decode(reader, reader.uint32());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1809,6 +1954,7 @@ export const Peer = {
       eventhubGroupConfig: isSet(object.eventhubGroupConfig)
         ? EventHubGroupConfig.fromJSON(object.eventhubGroupConfig)
         : undefined,
+      clickhouseConfig: isSet(object.clickhouseConfig) ? ClickhouseConfig.fromJSON(object.clickhouseConfig) : undefined,
     };
   },
 
@@ -1844,6 +1990,9 @@ export const Peer = {
     if (message.eventhubGroupConfig !== undefined) {
       obj.eventhubGroupConfig = EventHubGroupConfig.toJSON(message.eventhubGroupConfig);
     }
+    if (message.clickhouseConfig !== undefined) {
+      obj.clickhouseConfig = ClickhouseConfig.toJSON(message.clickhouseConfig);
+    }
     return obj;
   },
 
@@ -1877,6 +2026,9 @@ export const Peer = {
       : undefined;
     message.eventhubGroupConfig = (object.eventhubGroupConfig !== undefined && object.eventhubGroupConfig !== null)
       ? EventHubGroupConfig.fromPartial(object.eventhubGroupConfig)
+      : undefined;
+    message.clickhouseConfig = (object.clickhouseConfig !== undefined && object.clickhouseConfig !== null)
+      ? ClickhouseConfig.fromPartial(object.clickhouseConfig)
       : undefined;
     return message;
   },

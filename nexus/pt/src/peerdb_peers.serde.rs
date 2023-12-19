@@ -275,6 +275,171 @@ impl<'de> serde::Deserialize<'de> for BigqueryConfig {
         deserializer.deserialize_struct("peerdb_peers.BigqueryConfig", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ClickhouseConfig {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.host.is_empty() {
+            len += 1;
+        }
+        if self.port != 0 {
+            len += 1;
+        }
+        if !self.user.is_empty() {
+            len += 1;
+        }
+        if !self.password.is_empty() {
+            len += 1;
+        }
+        if !self.database.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_peers.ClickhouseConfig", len)?;
+        if !self.host.is_empty() {
+            struct_ser.serialize_field("host", &self.host)?;
+        }
+        if self.port != 0 {
+            struct_ser.serialize_field("port", &self.port)?;
+        }
+        if !self.user.is_empty() {
+            struct_ser.serialize_field("user", &self.user)?;
+        }
+        if !self.password.is_empty() {
+            struct_ser.serialize_field("password", &self.password)?;
+        }
+        if !self.database.is_empty() {
+            struct_ser.serialize_field("database", &self.database)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ClickhouseConfig {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "host",
+            "port",
+            "user",
+            "password",
+            "database",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Host,
+            Port,
+            User,
+            Password,
+            Database,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "host" => Ok(GeneratedField::Host),
+                            "port" => Ok(GeneratedField::Port),
+                            "user" => Ok(GeneratedField::User),
+                            "password" => Ok(GeneratedField::Password),
+                            "database" => Ok(GeneratedField::Database),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ClickhouseConfig;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_peers.ClickhouseConfig")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<ClickhouseConfig, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut host__ = None;
+                let mut port__ = None;
+                let mut user__ = None;
+                let mut password__ = None;
+                let mut database__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Host => {
+                            if host__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("host"));
+                            }
+                            host__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::Port => {
+                            if port__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("port"));
+                            }
+                            port__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::User => {
+                            if user__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("user"));
+                            }
+                            user__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::Password => {
+                            if password__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("password"));
+                            }
+                            password__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::Database => {
+                            if database__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("database"));
+                            }
+                            database__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ClickhouseConfig {
+                    host: host__.unwrap_or_default(),
+                    port: port__.unwrap_or_default(),
+                    user: user__.unwrap_or_default(),
+                    password: password__.unwrap_or_default(),
+                    database: database__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_peers.ClickhouseConfig", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for DbType {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -290,6 +455,7 @@ impl serde::Serialize for DbType {
             Self::S3 => "S3",
             Self::Sqlserver => "SQLSERVER",
             Self::EventhubGroup => "EVENTHUB_GROUP",
+            Self::Clickhouse => "CLICKHOUSE",
         };
         serializer.serialize_str(variant)
     }
@@ -309,6 +475,7 @@ impl<'de> serde::Deserialize<'de> for DbType {
             "S3",
             "SQLSERVER",
             "EVENTHUB_GROUP",
+            "CLICKHOUSE",
         ];
 
         struct GeneratedVisitor;
@@ -359,6 +526,7 @@ impl<'de> serde::Deserialize<'de> for DbType {
                     "S3" => Ok(DbType::S3),
                     "SQLSERVER" => Ok(DbType::Sqlserver),
                     "EVENTHUB_GROUP" => Ok(DbType::EventhubGroup),
+                    "CLICKHOUSE" => Ok(DbType::Clickhouse),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -922,6 +1090,9 @@ impl serde::Serialize for Peer {
                 peer::Config::EventhubGroupConfig(v) => {
                     struct_ser.serialize_field("eventhubGroupConfig", v)?;
                 }
+                peer::Config::ClickhouseConfig(v) => {
+                    struct_ser.serialize_field("clickhouseConfig", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -952,6 +1123,8 @@ impl<'de> serde::Deserialize<'de> for Peer {
             "sqlserverConfig",
             "eventhub_group_config",
             "eventhubGroupConfig",
+            "clickhouse_config",
+            "clickhouseConfig",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -966,6 +1139,7 @@ impl<'de> serde::Deserialize<'de> for Peer {
             S3Config,
             SqlserverConfig,
             EventhubGroupConfig,
+            ClickhouseConfig,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -998,6 +1172,7 @@ impl<'de> serde::Deserialize<'de> for Peer {
                             "s3Config" | "s3_config" => Ok(GeneratedField::S3Config),
                             "sqlserverConfig" | "sqlserver_config" => Ok(GeneratedField::SqlserverConfig),
                             "eventhubGroupConfig" | "eventhub_group_config" => Ok(GeneratedField::EventhubGroupConfig),
+                            "clickhouseConfig" | "clickhouse_config" => Ok(GeneratedField::ClickhouseConfig),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1088,6 +1263,13 @@ impl<'de> serde::Deserialize<'de> for Peer {
                                 return Err(serde::de::Error::duplicate_field("eventhubGroupConfig"));
                             }
                             config__ = map.next_value::<::std::option::Option<_>>()?.map(peer::Config::EventhubGroupConfig)
+;
+                        }
+                        GeneratedField::ClickhouseConfig => {
+                            if config__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clickhouseConfig"));
+                            }
+                            config__ = map.next_value::<::std::option::Option<_>>()?.map(peer::Config::ClickhouseConfig)
 ;
                         }
                         GeneratedField::__SkipField__ => {
