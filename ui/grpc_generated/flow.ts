@@ -430,6 +430,7 @@ export interface QRepConfig {
    * to be used after the old mirror is dropped
    */
   dstTableFullResync: boolean;
+  syncedAtColName: string;
 }
 
 export interface QRepPartition {
@@ -472,6 +473,12 @@ export interface QRepFlowState {
   numPartitionsProcessed: number;
   needsResync: boolean;
   disableWaitForNewRows: boolean;
+}
+
+export interface PeerDBColumns {
+  softDeleteColName: string;
+  syncedAtColName: string;
+  softDelete: boolean;
 }
 
 function createBaseTableNameMapping(): TableNameMapping {
@@ -5301,6 +5308,7 @@ function createBaseQRepConfig(): QRepConfig {
     numRowsPerPartition: 0,
     setupWatermarkTableOnDestination: false,
     dstTableFullResync: false,
+    syncedAtColName: "",
   };
 }
 
@@ -5359,6 +5367,9 @@ export const QRepConfig = {
     }
     if (message.dstTableFullResync === true) {
       writer.uint32(144).bool(message.dstTableFullResync);
+    }
+    if (message.syncedAtColName !== "") {
+      writer.uint32(154).string(message.syncedAtColName);
     }
     return writer;
   },
@@ -5496,6 +5507,13 @@ export const QRepConfig = {
 
           message.dstTableFullResync = reader.bool();
           continue;
+        case 19:
+          if (tag !== 154) {
+            break;
+          }
+
+          message.syncedAtColName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5529,6 +5547,7 @@ export const QRepConfig = {
         ? Boolean(object.setupWatermarkTableOnDestination)
         : false,
       dstTableFullResync: isSet(object.dstTableFullResync) ? Boolean(object.dstTableFullResync) : false,
+      syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : "",
     };
   },
 
@@ -5588,6 +5607,9 @@ export const QRepConfig = {
     if (message.dstTableFullResync === true) {
       obj.dstTableFullResync = message.dstTableFullResync;
     }
+    if (message.syncedAtColName !== "") {
+      obj.syncedAtColName = message.syncedAtColName;
+    }
     return obj;
   },
 
@@ -5620,6 +5642,7 @@ export const QRepConfig = {
     message.numRowsPerPartition = object.numRowsPerPartition ?? 0;
     message.setupWatermarkTableOnDestination = object.setupWatermarkTableOnDestination ?? false;
     message.dstTableFullResync = object.dstTableFullResync ?? false;
+    message.syncedAtColName = object.syncedAtColName ?? "";
     return message;
   },
 };
@@ -6253,6 +6276,95 @@ export const QRepFlowState = {
     message.numPartitionsProcessed = object.numPartitionsProcessed ?? 0;
     message.needsResync = object.needsResync ?? false;
     message.disableWaitForNewRows = object.disableWaitForNewRows ?? false;
+    return message;
+  },
+};
+
+function createBasePeerDBColumns(): PeerDBColumns {
+  return { softDeleteColName: "", syncedAtColName: "", softDelete: false };
+}
+
+export const PeerDBColumns = {
+  encode(message: PeerDBColumns, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.softDeleteColName !== "") {
+      writer.uint32(10).string(message.softDeleteColName);
+    }
+    if (message.syncedAtColName !== "") {
+      writer.uint32(18).string(message.syncedAtColName);
+    }
+    if (message.softDelete === true) {
+      writer.uint32(24).bool(message.softDelete);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PeerDBColumns {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePeerDBColumns();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.softDeleteColName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.syncedAtColName = reader.string();
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.softDelete = reader.bool();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PeerDBColumns {
+    return {
+      softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : "",
+      syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : "",
+      softDelete: isSet(object.softDelete) ? Boolean(object.softDelete) : false,
+    };
+  },
+
+  toJSON(message: PeerDBColumns): unknown {
+    const obj: any = {};
+    if (message.softDeleteColName !== "") {
+      obj.softDeleteColName = message.softDeleteColName;
+    }
+    if (message.syncedAtColName !== "") {
+      obj.syncedAtColName = message.syncedAtColName;
+    }
+    if (message.softDelete === true) {
+      obj.softDelete = message.softDelete;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PeerDBColumns>, I>>(base?: I): PeerDBColumns {
+    return PeerDBColumns.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PeerDBColumns>, I>>(object: I): PeerDBColumns {
+    const message = createBasePeerDBColumns();
+    message.softDeleteColName = object.softDeleteColName ?? "";
+    message.syncedAtColName = object.syncedAtColName ?? "";
+    message.softDelete = object.softDelete ?? false;
     return message;
   },
 };
