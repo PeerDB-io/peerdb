@@ -81,7 +81,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	env.AssertExpectations(s.t)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Columns_QRep_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 

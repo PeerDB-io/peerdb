@@ -274,3 +274,48 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 
 	env.AssertExpectations(s.t)
 }
+
+func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
+
+	numRows := 10
+
+	tblName := "test_qrep_columns_sf"
+	s.setupSourceTable(tblName, numRows)
+
+	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		s.pgSuffix, tblName)
+
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+		"test_columns_qrep_sf",
+		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
+		dstSchemaQualified,
+		query,
+		s.sfHelper.Peer,
+		"",
+		true,
+		"_PEERDB_SYNCED_AT",
+	)
+	qrepConfig.WriteMode = &protos.QRepWriteMode{
+		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+		UpsertKeyColumns: []string{"id"},
+	}
+	require.NoError(s.t, err)
+
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	err = env.GetWorkflowError()
+	require.NoError(s.t, err)
+
+	err = s.sfHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s.%s`,
+		s.sfHelper.testSchemaName, tblName))
+	require.NoError(s.t, err)
+
+	env.AssertExpectations(s.t)
+}

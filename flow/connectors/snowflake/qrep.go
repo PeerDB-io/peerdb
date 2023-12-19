@@ -249,7 +249,7 @@ func (c *SnowflakeConnector) createExternalStage(stageName string, config *proto
 }
 
 func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	c.logger.Error("Consolidating partitions")
+	c.logger.Info("Consolidating partitions")
 
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
@@ -272,7 +272,7 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 
 // CleanupQRepFlow function for snowflake connector
 func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	c.logger.Error("Cleaning up flow job")
+	c.logger.Info("Cleaning up flow job")
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
