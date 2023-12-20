@@ -55,7 +55,7 @@ const TableMapping = ({
           />
         </div>
       </div>
-      <div style={{ maxHeight: '40vh', overflow: 'scroll' }}>
+      <div style={{ maxHeight: '70vh', overflow: 'scroll' }}>
         {allSchemas ? (
           allSchemas
             ?.filter((schema) => {
