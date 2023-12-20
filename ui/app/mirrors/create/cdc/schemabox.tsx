@@ -48,13 +48,16 @@ const SchemaBox = ({
   );
 
   const [handlingAll, setHandlingAll] = useState(false);
+
   const searchedTables = useMemo(() => {
+    const tableQueryLower = tableQuery.toLowerCase();
     return rows.filter(
       (row) =>
         row.schema === schema &&
-        row.source.toLowerCase().includes(tableQuery.toLowerCase())
+        row.source.toLowerCase().includes(tableQueryLower)
     );
   }, [schema, rows, tableQuery]);
+
   const schemaIsExpanded = useCallback(
     (schema: string) => {
       return !!expandedSchemas.find((schemaName) => schemaName === schema);
@@ -132,15 +135,12 @@ const SchemaBox = ({
 
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
-      setTablesLoading(true);
       setExpandedSchemas((curr) => [...curr, schemaName]);
       if (!schemaLoadedSet.has(schemaName)) {
-        const updatedSet = new Set(schemaLoadedSet);
-        updatedSet.add(schemaName); // Add the new schemaName
-        setSchemaLoadedSet(updatedSet);
+        setTablesLoading(true);
+        setSchemaLoadedSet((loaded) => new Set(loaded).add(schemaName));
         fetchTables(sourcePeer, schemaName, peerType).then((tableRows) => {
-          const newRows = [...rows, ...tableRows];
-          setRows(newRows);
+          setRows((value) => [...value, ...tableRows]);
           setTablesLoading(false);
         });
       }

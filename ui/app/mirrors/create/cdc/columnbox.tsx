@@ -11,7 +11,12 @@ interface ColumnProps {
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
-const ColumnBox = ({ columns, tableRow, rows, setRows }: ColumnProps) => {
+export default function ColumnBox({
+  columns,
+  tableRow,
+  rows,
+  setRows,
+}: ColumnProps) {
   const handleColumnExclusion = (
     source: string,
     column: string,
@@ -32,10 +37,10 @@ const ColumnBox = ({ columns, tableRow, rows, setRows }: ColumnProps) => {
     setRows(currRows);
   };
 
+  const columnExclusion = new Set(tableRow.exclude);
   return columns.map((column) => {
-    const columnName = column.split(':')[0];
-    const columnType = column.split(':')[1];
-    const isPkey = column.split(':')[2] === 'true';
+    const [columnName, columnType, isPkeyStr] = column.split(':');
+    const isPkey = isPkeyStr === 'true';
     return (
       <RowWithCheckbox
         key={column}
@@ -45,6 +50,7 @@ const ColumnBox = ({ columns, tableRow, rows, setRows }: ColumnProps) => {
             style={{
               fontSize: 13,
               display: 'flex',
+              alignItems: 'center',
             }}
           >
             {columnName}
@@ -62,7 +68,7 @@ const ColumnBox = ({ columns, tableRow, rows, setRows }: ColumnProps) => {
           <Checkbox
             style={{ cursor: 'pointer' }}
             disabled={isPkey}
-            checked={!tableRow.exclude.find((col) => col == columnName)}
+            checked={!columnExclusion.has(columnName)}
             onCheckedChange={(state: boolean) =>
               handleColumnExclusion(tableRow.source, columnName, state)
             }
@@ -71,6 +77,4 @@ const ColumnBox = ({ columns, tableRow, rows, setRows }: ColumnProps) => {
       />
     );
   });
-};
-
-export default ColumnBox;
+}
