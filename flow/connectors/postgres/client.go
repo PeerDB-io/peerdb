@@ -78,13 +78,13 @@ const (
 	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
 )
 
-type ReplicaIdentityType string
+type ReplicaIdentityType rune
 
 const (
-	ReplicaIdentityDefault ReplicaIdentityType = "d"
-	ReplicaIdentityFull                        = "f"
-	ReplicaIdentityIndex                       = "i"
-	ReplicaIdentityNothing                     = "n"
+	ReplicaIdentityDefault ReplicaIdentityType = 'd'
+	ReplicaIdentityFull                        = 'f'
+	ReplicaIdentityIndex                       = 'i'
+	ReplicaIdentityNothing                     = 'n'
 )
 
 // getRelIDForTable returns the relation ID for a table.
@@ -116,19 +116,7 @@ func (c *PostgresConnector) getReplicaIdentityType(schemaTable *utils.SchemaTabl
 		return ReplicaIdentityDefault, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
 	}
 
-	var replicaIdentityMap = map[rune]ReplicaIdentityType{
-		'd': ReplicaIdentityDefault,
-		'f': ReplicaIdentityFull,
-		'i': ReplicaIdentityIndex,
-		'n': ReplicaIdentityNothing,
-	}
-
-	replicaType, ok := replicaIdentityMap[replicaIdentity]
-	if !ok {
-		return ReplicaIdentityDefault, fmt.Errorf("unknown replica identity type %c for table %s", replicaIdentity, schemaTable)
-	}
-
-	return replicaType, nil
+	return ReplicaIdentityType(replicaIdentity), nil
 }
 
 // getPrimaryKeyColumns returns the primary key columns for a given table.
