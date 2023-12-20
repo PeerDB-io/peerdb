@@ -431,6 +431,7 @@ export interface QRepConfig {
    */
   dstTableFullResync: boolean;
   syncedAtColName: string;
+  softDeleteColName: string;
 }
 
 export interface QRepPartition {
@@ -5309,6 +5310,7 @@ function createBaseQRepConfig(): QRepConfig {
     setupWatermarkTableOnDestination: false,
     dstTableFullResync: false,
     syncedAtColName: "",
+    softDeleteColName: "",
   };
 }
 
@@ -5370,6 +5372,9 @@ export const QRepConfig = {
     }
     if (message.syncedAtColName !== "") {
       writer.uint32(154).string(message.syncedAtColName);
+    }
+    if (message.softDeleteColName !== "") {
+      writer.uint32(162).string(message.softDeleteColName);
     }
     return writer;
   },
@@ -5514,6 +5519,13 @@ export const QRepConfig = {
 
           message.syncedAtColName = reader.string();
           continue;
+        case 20:
+          if (tag !== 162) {
+            break;
+          }
+
+          message.softDeleteColName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5548,6 +5560,7 @@ export const QRepConfig = {
         : false,
       dstTableFullResync: isSet(object.dstTableFullResync) ? Boolean(object.dstTableFullResync) : false,
       syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : "",
+      softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : "",
     };
   },
 
@@ -5610,6 +5623,9 @@ export const QRepConfig = {
     if (message.syncedAtColName !== "") {
       obj.syncedAtColName = message.syncedAtColName;
     }
+    if (message.softDeleteColName !== "") {
+      obj.softDeleteColName = message.softDeleteColName;
+    }
     return obj;
   },
 
@@ -5643,6 +5659,7 @@ export const QRepConfig = {
     message.setupWatermarkTableOnDestination = object.setupWatermarkTableOnDestination ?? false;
     message.dstTableFullResync = object.dstTableFullResync ?? false;
     message.syncedAtColName = object.syncedAtColName ?? "";
+    message.softDeleteColName = object.softDeleteColName ?? "";
     return message;
   },
 };

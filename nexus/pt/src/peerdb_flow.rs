@@ -474,6 +474,8 @@ pub struct QRepConfig {
     pub dst_table_full_resync: bool,
     #[prost(string, tag="19")]
     pub synced_at_col_name: ::prost::alloc::string::String,
+    #[prost(string, tag="20")]
+    pub soft_delete_col_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
