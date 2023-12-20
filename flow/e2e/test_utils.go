@@ -123,7 +123,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 	}
 }
 
-func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
+func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
@@ -287,6 +287,8 @@ func CreateQRepWorkflowConfig(
 	query string,
 	dest *protos.Peer,
 	stagingPath string,
+	setupDst bool,
+	syncedAtCol string,
 ) (*protos.QRepConfig, error) {
 	connectionGen := QRepFlowConnectionGenerationConfig{
 		FlowJobName:                flowJobName,
@@ -304,6 +306,8 @@ func CreateQRepWorkflowConfig(
 		return nil, err
 	}
 	qrepConfig.InitialCopyOnly = true
+	qrepConfig.SyncedAtColName = syncedAtCol
+	qrepConfig.SetupWatermarkTableOnDestination = setupDst
 
 	return qrepConfig, nil
 }
