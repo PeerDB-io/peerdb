@@ -1355,7 +1355,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	s.compareTableContentsBQ("test_softdel", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s.%s WHERE _PEERDB_IS_DELETED = TRUE`,
+		SELECT COUNT(*) FROM`+"`%s.%s`"+`WHERE _PEERDB_IS_DELETED = TRUE`,
 		s.bqHelper.datasetName, dstTableName)
 	numNewRows, err := s.bqHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
@@ -1439,7 +1439,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	s.compareTableContentsBQ("test_softdel_iud", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s.%s WHERE _PEERDB_IS_DELETED = TRUE`,
+		SELECT COUNT(*) FROM`+"`%s.%s`"+`WHERE _PEERDB_IS_DELETED = TRUE`,
 		s.bqHelper.datasetName, dstTableName)
 	numNewRows, err := s.bqHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
@@ -1527,7 +1527,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	s.compareTableContentsBQ("test_softdel_ud", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s.%s WHERE _PEERDB_IS_DELETED = TRUE`,
+		SELECT COUNT(*) FROM`+"`%s.%s`"+`WHERE _PEERDB_IS_DELETED = TRUE`,
 		s.bqHelper.datasetName, dstTableName)
 	numNewRows, err := s.bqHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
@@ -1603,7 +1603,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	s.compareTableContentsBQ("test_softdel_iad", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s.%s WHERE _PEERDB_IS_DELETED = TRUE`,
+		SELECT COUNT(*) FROM`+"`%s.%s`"+`WHERE _PEERDB_IS_DELETED = TRUE`,
 		s.bqHelper.datasetName, dstTableName)
 	numNewRows, err := s.bqHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
