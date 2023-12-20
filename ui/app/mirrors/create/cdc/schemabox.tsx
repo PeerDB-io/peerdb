@@ -7,9 +7,16 @@ import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
-import { Dispatch, SetStateAction, useCallback, useState } from 'react';
+import {
+  Dispatch,
+  SetStateAction,
+  useCallback,
+  useMemo,
+  useState,
+} from 'react';
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
+import ColumnBox from './columnbox';
 import { expandableStyle, schemaBoxStyle, tableBoxStyle } from './styles';
 
 interface SchemaBoxProps {
@@ -36,7 +43,18 @@ const SchemaBox = ({
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [tableQuery, setTableQuery] = useState<string>('');
+  const [schemaLoadedSet, setSchemaLoadedSet] = useState<Set<string>>(
+    new Set()
+  );
 
+  const [handlingAll, setHandlingAll] = useState(false);
+  const searchedTables = useMemo(() => {
+    return rows.filter(
+      (row) =>
+        row.schema === schema &&
+        row.source.toLowerCase().includes(tableQuery.toLowerCase())
+    );
+  }, [schema, rows, tableQuery]);
   const schemaIsExpanded = useCallback(
     (schema: string) => {
       return !!expandedSchemas.find((schemaName) => schemaName === schema);
@@ -74,11 +92,13 @@ const SchemaBox = ({
   const addTableColumns = (table: string) => {
     const schemaName = table.split('.')[0];
     const tableName = table.split('.')[1];
+
     fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
-      (res) =>
+      (res) => {
         setTableColumns((prev) => {
           return [...prev, { tableName: table, columns: res }];
-        })
+        });
+      }
     );
   };
 
@@ -93,47 +113,37 @@ const SchemaBox = ({
       ?.columns;
   };
 
-  const handleColumnExclusion = (
-    source: string,
-    column: string,
-    include: boolean
-  ) => {
-    const currRows = [...rows];
-    const rowOfSource = currRows.find((row) => row.source === source);
-    if (rowOfSource) {
-      if (include) {
-        const updatedExclude = rowOfSource.exclude.filter(
-          (col) => col !== column
-        );
-        rowOfSource.exclude = updatedExclude;
-      } else {
-        rowOfSource.exclude.push(column);
-      }
-    }
-    setRows(currRows);
-  };
-
   const handleSelectAll = (
-    e: React.MouseEvent<HTMLInputElement, MouseEvent>
+    e: React.MouseEvent<HTMLInputElement, MouseEvent>,
+    schemaName: string
   ) => {
+    setHandlingAll(true);
     const newRows = [...rows];
     for (const row of newRows) {
-      row.selected = e.currentTarget.checked;
-      if (e.currentTarget.checked) addTableColumns(row.source);
-      else removeTableColumns(row.source);
+      if (row.schema === schemaName) {
+        row.selected = e.currentTarget.checked;
+        if (e.currentTarget.checked) addTableColumns(row.source);
+        else removeTableColumns(row.source);
+      }
     }
     setRows(newRows);
+    setHandlingAll(false);
   };
 
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setTablesLoading(true);
       setExpandedSchemas((curr) => [...curr, schemaName]);
-      fetchTables(sourcePeer, schemaName, peerType).then((tableRows) => {
-        const newRows = [...rows, ...tableRows];
-        setRows(newRows);
-        setTablesLoading(false);
-      });
+      if (!schemaLoadedSet.has(schemaName)) {
+        const updatedSet = new Set(schemaLoadedSet);
+        updatedSet.add(schemaName); // Add the new schemaName
+        setSchemaLoadedSet(updatedSet);
+        fetchTables(sourcePeer, schemaName, peerType).then((tableRows) => {
+          const newRows = [...rows, ...tableRows];
+          setRows(newRows);
+          setTablesLoading(false);
+        });
+      }
     } else {
       setExpandedSchemas((curr) =>
         curr.filter((expandedSchema) => expandedSchema != schemaName)
@@ -158,7 +168,10 @@ const SchemaBox = ({
           </div>
           <div style={{ display: schemaIsExpanded(schema) ? 'flex' : 'none' }}>
             <div style={{ display: 'flex' }}>
-              <input type='checkbox' onClick={(e) => handleSelectAll(e)} />
+              <input
+                type='checkbox'
+                onClick={(e) => handleSelectAll(e, schema)}
+              />
               <Label as='label' style={{ fontSize: 14 }}>
                 Select All
               </Label>
@@ -173,139 +186,96 @@ const SchemaBox = ({
             />
           </div>
         </div>
-        {schemaIsExpanded(schema) && (
+        {/* TABLE BOX */}
+        {handlingAll && <BarLoader />}
+        {!handlingAll && schemaIsExpanded(schema) && (
           <div className='ml-5 mt-3' style={{ width: '90%' }}>
-            {rows.filter((row) => row.schema === schema).length ? (
-              rows
-                .filter(
-                  (row) =>
-                    row.schema === schema &&
-                    row.source.toLowerCase().includes(tableQuery.toLowerCase())
-                )
-                .map((row) => {
-                  const columns = getTableColumns(row.source);
-                  return (
-                    <div key={row.source} style={tableBoxStyle}>
+            {searchedTables.length ? (
+              searchedTables.map((row) => {
+                const columns = getTableColumns(row.source);
+                return (
+                  <div key={row.source} style={tableBoxStyle}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <RowWithCheckbox
+                        label={
+                          <Label as='label' style={{ fontSize: 13 }}>
+                            {row.source}
+                          </Label>
+                        }
+                        action={
+                          <Checkbox
+                            checked={row.selected}
+                            onCheckedChange={(state: boolean) =>
+                              handleTableSelect(state, row.source)
+                            }
+                          />
+                        }
+                      />
+
                       <div
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
+                          width: '40%',
+                          display: row.selected ? 'block' : 'none',
                         }}
+                        key={row.source}
                       >
-                        <RowWithCheckbox
-                          label={
-                            <Label as='label' style={{ fontSize: 13 }}>
-                              {row.source}
-                            </Label>
-                          }
-                          action={
-                            <Checkbox
-                              checked={row.selected}
-                              onCheckedChange={(state: boolean) =>
-                                handleTableSelect(state, row.source)
-                              }
-                            />
+                        <p style={{ fontSize: 12 }}>Target Table:</p>
+                        <TextField
+                          key={row.source}
+                          style={{
+                            fontSize: 12,
+                            marginTop: '0.5rem',
+                            cursor: 'pointer',
+                          }}
+                          variant='simple'
+                          placeholder={'Enter target table'}
+                          defaultValue={row.destination}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            updateDestination(row.source, e.target.value)
                           }
                         />
-
-                        <div
-                          style={{
-                            width: '40%',
-                            display: row.selected ? 'block' : 'none',
-                          }}
-                          key={row.source}
-                        >
-                          <p style={{ fontSize: 12 }}>Target Table:</p>
-                          <TextField
-                            key={row.source}
-                            style={{
-                              fontSize: 12,
-                              marginTop: '0.5rem',
-                              cursor: 'pointer',
-                            }}
-                            variant='simple'
-                            placeholder={'Enter target table'}
-                            defaultValue={row.destination}
-                            onChange={(
-                              e: React.ChangeEvent<HTMLInputElement>
-                            ) => updateDestination(row.source, e.target.value)}
-                          />
-                        </div>
                       </div>
-                      {row.selected && (
-                        <div className='ml-5' style={{ width: '100%' }}>
+                    </div>
+
+                    {/* COLUMN BOX */}
+                    {row.selected && (
+                      <div className='ml-5' style={{ width: '100%' }}>
+                        <Label
+                          as='label'
+                          colorName='lowContrast'
+                          style={{ fontSize: 13 }}
+                        >
+                          Columns
+                        </Label>
+                        {columns ? (
+                          <ColumnBox
+                            columns={columns}
+                            tableRow={row}
+                            rows={rows}
+                            setRows={setRows}
+                          />
+                        ) : columnsLoading ? (
+                          <BarLoader />
+                        ) : (
                           <Label
                             as='label'
                             colorName='lowContrast'
                             style={{ fontSize: 13 }}
                           >
-                            Columns
+                            No columns in {row.source}
                           </Label>
-                          {columns ? (
-                            columns.map((column) => {
-                              const columnName = column.split(':')[0];
-                              const columnType = column.split(':')[1];
-                              const isPkey = column.split(':')[2] === 'true';
-                              return (
-                                <RowWithCheckbox
-                                  key={column}
-                                  label={
-                                    <Label
-                                      as='label'
-                                      style={{
-                                        fontSize: 13,
-                                        display: 'flex',
-                                      }}
-                                    >
-                                      {columnName}
-                                      <p
-                                        style={{
-                                          marginLeft: '0.5rem',
-                                          color: 'gray',
-                                        }}
-                                      >
-                                        {columnType}
-                                      </p>
-                                    </Label>
-                                  }
-                                  action={
-                                    <Checkbox
-                                      style={{ cursor: 'pointer' }}
-                                      disabled={isPkey}
-                                      checked={
-                                        !row.exclude.find(
-                                          (col) => col == columnName
-                                        )
-                                      }
-                                      onCheckedChange={(state: boolean) =>
-                                        handleColumnExclusion(
-                                          row.source,
-                                          columnName,
-                                          state
-                                        )
-                                      }
-                                    />
-                                  }
-                                />
-                              );
-                            })
-                          ) : columnsLoading ? (
-                            <BarLoader />
-                          ) : (
-                            <Label
-                              as='label'
-                              colorName='lowContrast'
-                              style={{ fontSize: 13 }}
-                            >
-                              No columns in {row.source}
-                            </Label>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             ) : tablesLoading ? (
               <BarLoader />
             ) : (
