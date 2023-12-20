@@ -558,12 +558,12 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+	replicaIdentityType, replErr := c.getReplicaIdentityType(schemaTable)
 	if replErr != nil {
 		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 	}
 
-	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+	pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 	}
@@ -581,7 +581,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		TableIdentifier:       tableName,
 		Columns:               make(map[string]string),
 		PrimaryKeyColumns:     pKeyCols,
-		IsReplicaIdentityFull: isFullReplica,
+		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {
@@ -731,18 +731,18 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 			return nil, err
 		}
 
-		isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+		replicaIdentity, replErr := c.getReplicaIdentityType(schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}
 
-		pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+		pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentity, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
-		if len(pKeyCols) == 0 && !isFullReplica {
+		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
