@@ -30,7 +30,7 @@ func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
 }
 
 func (s *PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateSourceTableQRep(s.pool, s3Suffix, tableName)
+	err := e2e.CreateTableForQRep(s.pool, s3Suffix, tableName)
 	s.NoError(err)
 	err = e2e.PopulateSourceTable(s.pool, s3Suffix, tableName, rowCount)
 	s.NoError(err)
@@ -106,6 +106,8 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		query,
 		s.s3Helper.GetPeer(),
 		"stage",
+		false,
+		"",
 	)
 	s.NoError(err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
@@ -152,6 +154,8 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		query,
 		s.s3Helper.GetPeer(),
 		"stage",
+		false,
+		"",
 	)
 	s.NoError(err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
