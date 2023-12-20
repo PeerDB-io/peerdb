@@ -340,6 +340,23 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
 	}
 }
 
+func (c *BigQueryConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	query := fmt.Sprintf(
+		"UPDATE %s.%s SET offset = GREATEST(offset, %d) WHERE mirror_job_name = '%s'",
+		c.datasetID,
+		MirrorJobsTable,
+		lastOffset,
+		jobName,
+	)
+	q := c.client.Query(query)
+	_, err := q.Read(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
+	}
+
+	return nil
+}
+
 func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	query := fmt.Sprintf("SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
 		c.datasetID, MirrorJobsTable, jobName)
