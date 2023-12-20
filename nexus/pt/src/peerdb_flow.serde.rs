@@ -2771,6 +2771,9 @@ impl serde::Serialize for QRepConfig {
         if !self.synced_at_col_name.is_empty() {
             len += 1;
         }
+        if !self.soft_delete_col_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.QRepConfig", len)?;
         if !self.flow_job_name.is_empty() {
             struct_ser.serialize_field("flowJobName", &self.flow_job_name)?;
@@ -2831,6 +2834,9 @@ impl serde::Serialize for QRepConfig {
         if !self.synced_at_col_name.is_empty() {
             struct_ser.serialize_field("syncedAtColName", &self.synced_at_col_name)?;
         }
+        if !self.soft_delete_col_name.is_empty() {
+            struct_ser.serialize_field("softDeleteColName", &self.soft_delete_col_name)?;
+        }
         struct_ser.end()
     }
 }
@@ -2878,6 +2884,8 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
             "dstTableFullResync",
             "synced_at_col_name",
             "syncedAtColName",
+            "soft_delete_col_name",
+            "softDeleteColName",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2901,6 +2909,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
             SetupWatermarkTableOnDestination,
             DstTableFullResync,
             SyncedAtColName,
+            SoftDeleteColName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2942,6 +2951,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                             "setupWatermarkTableOnDestination" | "setup_watermark_table_on_destination" => Ok(GeneratedField::SetupWatermarkTableOnDestination),
                             "dstTableFullResync" | "dst_table_full_resync" => Ok(GeneratedField::DstTableFullResync),
                             "syncedAtColName" | "synced_at_col_name" => Ok(GeneratedField::SyncedAtColName),
+                            "softDeleteColName" | "soft_delete_col_name" => Ok(GeneratedField::SoftDeleteColName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2980,6 +2990,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                 let mut setup_watermark_table_on_destination__ = None;
                 let mut dst_table_full_resync__ = None;
                 let mut synced_at_col_name__ = None;
+                let mut soft_delete_col_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::FlowJobName => {
@@ -3106,6 +3117,12 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                             }
                             synced_at_col_name__ = Some(map.next_value()?);
                         }
+                        GeneratedField::SoftDeleteColName => {
+                            if soft_delete_col_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("softDeleteColName"));
+                            }
+                            soft_delete_col_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3131,6 +3148,7 @@ impl<'de> serde::Deserialize<'de> for QRepConfig {
                     setup_watermark_table_on_destination: setup_watermark_table_on_destination__.unwrap_or_default(),
                     dst_table_full_resync: dst_table_full_resync__.unwrap_or_default(),
                     synced_at_col_name: synced_at_col_name__.unwrap_or_default(),
+                    soft_delete_col_name: soft_delete_col_name__.unwrap_or_default(),
                 })
             }
         }

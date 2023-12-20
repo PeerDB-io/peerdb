@@ -323,6 +323,7 @@ message QRepConfig {
   bool dst_table_full_resync = 18;
 
   string synced_at_col_name = 19;
+  string soft_delete_col_name = 20;
 }
 
 message QRepPartition {
