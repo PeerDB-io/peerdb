@@ -298,6 +298,12 @@ impl serde::Serialize for ClickhouseConfig {
         if !self.database.is_empty() {
             len += 1;
         }
+        if self.metadata_schema.is_some() {
+            len += 1;
+        }
+        if !self.s3_integration.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_peers.ClickhouseConfig", len)?;
         if !self.host.is_empty() {
             struct_ser.serialize_field("host", &self.host)?;
@@ -314,6 +320,12 @@ impl serde::Serialize for ClickhouseConfig {
         if !self.database.is_empty() {
             struct_ser.serialize_field("database", &self.database)?;
         }
+        if let Some(v) = self.metadata_schema.as_ref() {
+            struct_ser.serialize_field("metadataSchema", v)?;
+        }
+        if !self.s3_integration.is_empty() {
+            struct_ser.serialize_field("s3Integration", &self.s3_integration)?;
+        }
         struct_ser.end()
     }
 }
@@ -329,6 +341,10 @@ impl<'de> serde::Deserialize<'de> for ClickhouseConfig {
             "user",
             "password",
             "database",
+            "metadata_schema",
+            "metadataSchema",
+            "s3_integration",
+            "s3Integration",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -338,6 +354,8 @@ impl<'de> serde::Deserialize<'de> for ClickhouseConfig {
             User,
             Password,
             Database,
+            MetadataSchema,
+            S3Integration,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -365,6 +383,8 @@ impl<'de> serde::Deserialize<'de> for ClickhouseConfig {
                             "user" => Ok(GeneratedField::User),
                             "password" => Ok(GeneratedField::Password),
                             "database" => Ok(GeneratedField::Database),
+                            "metadataSchema" | "metadata_schema" => Ok(GeneratedField::MetadataSchema),
+                            "s3Integration" | "s3_integration" => Ok(GeneratedField::S3Integration),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -389,6 +409,8 @@ impl<'de> serde::Deserialize<'de> for ClickhouseConfig {
                 let mut user__ = None;
                 let mut password__ = None;
                 let mut database__ = None;
+                let mut metadata_schema__ = None;
+                let mut s3_integration__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Host => {
@@ -423,6 +445,18 @@ impl<'de> serde::Deserialize<'de> for ClickhouseConfig {
                             }
                             database__ = Some(map.next_value()?);
                         }
+                        GeneratedField::MetadataSchema => {
+                            if metadata_schema__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadataSchema"));
+                            }
+                            metadata_schema__ = map.next_value()?;
+                        }
+                        GeneratedField::S3Integration => {
+                            if s3_integration__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("s3Integration"));
+                            }
+                            s3_integration__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -434,6 +468,8 @@ impl<'de> serde::Deserialize<'de> for ClickhouseConfig {
                     user: user__.unwrap_or_default(),
                     password: password__.unwrap_or_default(),
                     database: database__.unwrap_or_default(),
+                    metadata_schema: metadata_schema__,
+                    s3_integration: s3_integration__.unwrap_or_default(),
                 })
             }
         }

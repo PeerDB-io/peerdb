@@ -9,6 +9,7 @@ import (
 	"log"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -165,23 +166,23 @@ func NewClickhouseConnector(ctx context.Context,
 	}, nil
 }
 
-func connect(ctx, config *protos.ClickhouseConfig) (*sql.DB, error) {
-	host := config.host
-	port := config.port
-	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{host + ":" + port},
+func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
+	host := config.Host
+	port := config.Port
+	conn := clickhouse.OpenDB(&clickhouse.Options{
+		Addr: []string{host + ":" + strconv.Itoa(int(port))},
 		Auth: clickhouse.Auth{
-			Database: config.database,
-			Username: config.user,
-			Password: config.password,
+			Database: config.Database,
+			Username: config.User,
+			Password: config.Password,
 		},
 	})
 
-	if err != nil {
-		return nil, err
-	}
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	if err := conn.Ping(ctx); err != nil {
+	if err := conn.PingContext(ctx); err != nil {
 		if exception, ok := err.(*clickhouse.Exception); ok {
 			fmt.Printf("Exception [%d] %s \n%s\n", exception.Code, exception.Message, exception.StackTrace)
 		}
@@ -492,7 +493,7 @@ func (c *ClickhouseConnector) ReplayTableSchemaDeltas(flowJobName string,
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qValueKindToSnowflakeType(qvalue.QValueKind(addedColumn.ColumnType))
+			sfColtype, err := qValueKindToClickhouseType(qvalue.QValueKind(addedColumn.ColumnType))
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 					addedColumn.ColumnType, err)
@@ -782,7 +783,7 @@ func generateCreateTableSQLForNormalizedTable(
 	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		columnNameUpper := strings.ToUpper(columnName)
-		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		sfColType, err := qValueKindToClickhouseType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
 				slog.Any("error", err))
@@ -840,7 +841,7 @@ func (c *ClickhouseConnector) generateAndExecuteMergeStatement(
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		sfType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		sfType, err := qValueKindToClickhouseType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 				genericColumnType, err)

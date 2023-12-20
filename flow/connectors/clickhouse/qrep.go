@@ -227,7 +227,7 @@ func (c *ClickhouseConnector) createExternalStage(stageName string, config *prot
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	s3Int := config.DestinationPeer.GetCickhouseConfig().S3Integration
+	s3Int := config.DestinationPeer.GetClickhouseConfig().S3Integration
 	if s3Int == "" {
 		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s')",
 			awsCreds.AccessKeyID, awsCreds.SecretAccessKey)

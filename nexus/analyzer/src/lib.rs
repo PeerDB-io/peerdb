@@ -11,7 +11,7 @@ use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
         peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
-        S3Config, SnowflakeConfig, SqlServerConfig,
+        S3Config, SnowflakeConfig, SqlServerConfig,ClickhouseConfig
     },
 };
 use qrep::process_options;
@@ -598,6 +598,37 @@ fn parse_db_options(
             let config = Config::SnowflakeConfig(snowflake_config);
             Some(config)
         }
+        DbType::Clickhouse => {
+            let s3_int = opts
+                .get("s3_integration")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+
+            let clickhouse_config = ClickhouseConfig {
+                host: opts.get("host").context("no host specified")?.to_string(),
+                port: opts
+                    .get("port")
+                    .context("no port specified")?
+                    .parse::<u32>()
+                    .context("unable to parse port as valid int")?,
+                user: opts
+                    .get("user")
+                    .context("no username specified")?
+                    .to_string(),
+                password: opts
+                    .get("password")
+                    .context("no password specified")?
+                    .to_string(),
+                database: opts
+                    .get("database")
+                    .context("no default database specified")?
+                    .to_string(),
+                metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
+                s3_integration: s3_int,
+            };
+            let config = Config::ClickhouseConfig(clickhouse_config);
+            Some(config)
+        }        
         DbType::Mongo => {
             let mongo_config = MongoConfig {
                 username: opts

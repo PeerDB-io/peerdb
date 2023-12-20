@@ -298,7 +298,7 @@ func (s *ClickhouseAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage
 	return nil
 }
 
-func (c *ClickhouseAvroSyncMethod) GetCopyTransformation(
+func (c *ClickhouseConnector) GetCopyTransformation(
 	dstTableName string,
 ) (*CopyInfo, error) {
 	colInfo, colsErr := c.getColsFromTable(dstTableName)

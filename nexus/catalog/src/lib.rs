@@ -119,6 +119,11 @@ impl Catalog {
                     buf.reserve(config_len);
                     postgres_config.encode(&mut buf)?;
                 }
+                Config::ClickhouseConfig(clickhouse_config) => {
+                    let config_len = clickhouse_config.encoded_len();
+                    buf.reserve(config_len);
+                    clickhouse_config.encode(&mut buf)?;
+                }                
                 Config::EventhubConfig(eventhub_config) => {
                     let config_len = eventhub_config.encoded_len();
                     buf.reserve(config_len);
@@ -313,6 +318,12 @@ impl Catalog {
                 let postgres_config =
                     pt::peerdb_peers::PostgresConfig::decode(options).context(err)?;
                 Ok(Some(Config::PostgresConfig(postgres_config)))
+            }
+            Some(DbType::Clickhouse) => {
+                let err = format!("unable to decode {} options for peer {}", "clickhouse", name);
+                let clickhouse_config =
+                    pt::peerdb_peers::ClickhouseConfig::decode(options).context(err)?;
+                Ok(Some(Config::ClickhouseConfig(clickhouse_config)))
             }
             Some(DbType::S3) => {
                 let err = format!("unable to decode {} options for peer {}", "s3", name);

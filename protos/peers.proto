@@ -95,6 +95,8 @@ message ClickhouseConfig{
   string user = 3;
   string password = 4;
   string database = 5;
+  optional string metadata_schema = 6;
+  string s3_integration = 7;
 }
 
 message SqlServerConfig {

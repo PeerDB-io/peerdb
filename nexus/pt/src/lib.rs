@@ -22,6 +22,7 @@ impl From<PeerType> for DbType {
             PeerType::S3 => DbType::S3,
             PeerType::SQLServer => DbType::Sqlserver,
             PeerType::EventHubGroup => DbType::EventhubGroup,
+            //PeerType::Clickhouse => DbType::Clickhouse,
             PeerType::Kafka => todo!("Add Kafka support"),
         }
     }

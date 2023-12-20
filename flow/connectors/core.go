@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
+
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
@@ -155,6 +157,8 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubGroupConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case *protos.Peer_ClickhouseConfig:
+		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -199,6 +203,8 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case *protos.Peer_ClickhouseConfig:
+		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -239,6 +245,12 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 			return nil, fmt.Errorf("missing s3 config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return conns3.NewS3Connector(ctx, s3Config)
+	case protos.DBType_CLICKHOUSE:
+		clickhouseConfig := peer.GetClickhouseConfig()
+		if clickhouseConfig == nil {
+			return nil, fmt.Errorf("missing clickhouse config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return connclickhouse.NewClickhouseConnector(ctx, clickhouseConfig)
 	// case protos.DBType_EVENTHUB:
 	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	default:
