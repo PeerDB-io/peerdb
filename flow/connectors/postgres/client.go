@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/lib/pq/oid"
 	"golang.org/x/exp/maps"
 )
 
@@ -33,13 +34,14 @@ const (
 	createRawTableDstTableIndexSQL = "CREATE INDEX IF NOT EXISTS %s_dst_table_idx ON %s.%s(_peerdb_destination_table_name)"
 
 	getLastOffsetSQL            = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
+	setLastOffsetSQL            = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1) WHERE mirror_job_name=$2"
 	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 
 	insertJobMetadataSQL                 = "INSERT INTO %s.%s VALUES ($1,$2,$3,$4)"
 	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
-	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET lsn_offset=$1, sync_batch_id=$2 WHERE mirror_job_name=$3"
+	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1), sync_batch_id=$2 WHERE mirror_job_name=$3"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 
 	getTableNameToUnchangedToastColsSQL = `SELECT _peerdb_destination_table_name,
@@ -77,6 +79,15 @@ const (
 	deleteJobMetadataSQL = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=$1"
 )
 
+type ReplicaIdentityType rune
+
+const (
+	ReplicaIdentityDefault ReplicaIdentityType = 'd'
+	ReplicaIdentityFull                        = 'f'
+	ReplicaIdentityIndex                       = 'i'
+	ReplicaIdentityNothing                     = 'n'
+)
+
 // getRelIDForTable returns the relation ID for a table.
 func (c *PostgresConnector) getRelIDForTable(schemaTable *utils.SchemaTable) (uint32, error) {
 	var relID pgtype.Uint32
@@ -92,10 +103,10 @@ func (c *PostgresConnector) getRelIDForTable(schemaTable *utils.SchemaTable) (ui
 }
 
 // getReplicaIdentity returns the replica identity for a table.
-func (c *PostgresConnector) isTableFullReplica(schemaTable *utils.SchemaTable) (bool, error) {
+func (c *PostgresConnector) getReplicaIdentityType(schemaTable *utils.SchemaTable) (ReplicaIdentityType, error) {
 	relID, relIDErr := c.getRelIDForTable(schemaTable)
 	if relIDErr != nil {
-		return false, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, relIDErr)
+		return ReplicaIdentityDefault, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, relIDErr)
 	}
 
 	var replicaIdentity rune
@@ -103,43 +114,76 @@ func (c *PostgresConnector) isTableFullReplica(schemaTable *utils.SchemaTable) (
 		`SELECT relreplident FROM pg_class WHERE oid = $1;`,
 		relID).Scan(&replicaIdentity)
 	if err != nil {
-		return false, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
+		return ReplicaIdentityDefault, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
 	}
-	return string(replicaIdentity) == "f", nil
+
+	return ReplicaIdentityType(replicaIdentity), nil
 }
 
-// getPrimaryKeyColumns for table returns the primary key column for a given table
-// errors if there is no primary key column or if there is more than one primary key column.
-func (c *PostgresConnector) getPrimaryKeyColumns(schemaTable *utils.SchemaTable) ([]string, error) {
+// getPrimaryKeyColumns returns the primary key columns for a given table.
+// Errors if there is no primary key column or if there is more than one primary key column.
+func (c *PostgresConnector) getPrimaryKeyColumns(
+	replicaIdentity ReplicaIdentityType,
+	schemaTable *utils.SchemaTable,
+) ([]string, error) {
 	relID, err := c.getRelIDForTable(schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get relation id for table %s: %w", schemaTable, err)
 	}
 
-	// Get the primary key column name
-	var pkCol pgtype.Text
-	pkCols := make([]string, 0)
+	if replicaIdentity == ReplicaIdentityIndex {
+		return c.getReplicaIdentityIndexColumns(relID, schemaTable)
+	}
+
+	// Find the primary key index OID
+	var pkIndexOID oid.Oid
+	err = c.pool.QueryRow(c.ctx,
+		`SELECT indexrelid FROM pg_index WHERE indrelid = $1 AND indisprimary`,
+		relID).Scan(&pkIndexOID)
+	if err != nil {
+		return nil, fmt.Errorf("error finding primary key index for table %s: %w", schemaTable, err)
+	}
+
+	return c.getColumnNamesForIndex(pkIndexOID)
+}
+
+// getReplicaIdentityIndexColumns returns the columns used in the replica identity index.
+func (c *PostgresConnector) getReplicaIdentityIndexColumns(relID uint32, schemaTable *utils.SchemaTable) ([]string, error) {
+	var indexRelID oid.Oid
+	// Fetch the OID of the index used as the replica identity
+	err := c.pool.QueryRow(c.ctx,
+		`SELECT indexrelid FROM pg_index
+         WHERE indrelid = $1 AND indisreplident = true`,
+		relID).Scan(&indexRelID)
+	if err != nil {
+		return nil, fmt.Errorf("error finding replica identity index for table %s: %w", schemaTable, err)
+	}
+
+	return c.getColumnNamesForIndex(indexRelID)
+}
+
+// getColumnNamesForIndex returns the column names for a given index.
+func (c *PostgresConnector) getColumnNamesForIndex(indexOID oid.Oid) ([]string, error) {
+	var col pgtype.Text
+	cols := make([]string, 0)
 	rows, err := c.pool.Query(c.ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-		 WHERE i.indrelid = $1 AND i.indisprimary ORDER BY a.attname ASC`,
-		relID)
+		 WHERE i.indexrelid = $1 ORDER BY a.attname ASC`,
+		indexOID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		return nil, fmt.Errorf("error getting columns for index %v: %w", indexOID, err)
 	}
 	defer rows.Close()
-	for {
-		if !rows.Next() {
-			break
-		}
-		err = rows.Scan(&pkCol)
-		if err != nil {
-			return nil, fmt.Errorf("error scanning primary key column for table %s: %w", schemaTable, err)
-		}
-		pkCols = append(pkCols, pkCol.String)
-	}
 
-	return pkCols, nil
+	for rows.Next() {
+		err = rows.Scan(&col)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning column for index %v: %w", indexOID, err)
+		}
+		cols = append(cols, col.String)
+	}
+	return cols, nil
 }
 
 func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) (bool, error) {
@@ -444,6 +488,7 @@ func (c *PostgresConnector) jobMetadataExistsTx(tx pgx.Tx, jobName string) (bool
 	if err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
+
 	return result.Bool, nil
 }
 

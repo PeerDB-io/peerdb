@@ -264,6 +264,9 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
 			RelationMessageMapping:      input.RelationMessageMapping,
 			RecordStream:                recordBatch,
+			SetLastOffset: func(lastOffset int64) error {
+				return dstConn.SetLastOffset(input.FlowConnectionConfigs.FlowJobName, lastOffset)
+			},
 		})
 	})
 

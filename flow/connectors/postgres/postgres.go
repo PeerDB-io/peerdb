@@ -185,11 +185,22 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
+
 	if result.Int64 == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
-
 	return result.Int64, nil
+}
+
+// SetLastOffset updates the last synced offset for a job.
+func (c *PostgresConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	_, err := c.pool.
+		Exec(c.ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
+	if err != nil {
+		return fmt.Errorf("error setting last offset for job %s: %w", jobName, err)
+	}
+
+	return nil
 }
 
 // PullRecords pulls records from the source.
@@ -238,6 +249,7 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 		RelationMessageMapping: req.RelationMessageMapping,
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
+		SetLastOffset:          req.SetLastOffset,
 	}, c.customTypesMapping)
 	if err != nil {
 		return fmt.Errorf("failed to create cdc source: %w", err)
@@ -558,12 +570,12 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+	replicaIdentityType, replErr := c.getReplicaIdentityType(schemaTable)
 	if replErr != nil {
 		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 	}
 
-	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+	pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 	}
@@ -581,7 +593,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		TableIdentifier:       tableName,
 		Columns:               make(map[string]string),
 		PrimaryKeyColumns:     pKeyCols,
-		IsReplicaIdentityFull: isFullReplica,
+		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {
@@ -731,18 +743,18 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 			return nil, err
 		}
 
-		isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+		replicaIdentity, replErr := c.getReplicaIdentityType(schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}
 
-		pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+		pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentity, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
-		if len(pKeyCols) == 0 && !isFullReplica {
+		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
