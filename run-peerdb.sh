@@ -9,3 +9,5 @@ fi
 
 docker compose pull
 docker compose -f docker-compose.yml up --no-attach catalog --no-attach temporal --no-attach temporal-ui --no-attach temporal-admin-tools
+
+#DONOTMERGE
