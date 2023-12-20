@@ -730,11 +730,31 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string,
 }
 
 func (c *PostgresConnector) getCurrentLSN() (pglogrepl.LSN, error) {
-	row := c.pool.QueryRow(c.ctx, "SELECT pg_current_wal_lsn();")
+	isReplica, err := c.isReplica()
+	if err != nil {
+		return 0, fmt.Errorf("error while checking if replica: %w", err)
+	}
+	var query string
+	if isReplica {
+		query = "SELECT pg_last_wal_replay_lsn();"
+	} else {
+		query = "SELECT pg_current_wal_lsn();"
+	}
+	row := c.pool.QueryRow(c.ctx, query)
 	var result pgtype.Text
-	err := row.Scan(&result)
+	err = row.Scan(&result)
 	if err != nil {
 		return 0, fmt.Errorf("error while running query: %w", err)
 	}
 	return pglogrepl.ParseLSN(result.String)
+}
+
+func (c *PostgresConnector) isReplica() (bool, error) {
+	row := c.pool.QueryRow(c.ctx, "SELECT pg_is_in_recovery();")
+	var isReplica pgtype.Bool
+	err := row.Scan(&isReplica)
+	if err != nil {
+		return false, fmt.Errorf("error while running query: %w", err)
+	}
+	return isReplica.Bool, nil
 }
