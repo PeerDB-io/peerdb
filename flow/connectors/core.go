@@ -62,6 +62,9 @@ type CDCSyncConnector interface {
 	// GetLastOffset gets the last offset from the metadata table on the destination
 	GetLastOffset(jobName string) (int64, error)
 
+	// SetLastOffset updates the last offset on the metadata table on the destination
+	SetLastOffset(jobName string, lastOffset int64) error
+
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(jobName string) (int64, error)
 

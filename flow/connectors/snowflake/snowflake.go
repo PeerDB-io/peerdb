@@ -73,6 +73,7 @@ const (
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
 	checkIfJobMetadataExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
@@ -301,7 +302,7 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	}()
 
 	if !rows.Next() {
-		c.logger.Warn("No row found ,returning nil")
+		c.logger.Warn("No row found, returning 0")
 		return 0, nil
 	}
 	var result pgtype.Int8
@@ -311,8 +312,18 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	}
 	if result.Int64 == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
+		return 0, nil
 	}
 	return result.Int64, nil
+}
+
+func (c *SnowflakeConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(setLastOffsetSQL,
+		c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
+	if err != nil {
+		return fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
+	}
+	return nil
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {

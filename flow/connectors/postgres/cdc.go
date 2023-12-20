@@ -30,10 +30,10 @@ type PostgresCDCSource struct {
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
 	slot                   string
+	SetLastOffset          func(int64) error
 	publication            string
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
-	startLSN               pglogrepl.LSN
 	commitLock             bool
 	customTypeMapping      map[uint32]string
 
@@ -56,6 +56,7 @@ type PostgresCDCConfig struct {
 	RelationMessageMapping model.RelationMessageMapping
 	CatalogPool            *pgxpool.Pool
 	FlowJobName            string
+	SetLastOffset          func(int64) error
 }
 
 // Create a new PostgresCDCSource
@@ -72,6 +73,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		SrcTableIDNameMapping:     cdcConfig.SrcTableIDNameMapping,
 		TableNameMapping:          cdcConfig.TableNameMapping,
 		slot:                      cdcConfig.Slot,
+		SetLastOffset:             cdcConfig.SetLastOffset,
 		publication:               cdcConfig.Publication,
 		relationMessageMapping:    cdcConfig.RelationMessageMapping,
 		typeMap:                   pgtype.NewMap(),
@@ -152,19 +154,20 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName))
 
 	// start replication
-	p.startLSN = 0
+	var clientXLogPos, startLSN pglogrepl.LSN
 	if req.LastOffset > 0 {
 		p.logger.Info("starting replication from last sync state", slog.Int64("last checkpoint", req.LastOffset))
-		p.startLSN = pglogrepl.LSN(req.LastOffset + 1)
+		clientXLogPos = pglogrepl.LSN(req.LastOffset)
+		startLSN = clientXLogPos + 1
 	}
 
-	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, p.startLSN, replicationOpts)
+	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, startLSN, replicationOpts)
 	if err != nil {
-		return fmt.Errorf("error starting replication at startLsn - %d: %w", p.startLSN, err)
+		return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 	}
-	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, p.startLSN))
+	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, startLSN))
 
-	return p.consumeStream(pgConn, req, p.startLSN, req.RecordStream)
+	return p.consumeStream(pgConn, req, clientXLogPos, req.RecordStream)
 }
 
 // start consuming the cdc stream
@@ -181,12 +184,12 @@ func (p *PostgresCDCSource) consumeStream(
 		}
 	}()
 
-	// clientXLogPos is the last checkpoint id + 1, we need to ack that we have processed
-	// until clientXLogPos - 1 each time we send a standby status update.
+	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
+	// until clientXLogPos each time we send a standby status update.
 	// consumedXLogPos is the lsn that has been committed on the destination.
 	consumedXLogPos := pglogrepl.LSN(0)
 	if clientXLogPos > 0 {
-		consumedXLogPos = clientXLogPos - 1
+		consumedXLogPos = clientXLogPos
 
 		err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
 			pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
@@ -194,6 +197,7 @@ func (p *PostgresCDCSource) consumeStream(
 			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
 		}
 	}
+	proposedConsumedXLogPos := consumedXLogPos
 
 	var standByLastLogged time.Time
 	cdcRecordsStorage := cdc_records.NewCDCRecordsStore(p.flowJobName)
@@ -252,19 +256,27 @@ func (p *PostgresCDCSource) consumeStream(
 		if pkmRequiresResponse {
 			// Update XLogPos to the last processed position, we can only confirm
 			// that this is the last row committed on the destination.
+			if proposedConsumedXLogPos > consumedXLogPos {
+				p.logger.Info(fmt.Sprintf("Heartbeat adjusting lsn from %d to %d", consumedXLogPos, proposedConsumedXLogPos))
+				consumedXLogPos = proposedConsumedXLogPos
+				err := p.SetLastOffset(int64(consumedXLogPos))
+				if err != nil {
+					return fmt.Errorf("storing updated LSN failed: %w", err)
+				}
+			}
+
 			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
 				pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
 			if err != nil {
 				return fmt.Errorf("SendStandbyStatusUpdate failed: %w", err)
 			}
+			pkmRequiresResponse = false
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				numRowsProcessedMessage := fmt.Sprintf("processed %d rows", cdcRecordsStorage.Len())
 				p.logger.Info(fmt.Sprintf("Sent Standby status message. %s", numRowsProcessedMessage))
 				standByLastLogged = time.Now()
 			}
-
-			pkmRequiresResponse = false
 		}
 
 		if (cdcRecordsStorage.Len() >= int(req.MaxBatchSize)) && !p.commitLock {
@@ -469,7 +481,7 @@ func (p *PostgresCDCSource) consumeStream(
 			if cdcRecordsStorage.IsEmpty() {
 				// given that we have no records it is safe to update the flush wal position
 				// to the clientXLogPos. clientXLogPos can be moved forward due to PKM messages.
-				consumedXLogPos = clientXLogPos
+				proposedConsumedXLogPos = clientXLogPos
 				records.UpdateLatestCheckpoint(int64(clientXLogPos))
 			}
 		}

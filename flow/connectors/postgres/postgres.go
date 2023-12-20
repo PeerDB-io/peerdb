@@ -185,11 +185,22 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
+
 	if result.Int64 == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
-
 	return result.Int64, nil
+}
+
+// SetLastOffset updates the last synced offset for a job.
+func (c *PostgresConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	_, err := c.pool.
+		Exec(c.ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
+	if err != nil {
+		return fmt.Errorf("error setting last offset for job %s: %w", jobName, err)
+	}
+
+	return nil
 }
 
 // PullRecords pulls records from the source.
@@ -238,6 +249,7 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 		RelationMessageMapping: req.RelationMessageMapping,
 		CatalogPool:            catalogPool,
 		FlowJobName:            req.FlowJobName,
+		SetLastOffset:          req.SetLastOffset,
 	}, c.customTypesMapping)
 	if err != nil {
 		return fmt.Errorf("failed to create cdc source: %w", err)
