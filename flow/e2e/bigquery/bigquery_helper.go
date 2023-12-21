@@ -12,7 +12,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/civil"
 	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
-	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -46,7 +46,7 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("TEST_BQ_CREDS env var not set")
 	}
 
-	content, err := e2e.ReadFileToBytes(jsonPath)
+	content, err := e2eshared.ReadFileToBytes(jsonPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}

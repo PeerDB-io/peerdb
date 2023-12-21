@@ -5,79 +5,81 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5"
-	"github.com/stretchr/testify/suite"
+	"github.com/stretchr/testify/require"
+	"github.com/ysmood/got"
 )
 
 type PostgresSchemaDeltaTestSuite struct {
-	suite.Suite
+	got.G
+	t *testing.T
+
 	connector *PostgresConnector
 }
 
 const schemaDeltaTestSchemaName = "pgschema_delta_test"
 
-func (suite *PostgresSchemaDeltaTestSuite) failTestError(err error) {
-	if err != nil {
-		suite.FailNow(err.Error())
-	}
-}
-
-func (suite *PostgresSchemaDeltaTestSuite) SetupSuite() {
-	var err error
-	suite.connector, err = NewPostgresConnector(context.Background(), &protos.PostgresConfig{
+func setupSchemaDeltaSuite(t *testing.T, g got.G) PostgresSchemaDeltaTestSuite {
+	connector, err := NewPostgresConnector(context.Background(), &protos.PostgresConfig{
 		Host:     "localhost",
 		Port:     7132,
 		User:     "postgres",
 		Password: "postgres",
 		Database: "postgres",
 	})
-	suite.failTestError(err)
+	require.NoError(t, err)
 
-	setupTx, err := suite.connector.pool.Begin(context.Background())
-	suite.failTestError(err)
+	setupTx, err := connector.pool.Begin(context.Background())
+	require.NoError(t, err)
 	defer func() {
 		err := setupTx.Rollback(context.Background())
 		if err != pgx.ErrTxClosed {
-			suite.failTestError(err)
+			require.NoError(t, err)
 		}
 	}()
 	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
 		schemaDeltaTestSchemaName))
-	suite.failTestError(err)
+	require.NoError(t, err)
 	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s", schemaDeltaTestSchemaName))
-	suite.failTestError(err)
+	require.NoError(t, err)
 	err = setupTx.Commit(context.Background())
-	suite.failTestError(err)
+	require.NoError(t, err)
+	return PostgresSchemaDeltaTestSuite{
+		G:         g,
+		t:         t,
+		connector: connector,
+	}
 }
 
-func (suite *PostgresSchemaDeltaTestSuite) TearDownSuite() {
+func (suite PostgresSchemaDeltaTestSuite) TearDownSuite() {
 	teardownTx, err := suite.connector.pool.Begin(context.Background())
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 	defer func() {
 		err := teardownTx.Rollback(context.Background())
 		if err != pgx.ErrTxClosed {
-			suite.failTestError(err)
+			require.NoError(suite.t, err)
 		}
 	}()
 	_, err = teardownTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
 		schemaDeltaTestSchemaName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 	err = teardownTx.Commit(context.Background())
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	suite.True(suite.connector.ConnectionActive() == nil)
 	err = suite.connector.Close()
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 	suite.False(suite.connector.ConnectionActive() == nil)
 }
 
-func (suite *PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
+func (suite PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	tableName := fmt.Sprintf("%s.simple_add_column", schemaDeltaTestSchemaName)
 	_, err := suite.connector.pool.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -87,12 +89,12 @@ func (suite *PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 			ColumnType: string(qvalue.QValueKindInt64),
 		}},
 	}})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 	suite.Equal(&protos.TableSchema{
 		TableIdentifier: tableName,
 		Columns: map[string]string{
@@ -103,11 +105,11 @@ func (suite *PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
+func (suite PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	tableName := fmt.Sprintf("%s.add_drop_all_column_types", schemaDeltaTestSchemaName)
 	_, err := suite.connector.pool.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -148,20 +150,20 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
+func (suite PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	tableName := fmt.Sprintf("%s.add_drop_tricky_column_names", schemaDeltaTestSchemaName)
 	_, err := suite.connector.pool.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -194,20 +196,20 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
-func (suite *PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
+func (suite PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	tableName := fmt.Sprintf("%s.add_drop_whitespace_column_names", schemaDeltaTestSchemaName)
 	_, err := suite.connector.pool.Exec(context.Background(),
 		fmt.Sprintf("CREATE TABLE %s(\" \" INT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -234,15 +236,15 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
-	suite.Run(t, new(PostgresSchemaDeltaTestSuite))
+	got.Each(t, e2eshared.GotSuite(setupSchemaDeltaSuite))
 }

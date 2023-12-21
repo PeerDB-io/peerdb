@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -34,7 +34,7 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 		bucketName = "peerdb_staging"
 	}
 
-	content, err := e2e.ReadFileToBytes(credsPath)
+	content, err := e2eshared.ReadFileToBytes(credsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}

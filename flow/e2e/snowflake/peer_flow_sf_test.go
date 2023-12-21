@@ -13,6 +13,7 @@ import (
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -33,20 +34,7 @@ type PeerFlowE2ETestSuiteSF struct {
 }
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
-	got.Each(t, func(t *testing.T) PeerFlowE2ETestSuiteSF {
-		g := got.New(t)
-
-		// Concurrently run each test
-		g.Parallel()
-
-		suite := SetupSuite(t, g)
-
-		g.Cleanup(func() {
-			suite.tearDownSuite()
-		})
-
-		return suite
-	})
+	got.Each(t, e2eshared.GotSuite(setupSuite))
 }
 
 func (s PeerFlowE2ETestSuiteSF) attachSchemaSuffix(tableName string) string {
@@ -57,7 +45,7 @@ func (s PeerFlowE2ETestSuiteSF) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, s.pgSuffix)
 }
 
-func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
+func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -100,7 +88,7 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
-func (s PeerFlowE2ETestSuiteSF) tearDownSuite() {
+func (s PeerFlowE2ETestSuiteSF) TearDownSuite() {
 	err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
 	if err != nil {
 		slog.Error("failed to tear down Postgres", slog.Any("error", err))

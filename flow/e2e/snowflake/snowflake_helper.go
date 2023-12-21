@@ -9,7 +9,7 @@ import (
 	"time"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -37,7 +37,7 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 		return nil, fmt.Errorf("TEST_SF_CREDS env var not set")
 	}
 
-	content, err := e2e.ReadFileToBytes(jsonPath)
+	content, err := e2eshared.ReadFileToBytes(jsonPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}

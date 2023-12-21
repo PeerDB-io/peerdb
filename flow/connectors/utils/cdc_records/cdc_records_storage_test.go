@@ -3,22 +3,17 @@ package cdc_records
 
 import (
 	"crypto/rand"
+	"testing"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/stretchr/testify/suite"
-	"go.temporal.io/sdk/testsuite"
+	"github.com/stretchr/testify/require"
 )
 
-type CDCRecordStorageTestSuite struct {
-	suite.Suite
-	testsuite.WorkflowTestSuite
-}
-
-func (s *CDCRecordStorageTestSuite) genKeyAndRec() (model.TableWithPkey, model.Record) {
-	pkeyColVal := make([]byte, 0, 32)
+func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
+	pkeyColVal := make([]byte, 32)
 	_, err := rand.Read(pkeyColVal)
-	s.NoError(err)
+	require.NoError(t, err)
 
 	key := model.TableWithPkey{
 		TableName:  "test_src_tbl",
@@ -40,50 +35,52 @@ func (s *CDCRecordStorageTestSuite) genKeyAndRec() (model.TableWithPkey, model.R
 	return key, rec
 }
 
-func (s *CDCRecordStorageTestSuite) TestSingleRecord() {
+func TestSingleRecord(t *testing.T) {
+	t.Parallel()
 	cdcRecordsStore := NewCDCRecordsStore("test_single_record")
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
-	key, rec := s.genKeyAndRec()
+	key, rec := genKeyAndRec(t)
 	err := cdcRecordsStore.Set(key, rec)
-	s.NoError(err)
+	require.NoError(t, err)
 	// should not spill into DB
-	s.Equal(1, len(cdcRecordsStore.inMemoryRecords))
-	s.Nil(cdcRecordsStore.pebbleDB)
+	require.Equal(t, 1, len(cdcRecordsStore.inMemoryRecords))
+	require.Nil(t, cdcRecordsStore.pebbleDB)
 
 	reck, ok, err := cdcRecordsStore.Get(key)
-	s.NoError(err)
-	s.True(ok)
-	s.Equal(rec, reck)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, rec, reck)
 
-	s.NoError(cdcRecordsStore.Close())
+	require.NoError(t, cdcRecordsStore.Close())
 }
 
-func (s *CDCRecordStorageTestSuite) TestRecordsTillSpill() {
+func TestRecordsTillSpill(t *testing.T) {
+	t.Parallel()
 	cdcRecordsStore := NewCDCRecordsStore("test_records_till_spill")
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	// add records upto set limit
 	for i := 0; i < 10; i++ {
-		key, rec := s.genKeyAndRec()
+		key, rec := genKeyAndRec(t)
 		err := cdcRecordsStore.Set(key, rec)
-		s.NoError(err)
-		s.Equal(i+1, len(cdcRecordsStore.inMemoryRecords))
-		s.Nil(cdcRecordsStore.pebbleDB)
+		require.NoError(t, err)
+		require.Equal(t, i+1, len(cdcRecordsStore.inMemoryRecords))
+		require.Nil(t, cdcRecordsStore.pebbleDB)
 	}
 
 	// this record should be spilled to DB
-	key, rec := s.genKeyAndRec()
+	key, rec := genKeyAndRec(t)
 	err := cdcRecordsStore.Set(key, rec)
-	s.NoError(err)
+	require.NoError(t, err)
 	_, ok := cdcRecordsStore.inMemoryRecords[key]
-	s.False(ok)
-	s.NotNil(cdcRecordsStore.pebbleDB)
+	require.False(t, ok)
+	require.NotNil(t, cdcRecordsStore.pebbleDB)
 
 	reck, ok, err := cdcRecordsStore.Get(key)
-	s.NoError(err)
-	s.True(ok)
-	s.Equal(rec, reck)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, rec, reck)
 
-	s.NoError(cdcRecordsStore.Close())
+	require.NoError(t, cdcRecordsStore.Close())
 }
