@@ -31,7 +31,9 @@ export default function SelectSource({
         (value === 'POSTGRES' ||
           value === 'SNOWFLAKE' ||
           value === 'BIGQUERY' ||
-          value === 'S3')
+          value === 'S3'||
+          value === 'CLICKHOUSE'
+        )
     )
     .map((value) => ({ label: value, value }));
 

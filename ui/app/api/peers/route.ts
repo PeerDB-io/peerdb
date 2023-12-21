@@ -8,6 +8,7 @@ import {
 import prisma from '@/app/utils/prisma';
 import {
   BigqueryConfig,
+  ClickhouseConfig,
   DBType,
   Peer,
   PostgresConfig,
@@ -49,6 +50,12 @@ const constructPeer = (
         name,
         type: DBType.BIGQUERY,
         bigqueryConfig: config as BigqueryConfig,
+      };
+    case 'CLICKHOUSE':
+      return {
+        name,
+        type: DBType.CLICKHOUSE,
+        clickhouseConfig: config as ClickhouseConfig,
       };
     case 'S3':
       return {

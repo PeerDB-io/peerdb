@@ -9,11 +9,14 @@ import (
 	"log"
 	"log/slog"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
+	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+
+	//_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -22,8 +25,6 @@ import (
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
 //nolint:stylecheck
@@ -167,29 +168,58 @@ func NewClickhouseConnector(ctx context.Context,
 }
 
 func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
-	host := config.Host
-	port := config.Port
-	conn := clickhouse.OpenDB(&clickhouse.Options{
-		Addr: []string{host + ":" + strconv.Itoa(int(port))},
-		Auth: clickhouse.Auth{
-			Database: config.Database,
-			Username: config.User,
-			Password: config.Password,
-		},
-	})
+	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s&database=%s",
+		config.Host, config.Port, config.User, config.Password, config.Database)
+	//dsn := "tcp://host.docker.internal:9000?username=clickhouse&password=clickhouse&database=default"
 
-	// if err != nil {
-	// 	return nil, err
-	// }
+	println("connecting...", dsn)
 
-	if err := conn.PingContext(ctx); err != nil {
-		if exception, ok := err.(*clickhouse.Exception); ok {
-			fmt.Printf("Exception [%d] %s \n%s\n", exception.Code, exception.Message, exception.StackTrace)
-		}
+	conn, err := sql.Open("clickhouse", dsn)
+	if err != nil {
+		println("clickhouse error in connecting %+v\n", err.Error())
 		return nil, err
 	}
+
+	println("connection opened %+v\n", conn)
+
+	if err := conn.PingContext(ctx); err != nil {
+		println("error in pinging %+v\n", err.Error())
+		return nil, err
+	}
+
+	println("successfully connected")
+
 	return conn, nil
 }
+
+// func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
+// 	host := config.Host
+// 	port := config.Port
+// 	println("conecting....")
+// 	conn := clickhouse.OpenDB(&clickhouse.Options{
+// 		Addr: []string{host + ":" + strconv.Itoa(int(port))},
+// 		Auth: clickhouse.Auth{
+// 			Database: config.Database,
+// 			Username: config.User,
+// 			Password: config.Password,
+// 		},
+// 	})
+// 	println("conecting done....")
+// 	println("conn", conn)
+
+// 	// if err != nil {
+// 	// 	return nil, err
+// 	// }
+
+// 	if err := conn.PingContext(ctx); err != nil {
+// 		println("error in pinging %+v\n", err.Error)
+// 		if exception, ok := err.(*clickhouse.Exception); ok {
+// 			fmt.Printf("Exception [%d] %s \n%s\n", exception.Code, exception.Message, exception.StackTrace)
+// 		}
+// 		return nil, err
+// 	}
+// 	return conn, nil
+// }
 
 func (c *ClickhouseConnector) Close() error {
 	if c == nil || c.database == nil {
@@ -198,7 +228,7 @@ func (c *ClickhouseConnector) Close() error {
 
 	err := c.database.Close()
 	if err != nil {
-		return fmt.Errorf("error while closing connection to Snowflake peer: %w", err)
+		return fmt.Errorf("error while closing connection to Clickhouse peer: %w", err)
 	}
 	return nil
 }
@@ -280,7 +310,7 @@ func (c *ClickhouseConnector) getTableSchemaForTable(tableName string) (*protos.
 	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, tableNameComponents.schemaIdentifier,
 		tableNameComponents.tableIdentifier)
 	if err != nil {
-		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
+		return nil, fmt.Errorf("error querying Cickhouse peer for schema of table %s: %w", tableName, err)
 	}
 	defer func() {
 		// not sure if the errors these two return are same or different?
@@ -319,7 +349,7 @@ func (c *ClickhouseConnector) GetLastOffset(jobName string) (int64, error) {
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastOffsetSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return 0, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
+		return 0, fmt.Errorf("error querying Clickhouse peer for last syncedID: %w", err)
 	}
 	defer func() {
 		// not sure if the errors these two return are same or different?
@@ -348,7 +378,7 @@ func (c *ClickhouseConnector) GetLastSyncBatchID(jobName string) (int64, error) 
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastSyncBatchID_SQL, c.metadataSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return 0, fmt.Errorf("error querying Snowflake peer for last syncBatchId: %w", err)
+		return 0, fmt.Errorf("error querying Clickhouse peer for last syncBatchId: %w", err)
 	}
 
 	var result pgtype.Int8
@@ -367,7 +397,7 @@ func (c *ClickhouseConnector) GetLastNormalizeBatchID(jobName string) (int64, er
 	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return 0, fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
+		return 0, fmt.Errorf("error querying Clickhouse peer for last normalizeBatchId: %w", err)
 	}
 
 	var result pgtype.Int8

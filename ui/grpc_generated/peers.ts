@@ -181,6 +181,8 @@ export interface ClickhouseConfig {
   user: string;
   password: string;
   database: string;
+  metadataSchema?: string | undefined;
+  s3Integration: string;
 }
 
 export interface SqlServerConfig {
@@ -1556,7 +1558,7 @@ export const S3Config = {
 };
 
 function createBaseClickhouseConfig(): ClickhouseConfig {
-  return { host: "", port: 0, user: "", password: "", database: "" };
+  return { host: "", port: 0, user: "", password: "", database: "", metadataSchema: undefined, s3Integration: "" };
 }
 
 export const ClickhouseConfig = {
@@ -1575,6 +1577,12 @@ export const ClickhouseConfig = {
     }
     if (message.database !== "") {
       writer.uint32(42).string(message.database);
+    }
+    if (message.metadataSchema !== undefined) {
+      writer.uint32(50).string(message.metadataSchema);
+    }
+    if (message.s3Integration !== "") {
+      writer.uint32(58).string(message.s3Integration);
     }
     return writer;
   },
@@ -1621,6 +1629,20 @@ export const ClickhouseConfig = {
 
           message.database = reader.string();
           continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.metadataSchema = reader.string();
+          continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.s3Integration = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1637,6 +1659,8 @@ export const ClickhouseConfig = {
       user: isSet(object.user) ? String(object.user) : "",
       password: isSet(object.password) ? String(object.password) : "",
       database: isSet(object.database) ? String(object.database) : "",
+      metadataSchema: isSet(object.metadataSchema) ? String(object.metadataSchema) : undefined,
+      s3Integration: isSet(object.s3Integration) ? String(object.s3Integration) : "",
     };
   },
 
@@ -1657,6 +1681,12 @@ export const ClickhouseConfig = {
     if (message.database !== "") {
       obj.database = message.database;
     }
+    if (message.metadataSchema !== undefined) {
+      obj.metadataSchema = message.metadataSchema;
+    }
+    if (message.s3Integration !== "") {
+      obj.s3Integration = message.s3Integration;
+    }
     return obj;
   },
 
@@ -1670,6 +1700,8 @@ export const ClickhouseConfig = {
     message.user = object.user ?? "";
     message.password = object.password ?? "";
     message.database = object.database ?? "";
+    message.metadataSchema = object.metadataSchema ?? undefined;
+    message.s3Integration = object.s3Integration ?? "";
     return message;
   },
 };

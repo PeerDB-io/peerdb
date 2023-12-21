@@ -11,6 +11,7 @@ import {
   pgSchema,
   s3Schema,
   sfSchema,
+  chSchema
 } from './schema';
 
 const validateFields = (
@@ -48,6 +49,10 @@ const validateFields = (
       const bqConfig = bqSchema.safeParse(config);
       if (!bqConfig.success) validationErr = bqConfig.error.issues[0].message;
       break;
+    case 'CLICKHOUSE':
+        const chConfig = chSchema.safeParse(config);
+        if (!chConfig.success) validationErr = chConfig.error.issues[0].message;
+        break;
     case 'S3':
       const s3Config = s3Schema.safeParse(config);
       if (!s3Config.success) validationErr = s3Config.error.issues[0].message;
