@@ -215,7 +215,7 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 	slotName string,
 	peerName string,
 ) {
-	// ensures slot info is logged atleast once per SyncFlow
+	// ensures slot info is logged at least once per SyncFlow
 	err := a.handleSlotInfo(ctx, srcConn, slotName, peerName)
 	if err != nil {
 		return
