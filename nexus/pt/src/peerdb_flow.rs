@@ -472,6 +472,10 @@ pub struct QRepConfig {
     /// to be used after the old mirror is dropped
     #[prost(bool, tag="18")]
     pub dst_table_full_resync: bool,
+    #[prost(string, tag="19")]
+    pub synced_at_col_name: ::prost::alloc::string::String,
+    #[prost(string, tag="20")]
+    pub soft_delete_col_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -540,6 +544,24 @@ pub struct QRepFlowState {
     pub needs_resync: bool,
     #[prost(bool, tag="4")]
     pub disable_wait_for_new_rows: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PeerDbColumns {
+    #[prost(string, tag="1")]
+    pub soft_delete_col_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub synced_at_col_name: ::prost::alloc::string::String,
+    #[prost(bool, tag="3")]
+    pub soft_delete: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetOpenConnectionsForUserResult {
+    #[prost(string, tag="1")]
+    pub user_name: ::prost::alloc::string::String,
+    #[prost(int64, tag="2")]
+    pub current_open_connections: i64,
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

@@ -176,6 +176,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 		NumRowsPerPartition:        numRowsPerPartition,
 		MaxParallelWorkers:         numWorkers,
 		StagingPath:                s.config.SnapshotStagingPath,
+		SyncedAtColName:            s.config.SyncedAtColName,
+		SoftDeleteColName:          s.config.SoftDeleteColName,
 		WriteMode: &protos.QRepWriteMode{
 			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 		},

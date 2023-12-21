@@ -48,7 +48,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			flowJobName, dstTableName, syncBatchID),
 	)
 	// You will need to define your Avro schema as a string
-	avroSchema, err := DefineAvroSchema(dstTableName, dstTableMetadata)
+	avroSchema, err := DefineAvroSchema(dstTableName, dstTableMetadata, "", "")
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -107,6 +107,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	dstTableMetadata *bigquery.TableMetadata,
 	stream *model.QRecordStream,
+	syncedAtCol string,
+	softDeleteCol string,
 ) (int, error) {
 	startTime := time.Now()
 	flowLog := slog.Group("sync_metadata",
@@ -115,7 +117,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		slog.String("destinationTable", dstTableName),
 	)
 	// You will need to define your Avro schema as a string
-	avroSchema, err := DefineAvroSchema(dstTableName, dstTableMetadata)
+	avroSchema, err := DefineAvroSchema(dstTableName, dstTableMetadata, syncedAtCol, softDeleteCol)
 	if err != nil {
 		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
@@ -137,9 +139,16 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	// Start a transaction
 	stmts := []string{"BEGIN TRANSACTION;"}
 
+	selector := "*"
+	if softDeleteCol != "" { // PeerDB column
+		selector += ", FALSE"
+	}
+	if syncedAtCol != "" { // PeerDB column
+		selector += ", CURRENT_TIMESTAMP"
+	}
 	// Insert the records from the staging table into the destination table
-	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT * FROM `%s.%s`;",
-		datasetID, dstTableName, datasetID, stagingTable)
+	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT %s FROM `%s.%s`;",
+		datasetID, dstTableName, selector, datasetID, stagingTable)
 
 	stmts = append(stmts, insertStmt)
 
@@ -181,11 +190,16 @@ type AvroSchema struct {
 
 func DefineAvroSchema(dstTableName string,
 	dstTableMetadata *bigquery.TableMetadata,
+	syncedAtCol string,
+	softDeleteCol string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroFields := []AvroField{}
 	nullableFields := make(map[string]struct{})
 
 	for _, bqField := range dstTableMetadata.Schema {
+		if bqField.Name == syncedAtCol || bqField.Name == softDeleteCol {
+			continue
+		}
 		avroType, err := GetAvroType(bqField)
 		if err != nil {
 			return nil, err

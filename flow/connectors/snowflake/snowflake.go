@@ -73,6 +73,7 @@ const (
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
 	checkIfJobMetadataExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
 	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
@@ -311,8 +312,18 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	}
 	if result.Int64 == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
+		return 0, nil
 	}
 	return result.Int64, nil
+}
+
+func (c *SnowflakeConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(setLastOffsetSQL,
+		c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
+	if err != nil {
+		return fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
+	}
+	return nil
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
@@ -749,7 +760,7 @@ func generateCreateTableSQLForNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
+	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		columnNameUpper := strings.ToUpper(columnName)
 		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
@@ -845,17 +856,21 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	for _, columnName := range columnNames {
 		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(columnName)))
 	}
+	// append synced_at column
+	quotedUpperColNames = append(quotedUpperColNames,
+		fmt.Sprintf(`"%s"`, strings.ToUpper(normalizeReq.SyncedAtColName)),
+	)
 
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
 
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
 		quotedUpperColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", quotedUpperColumnName))
+		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s", quotedUpperColumnName))
 	}
-
-	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
-
+	// fill in synced_at column
+	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
+	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
 	updateStatementsforToastCols := c.generateUpdateStatements(normalizeReq.SyncedAtColName,
 		normalizeReq.SoftDeleteColName, normalizeReq.SoftDelete,
 		columnNames, unchangedToastColumns)
@@ -864,10 +879,9 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
 	// the current merge statement doesn't do that, so we add another case to insert the DeleteRecord
 	if normalizeReq.SoftDelete {
-		softDeleteInsertColumnsSQL := strings.TrimSuffix(strings.Join(append(quotedUpperColNames,
-			normalizeReq.SoftDeleteColName), ","), ",")
-		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), "")
-
+		softDeleteInsertColumnsSQL := strings.Join(append(quotedUpperColNames,
+			normalizeReq.SoftDeleteColName), ",")
+		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
 			fmt.Sprintf("WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN INSERT (%s) VALUES(%s)",
 				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))
@@ -1048,6 +1062,10 @@ func (c *SnowflakeConnector) generateUpdateStatements(
 		(SOURCE._PEERDB_RECORD_TYPE != 2) AND _PEERDB_UNCHANGED_TOAST_COLUMNS='%s'
 		THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
+
+		// generates update statements for the case where updates and deletes happen in the same branch
+		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
+		// and then set soft-delete to true.
 		if softDelete && (softDeleteCol != "") {
 			tmpArray = append(tmpArray[:len(tmpArray)-1], fmt.Sprintf(`"%s" = TRUE`, softDeleteCol))
 			ssep := strings.Join(tmpArray, ", ")

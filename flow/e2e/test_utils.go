@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,7 +60,10 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment, t *t
 	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	env.RegisterWorkflow(peerflow.XminFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
-	env.RegisterActivity(&activities.FlowableActivity{CatalogPool: conn})
+	env.RegisterActivity(&activities.FlowableActivity{
+		CatalogPool: conn,
+		Alerter:     alerting.NewAlerter(conn),
+	})
 	env.RegisterActivity(&activities.SnapshotActivity{})
 }
 
@@ -123,7 +127,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 	}
 }
 
-func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
+func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
@@ -287,6 +291,8 @@ func CreateQRepWorkflowConfig(
 	query string,
 	dest *protos.Peer,
 	stagingPath string,
+	setupDst bool,
+	syncedAtCol string,
 ) (*protos.QRepConfig, error) {
 	connectionGen := QRepFlowConnectionGenerationConfig{
 		FlowJobName:                flowJobName,
@@ -304,6 +310,8 @@ func CreateQRepWorkflowConfig(
 		return nil, err
 	}
 	qrepConfig.InitialCopyOnly = true
+	qrepConfig.SyncedAtColName = syncedAtCol
+	qrepConfig.SetupWatermarkTableOnDestination = setupDst
 
 	return qrepConfig, nil
 }
@@ -366,7 +374,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 
 func GetOwnersSelectorString() string {
 	schema := GetOwnersSchema()
-	var fields []string
+	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		// append quoted field name
 		fields = append(fields, fmt.Sprintf(`"%s"`, field.Name))

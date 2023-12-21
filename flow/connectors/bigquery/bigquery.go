@@ -340,6 +340,23 @@ func (c *BigQueryConnector) GetLastOffset(jobName string) (int64, error) {
 	}
 }
 
+func (c *BigQueryConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	query := fmt.Sprintf(
+		"UPDATE %s.%s SET offset = GREATEST(offset, %d) WHERE mirror_job_name = '%s'",
+		c.datasetID,
+		MirrorJobsTable,
+		lastOffset,
+		jobName,
+	)
+	q := c.client.Query(query)
+	_, err := q.Read(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
+	}
+
+	return nil
+}
+
 func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	query := fmt.Sprintf("SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
 		c.datasetID, MirrorJobsTable, jobName)
@@ -788,6 +805,11 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			SyncBatchID:           syncBatchID,
 			NormalizeBatchID:      normalizeBatchID,
 			UnchangedToastColumns: tableNametoUnchangedToastCols[tableName],
+			peerdbCols: &protos.PeerDBColumns{
+				SoftDeleteColName: req.SoftDeleteColName,
+				SyncedAtColName:   req.SyncedAtColName,
+				SoftDelete:        req.SoftDelete,
+			},
 		}
 		// normalize anything between last normalized batch id to last sync batchid
 		mergeStmts := mergeGen.generateMergeStmts()
@@ -956,7 +978,7 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		}
 
 		// convert the column names and types to bigquery types
-		columns := make([]*bigquery.FieldSchema, len(tableSchema.Columns))
+		columns := make([]*bigquery.FieldSchema, len(tableSchema.Columns), len(tableSchema.Columns)+2)
 		idx := 0
 		for colName, genericColType := range tableSchema.Columns {
 			columns[idx] = &bigquery.FieldSchema{
@@ -965,6 +987,22 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 				Repeated: qvalue.QValueKind(genericColType).IsArray(),
 			}
 			idx++
+		}
+
+		if req.SoftDeleteColName != "" {
+			columns = append(columns, &bigquery.FieldSchema{
+				Name:     req.SoftDeleteColName,
+				Type:     bigquery.BooleanFieldType,
+				Repeated: false,
+			})
+		}
+
+		if req.SyncedAtColName != "" {
+			columns = append(columns, &bigquery.FieldSchema{
+				Name:     req.SyncedAtColName,
+				Type:     bigquery.TimestampFieldType,
+				Repeated: false,
+			})
 		}
 
 		// create the table using the columns

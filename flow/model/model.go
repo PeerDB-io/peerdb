@@ -50,6 +50,8 @@ type PullRecordsRequest struct {
 	RelationMessageMapping RelationMessageMapping
 	// record batch for pushing changes into
 	RecordStream *CDCRecordStream
+	// last offset may be forwarded while processing records
+	SetLastOffset func(int64) error
 }
 
 type Record interface {

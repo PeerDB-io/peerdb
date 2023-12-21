@@ -300,16 +300,21 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage 
 
 func (c *SnowflakeConnector) GetCopyTransformation(
 	dstTableName string,
+	syncedAtCol string,
 ) (*CopyInfo, error) {
 	colInfo, colsErr := c.getColsFromTable(dstTableName)
 	if colsErr != nil {
 		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
 	}
 
-	var transformations []string
-	var columnOrder []string
+	transformations := make([]string, 0, len(colInfo.ColumnMap))
+	columnOrder := make([]string, 0, len(colInfo.ColumnMap))
 	for colName, colType := range colInfo.ColumnMap {
 		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
+		if colName == syncedAtCol {
+			transformations = append(transformations, fmt.Sprintf("CURRENT_TIMESTAMP AS \"%s\"", colName))
+			continue
+		}
 		switch colType {
 		case "GEOGRAPHY":
 			transformations = append(transformations,
@@ -354,7 +359,7 @@ func CopyStageToDestination(
 		}
 	}
 
-	copyTransformation, err := connector.GetCopyTransformation(dstTableName)
+	copyTransformation, err := connector.GetCopyTransformation(dstTableName, config.SyncedAtColName)
 	if err != nil {
 		return fmt.Errorf("failed to get copy transformation: %w", err)
 	}

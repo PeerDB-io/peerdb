@@ -321,6 +321,9 @@ message QRepConfig {
   // create new tables with "_peerdb_resync" suffix, perform initial load and then swap the new table with the old ones
   // to be used after the old mirror is dropped
   bool dst_table_full_resync = 18;
+
+  string synced_at_col_name = 19;
+  string soft_delete_col_name = 20;
 }
 
 message QRepPartition {
@@ -363,4 +366,15 @@ message QRepFlowState {
   uint64 num_partitions_processed = 2;
   bool needs_resync = 3;
   bool disable_wait_for_new_rows = 4;
+}
+
+message PeerDBColumns {
+  string soft_delete_col_name = 1;
+  string synced_at_col_name = 2;
+  bool soft_delete = 3;
+}
+
+message GetOpenConnectionsForUserResult {
+  string user_name = 1;
+  int64 current_open_connections = 2;
 }

@@ -48,6 +48,9 @@ type CDCPullConnector interface {
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(slotName string) ([]*protos.SlotInfo, error)
+
+	// GetOpenConnectionsForUser returns the number of open connections for the user configured in the peer.
+	GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error)
 }
 
 type CDCSyncConnector interface {
@@ -61,6 +64,9 @@ type CDCSyncConnector interface {
 
 	// GetLastOffset gets the last offset from the metadata table on the destination
 	GetLastOffset(jobName string) (int64, error)
+
+	// SetLastOffset updates the last offset on the metadata table on the destination
+	SetLastOffset(jobName string, lastOffset int64) error
 
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(jobName string) (int64, error)

@@ -146,7 +146,6 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 	var offset pgtype.Int8
 	err := rows.Scan(&offset)
 	if err != nil {
-		// if the job doesn't exist, return 0
 		if err.Error() == "no rows in result set" {
 			return 0, nil
 		}
@@ -198,7 +197,8 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 		INSERT INTO `+p.schemaName+`.`+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
-		DO UPDATE SET last_offset = $2, updated_at = NOW()
+		DO UPDATE SET last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+			updated_at = NOW()
 	`, jobName, offset, 0)
 
 	if err != nil {

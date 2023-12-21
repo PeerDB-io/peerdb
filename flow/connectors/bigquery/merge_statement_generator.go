@@ -26,6 +26,8 @@ type mergeStmtGenerator struct {
 	NormalizedTableSchema *protos.TableSchema
 	// array of toast column combinations that are unchanged
 	UnchangedToastColumns []string
+	// _PEERDB_IS_DELETED and _SYNCED_AT columns
+	peerdbCols *protos.PeerDBColumns
 }
 
 // GenerateMergeStmt generates a merge statements.
@@ -39,7 +41,7 @@ func (m *mergeStmtGenerator) generateMergeStmts() []string {
 		"CREATE TEMP TABLE %s AS (%s, %s);",
 		tempTable, flattenedCTE, deDupedCTE)
 
-	mergeStmt := m.generateMergeStmt(tempTable)
+	mergeStmt := m.generateMergeStmt(tempTable, m.peerdbCols)
 
 	dropTempTableStmt := fmt.Sprintf("DROP TABLE %s;", tempTable)
 
@@ -127,7 +129,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt(tempTable string) string {
+func (m *mergeStmtGenerator) generateMergeStmt(tempTable string, peerdbCols *protos.PeerDBColumns) string {
 	// comma separated list of column names
 	backtickColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
 	pureColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
@@ -136,8 +138,19 @@ func (m *mergeStmtGenerator) generateMergeStmt(tempTable string) string {
 		pureColNames = append(pureColNames, colName)
 	}
 	csep := strings.Join(backtickColNames, ", ")
+	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", peerdbCols.SyncedAtColName)
+	insertValuesSQL := csep + ",CURRENT_TIMESTAMP"
 
-	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames, m.UnchangedToastColumns)
+	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames,
+		m.UnchangedToastColumns, peerdbCols)
+	if m.peerdbCols.SoftDelete {
+		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(", `%s`", peerdbCols.SoftDeleteColName)
+		softDeleteInsertValuesSQL := insertValuesSQL + ", TRUE"
+
+		updateStatementsforToastCols = append(updateStatementsforToastCols,
+			fmt.Sprintf("WHEN NOT MATCHED AND (_peerdb_deduped._PEERDB_RECORD_TYPE = 2) THEN INSERT (%s) VALUES(%s)",
+				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))
+	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
 	pkeySelectSQLArray := make([]string, 0, len(m.NormalizedTableSchema.PrimaryKeyColumns))
@@ -148,6 +161,16 @@ func (m *mergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	// _peerdb_target.<pkey1> = _peerdb_deduped.<pkey1> AND _peerdb_target.<pkey2> = _peerdb_deduped.<pkey2> ...
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
+	deletePart := "DELETE"
+	if peerdbCols.SoftDelete {
+		colName := peerdbCols.SoftDeleteColName
+		deletePart = fmt.Sprintf("UPDATE SET %s = TRUE", colName)
+		if peerdbCols.SyncedAtColName != "" {
+			deletePart = fmt.Sprintf("%s, %s = CURRENT_TIMESTAMP",
+				deletePart, peerdbCols.SyncedAtColName)
+		}
+	}
+
 	return fmt.Sprintf(`
 	MERGE %s.%s _peerdb_target USING %s _peerdb_deduped
 	ON %s
@@ -155,8 +178,9 @@ func (m *mergeStmtGenerator) generateMergeStmt(tempTable string) string {
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
-	DELETE;
-	`, m.Dataset, m.NormalizedTable, tempTable, pkeySelectSQL, csep, csep, updateStringToastCols)
+	%s;
+	`, m.Dataset, m.NormalizedTable, tempTable, pkeySelectSQL, insertColumnsSQL, insertValuesSQL,
+		updateStringToastCols, deletePart)
 }
 
 /*
@@ -174,7 +198,11 @@ and updating the other columns (not the unchanged toast columns)
 6. Repeat steps 1-5 for each unique unchanged toast column group.
 7. Return the list of generated update statements.
 */
-func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastCols []string) []string {
+func (m *mergeStmtGenerator) generateUpdateStatements(
+	allCols []string,
+	unchangedToastCols []string,
+	peerdbCols *protos.PeerDBColumns,
+) []string {
 	updateStmts := make([]string, 0, len(unchangedToastCols))
 
 	for _, cols := range unchangedToastCols {
@@ -184,11 +212,36 @@ func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchange
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("`%s` = _peerdb_deduped.%s", colName, colName))
 		}
+
+		// set the synced at column to the current timestamp
+		if peerdbCols.SyncedAtColName != "" {
+			tmpArray = append(tmpArray, fmt.Sprintf("`%s` = CURRENT_TIMESTAMP",
+				peerdbCols.SyncedAtColName))
+		}
+		// set soft-deleted to false, tackles insert after soft-delete
+		if peerdbCols.SoftDeleteColName != "" {
+			tmpArray = append(tmpArray, fmt.Sprintf("`%s` = FALSE",
+				peerdbCols.SoftDeleteColName))
+		}
+
 		ssep := strings.Join(tmpArray, ", ")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 		(_peerdb_deduped._peerdb_record_type != 2) AND _peerdb_unchanged_toast_columns='%s'
 		THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
+
+		// generates update statements for the case where updates and deletes happen in the same branch
+		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
+		// and then set soft-delete to true.
+		if peerdbCols.SoftDelete && (peerdbCols.SoftDeleteColName != "") {
+			tmpArray = append(tmpArray[:len(tmpArray)-1],
+				fmt.Sprintf("`%s` = TRUE", peerdbCols.SoftDeleteColName))
+			ssep := strings.Join(tmpArray, ", ")
+			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
+			(_peerdb_deduped._peerdb_record_type = 2) AND _peerdb_unchanged_toast_columns='%s'
+			THEN UPDATE SET %s `, cols, ssep)
+			updateStmts = append(updateStmts, updateStmt)
+		}
 	}
 	return updateStmts
 }

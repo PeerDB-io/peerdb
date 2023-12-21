@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
 	"github.com/grafana/pyroscope-go"
@@ -133,6 +134,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
+		Alerter:     alerting.NewAlerter(conn),
 	})
 
 	err = w.Run(worker.InterruptCh())
