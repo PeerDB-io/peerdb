@@ -452,8 +452,8 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	// Prepare the query to retrieve distinct tables in that batch
 	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
 	array_agg(DISTINCT _peerdb_unchanged_toast_columns) as unchanged_toast_columns FROM %s.%s
-	 WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d 
-	 AND _peerdb_record_type != 2 GROUP BY _peerdb_destination_table_name`,
+	 WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND _peerdb_record_type != 2
+	 GROUP BY _peerdb_destination_table_name`,
 		c.datasetID, rawTableName, normalizeBatchID, syncBatchID)
 	// Run the query
 	q := c.client.Query(query)
