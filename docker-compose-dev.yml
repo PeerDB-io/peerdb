@@ -133,7 +133,7 @@ services:
       dockerfile: stacks/flow.Dockerfile
       target: flow-snapshot-worker
     environment:
-      <<: [*flow-worker-env]
+      <<: [*catalog-config, *flow-worker-env]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy

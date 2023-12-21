@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,7 +60,10 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment, t *t
 	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	env.RegisterWorkflow(peerflow.XminFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
-	env.RegisterActivity(&activities.FlowableActivity{CatalogPool: conn})
+	env.RegisterActivity(&activities.FlowableActivity{
+		CatalogPool: conn,
+		Alerter:     alerting.NewAlerter(conn),
+	})
 	env.RegisterActivity(&activities.SnapshotActivity{})
 }
 

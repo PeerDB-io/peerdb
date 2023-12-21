@@ -64,3 +64,19 @@ func GetPeerDBCatalogPassword() string {
 func GetPeerDBCatalogDatabase() string {
 	return getEnvString("PEERDB_CATALOG_DATABASE", "")
 }
+
+// PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
+func GetPeerDBSlotLagMBAlertThreshold() uint32 {
+	return getEnvUint32("PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", 5000)
+}
+
+// PEERDB_ALERTING_GAP_MINUTES, 0 disables all alerting entirely
+func GetPeerDBAlertingGapMinutesAsDuration() time.Duration {
+	why := time.Duration(getEnvUint32("PEERDB_ALERTING_GAP_MINUTES", 15))
+	return why * time.Minute
+}
+
+// PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD, 0 disables open connections alerting entirely
+func GetPeerDBOpenConnectionsAlertThreshold() uint32 {
+	return getEnvUint32("PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD", 5)
+}

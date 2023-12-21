@@ -895,3 +895,21 @@ func (c *PostgresConnector) SendWALHeartbeat() error {
 
 	return nil
 }
+
+// GetLastOffset returns the last synced offset for a job.
+func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error) {
+	row := c.pool.
+		QueryRow(c.ctx, getNumConnectionsForUser, c.config.User)
+
+	// COUNT() returns BIGINT
+	var result pgtype.Int8
+	err := row.Scan(&result)
+	if err != nil {
+		return nil, fmt.Errorf("error while reading result row: %w", err)
+	}
+
+	return &protos.GetOpenConnectionsForUserResult{
+		UserName:               c.config.User,
+		CurrentOpenConnections: result.Int64,
+	}, nil
+}

@@ -482,6 +482,11 @@ export interface PeerDBColumns {
   softDelete: boolean;
 }
 
+export interface GetOpenConnectionsForUserResult {
+  userName: string;
+  currentOpenConnections: number;
+}
+
 function createBaseTableNameMapping(): TableNameMapping {
   return { sourceTableName: "", destinationTableName: "" };
 }
@@ -6382,6 +6387,82 @@ export const PeerDBColumns = {
     message.softDeleteColName = object.softDeleteColName ?? "";
     message.syncedAtColName = object.syncedAtColName ?? "";
     message.softDelete = object.softDelete ?? false;
+    return message;
+  },
+};
+
+function createBaseGetOpenConnectionsForUserResult(): GetOpenConnectionsForUserResult {
+  return { userName: "", currentOpenConnections: 0 };
+}
+
+export const GetOpenConnectionsForUserResult = {
+  encode(message: GetOpenConnectionsForUserResult, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.userName !== "") {
+      writer.uint32(10).string(message.userName);
+    }
+    if (message.currentOpenConnections !== 0) {
+      writer.uint32(16).int64(message.currentOpenConnections);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): GetOpenConnectionsForUserResult {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetOpenConnectionsForUserResult();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.userName = reader.string();
+          continue;
+        case 2:
+          if (tag !== 16) {
+            break;
+          }
+
+          message.currentOpenConnections = longToNumber(reader.int64() as Long);
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GetOpenConnectionsForUserResult {
+    return {
+      userName: isSet(object.userName) ? String(object.userName) : "",
+      currentOpenConnections: isSet(object.currentOpenConnections) ? Number(object.currentOpenConnections) : 0,
+    };
+  },
+
+  toJSON(message: GetOpenConnectionsForUserResult): unknown {
+    const obj: any = {};
+    if (message.userName !== "") {
+      obj.userName = message.userName;
+    }
+    if (message.currentOpenConnections !== 0) {
+      obj.currentOpenConnections = Math.round(message.currentOpenConnections);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GetOpenConnectionsForUserResult>, I>>(base?: I): GetOpenConnectionsForUserResult {
+    return GetOpenConnectionsForUserResult.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetOpenConnectionsForUserResult>, I>>(
+    object: I,
+  ): GetOpenConnectionsForUserResult {
+    const message = createBaseGetOpenConnectionsForUserResult();
+    message.userName = object.userName ?? "";
+    message.currentOpenConnections = object.currentOpenConnections ?? 0;
     return message;
   },
 };

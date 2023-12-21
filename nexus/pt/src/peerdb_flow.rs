@@ -555,6 +555,14 @@ pub struct PeerDbColumns {
     #[prost(bool, tag="3")]
     pub soft_delete: bool,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetOpenConnectionsForUserResult {
+    #[prost(string, tag="1")]
+    pub user_name: ::prost::alloc::string::String,
+    #[prost(int64, tag="2")]
+    pub current_open_connections: i64,
+}
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
