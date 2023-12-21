@@ -229,6 +229,15 @@ func (m *mergeStmtGenerator) generateUpdateStatements(
 		(_peerdb_deduped._peerdb_record_type != 2) AND _peerdb_unchanged_toast_columns='%s'
 		THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
+		if peerdbCols.SoftDelete && (peerdbCols.SoftDeleteColName != "") {
+			tmpArray = append(tmpArray[:len(tmpArray)-1],
+				fmt.Sprintf("`%s` = TRUE", peerdbCols.SoftDeleteColName))
+			ssep := strings.Join(tmpArray, ", ")
+			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
+			(_peerdb_deduped._peerdb_record_type = 2) AND _peerdb_unchanged_toast_columns='%s'
+			THEN UPDATE SET %s `, cols, ssep)
+			updateStmts = append(updateStmts, updateStmt)
+		}
 	}
 	return updateStmts
 }
