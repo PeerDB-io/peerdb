@@ -28,9 +28,6 @@ x-flow-worker-env: &flow-worker-env
   # enables worker profiling using Grafana Pyroscope
   ENABLE_PROFILING: "true"
   PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
-  PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD: 0
-  PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD: 2
-  PEERDB_ALERTING_GAP_MINUTES: 1
 
 services:
   catalog:
