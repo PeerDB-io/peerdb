@@ -762,7 +762,7 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string,
 				peerdbCols.SyncedAtColName))
 		}
 		// set soft-deleted to false, tackles insert after soft-delete
-		if peerdbCols.SoftDeleteColName != "" {
+		if peerdbCols.SoftDelete && (peerdbCols.SoftDeleteColName != "") {
 			tmpArray = append(tmpArray, fmt.Sprintf(`"%s" = FALSE`,
 				peerdbCols.SoftDeleteColName))
 		}
@@ -772,6 +772,19 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string,
 			src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
 			THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
+
+		// generates update statements for the case where updates and deletes happen in the same branch
+		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
+		// and then set soft-delete to true.
+		if peerdbCols.SoftDelete && (peerdbCols.SoftDeleteColName != "") {
+			tmpArray = append(tmpArray[:len(tmpArray)-1],
+				fmt.Sprintf(`"%s" = TRUE`, peerdbCols.SoftDeleteColName))
+			ssep := strings.Join(tmpArray, ", ")
+			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
+			src._peerdb_record_type = 2 AND _peerdb_unchanged_toast_columns='%s'
+			THEN UPDATE SET %s `, cols, ssep)
+			updateStmts = append(updateStmts, updateStmt)
+		}
 	}
 	return updateStmts
 }
