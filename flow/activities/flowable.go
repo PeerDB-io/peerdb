@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -42,6 +43,7 @@ type SlotSnapshotSignal struct {
 
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
+	Alerter     *alerting.Alerter
 }
 
 // CheckConnection implements CheckConnection.
@@ -178,6 +180,14 @@ func (a *FlowableActivity) handleSlotInfo(
 		return err
 	}
 
+	slotLagInMBThreshold := peerdbenv.GetPeerDBSlotLagMBAlertThreshold()
+	if uint32(slotInfo[0].LagInMb) >= slotLagInMBThreshold {
+		a.Alerter.AlertIf(ctx, fmt.Sprintf("%s-slot-lag-threshold-exceeded", peerName),
+			fmt.Sprintf(`Slot `+"`%s`"+` on peer `+"`%s`"+` has exceeded threshold size of %dMB, currently at %.2fMB!
+cc: <!channel>`,
+				slotName, peerName, slotLagInMBThreshold, slotInfo[0].LagInMb))
+	}
+
 	if len(slotInfo) != 0 {
 		return monitoring.AppendSlotSizeInfo(ctx, a.CatalogPool, peerName, slotInfo[0])
 	}
@@ -190,7 +200,13 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 	slotName string,
 	peerName string,
 ) {
-	timeout := 10 * time.Minute
+	// ensures slot info is logged atleast once per SyncFlow
+	err := a.handleSlotInfo(ctx, srcConn, slotName, peerName)
+	if err != nil {
+		return
+	}
+
+	timeout := 5 * time.Minute
 	ticker := time.NewTicker(timeout)
 
 	defer ticker.Stop()

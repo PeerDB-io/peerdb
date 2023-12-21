@@ -24,6 +24,7 @@ require (
 	github.com/linkedin/goavro/v2 v2.12.0
 	github.com/microsoft/go-mssqldb v1.6.0
 	github.com/orcaman/concurrent-map/v2 v2.0.1
+	github.com/slack-go/slack v0.12.3
 	github.com/snowflakedb/gosnowflake v1.7.1
 	github.com/stretchr/testify v1.8.4
 	github.com/twpayne/go-geos v0.14.0
@@ -53,6 +54,7 @@ require (
 	github.com/getsentry/sentry-go v0.25.0 // indirect
 	github.com/go-logr/logr v1.3.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect

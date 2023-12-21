@@ -64,3 +64,8 @@ func GetPeerDBCatalogPassword() string {
 func GetPeerDBCatalogDatabase() string {
 	return getEnvString("PEERDB_CATALOG_DATABASE", "")
 }
+
+// PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD
+func GetPeerDBSlotLagMBAlertThreshold() uint32 {
+	return getEnvUint32("PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", 5000)
+}

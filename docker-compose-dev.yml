@@ -28,6 +28,7 @@ x-flow-worker-env: &flow-worker-env
   # enables worker profiling using Grafana Pyroscope
   ENABLE_PROFILING: "true"
   PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+  PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD: 10
 
 services:
   catalog:
@@ -133,7 +134,7 @@ services:
       dockerfile: stacks/flow.Dockerfile
       target: flow-snapshot-worker
     environment:
-      <<: [*flow-worker-env]
+      <<: [*catalog-config, *flow-worker-env]
     depends_on:
       temporal-admin-tools:
         condition: service_healthy
