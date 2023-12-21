@@ -1806,6 +1806,122 @@ impl<'de> serde::Deserialize<'de> for GetLastSyncedIdInput {
         deserializer.deserialize_struct("peerdb_flow.GetLastSyncedIDInput", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for GetOpenConnectionsForUserResult {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.user_name.is_empty() {
+            len += 1;
+        }
+        if self.current_open_connections != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetOpenConnectionsForUserResult", len)?;
+        if !self.user_name.is_empty() {
+            struct_ser.serialize_field("userName", &self.user_name)?;
+        }
+        if self.current_open_connections != 0 {
+            struct_ser.serialize_field("currentOpenConnections", ToString::to_string(&self.current_open_connections).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetOpenConnectionsForUserResult {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "user_name",
+            "userName",
+            "current_open_connections",
+            "currentOpenConnections",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            UserName,
+            CurrentOpenConnections,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "userName" | "user_name" => Ok(GeneratedField::UserName),
+                            "currentOpenConnections" | "current_open_connections" => Ok(GeneratedField::CurrentOpenConnections),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetOpenConnectionsForUserResult;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.GetOpenConnectionsForUserResult")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<GetOpenConnectionsForUserResult, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut user_name__ = None;
+                let mut current_open_connections__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::UserName => {
+                            if user_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("userName"));
+                            }
+                            user_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::CurrentOpenConnections => {
+                            if current_open_connections__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("currentOpenConnections"));
+                            }
+                            current_open_connections__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(GetOpenConnectionsForUserResult {
+                    user_name: user_name__.unwrap_or_default(),
+                    current_open_connections: current_open_connections__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.GetOpenConnectionsForUserResult", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for GetTableSchemaBatchInput {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

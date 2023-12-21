@@ -48,6 +48,9 @@ type CDCPullConnector interface {
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(slotName string) ([]*protos.SlotInfo, error)
+
+	// GetOpenConnectionsForUser returns the number of open connections for the user configured in the peer.
+	GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error)
 }
 
 type CDCSyncConnector interface {

@@ -373,3 +373,8 @@ message PeerDBColumns {
   string synced_at_col_name = 2;
   bool soft_delete = 3;
 }
+
+message GetOpenConnectionsForUserResult {
+  string user_name = 1;
+  uint64 current_open_connections = 2;
+}

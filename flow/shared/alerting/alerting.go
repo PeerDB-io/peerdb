@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
-	"log/slog"
-
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -55,8 +55,13 @@ func NewAlerter(catalogPool *pgxpool.Pool) *Alerter {
 }
 
 // Only raises an alert if another alert with the same key hasn't been raised
-// in the past 15 minutes
+// in the past X minutes, where X is configurable and defaults to 15 minutes
 func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage string) {
+	if peerdbenv.GetPeerDBAlertingGapMinutesAsDuration() == 0 {
+		a.logger.WarnContext(ctx, "Alerting disabled via environment variable, returning")
+		return
+	}
+
 	if a.catalogPool != nil {
 		slackAlertSenders, err := registerSendersFromPool(a.catalogPool)
 		if err != nil {
@@ -64,7 +69,7 @@ func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage str
 			return
 		}
 		if len(slackAlertSenders) == 0 {
-			a.logger.Warn("no Slack senders configured, returning")
+			a.logger.WarnContext(ctx, "no Slack senders configured, returning")
 			return
 		}
 
@@ -79,7 +84,7 @@ func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage str
 			return
 		}
 
-		if time.Since(createdTimestamp) >= 15*time.Minute {
+		if time.Since(createdTimestamp) >= peerdbenv.GetPeerDBAlertingGapMinutesAsDuration() {
 			for _, slackAlertSender := range slackAlertSenders {
 				err = slackAlertSender.sendAlert(context.Background(),
 					fmt.Sprintf(":rotating_light:Alert:rotating_light:: %s", alertKey), alertMessage)

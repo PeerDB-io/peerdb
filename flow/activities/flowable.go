@@ -176,16 +176,31 @@ func (a *FlowableActivity) handleSlotInfo(
 ) error {
 	slotInfo, err := srcConn.GetSlotInfo(slotName)
 	if err != nil {
-		slog.Warn("warning: failed to get slot info", slog.Any("error", err))
+		slog.WarnContext(ctx, "warning: failed to get slot info", slog.Any("error", err))
 		return err
 	}
 
 	slotLagInMBThreshold := peerdbenv.GetPeerDBSlotLagMBAlertThreshold()
-	if uint32(slotInfo[0].LagInMb) >= slotLagInMBThreshold {
+	if (slotLagInMBThreshold > 0) && (slotInfo[0].LagInMb >= float32(slotLagInMBThreshold)) {
 		a.Alerter.AlertIf(ctx, fmt.Sprintf("%s-slot-lag-threshold-exceeded", peerName),
 			fmt.Sprintf(`Slot `+"`%s`"+` on peer `+"`%s`"+` has exceeded threshold size of %dMB, currently at %.2fMB!
 cc: <!channel>`,
 				slotName, peerName, slotLagInMBThreshold, slotInfo[0].LagInMb))
+	}
+
+	// Also handles alerts for PeerDB user connections exceeding a given limit here
+	maxOpenConnectionsThreshold := peerdbenv.GetPeerDBOpenConnectionsAlertThreshold()
+	res, err := srcConn.GetOpenConnectionsForUser()
+	if err != nil {
+		slog.WarnContext(ctx, "warning: failed to get current open connections", slog.Any("error", err))
+		return err
+	}
+	if (maxOpenConnectionsThreshold > 0) && (res.CurrentOpenConnections >= uint64(maxOpenConnectionsThreshold)) {
+		a.Alerter.AlertIf(ctx, fmt.Sprintf("%s-max-open-connections-threshold-exceeded", peerName),
+			fmt.Sprintf(`Open connections from PeerDB user `+"`%s`"+` on peer `+"`%s`"+
+				` has exceeded threshold size of %d connections, currently at %d connections!
+cc: <!channel>`,
+				res.UserName, peerName, maxOpenConnectionsThreshold, res.CurrentOpenConnections))
 	}
 
 	if len(slotInfo) != 0 {
