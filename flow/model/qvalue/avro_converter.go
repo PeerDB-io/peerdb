@@ -2,12 +2,12 @@ package qvalue
 
 import (
 	"fmt"
+	"log/slog"
 	"math/big"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
-	"golang.org/x/exp/slog"
 )
 
 // https://avro.apache.org/docs/1.11.0/spec.html
