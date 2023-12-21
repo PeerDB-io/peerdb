@@ -6401,7 +6401,7 @@ export const GetOpenConnectionsForUserResult = {
       writer.uint32(10).string(message.userName);
     }
     if (message.currentOpenConnections !== 0) {
-      writer.uint32(16).uint64(message.currentOpenConnections);
+      writer.uint32(16).int64(message.currentOpenConnections);
     }
     return writer;
   },
@@ -6425,7 +6425,7 @@ export const GetOpenConnectionsForUserResult = {
             break;
           }
 
-          message.currentOpenConnections = longToNumber(reader.uint64() as Long);
+          message.currentOpenConnections = longToNumber(reader.int64() as Long);
           continue;
       }
       if ((tag & 7) === 4 || tag === 0) {

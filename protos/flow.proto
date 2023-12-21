@@ -376,5 +376,5 @@ message PeerDBColumns {
 
 message GetOpenConnectionsForUserResult {
   string user_name = 1;
-  uint64 current_open_connections = 2;
+  int64 current_open_connections = 2;
 }

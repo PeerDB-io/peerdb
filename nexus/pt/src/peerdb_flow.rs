@@ -560,8 +560,8 @@ pub struct PeerDbColumns {
 pub struct GetOpenConnectionsForUserResult {
     #[prost(string, tag="1")]
     pub user_name: ::prost::alloc::string::String,
-    #[prost(uint64, tag="2")]
-    pub current_open_connections: u64,
+    #[prost(int64, tag="2")]
+    pub current_open_connections: i64,
 }
 /// protos for qrep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

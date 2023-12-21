@@ -910,6 +910,6 @@ func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnecti
 
 	return &protos.GetOpenConnectionsForUserResult{
 		UserName:               c.config.User,
-		CurrentOpenConnections: uint64(result.Int64),
+		CurrentOpenConnections: result.Int64,
 	}, nil
 }
