@@ -165,7 +165,7 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10
@@ -217,7 +217,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10

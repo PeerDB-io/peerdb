@@ -47,7 +47,7 @@ func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsStr
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10
@@ -82,7 +82,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10

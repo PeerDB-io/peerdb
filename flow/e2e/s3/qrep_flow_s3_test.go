@@ -88,7 +88,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		s.t.Skip("Skipping S3 test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	jobName := "test_complete_flow_s3"
@@ -137,7 +137,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		s.t.Skip("Skipping S3 test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	jobName := "test_complete_flow_s3_ctid"

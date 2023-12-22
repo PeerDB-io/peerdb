@@ -19,7 +19,7 @@ func (s PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	helper, setupErr := setupS3("s3")
@@ -62,9 +62,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s (key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
+			_, err = s.pool.Exec(context.Background(),
+				fmt.Sprintf("INSERT INTO %s (key, value) VALUES ($1, $2)", srcTableName), testKey, testValue)
 			require.NoError(s.t, err)
 		}
 		require.NoError(s.t, err)
@@ -82,9 +81,9 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	fmt.Println("JobName: ", flowJobName)
+	s.t.Log("JobName", flowJobName)
 	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	fmt.Println("Files in Test_Complete_Simple_Flow_S3: ", len(files))
+	s.t.Log("Files in Test_Complete_Simple_Flow_S3: ", len(files))
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, 4, len(files))
@@ -93,8 +92,9 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
+
 	helper, setupErr := setupS3("gcs")
 	if setupErr != nil {
 		require.Fail(s.t, "failed to setup S3", setupErr)
@@ -135,12 +135,10 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s (key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
+			_, err = s.pool.Exec(context.Background(),
+				fmt.Sprintf("INSERT INTO %s (key, value) VALUES ($1, $2)", srcTableName), testKey, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 20 rows into the source table")
 		require.NoError(s.t, err)
 	}()
 
@@ -156,9 +154,9 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	fmt.Println("JobName: ", flowJobName)
+	s.t.Log("JobName", flowJobName)
 	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	fmt.Println("Files in Test_Complete_Simple_Flow_GCS: ", len(files))
+	s.t.Log("Files in Test_Complete_Simple_Flow_GCS: ", len(files))
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, 4, len(files))

@@ -42,7 +42,7 @@ func (s PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, ro
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow")
@@ -105,7 +105,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
@@ -266,7 +266,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
@@ -341,7 +341,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
@@ -422,7 +422,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
@@ -499,7 +499,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
