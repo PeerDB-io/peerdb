@@ -30,6 +30,7 @@ func setupSchemaDeltaSuite(t *testing.T, g got.G) PostgresSchemaDeltaTestSuite {
 		Password: "postgres",
 		Database: "postgres",
 	})
+	}, false)
 	require.NoError(t, err)
 
 	setupTx, err := connector.pool.Begin(context.Background())

@@ -34,7 +34,7 @@ type PostgresConnector struct {
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
-func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig, initializeReplPool bool) (*PostgresConnector, error) {
 	connectionString := utils.GetPGConnectionString(pgConfig)
 
 	// create a separate connection pool for non-replication queries as replication connections cannot
@@ -62,21 +62,23 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
 
-	// ensure that replication is set to database
-	replConnConfig, err := pgxpool.ParseConfig(connectionString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
-	}
+	// only initialize for CDCPullConnector to reduce number of idle connections
+	var replPool *SSHWrappedPostgresPool
+	if initializeReplPool {
+		// ensure that replication is set to database
+		replConnConfig, err := pgxpool.ParseConfig(connectionString)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse connection string: %w", err)
+		}
 
-	replConnConfig.ConnConfig.RuntimeParams["replication"] = "database"
-	replConnConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
-	replConnConfig.MaxConns = 1
+		replConnConfig.ConnConfig.RuntimeParams["replication"] = "database"
+		replConnConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
+		replConnConfig.MaxConns = 1
 
-	// TODO: replPool not initializing might be intentional, if we only want to use QRep mirrors
-	// and the user doesn't have the REPLICATION permission
-	replPool, err := NewSSHWrappedPostgresPool(ctx, replConnConfig, pgConfig.SshConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+		replPool, err = NewSSHWrappedPostgresPool(ctx, replConnConfig, pgConfig.SshConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create replication connection pool: %w", err)
+		}
 	}
 
 	metadataSchema := "_peerdb_internal"
@@ -877,22 +879,6 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction for sync flow cleanup: %w", err)
 	}
-	return nil
-}
-
-func (c *PostgresConnector) SendWALHeartbeat() error {
-	command := `
-	BEGIN;
-	DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
-	CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-	DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
-	END;
-	`
-	_, err := c.pool.Exec(c.ctx, command)
-	if err != nil {
-		return fmt.Errorf("error bumping wal position: %w", err)
-	}
-
 	return nil
 }
 

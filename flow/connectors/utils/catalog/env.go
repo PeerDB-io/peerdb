@@ -39,10 +39,10 @@ func GetCatalogConnectionPoolFromEnv() (*pgxpool.Pool, error) {
 
 func genCatalogConnectionString() string {
 	return utils.GetPGConnectionString(&protos.PostgresConfig{
-		Host:     peerdbenv.GetPeerDBCatalogHost(),
-		Port:     peerdbenv.GetPeerDBCatalogPort(),
-		User:     peerdbenv.GetPeerDBCatalogUser(),
-		Password: peerdbenv.GetPeerDBCatalogPassword(),
-		Database: peerdbenv.GetPeerDBCatalogDatabase(),
+		Host:     peerdbenv.PeerDBCatalogHost(),
+		Port:     peerdbenv.PeerDBCatalogPort(),
+		User:     peerdbenv.PeerDBCatalogUser(),
+		Password: peerdbenv.PeerDBCatalogPassword(),
+		Database: peerdbenv.PeerDBCatalogDatabase(),
 	})
 }

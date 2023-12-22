@@ -39,9 +39,15 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment, t *t
 	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
 	env.RegisterWorkflow(peerflow.XminFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
+
+	alerter, err := alerting.NewAlerter(conn)
+	if err != nil {
+		t.Fatalf("unable to create alerter: %v", err)
+	}
+
 	env.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
-		Alerter:     alerting.NewAlerter(conn),
+		Alerter:     alerter,
 	})
 	env.RegisterActivity(&activities.SnapshotActivity{})
 }

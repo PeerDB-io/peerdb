@@ -56,7 +56,7 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuitePG {
 			User:     "postgres",
 			Password: "postgres",
 			Database: "postgres",
-		})
+		}, false)
 	require.NoError(t, err)
 	return PeerFlowE2ETestSuitePG{
 		G:         g,
