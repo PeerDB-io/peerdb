@@ -84,7 +84,7 @@ func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType
 	LIMIT 0
 	`, tableName)
 
-	rows, err := c.database.Query(queryString)
+	rows, err := c.database.QueryContext(c.ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -294,7 +294,7 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnIn
 	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
 	`, components.tableIdentifier, components.schemaIdentifier)
 
-	rows, err := c.database.Query(queryString)
+	rows, err := c.database.QueryContext(c.ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
