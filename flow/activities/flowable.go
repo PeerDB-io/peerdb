@@ -176,7 +176,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	return setupNormalizedTablesOutput, nil
 }
 
-// StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput,
 ) (*model.SyncResponse, error) {
