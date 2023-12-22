@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -21,14 +23,13 @@ import (
 	"github.com/ysmood/got"
 )
 
-const sqlserverSuffix = "sqlserver"
-
 type PeerFlowE2ETestSuiteSQLServer struct {
 	got.G
 	t *testing.T
 
 	pool       *pgxpool.Pool
 	sqlsHelper *SQLServerHelper
+	suffix     string
 }
 
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
@@ -55,7 +56,8 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSQLServer {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	pool, err := e2e.SetupPostgres(sqlserverSuffix)
+	suffix := "sqls_" + strings.ToLower(shared.RandomString(8))
+	pool, err := e2e.SetupPostgres(suffix)
 	if err != nil || pool == nil {
 		require.Fail(t, "failed to setup postgres", err)
 	}
@@ -65,11 +67,12 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSQLServer {
 		t:          t,
 		pool:       pool,
 		sqlsHelper: setupSQLServer(t),
+		suffix:     suffix,
 	}
 }
 
 func (s PeerFlowE2ETestSuiteSQLServer) TearDownSuite() {
-	err := e2e.TearDownPostgres(s.pool, sqlserverSuffix)
+	err := e2e.TearDownPostgres(s.pool, s.suffix)
 	if err != nil {
 		require.Fail(s.t, "failed to drop Postgres schema", err)
 	}
@@ -111,12 +114,12 @@ func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName st
 func (s PeerFlowE2ETestSuiteSQLServer) setupPGDestinationTable(tableName string) {
 	ctx := context.Background()
 
-	_, err := s.pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", sqlserverSuffix, tableName))
+	_, err := s.pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", s.suffix, tableName))
 	require.NoError(s.t, err)
 
 	_, err = s.pool.Exec(ctx,
 		fmt.Sprintf("CREATE TABLE e2e_test_%s.%s (id TEXT, card_id TEXT, v_from TIMESTAMP, price NUMERIC, status INT)",
-			sqlserverSuffix, tableName))
+			s.suffix, tableName))
 	require.NoError(s.t, err)
 }
 
@@ -148,7 +151,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	s.insertRowsIntoSQLServerTable(tblName, numRows)
 
 	s.setupPGDestinationTable(tblName)
-	dstTableName := fmt.Sprintf("e2e_test_%s.%s", sqlserverSuffix, tblName)
+	dstTableName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM %s.%s WHERE v_from BETWEEN {{.start}} AND {{.end}}",
 		s.sqlsHelper.SchemaName, tblName)
