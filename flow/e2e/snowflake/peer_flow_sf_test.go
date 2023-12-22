@@ -85,7 +85,6 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	return suite
 }
 
-// Implement TearDownAllSuite interface to tear down the test suite
 func (s PeerFlowE2ETestSuiteSF) TearDownSuite() {
 	err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
 	if err != nil {

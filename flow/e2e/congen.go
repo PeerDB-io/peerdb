@@ -136,15 +136,8 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 }
 
 func TearDownPostgres(pool *pgxpool.Pool, suffix string) error {
-	// drop the e2e_test schema
-	if pool != nil {
-		err := cleanPostgres(pool, suffix)
-		if err != nil {
-			return err
-		}
-		pool.Close()
-	}
-	return nil
+	err := cleanPostgres(pool, suffix)
+	return err
 }
 
 // GeneratePostgresPeer generates a postgres peer config for testing.
