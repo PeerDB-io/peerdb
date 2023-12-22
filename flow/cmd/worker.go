@@ -132,9 +132,15 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.XminFlowWorkflow)
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
+
+	alerter, err := alerting.NewAlerter(conn)
+	if err != nil {
+		return fmt.Errorf("unable to create alerter: %w", err)
+	}
+
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
-		Alerter:     alerting.NewAlerter(conn),
+		Alerter:     alerter,
 	})
 
 	err = w.Run(worker.InterruptCh())

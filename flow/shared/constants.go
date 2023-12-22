@@ -51,7 +51,7 @@ func GetPeerFlowTaskQueueName(taskQueueID TaskQueueID) (string, error) {
 }
 
 func prependUIDToTaskQueueName(taskQueueName string) string {
-	deploymentUID := peerdbenv.GetPeerDBDeploymentUID()
+	deploymentUID := peerdbenv.PeerDBDeploymentUID()
 	if deploymentUID == "" {
 		return taskQueueName
 	}
