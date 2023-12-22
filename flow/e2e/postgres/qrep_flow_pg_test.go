@@ -203,7 +203,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -252,7 +252,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_P
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)

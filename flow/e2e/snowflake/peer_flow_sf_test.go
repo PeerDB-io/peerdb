@@ -161,7 +161,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -239,7 +239,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -315,7 +315,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -394,7 +394,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -461,7 +461,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -536,7 +536,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -602,7 +602,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -668,7 +668,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -736,7 +736,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -802,7 +802,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	count1, err := s.sfHelper.CountRows("test1_sf")
@@ -967,7 +967,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1037,7 +1037,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1113,7 +1113,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1185,7 +1185,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1264,7 +1264,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1351,7 +1351,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1436,7 +1436,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1523,7 +1523,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1598,7 +1598,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 

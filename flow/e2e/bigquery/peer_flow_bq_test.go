@@ -157,7 +157,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, nil, &limits, nil)
 
 	// Verify workflow completes
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err := env.GetWorkflowError()
 
 	// assert that error contains "invalid connection configs"
@@ -201,7 +201,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -245,7 +245,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -308,7 +308,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -382,7 +382,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -445,7 +445,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -520,7 +520,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -587,7 +587,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -654,7 +654,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -722,7 +722,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -738,7 +738,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		fmt.Println("error  %w", err)
 	}
 	// Make sure that there are no nulls
-	s.True(noNulls)
+	require.True(s.t, noNulls)
 
 	env.AssertExpectations(s.t)
 }
@@ -896,7 +896,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -967,7 +967,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1043,7 +1043,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1116,7 +1116,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1179,7 +1179,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
