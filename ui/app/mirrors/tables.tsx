@@ -5,8 +5,10 @@ import TimeLabel from '@/components/TimeComponent';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { Tab } from '@tremor/react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { MirrorError } from './mirror-error';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -43,7 +45,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
           }}
           header={
             <TableRow>
-              {['Name', 'Source', 'Destination', 'Start Time', ''].map(
+              {['Name', 'Source', 'Destination', 'Start Time', 'Errors', ''].map(
                 (heading, index) => (
                   <TableCell as='th' key={index}>
                     <Label as='label' style={{ fontWeight: 'bold' }}>
@@ -76,6 +78,9 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
               </TableCell>
               <TableCell>
                 <TimeLabel timeVal={flow.created_at} />
+              </TableCell>
+              <TableCell>
+                <MirrorError flowName={flow.name} />
               </TableCell>
               <TableCell>
                 <DropDialog

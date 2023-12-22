@@ -155,7 +155,51 @@ model peer_slot_size {
   confirmed_flush_lsn String?
   slot_size           BigInt?
   updated_at          DateTime @default(now()) @db.Timestamp(6)
+  wal_status          String?
 
   @@index([slot_name], map: "index_slot_name")
+  @@schema("peerdb_stats")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model alerting_config {
+  id             BigInt @id @default(autoincrement())
+  service_type   String
+  service_config Json
+
+  @@schema("peerdb_stats")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model alerts_v1 {
+  id                BigInt    @id @default(autoincrement())
+  alert_key         String
+  alert_level       String    @default("critical")
+  alert_message     String
+  created_timestamp DateTime? @default(now()) @db.Timestamp(6)
+
+  @@schema("peerdb_stats")
+}
+
+model flow_errors {
+  id              BigInt   @id @default(autoincrement())
+  flow_name       String
+  error_message   String
+  error_type      String
+  error_timestamp DateTime @default(now()) @db.Timestamp(6)
+  ack             Boolean  @default(false)
+
+  @@index([flow_name], map: "idx_flow_errors_flow_name")
+  @@schema("peerdb_stats")
+}
+
+model schema_deltas_audit_log {
+  id             BigInt    @id @default(autoincrement())
+  flow_job_name  String
+  read_timestamp DateTime? @default(now()) @db.Timestamp(6)
+  workflow_id    String
+  run_id         String
+  delta_info     Json
+
   @@schema("peerdb_stats")
 }
