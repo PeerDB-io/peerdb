@@ -112,3 +112,14 @@ func (a *Alerter) AddAlertToCatalog(ctx context.Context, alertKey string, alertM
 		return
 	}
 }
+
+func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {
+	errorWithStack := fmt.Sprintf("%+v", err)
+	_, err = a.catalogPool.Exec(ctx,
+		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
+		flowName, errorWithStack, "error")
+	if err != nil {
+		a.logger.WarnContext(ctx, "failed to insert flow error", slog.Any("error", err))
+		return
+	}
+}
