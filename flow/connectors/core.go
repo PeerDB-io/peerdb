@@ -140,7 +140,7 @@ func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConne
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), true)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -150,7 +150,7 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -172,7 +172,7 @@ func GetCDCNormalizeConnector(ctx context.Context,
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -186,7 +186,7 @@ func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullCon
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_SqlserverConfig:
 		return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	default:
@@ -198,7 +198,7 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -219,7 +219,10 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 		if pgConfig == nil {
 			return nil, fmt.Errorf("missing postgres config for %s peer %s", peer.Type.String(), peer.Name)
 		}
-		return connpostgres.NewPostgresConnector(ctx, pgConfig)
+		// we can't decide if a PG peer should have replication permissions on it because we don't know
+		// what the user wants to do with it, so defaulting to being permissive.
+		// can be revisited in the future or we can use some UI wizardry.
+		return connpostgres.NewPostgresConnector(ctx, pgConfig, false)
 	case protos.DBType_BIGQUERY:
 		bqConfig := peer.GetBigqueryConfig()
 		if bqConfig == nil {
