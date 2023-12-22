@@ -28,3 +28,12 @@ export type SyncStatusRow = {
   endTime: Date | null;
   numRows: number;
 };
+
+export type AlertErr = {
+  id: bigint;
+  flow_name: string;
+  error_message: string;
+  error_type: string;
+  error_timestamp: Date;
+  ack: boolean;
+};
