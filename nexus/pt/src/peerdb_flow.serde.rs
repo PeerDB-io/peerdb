@@ -1229,6 +1229,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if !self.synced_at_col_name.is_empty() {
             len += 1;
         }
+        if self.initial_copy_only {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.FlowConnectionConfigs", len)?;
         if let Some(v) = self.source.as_ref() {
             struct_ser.serialize_field("source", v)?;
@@ -1309,6 +1312,9 @@ impl serde::Serialize for FlowConnectionConfigs {
         if !self.synced_at_col_name.is_empty() {
             struct_ser.serialize_field("syncedAtColName", &self.synced_at_col_name)?;
         }
+        if self.initial_copy_only {
+            struct_ser.serialize_field("initialCopyOnly", &self.initial_copy_only)?;
+        }
         struct_ser.end()
     }
 }
@@ -1366,6 +1372,8 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             "softDeleteColName",
             "synced_at_col_name",
             "syncedAtColName",
+            "initial_copy_only",
+            "initialCopyOnly",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1395,6 +1403,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
             Resync,
             SoftDeleteColName,
             SyncedAtColName,
+            InitialCopyOnly,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1442,6 +1451,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             "resync" => Ok(GeneratedField::Resync),
                             "softDeleteColName" | "soft_delete_col_name" => Ok(GeneratedField::SoftDeleteColName),
                             "syncedAtColName" | "synced_at_col_name" => Ok(GeneratedField::SyncedAtColName),
+                            "initialCopyOnly" | "initial_copy_only" => Ok(GeneratedField::InitialCopyOnly),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1486,6 +1496,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                 let mut resync__ = None;
                 let mut soft_delete_col_name__ = None;
                 let mut synced_at_col_name__ = None;
+                let mut initial_copy_only__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Source => {
@@ -1655,6 +1666,12 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                             }
                             synced_at_col_name__ = Some(map.next_value()?);
                         }
+                        GeneratedField::InitialCopyOnly => {
+                            if initial_copy_only__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("initialCopyOnly"));
+                            }
+                            initial_copy_only__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1686,6 +1703,7 @@ impl<'de> serde::Deserialize<'de> for FlowConnectionConfigs {
                     resync: resync__.unwrap_or_default(),
                     soft_delete_col_name: soft_delete_col_name__.unwrap_or_default(),
                     synced_at_col_name: synced_at_col_name__.unwrap_or_default(),
+                    initial_copy_only: initial_copy_only__.unwrap_or_default(),
                 })
             }
         }
