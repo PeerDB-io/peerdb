@@ -20,7 +20,6 @@ import (
 )
 
 type PeerFlowE2ETestSuitePG struct {
-	got.G
 	t *testing.T
 
 	pool      *pgxpool.Pool
@@ -33,7 +32,7 @@ func TestPeerFlowE2ETestSuitePG(t *testing.T) {
 	got.Each(t, e2eshared.GotSuite(setupSuite))
 }
 
-func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuitePG {
+func setupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -59,7 +58,6 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuitePG {
 		}, false)
 	require.NoError(t, err)
 	return PeerFlowE2ETestSuitePG{
-		G:         g,
 		t:         t,
 		pool:      pool,
 		peer:      peer,

@@ -24,7 +24,6 @@ import (
 )
 
 type PeerFlowE2ETestSuiteSQLServer struct {
-	got.G
 	t *testing.T
 
 	pool       *pgxpool.Pool
@@ -48,7 +47,7 @@ func setupSQLServer(t *testing.T) *SQLServerHelper {
 	return sqlsHelper
 }
 
-func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSQLServer {
+func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -63,7 +62,6 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSQLServer {
 	}
 
 	return PeerFlowE2ETestSuiteSQLServer{
-		G:          g,
 		t:          t,
 		pool:       pool,
 		sqlsHelper: setupSQLServer(t),

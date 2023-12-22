@@ -24,7 +24,6 @@ import (
 )
 
 type PeerFlowE2ETestSuiteSF struct {
-	got.G
 	t *testing.T
 
 	pgSuffix  string
@@ -45,7 +44,7 @@ func (s PeerFlowE2ETestSuiteSF) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, s.pgSuffix)
 }
 
-func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
+func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -60,13 +59,13 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 	pool, err := e2e.SetupPostgres(pgSuffix)
 	if err != nil || pool == nil {
 		slog.Error("failed to setup Postgres", slog.Any("error", err))
-		g.FailNow()
+		t.FailNow()
 	}
 
 	sfHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
 		slog.Error("failed to setup Snowflake", slog.Any("error", err))
-		g.FailNow()
+		t.FailNow()
 	}
 
 	connector, err := connsnowflake.NewSnowflakeConnector(
@@ -76,7 +75,6 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 	require.NoError(t, err)
 
 	suite := PeerFlowE2ETestSuiteSF{
-		G:         g,
 		t:         t,
 		pgSuffix:  pgSuffix,
 		pool:      pool,
@@ -92,14 +90,14 @@ func (s PeerFlowE2ETestSuiteSF) TearDownSuite() {
 	err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
 	if err != nil {
 		slog.Error("failed to tear down Postgres", slog.Any("error", err))
-		s.FailNow()
+		s.t.FailNow()
 	}
 
 	if s.sfHelper != nil {
 		err = s.sfHelper.Cleanup()
 		if err != nil {
 			slog.Error("failed to tear down Snowflake", slog.Any("error", err))
-			s.FailNow()
+			s.t.FailNow()
 		}
 	}
 
@@ -107,7 +105,7 @@ func (s PeerFlowE2ETestSuiteSF) TearDownSuite() {
 
 	if err != nil {
 		slog.Error("failed to close Snowflake connector", slog.Any("error", err))
-		s.FailNow()
+		s.t.FailNow()
 	}
 }
 
@@ -169,7 +167,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 
 	count, err := s.sfHelper.CountRows("test_simple_flow_sf")
 	require.NoError(s.t, err)
-	s.Equal(20, count)
+	require.Equal(s.t, 20, count)
 
 	// check the number of rows where _PEERDB_SYNCED_AT is newer than 5 mins ago
 	// it should match the count.
@@ -178,7 +176,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	s.Equal(20, numNewRows)
+	require.Equal(s.t, 20, numNewRows)
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the Snowflake side
@@ -247,7 +245,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 
 	count, err := s.sfHelper.CountRows("test_replica_identity_no_pkey")
 	require.NoError(s.t, err)
-	s.Equal(20, count)
+	require.Equal(s.t, 20, count)
 
 	env.AssertExpectations(s.t)
 }
@@ -325,11 +323,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	// They should have been filtered out as null on destination
 	lineCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "line")
 	require.NoError(s.t, err)
-	s.Equal(6, lineCount)
+	require.Equal(s.t, 6, lineCount)
 
 	polyCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "poly")
 	require.NoError(s.t, err)
-	s.Equal(6, polyCount)
+	require.Equal(s.t, 6, polyCount)
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
@@ -452,7 +450,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 
 		if err != nil {
 			slog.Error("Error executing transaction", slog.Any("error", err))
-			s.FailNow()
+			s.t.FailNow()
 		}
 
 		wg.Done()
@@ -752,7 +750,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		fmt.Println("error  %w", err)
 	}
 	// Make sure that there are no nulls
-	s.Equal(noNulls, true)
+	require.Equal(s.t, noNulls, true)
 
 	env.AssertExpectations(s.t)
 }
@@ -810,8 +808,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	count2, err := s.sfHelper.CountRows("test2_sf")
 	require.NoError(s.t, err)
 
-	s.Equal(1, count1)
-	s.Equal(1, count2)
+	require.Equal(s.t, 1, count1)
+	require.Equal(s.t, 1, count2)
 
 	env.AssertExpectations(s.t)
 }
@@ -871,7 +869,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1", false)
 
 		// alter source table, add column c2 and insert another row.
@@ -900,7 +898,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c2", false)
 
 		// alter source table, add column c3, drop column c2 and insert another row.
@@ -930,7 +928,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c3", false)
 
 		// alter source table, drop column c3 and insert another row.
@@ -960,7 +958,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1", false)
 	}()
 
@@ -1276,8 +1274,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	for _, field := range sfRows.Schema.Fields {
 		require.NotEqual(s.t, field.Name, "c2")
 	}
-	s.Equal(5, len(sfRows.Schema.Fields))
-	s.Equal(10, len(sfRows.Records))
+	require.Equal(s.t, 5, len(sfRows.Schema.Fields))
+	require.Equal(s.t, 10, len(sfRows.Records))
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
@@ -1447,7 +1445,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	s.Equal(1, numNewRows)
+	require.Equal(s.t, 1, numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
@@ -1534,7 +1532,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	s.Equal(1, numNewRows)
+	require.Equal(s.t, 1, numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
@@ -1609,5 +1607,5 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	s.Equal(0, numNewRows)
+	require.Equal(s.t, 0, numNewRows)
 }

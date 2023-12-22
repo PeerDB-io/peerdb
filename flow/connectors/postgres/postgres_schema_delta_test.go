@@ -14,7 +14,6 @@ import (
 )
 
 type PostgresSchemaDeltaTestSuite struct {
-	got.G
 	t *testing.T
 
 	connector *PostgresConnector
@@ -22,14 +21,13 @@ type PostgresSchemaDeltaTestSuite struct {
 
 const schemaDeltaTestSchemaName = "pgschema_delta_test"
 
-func setupSchemaDeltaSuite(t *testing.T, g got.G) PostgresSchemaDeltaTestSuite {
+func setupSchemaDeltaSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	connector, err := NewPostgresConnector(context.Background(), &protos.PostgresConfig{
 		Host:     "localhost",
 		Port:     7132,
 		User:     "postgres",
 		Password: "postgres",
 		Database: "postgres",
-	})
 	}, false)
 	require.NoError(t, err)
 
@@ -49,7 +47,6 @@ func setupSchemaDeltaSuite(t *testing.T, g got.G) PostgresSchemaDeltaTestSuite {
 	err = setupTx.Commit(context.Background())
 	require.NoError(t, err)
 	return PostgresSchemaDeltaTestSuite{
-		G:         g,
 		t:         t,
 		connector: connector,
 	}
@@ -70,10 +67,10 @@ func (suite PostgresSchemaDeltaTestSuite) TearDownSuite() {
 	err = teardownTx.Commit(context.Background())
 	require.NoError(suite.t, err)
 
-	suite.True(suite.connector.ConnectionActive() == nil)
+	require.True(suite.t, suite.connector.ConnectionActive() == nil)
 	err = suite.connector.Close()
 	require.NoError(suite.t, err)
-	suite.False(suite.connector.ConnectionActive() == nil)
+	require.False(suite.t, suite.connector.ConnectionActive() == nil)
 }
 
 func (suite PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
@@ -96,7 +93,7 @@ func (suite PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(suite.t, err)
-	suite.Equal(&protos.TableSchema{
+	require.Equal(suite.t, &protos.TableSchema{
 		TableIdentifier: tableName,
 		Columns: map[string]string{
 			"id": string(qvalue.QValueKindInt32),
@@ -157,7 +154,7 @@ func (suite PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(suite.t, err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(suite.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func (suite PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
@@ -203,7 +200,7 @@ func (suite PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(suite.t, err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(suite.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func (suite PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
@@ -243,7 +240,7 @@ func (suite PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(suite.t, err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(suite.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {

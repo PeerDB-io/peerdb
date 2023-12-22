@@ -18,7 +18,6 @@ import (
 )
 
 type PeerFlowE2ETestSuiteS3 struct {
-	got.G
 	t *testing.T
 
 	pool     *pgxpool.Pool
@@ -41,7 +40,7 @@ func setupS3(mode string) (*S3TestHelper, error) {
 	return NewS3TestHelper(mode == "gcs")
 }
 
-func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
+func setupSuite(t *testing.T) PeerFlowE2ETestSuiteS3 {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -61,7 +60,6 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
 	}
 
 	return PeerFlowE2ETestSuiteS3{
-		G:        g,
 		t:        t,
 		pool:     pool,
 		s3Helper: helper,

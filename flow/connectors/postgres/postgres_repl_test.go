@@ -17,14 +17,13 @@ import (
 )
 
 type PostgresReplicationSnapshotTestSuite struct {
-	got.G
 	t *testing.T
 
 	connector *PostgresConnector
 	schema    string
 }
 
-func setupSuite(t *testing.T, g got.G) PostgresReplicationSnapshotTestSuite {
+func setupSuite(t *testing.T) PostgresReplicationSnapshotTestSuite {
 	connector, err := NewPostgresConnector(context.Background(), &protos.PostgresConfig{
 		Host:     "localhost",
 		Port:     7132,
@@ -66,7 +65,6 @@ func setupSuite(t *testing.T, g got.G) PostgresReplicationSnapshotTestSuite {
 	require.NoError(t, err)
 
 	return PostgresReplicationSnapshotTestSuite{
-		G:         g,
 		t:         t,
 		connector: connector,
 		schema:    schema,
@@ -111,12 +109,12 @@ func (suite PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 	err = teardownTx.Commit(context.Background())
 	require.NoError(suite.t, err)
 
-	suite.True(suite.connector.ConnectionActive() == nil)
+	require.True(suite.t, suite.connector.ConnectionActive() == nil)
 
 	err = suite.connector.Close()
 	require.NoError(suite.t, err)
 
-	suite.False(suite.connector.ConnectionActive() == nil)
+	require.False(suite.t, suite.connector.ConnectionActive() == nil)
 }
 
 func (suite PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {

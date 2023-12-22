@@ -5,20 +5,14 @@ import (
 	"io"
 	"os"
 	"testing"
-
-	"github.com/ysmood/got"
 )
 
-func GotSuite[T interface{ TearDownSuite() }](setup func(t *testing.T, g got.G) T) func(t *testing.T) T {
+func GotSuite[T interface{ TearDownSuite() }](setup func(t *testing.T) T) func(t *testing.T) T {
 	return func(t *testing.T) T {
-		g := got.New(t)
-		g.Parallel()
-
-		suite := setup(t, g)
-		g.Cleanup(func() {
+		suite := setup(t)
+		t.Cleanup(func() {
 			suite.TearDownSuite()
 		})
-
 		return suite
 	}
 }

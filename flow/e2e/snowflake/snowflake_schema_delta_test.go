@@ -10,30 +10,20 @@ import (
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/stretchr/testify/require"
 	"github.com/ysmood/got"
 )
 
 const schemaDeltaTestSchemaName = "PUBLIC"
 
 type SnowflakeSchemaDeltaTestSuite struct {
-	got.G
 	t *testing.T
 
 	connector    *connsnowflake.SnowflakeConnector
 	sfTestHelper *SnowflakeTestHelper
 }
 
-func (suite SnowflakeSchemaDeltaTestSuite) failTestError(err error) {
-	if err != nil {
-		slog.Error("Error in test", slog.Any("error", err))
-		suite.FailNow()
-	}
-}
-
-func setupSchemaDeltaSuite(
-	t *testing.T,
-	g got.G,
-) SnowflakeSchemaDeltaTestSuite {
+func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 	sfTestHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
 		slog.Error("Error in test", slog.Any("error", err))
@@ -50,7 +40,6 @@ func setupSchemaDeltaSuite(
 	}
 
 	return SnowflakeSchemaDeltaTestSuite{
-		G:            g,
 		t:            t,
 		connector:    connector,
 		sfTestHelper: sfTestHelper,
@@ -59,15 +48,15 @@ func setupSchemaDeltaSuite(
 
 func (suite SnowflakeSchemaDeltaTestSuite) TearDownSuite() {
 	err := suite.sfTestHelper.Cleanup()
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 	err = suite.connector.Close()
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 }
 
 func (suite SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	tableName := fmt.Sprintf("%s.SIMPLE_ADD_COLUMN", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -77,13 +66,13 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 			ColumnType: string(qvalue.QValueKindJSON),
 		}},
 	}})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
-	suite.Equal(&protos.TableSchema{
+	require.NoError(suite.t, err)
+	require.Equal(suite.t, &protos.TableSchema{
 		TableIdentifier: tableName,
 		Columns: map[string]string{
 			"ID": string(qvalue.QValueKindString),
@@ -95,7 +84,7 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 func (suite SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_ALL_COLUMN_TYPES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -129,19 +118,19 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.NoError(suite.t, err)
+	require.Equal(suite.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func (suite SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_TRICKY_COLUMN_NAMES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(id TEXT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -173,19 +162,19 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.NoError(suite.t, err)
+	require.Equal(suite.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	tableName := fmt.Sprintf("%s.ADD_DROP_WHITESPACE_COLUMN_NAMES", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(\" \" TEXT PRIMARY KEY)", tableName))
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
@@ -211,13 +200,13 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
-	suite.failTestError(err)
+	require.NoError(suite.t, err)
 
 	output, err := suite.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 		TableIdentifiers: []string{tableName},
 	})
-	suite.failTestError(err)
-	suite.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.NoError(suite.t, err)
+	require.Equal(suite.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {

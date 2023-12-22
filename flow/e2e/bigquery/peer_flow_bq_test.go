@@ -20,7 +20,6 @@ import (
 )
 
 type PeerFlowE2ETestSuiteBQ struct {
-	got.G
 	t *testing.T
 
 	bqSuffix string
@@ -102,7 +101,7 @@ func setupBigQuery(t *testing.T) *BigQueryTestHelper {
 }
 
 // Implement SetupAllSuite interface to setup the test suite
-func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
+func setupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -122,7 +121,6 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
 	bq := setupBigQuery(t)
 
 	return PeerFlowE2ETestSuiteBQ{
-		G:        g,
 		t:        t,
 		bqSuffix: bqSuffix,
 		pool:     pool,
@@ -134,13 +132,13 @@ func (s PeerFlowE2ETestSuiteBQ) TearDownSuite() {
 	err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
 	if err != nil {
 		slog.Error("failed to tear down postgres", slog.Any("error", err))
-		s.FailNow()
+		s.t.FailNow()
 	}
 
 	err = s.bqHelper.DropDataset()
 	if err != nil {
 		slog.Error("failed to tear down bigquery", slog.Any("error", err))
-		s.FailNow()
+		s.t.FailNow()
 	}
 }
 
@@ -316,7 +314,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 
 	count, err := s.bqHelper.countRows(dstTableName)
 	require.NoError(s.t, err)
-	s.Equal(10, count)
+	require.Equal(s.t, 10, count)
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
@@ -798,8 +796,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	count2, err := s.bqHelper.countRows(dstTable2Name)
 	require.NoError(s.t, err)
 
-	s.Equal(1, count1)
-	s.Equal(1, count2)
+	require.Equal(s.t, 1, count1)
+	require.Equal(s.t, 1, count2)
 
 	env.AssertExpectations(s.t)
 }
