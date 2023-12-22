@@ -28,7 +28,7 @@ func (suite *PostgresReplicationSnapshotTestSuite) SetupSuite() {
 		User:     "postgres",
 		Password: "postgres",
 		Database: "postgres",
-	})
+	}, true)
 	require.NoError(suite.T(), err)
 
 	setupTx, err := suite.connector.pool.Begin(context.Background())

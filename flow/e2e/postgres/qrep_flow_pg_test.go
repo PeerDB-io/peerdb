@@ -55,7 +55,7 @@ func (s *PeerFlowE2ETestSuitePG) SetupSuite() {
 			User:     "postgres",
 			Password: "postgres",
 			Database: "postgres",
-		})
+		}, false)
 	s.NoError(err)
 }
 

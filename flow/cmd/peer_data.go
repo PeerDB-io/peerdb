@@ -209,7 +209,7 @@ func (h *FlowRequestHandler) GetSlotInfo(
 		return &protos.PeerSlotResponse{SlotData: nil}, err
 	}
 
-	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
+	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig, false)
 	if err != nil {
 		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return &protos.PeerSlotResponse{SlotData: nil}, err
@@ -236,7 +236,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 		return &protos.PeerStatResponse{StatData: nil}, err
 	}
 
-	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig)
+	pgConnector, err := connpostgres.NewPostgresConnector(ctx, pgConfig, false)
 	if err != nil {
 		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return &protos.PeerStatResponse{StatData: nil}, err
