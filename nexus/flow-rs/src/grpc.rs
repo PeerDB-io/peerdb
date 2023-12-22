@@ -195,6 +195,7 @@ impl FlowGrpcClient {
             resync: job.resync,
             soft_delete_col_name: job.soft_delete_col_name.clone().unwrap_or_default(),
             synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
+            initial_copy_only: job.initial_copy_only,
             ..Default::default()
         };
 

@@ -306,6 +306,11 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             _ => None,
                         };
 
+                        let initial_copy_only = match raw_options.remove("initial_copy_only") {
+                            Some(sqlparser::ast::Value::Boolean(b)) => *b,
+                            _ => false,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -327,7 +332,12 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             resync,
                             soft_delete_col_name,
                             synced_at_col_name,
+                            initial_copy_only,
                         };
+
+                        if initial_copy_only && !do_initial_copy {
+                            anyhow::bail!("initial_copy_only is set to true, but do_initial_copy is set to false");
+                        }
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC {
                             if_not_exists: *if_not_exists,
