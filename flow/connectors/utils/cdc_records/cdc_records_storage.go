@@ -43,7 +43,7 @@ func NewCDCRecordsStore(flowJobName string) *cdcRecordsStore {
 		numRecords:                0,
 		flowJobName:               flowJobName,
 		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
-		numRecordsSwitchThreshold: peerdbenv.GetPeerDBCDCDiskSpillThreshold(),
+		numRecordsSwitchThreshold: peerdbenv.PeerDBCDCDiskSpillThreshold(),
 	}
 }
 
