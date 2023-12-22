@@ -71,6 +71,8 @@ message FlowConnectionConfigs {
 
   string soft_delete_col_name = 24;
   string synced_at_col_name = 25;
+
+  bool initial_copy_only = 26;
 }
 
 message RenameTableOption {

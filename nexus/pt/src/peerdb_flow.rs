@@ -100,6 +100,8 @@ pub struct FlowConnectionConfigs {
     pub soft_delete_col_name: ::prost::alloc::string::String,
     #[prost(string, tag="25")]
     pub synced_at_col_name: ::prost::alloc::string::String,
+    #[prost(bool, tag="26")]
+    pub initial_copy_only: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

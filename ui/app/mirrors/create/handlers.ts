@@ -170,6 +170,15 @@ export const handleCreateCDC = async (
     config.cdcSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
     config.snapshotSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
   }
+
+  if (config.doInitialCopy == false && config.initialCopyOnly == true) {
+    setMsg({
+      ok: false,
+      msg: 'Initial Copy Only cannot be true if Initial Copy is false.',
+    });
+    return;
+  }
+
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch('/api/mirrors/cdc', {
     method: 'POST',
