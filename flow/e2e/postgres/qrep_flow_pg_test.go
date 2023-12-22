@@ -41,7 +41,7 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuitePG {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	suffix := "pgtest_" + shared.RandomString(8)
+	suffix := "pgtest_" + strings.ToLower(shared.RandomString(8))
 
 	pool, err := e2e.SetupPostgres(suffix)
 	if err != nil || pool == nil {

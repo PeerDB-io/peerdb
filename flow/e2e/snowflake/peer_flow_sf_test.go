@@ -53,7 +53,7 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	suffix := shared.RandomString(8)
+	suffix := strings.ToLower(shared.RandomString(8))
 	tsSuffix := time.Now().Format("20060102150405")
 	pgSuffix := fmt.Sprintf("sf_%s_%s", strings.ToLower(suffix), tsSuffix)
 

@@ -55,6 +55,7 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list publications: %w", err)
 	}
+	defer rows.Close()
 
 	// drop all publications with the given suffix
 	for rows.Next() {

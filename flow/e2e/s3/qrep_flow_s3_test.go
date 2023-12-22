@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	suffix := "s3" + shared.RandomString(8)
+	suffix := "s3" + strings.ToLower(shared.RandomString(8))
 	pool, err := e2e.SetupPostgres(suffix)
 	if err != nil || pool == nil {
 		require.Fail(t, "failed to setup postgres", err)
