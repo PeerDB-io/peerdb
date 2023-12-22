@@ -181,11 +181,11 @@ func (a *FlowableActivity) handleSlotInfo(
 	}
 
 	deploymentUIDPrefix := ""
-	if peerdbenv.GetPeerDBDeploymentUID() != "" {
-		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.GetPeerDBDeploymentUID())
+	if peerdbenv.PeerDBDeploymentUID() != "" {
+		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
 	}
 
-	slotLagInMBThreshold := peerdbenv.GetPeerDBSlotLagMBAlertThreshold()
+	slotLagInMBThreshold := peerdbenv.PeerDBSlotLagMBAlertThreshold()
 	if (slotLagInMBThreshold > 0) && (slotInfo[0].LagInMb >= float32(slotLagInMBThreshold)) {
 		a.Alerter.AlertIf(ctx, fmt.Sprintf("%s-slot-lag-threshold-exceeded", peerName),
 			fmt.Sprintf(`%sSlot `+"`%s`"+` on peer `+"`%s`"+` has exceeded threshold size of %dMB, currently at %.2fMB!
@@ -194,7 +194,7 @@ cc: <!channel>`,
 	}
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
-	maxOpenConnectionsThreshold := peerdbenv.GetPeerDBOpenConnectionsAlertThreshold()
+	maxOpenConnectionsThreshold := peerdbenv.PeerDBOpenConnectionsAlertThreshold()
 	res, err := srcConn.GetOpenConnectionsForUser()
 	if err != nil {
 		slog.WarnContext(ctx, "warning: failed to get current open connections", slog.Any("error", err))
@@ -294,7 +294,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			TableNameMapping:            tblNameMapping,
 			LastOffset:                  input.LastSyncState.Checkpoint,
 			MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
-			IdleTimeout:                 peerdbenv.GetPeerDBCDCIdleTimeoutSeconds(),
+			IdleTimeout:                 peerdbenv.PeerDBCDCIdleTimeoutSeconds(),
 			TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
 			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,

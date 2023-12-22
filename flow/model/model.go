@@ -329,7 +329,7 @@ type CDCRecordStream struct {
 }
 
 func NewCDCRecordStream() *CDCRecordStream {
-	channelBuffer := peerdbenv.GetPeerDBCDCChannelBufferSize()
+	channelBuffer := peerdbenv.PeerDBCDCChannelBufferSize()
 	return &CDCRecordStream{
 		records: make(chan Record, channelBuffer),
 		// TODO (kaushik): more than 1024 schema deltas can cause problems!
