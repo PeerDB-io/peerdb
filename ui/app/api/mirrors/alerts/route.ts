@@ -4,13 +4,18 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   const { flowName } = await request.json();
-  const errs = await prisma.flow_errors.findMany({
+  const errCount = await prisma.flow_errors.count({
     where: {
       flow_name: flowName,
+      error_type: 'error',
+      ack: false,
     },
   });
-
-  return new Response(
-    JSON.stringify(errs, (_, v) => (typeof v === 'bigint' ? v.toString() : v))
-  );
+  let mirrorStatus: 'healthy' | 'failed';
+  if (errCount > 0) {
+    mirrorStatus = 'failed';
+  } else {
+    mirrorStatus = 'healthy';
+  }
+  return new Response(JSON.stringify(mirrorStatus));
 }
