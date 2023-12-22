@@ -837,11 +837,11 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 				"AS %s,", toVariantColumnName, columnName, targetColumnName))
 		case qvalue.QValueKindGeography:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
+				fmt.Sprintf("TO_GEOGRAPHY(TRY_CAST(%s:\"%s\" AS STRING),true) AS %s,",
 					toVariantColumnName, columnName, targetColumnName))
 		case qvalue.QValueKindGeometry:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
+				fmt.Sprintf("TO_GEOMETRY(TRY_CAST(%s:\"%s\" AS STRING),true) AS %s,",
 					toVariantColumnName, columnName, targetColumnName))
 		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
 		// case model.ColumnTypeTime:
@@ -849,7 +849,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		// 		"Microseconds*1000) "+
 		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TRY_CAST(%s:\"%s\" AS %s) AS %s,",
 				toVariantColumnName, columnName, sfType, targetColumnName))
 		}
 	}
