@@ -335,7 +335,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             initial_copy_only,
                         };
 
-                        if initial_copy_only == true && do_initial_copy == false {
+                        if initial_copy_only && !do_initial_copy {
                             anyhow::bail!("initial_copy_only is set to true, but do_initial_copy is set to false");
                         }
 
