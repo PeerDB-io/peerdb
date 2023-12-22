@@ -849,7 +849,7 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		// 		"Microseconds*1000) "+
 		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
-			if sfType == "NUMBER" {
+			if sfType == "NUMBER(38, 9)" {
 				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s,",
 					toVariantColumnName, columnName, sfType, targetColumnName))
 			} else {
