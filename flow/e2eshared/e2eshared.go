@@ -9,6 +9,7 @@ import (
 
 func GotSuite[T interface{ TearDownSuite() }](setup func(t *testing.T) T) func(t *testing.T) T {
 	return func(t *testing.T) T {
+		t.Parallel()
 		suite := setup(t)
 		t.Cleanup(func() {
 			suite.TearDownSuite()
