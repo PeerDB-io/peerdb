@@ -142,6 +142,7 @@ export interface FlowConnectionConfigs {
   resync: boolean;
   softDeleteColName: string;
   syncedAtColName: string;
+  initialCopyOnly: boolean;
 }
 
 export interface FlowConnectionConfigs_SrcTableIdNameMappingEntry {
@@ -872,6 +873,7 @@ function createBaseFlowConnectionConfigs(): FlowConnectionConfigs {
     resync: false,
     softDeleteColName: "",
     syncedAtColName: "",
+    initialCopyOnly: false,
   };
 }
 
@@ -953,6 +955,9 @@ export const FlowConnectionConfigs = {
     }
     if (message.syncedAtColName !== "") {
       writer.uint32(202).string(message.syncedAtColName);
+    }
+    if (message.initialCopyOnly === true) {
+      writer.uint32(208).bool(message.initialCopyOnly);
     }
     return writer;
   },
@@ -1145,6 +1150,13 @@ export const FlowConnectionConfigs = {
 
           message.syncedAtColName = reader.string();
           continue;
+        case 26:
+          if (tag !== 208) {
+            break;
+          }
+
+          message.initialCopyOnly = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1199,6 +1211,7 @@ export const FlowConnectionConfigs = {
       resync: isSet(object.resync) ? Boolean(object.resync) : false,
       softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : "",
       syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : "",
+      initialCopyOnly: isSet(object.initialCopyOnly) ? Boolean(object.initialCopyOnly) : false,
     };
   },
 
@@ -1291,6 +1304,9 @@ export const FlowConnectionConfigs = {
     if (message.syncedAtColName !== "") {
       obj.syncedAtColName = message.syncedAtColName;
     }
+    if (message.initialCopyOnly === true) {
+      obj.initialCopyOnly = message.initialCopyOnly;
+    }
     return obj;
   },
 
@@ -1346,6 +1362,7 @@ export const FlowConnectionConfigs = {
     message.resync = object.resync ?? false;
     message.softDeleteColName = object.softDeleteColName ?? "";
     message.syncedAtColName = object.syncedAtColName ?? "";
+    message.initialCopyOnly = object.initialCopyOnly ?? false;
     return message;
   },
 };

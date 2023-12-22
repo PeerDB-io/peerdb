@@ -45,6 +45,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   resync: false,
   softDeleteColName: '',
   syncedAtColName: '',
+  initialCopyOnly: false,
 };
 
 export const blankQRepSetting = {
