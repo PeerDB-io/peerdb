@@ -2,6 +2,7 @@ package connmetadata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -9,6 +10,8 @@ import (
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -96,6 +99,11 @@ func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 	return true
 }
 
+func isUniqueError(err error) bool {
+	var pgerr *pgconn.PgError
+	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
+}
+
 func (p *PostgresMetadataStore) SetupMetadata() error {
 	// start a transaction
 	tx, err := p.pool.Begin(p.ctx)
@@ -106,7 +114,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 
 	// create the schema
 	_, err = tx.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
-	if err != nil {
+	if err != nil && !isUniqueError(err) {
 		p.logger.Error("failed to create schema", slog.Any("error", err))
 		return err
 	}
@@ -120,7 +128,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 			sync_batch_id BIGINT NOT NULL
 		)
 	`)
-	if err != nil {
+	if err != nil && !isUniqueError(err) {
 		p.logger.Error("failed to create last sync state table", slog.Any("error", err))
 		return err
 	}
