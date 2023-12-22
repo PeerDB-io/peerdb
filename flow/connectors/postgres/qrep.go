@@ -3,6 +3,8 @@ package connpostgres
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
+	"strconv"
 	"text/template"
 	"time"
 
@@ -10,10 +12,10 @@ import (
 	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	log "github.com/sirupsen/logrus"
 )
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
@@ -43,9 +45,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	defer func() {
 		deferErr := tx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Errorf("unexpected error rolling back transaction for get partitions: %v", err)
+			c.logger.Error("error rolling back transaction for get partitions", slog.Any("error", deferErr))
 		}
 	}()
 
@@ -84,51 +84,6 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
-	if config.WatermarkColumn == "xmin" {
-		quotedWatermarkColumn = fmt.Sprintf("%s::text::bigint", quotedWatermarkColumn)
-
-		minVal, maxVal, err := c.getMinMaxValues(tx, config, last)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get min max values for xmin: %w", err)
-		}
-
-		// we know these are int64s so we can just cast them
-		minValInt := minVal.(int64)
-		maxValInt := maxVal.(int64)
-
-		// we will only return 1 partition for xmin:
-		// if there is no last partition, we will return a partition with the min and max values
-		// if there is a last partition, we will return a partition with the last partition's end value + 1 and the max value
-		if last != nil && last.Range != nil {
-			minValInt += 1
-		}
-
-		if minValInt > maxValInt {
-			// log and return an empty partition
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Infof("xmin min value is greater than max value, returning empty partition")
-			return make([]*protos.QRepPartition, 0), nil
-		}
-
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Infof("single xmin partition range: %v - %v", minValInt, maxValInt)
-
-		partition := &protos.QRepPartition{
-			PartitionId: uuid.New().String(),
-			Range: &protos.PartitionRange{
-				Range: &protos.PartitionRange_IntRange{
-					IntRange: &protos.IntPartitionRange{
-						Start: minValInt,
-						End:   maxValInt,
-					},
-				},
-			},
-		}
-
-		return []*protos.QRepPartition{partition}, nil
-	}
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -157,23 +112,23 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		row = tx.QueryRow(c.ctx, countQuery)
 	}
 
-	var totalRows int64
+	var totalRows pgtype.Int8
 	if err = row.Scan(&totalRows); err != nil {
 		return nil, fmt.Errorf("failed to query for total rows: %w", err)
 	}
 
-	if totalRows == 0 {
-		log.Warnf("no records to replicate for flow job %s, returning", config.FlowJobName)
+	if totalRows.Int64 == 0 {
+		c.logger.Warn("no records to replicate, returning")
 		return make([]*protos.QRepPartition, 0), nil
 	}
 
 	// Calculate the number of partitions
-	numPartitions := totalRows / numRowsPerPartition
-	if totalRows%numRowsPerPartition != 0 {
+	numPartitions := totalRows.Int64 / numRowsPerPartition
+	if totalRows.Int64%numRowsPerPartition != 0 {
 		numPartitions++
 	}
-	log.Infof("total rows: %d, num partitions: %d, num rows per partition: %d",
-		totalRows, numPartitions, numRowsPerPartition)
+	c.logger.Info(fmt.Sprintf("total rows: %d, num partitions: %d, num rows per partition: %d",
+		totalRows.Int64, numPartitions, numRowsPerPartition))
 
 	// Query to get partitions using window functions
 	var rows pgx.Rows
@@ -191,7 +146,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		log.Infof("[row_based_next] partitions query: %s", partitionsQuery)
+		c.logger.Info(fmt.Sprintf("[row_based_next] partitions query: %s", partitionsQuery))
 		rows, err = tx.Query(c.ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
@@ -206,19 +161,17 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		log.Infof("[row_based] partitions query: %s", partitionsQuery)
+		c.logger.Info(fmt.Sprintf("[row_based] partitions query: %s", partitionsQuery))
 		rows, err = tx.Query(c.ctx, partitionsQuery)
 	}
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Errorf("failed to query for partitions: %v", err)
+		c.logger.Error(fmt.Sprintf("failed to query for partitions: %v", err))
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
 	partitionHelper := partition_utils.NewPartitionHelper()
 	for rows.Next() {
-		var bucket int64
+		var bucket pgtype.Int8
 		var start, end interface{}
 		if err := rows.Scan(&bucket, &start, &end); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -245,9 +198,6 @@ func (c *PostgresConnector) getMinMaxValues(
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
 	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
-	if config.WatermarkColumn == "xmin" {
-		quotedWatermarkColumn = fmt.Sprintf("%s::text::bigint", quotedWatermarkColumn)
-	}
 
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -286,9 +236,7 @@ func (c *PostgresConnector) getMinMaxValues(
 		minQuery := fmt.Sprintf("SELECT MIN(%[1]s) FROM %[2]s", quotedWatermarkColumn, parsedWatermarkTable.String())
 		row := tx.QueryRow(c.ctx, minQuery)
 		if err := row.Scan(&minValue); err != nil {
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Errorf("failed to query [%s] for min value: %v", minQuery, err)
+			c.logger.Error(fmt.Sprintf("failed to query [%s] for min value: %v", minQuery, err))
 			return nil, nil, fmt.Errorf("failed to query for min value: %w", err)
 		}
 
@@ -320,12 +268,8 @@ func (c *PostgresConnector) getMinMaxValues(
 }
 
 func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
-	last *protos.QRepPartition) (bool, error) {
-	// for xmin lets always assume there are updates
-	if config.WatermarkColumn == "xmin" {
-		return true, nil
-	}
-
+	last *protos.QRepPartition,
+) (bool, error) {
 	tx, err := c.pool.Begin(c.ctx)
 	if err != nil {
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
@@ -333,9 +277,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
 	defer func() {
 		deferErr := tx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Errorf("unexpected error rolling back transaction for getting max value: %v", err)
+			c.logger.Error("error rolling back transaction for getting max value", slog.Any("error", err))
 		}
 	}()
 
@@ -362,12 +304,13 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(config *protos.QRepConfig,
 
 func (c *PostgresConnector) PullQRepRecords(
 	config *protos.QRepConfig,
-	partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+	partition *protos.QRepPartition,
+) (*model.QRecordBatch, error) {
+	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
-		log.WithFields(log.Fields{
-			"partitionId": partition.PartitionId,
-		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		c.logger.Info("pulling full table partition", partitionIdLog)
+		executor, err := NewQRepQueryExecutorSnapshot(
+			c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return nil, err
@@ -401,10 +344,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	default:
 		return nil, fmt.Errorf("unknown range type: %v", x)
 	}
-	log.WithFields(log.Fields{
-		"flowName":  config.FlowJobName,
-		"partition": partition.PartitionId,
-	}).Infof("Obtained ranges for partition for PullQRep")
+	c.logger.Info("Obtained ranges for partition for PullQRep", partitionIdLog)
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
@@ -413,7 +353,8 @@ func (c *PostgresConnector) PullQRepRecords(
 		return nil, err
 	}
 
-	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+	executor, err := NewQRepQueryExecutorSnapshot(
+		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return nil, err
@@ -433,12 +374,11 @@ func (c *PostgresConnector) PullQRepRecordStream(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	if partition.FullTablePartition {
-		log.WithFields(log.Fields{
-			"flowName":    config.FlowJobName,
-			"partitionId": partition.PartitionId,
-		}).Infof("pulling full table partition for flow job %s", config.FlowJobName)
-		executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+		c.logger.Info("pulling full table partition", partitionIdLog)
+		executor, err := NewQRepQueryExecutorSnapshot(
+			c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
 			return 0, err
@@ -448,10 +388,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 		_, err = executor.ExecuteAndProcessQueryStream(stream, query)
 		return 0, err
 	}
-	log.WithFields(log.Fields{
-		"flowName":  config.FlowJobName,
-		"partition": partition.PartitionId,
-	}).Infof("Obtained ranges for partition for PullQRepStream")
+	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
 	var rangeStart interface{}
 	var rangeEnd interface{}
@@ -486,7 +423,8 @@ func (c *PostgresConnector) PullQRepRecordStream(
 		return 0, err
 	}
 
-	executor, err := NewQRepQueryExecutorSnapshot(c.pool, c.ctx, c.config.TransactionSnapshot,
+	executor, err := NewQRepQueryExecutorSnapshot(
+		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
 		return 0, err
@@ -497,9 +435,7 @@ func (c *PostgresConnector) PullQRepRecordStream(
 		return 0, err
 	}
 
-	log.WithFields(log.Fields{
-		"partition": partition.PartitionId,
-	}).Infof("pulled %d records for flow job %s", numRecords, config.FlowJobName)
+	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords), partitionIdLog)
 	return numRecords, nil
 }
 
@@ -528,60 +464,99 @@ func (c *PostgresConnector) SyncQRepRecords(
 	}
 
 	if done {
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Infof("partition %s already synced", partition.PartitionId)
+		c.logger.Info(fmt.Sprintf("partition %s already synced", partition.PartitionId))
 		return 0, nil
 	}
-	log.WithFields(log.Fields{
-		"flowName":  config.FlowJobName,
-		"partition": partition.PartitionId,
-	}).Infof("SyncRecords called and initial checks complete.")
+	c.logger.Info("SyncRecords called and initial checks complete.")
 
-	syncMode := config.SyncMode
-	switch syncMode {
-	case protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT:
-		stagingTableSync := &QRepStagingTableSync{connector: c}
-		return stagingTableSync.SyncQRepRecords(
-			config.FlowJobName, dstTable, partition, stream, config.WriteMode)
-	case protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO:
-		return 0, fmt.Errorf("[postgres] SyncQRepRecords not implemented for storage avro sync mode")
-	default:
-		return 0, fmt.Errorf("unsupported sync mode: %s", syncMode)
-	}
+	stagingTableSync := &QRepStagingTableSync{connector: c}
+	return stagingTableSync.SyncQRepRecords(
+		config.FlowJobName, dstTable, partition, stream,
+		config.WriteMode, config.SyncedAtColName)
 }
 
 // SetupQRepMetadataTables function for postgres connector
 func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	qRepMetadataSchema := `CREATE TABLE IF NOT EXISTS %s (
+	createQRepMetadataTableTx, err := c.pool.Begin(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error starting transaction for creating qrep metadata table: %w", err)
+	}
+	defer func() {
+		deferErr := createQRepMetadataTableTx.Rollback(c.ctx)
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			c.logger.Error("error rolling back transaction for creating qrep metadata table", slog.Any("error", err))
+		}
+	}()
+
+	err = c.createMetadataSchema(createQRepMetadataTableTx)
+	if err != nil {
+		return fmt.Errorf("error creating metadata schema: %w", err)
+	}
+
+	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
+	createQRepMetadataTableSQL := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(
 		flowJobName TEXT,
 		partitionID TEXT,
 		syncPartition JSONB,
 		syncStartTime TIMESTAMP,
 		syncFinishTime TIMESTAMP DEFAULT NOW()
-	)`
-
-	// replace table name in schema
-	qRepMetadataSchema = fmt.Sprintf(qRepMetadataSchema, qRepMetadataTableName)
-
+	)`, metadataTableIdentifier.Sanitize())
 	// execute create table query
-	_, err := c.pool.Exec(c.ctx, qRepMetadataSchema)
+	_, err = createQRepMetadataTableTx.Exec(c.ctx, createQRepMetadataTableSQL)
 	if err != nil {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
-	log.WithFields(log.Fields{
-		"flowName": config.FlowJobName,
-	}).Infof("Setup metadata table.")
+	c.logger.Info("Setup metadata table.")
 
 	if config.WriteMode != nil &&
 		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.pool.Exec(c.ctx, fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
+		_, err = createQRepMetadataTableTx.Exec(c.ctx,
+			fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
 	}
 
+	err = createQRepMetadataTableTx.Commit(c.ctx)
+	if err != nil {
+		return fmt.Errorf("error committing transaction for creating qrep metadata table: %w", err)
+	}
+
 	return nil
+}
+
+func (c *PostgresConnector) PullXminRecordStream(
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
+) (int, int64, error) {
+	var currentSnapshotXmin int64
+	query := config.Query
+	oldxid := ""
+	if partition.Range != nil {
+		oldxid = strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)
+		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
+	}
+
+	executor, err := NewQRepQueryExecutorSnapshot(
+		c.pool.Pool, c.ctx, c.config.TransactionSnapshot,
+		config.FlowJobName, partition.PartitionId)
+	if err != nil {
+		return 0, currentSnapshotXmin, err
+	}
+
+	var numRecords int
+	if partition.Range != nil {
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(stream, query, oldxid)
+	} else {
+		numRecords, currentSnapshotXmin, err = executor.ExecuteAndProcessQueryStreamGettingCurrentSnapshotXmin(stream, query)
+	}
+	if err != nil {
+		return 0, currentSnapshotXmin, err
+	}
+
+	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords))
+	return numRecords, currentSnapshotXmin, nil
 }
 
 func BuildQuery(query string, flowJobName string) (string, error) {
@@ -603,26 +578,25 @@ func BuildQuery(query string, flowJobName string) (string, error) {
 	}
 	res := buf.String()
 
-	log.WithFields(log.Fields{
-		"flowName": flowJobName,
-	}).Infof("templated query: %s", res)
+	slog.Info(fmt.Sprintf("templated query: %s", res))
 	return res, nil
 }
 
 // isPartitionSynced checks whether a specific partition is synced
 func (c *PostgresConnector) isPartitionSynced(partitionID string) (bool, error) {
 	// setup the query string
+	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
 	queryString := fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s WHERE partitionID = $1;",
-		qRepMetadataTableName,
+		"SELECT COUNT(*)>0 FROM %s WHERE partitionID = $1;",
+		metadataTableIdentifier.Sanitize(),
 	)
 
 	// prepare and execute the query
-	var count int
-	err := c.pool.QueryRow(c.ctx, queryString, partitionID).Scan(&count)
+	var result bool
+	err := c.pool.QueryRow(c.ctx, queryString, partitionID).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	return count > 0, nil
+	return result, nil
 }

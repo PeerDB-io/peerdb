@@ -3,12 +3,14 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5"
-	log "github.com/sirupsen/logrus"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -26,7 +28,7 @@ func (suite *PostgresReplicationSnapshotTestSuite) SetupSuite() {
 		User:     "postgres",
 		Password: "postgres",
 		Database: "postgres",
-	})
+	}, true)
 	require.NoError(suite.T(), err)
 
 	setupTx, err := suite.connector.pool.Begin(context.Background())
@@ -77,12 +79,12 @@ func (suite *PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 
 	// Iterate over the publications and drop them
 	for rows.Next() {
-		var pubname string
+		var pubname pgtype.Text
 		err := rows.Scan(&pubname)
 		require.NoError(suite.T(), err)
 
 		// Drop the publication in a new transaction
-		_, err = suite.connector.pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubname))
+		_, err = suite.connector.pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubname.String))
 		require.NoError(suite.T(), err)
 	}
 
@@ -94,12 +96,12 @@ func (suite *PostgresReplicationSnapshotTestSuite) TearDownSuite() {
 	err = teardownTx.Commit(context.Background())
 	require.NoError(suite.T(), err)
 
-	suite.True(suite.connector.ConnectionActive())
+	suite.True(suite.connector.ConnectionActive() == nil)
 
 	err = suite.connector.Close()
 	require.NoError(suite.T(), err)
 
-	suite.False(suite.connector.ConnectionActive())
+	suite.False(suite.connector.ConnectionActive() == nil)
 }
 
 func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
@@ -108,6 +110,7 @@ func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
 	}
 
 	flowJobName := "test_simple_slot_creation"
+	flowLog := slog.String(string(shared.FlowNameKey), flowJobName)
 	setupReplicationInput := &protos.SetupReplicationInput{
 		FlowJobName:      flowJobName,
 		TableNameMapping: tables,
@@ -121,15 +124,15 @@ func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
 		require.NoError(suite.T(), err)
 	}()
 
-	log.Infof("waiting for slot creation to complete for %s", flowJobName)
+	slog.Info("waiting for slot creation to complete", flowLog)
 	slotInfo := <-signal.SlotCreated
-	log.Infof("slot creation complete for %s: %v", flowJobName, slotInfo)
+	slog.Info(fmt.Sprintf("slot creation complete: %v", slotInfo), flowLog)
 
-	log.Infof("signaling clone complete for %s after waiting for 2 seconds", flowJobName)
+	slog.Info("signaling clone complete after waiting for 2 seconds", flowLog)
 	time.Sleep(2 * time.Second)
-	signal.CloneComplete <- true
+	signal.CloneComplete <- struct{}{}
 
-	log.Infof("successfully setup replication for %s", flowJobName)
+	slog.Info("successfully setup replication", flowLog)
 }
 
 func TestPostgresReplTestSuite(t *testing.T) {

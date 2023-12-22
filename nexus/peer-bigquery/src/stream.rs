@@ -52,6 +52,8 @@ fn convert_field_type(field_type: &FieldType) -> Type {
         FieldType::Time => Type::TIME,
         FieldType::Record => Type::JSONB,
         FieldType::Struct => Type::JSONB,
+        FieldType::Geography => Type::POLYGON_ARRAY,
+        FieldType::Json => Type::JSON,
     }
 }
 
@@ -60,9 +62,12 @@ impl BqSchema {
         let bq_schema = result_set
             .query_response()
             .schema
-            .clone()
+            .as_ref()
             .expect("Schema is not present");
-        let fields = bq_schema.fields.expect("Schema fields are not present");
+        let fields = bq_schema
+            .fields
+            .as_ref()
+            .expect("Schema fields are not present");
 
         let schema = SchemaRef::new(Schema {
             fields: fields
@@ -74,7 +79,10 @@ impl BqSchema {
                 .collect(),
         });
 
-        Self { schema, fields }
+        Self {
+            schema,
+            fields: fields.clone(),
+        }
     }
 
     pub fn schema(&self) -> SchemaRef {
@@ -99,7 +107,7 @@ impl BqRecordStream {
     }
 
     pub fn convert_result_set_item(&self, result_set: &ResultSet) -> anyhow::Result<Record> {
-        let mut values = Vec::new();
+        let mut values = Vec::with_capacity(self.schema.fields.len());
         for field in &self.schema.fields {
             let field_type = &field.r#type;
             let field_name = &field.name;
@@ -156,6 +164,8 @@ impl BqRecordStream {
                     }
                     FieldType::Record => todo!(),
                     FieldType::Struct => todo!(),
+                    FieldType::Geography => todo!(),
+                    FieldType::Json => todo!(),
                 },
             };
             values.push(value.unwrap_or(Value::Null));

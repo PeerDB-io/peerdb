@@ -97,6 +97,46 @@ export function createPeerStatusToJSON(object: CreatePeerStatus): string {
   }
 }
 
+/** in the future, consider moving DropFlow to this and reduce route surface */
+export enum FlowState {
+  STATE_UNKNOWN = 0,
+  STATE_RUNNING = 1,
+  STATE_PAUSED = 2,
+  UNRECOGNIZED = -1,
+}
+
+export function flowStateFromJSON(object: any): FlowState {
+  switch (object) {
+    case 0:
+    case "STATE_UNKNOWN":
+      return FlowState.STATE_UNKNOWN;
+    case 1:
+    case "STATE_RUNNING":
+      return FlowState.STATE_RUNNING;
+    case 2:
+    case "STATE_PAUSED":
+      return FlowState.STATE_PAUSED;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return FlowState.UNRECOGNIZED;
+  }
+}
+
+export function flowStateToJSON(object: FlowState): string {
+  switch (object) {
+    case FlowState.STATE_UNKNOWN:
+      return "STATE_UNKNOWN";
+    case FlowState.STATE_RUNNING:
+      return "STATE_RUNNING";
+    case FlowState.STATE_PAUSED:
+      return "STATE_PAUSED";
+    case FlowState.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
 export interface CreateCDCFlowRequest {
   connectionConfigs: FlowConnectionConfigs | undefined;
   createCatalogEntry: boolean;
@@ -120,6 +160,7 @@ export interface ShutdownRequest {
   flowJobName: string;
   sourcePeer: Peer | undefined;
   destinationPeer: Peer | undefined;
+  removeFlowEntry: boolean;
 }
 
 export interface ShutdownResponse {
@@ -197,6 +238,10 @@ export interface SchemaTablesResponse {
   tables: string[];
 }
 
+export interface AllTablesResponse {
+  tables: string[];
+}
+
 export interface TableColumnsRequest {
   peerName: string;
   schemaName: string;
@@ -217,6 +262,8 @@ export interface SlotInfo {
   restartLSN: string;
   active: boolean;
   lagInMb: number;
+  confirmedFlushLSN: string;
+  walStatus: string;
 }
 
 export interface StatInfo {
@@ -251,6 +298,24 @@ export interface MirrorStatusResponse {
   qrepStatus?: QRepMirrorStatus | undefined;
   cdcStatus?: CDCMirrorStatus | undefined;
   errorMessage: string;
+}
+
+export interface FlowStateChangeRequest {
+  workflowId: string;
+  flowJobName: string;
+  requestedFlowState: FlowState;
+}
+
+export interface FlowStateChangeResponse {
+  ok: boolean;
+  errorMessage: string;
+}
+
+export interface PeerDBVersionRequest {
+}
+
+export interface PeerDBVersionResponse {
+  version: string;
 }
 
 function createBaseCreateCDCFlowRequest(): CreateCDCFlowRequest {
@@ -522,7 +587,7 @@ export const CreateQRepFlowResponse = {
 };
 
 function createBaseShutdownRequest(): ShutdownRequest {
-  return { workflowId: "", flowJobName: "", sourcePeer: undefined, destinationPeer: undefined };
+  return { workflowId: "", flowJobName: "", sourcePeer: undefined, destinationPeer: undefined, removeFlowEntry: false };
 }
 
 export const ShutdownRequest = {
@@ -538,6 +603,9 @@ export const ShutdownRequest = {
     }
     if (message.destinationPeer !== undefined) {
       Peer.encode(message.destinationPeer, writer.uint32(34).fork()).ldelim();
+    }
+    if (message.removeFlowEntry === true) {
+      writer.uint32(40).bool(message.removeFlowEntry);
     }
     return writer;
   },
@@ -577,6 +645,13 @@ export const ShutdownRequest = {
 
           message.destinationPeer = Peer.decode(reader, reader.uint32());
           continue;
+        case 5:
+          if (tag !== 40) {
+            break;
+          }
+
+          message.removeFlowEntry = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -592,6 +667,7 @@ export const ShutdownRequest = {
       flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
       sourcePeer: isSet(object.sourcePeer) ? Peer.fromJSON(object.sourcePeer) : undefined,
       destinationPeer: isSet(object.destinationPeer) ? Peer.fromJSON(object.destinationPeer) : undefined,
+      removeFlowEntry: isSet(object.removeFlowEntry) ? Boolean(object.removeFlowEntry) : false,
     };
   },
 
@@ -609,6 +685,9 @@ export const ShutdownRequest = {
     if (message.destinationPeer !== undefined) {
       obj.destinationPeer = Peer.toJSON(message.destinationPeer);
     }
+    if (message.removeFlowEntry === true) {
+      obj.removeFlowEntry = message.removeFlowEntry;
+    }
     return obj;
   },
 
@@ -625,6 +704,7 @@ export const ShutdownRequest = {
     message.destinationPeer = (object.destinationPeer !== undefined && object.destinationPeer !== null)
       ? Peer.fromPartial(object.destinationPeer)
       : undefined;
+    message.removeFlowEntry = object.removeFlowEntry ?? false;
     return message;
   },
 };
@@ -1642,6 +1722,63 @@ export const SchemaTablesResponse = {
   },
 };
 
+function createBaseAllTablesResponse(): AllTablesResponse {
+  return { tables: [] };
+}
+
+export const AllTablesResponse = {
+  encode(message: AllTablesResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    for (const v of message.tables) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): AllTablesResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAllTablesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.tables.push(reader.string());
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): AllTablesResponse {
+    return { tables: Array.isArray(object?.tables) ? object.tables.map((e: any) => String(e)) : [] };
+  },
+
+  toJSON(message: AllTablesResponse): unknown {
+    const obj: any = {};
+    if (message.tables?.length) {
+      obj.tables = message.tables;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<AllTablesResponse>, I>>(base?: I): AllTablesResponse {
+    return AllTablesResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AllTablesResponse>, I>>(object: I): AllTablesResponse {
+    const message = createBaseAllTablesResponse();
+    message.tables = object.tables?.map((e) => e) || [];
+    return message;
+  },
+};
+
 function createBaseTableColumnsRequest(): TableColumnsRequest {
   return { peerName: "", schemaName: "", tableName: "" };
 }
@@ -1848,7 +1985,7 @@ export const PostgresPeerActivityInfoRequest = {
 };
 
 function createBaseSlotInfo(): SlotInfo {
-  return { slotName: "", redoLSN: "", restartLSN: "", active: false, lagInMb: 0 };
+  return { slotName: "", redoLSN: "", restartLSN: "", active: false, lagInMb: 0, confirmedFlushLSN: "", walStatus: "" };
 }
 
 export const SlotInfo = {
@@ -1867,6 +2004,12 @@ export const SlotInfo = {
     }
     if (message.lagInMb !== 0) {
       writer.uint32(45).float(message.lagInMb);
+    }
+    if (message.confirmedFlushLSN !== "") {
+      writer.uint32(50).string(message.confirmedFlushLSN);
+    }
+    if (message.walStatus !== "") {
+      writer.uint32(58).string(message.walStatus);
     }
     return writer;
   },
@@ -1913,6 +2056,20 @@ export const SlotInfo = {
 
           message.lagInMb = reader.float();
           continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.confirmedFlushLSN = reader.string();
+          continue;
+        case 7:
+          if (tag !== 58) {
+            break;
+          }
+
+          message.walStatus = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1929,6 +2086,8 @@ export const SlotInfo = {
       restartLSN: isSet(object.restartLSN) ? String(object.restartLSN) : "",
       active: isSet(object.active) ? Boolean(object.active) : false,
       lagInMb: isSet(object.lagInMb) ? Number(object.lagInMb) : 0,
+      confirmedFlushLSN: isSet(object.confirmedFlushLSN) ? String(object.confirmedFlushLSN) : "",
+      walStatus: isSet(object.walStatus) ? String(object.walStatus) : "",
     };
   },
 
@@ -1949,6 +2108,12 @@ export const SlotInfo = {
     if (message.lagInMb !== 0) {
       obj.lagInMb = message.lagInMb;
     }
+    if (message.confirmedFlushLSN !== "") {
+      obj.confirmedFlushLSN = message.confirmedFlushLSN;
+    }
+    if (message.walStatus !== "") {
+      obj.walStatus = message.walStatus;
+    }
     return obj;
   },
 
@@ -1962,6 +2127,8 @@ export const SlotInfo = {
     message.restartLSN = object.restartLSN ?? "";
     message.active = object.active ?? false;
     message.lagInMb = object.lagInMb ?? 0;
+    message.confirmedFlushLSN = object.confirmedFlushLSN ?? "";
+    message.walStatus = object.walStatus ?? "";
     return message;
   },
 };
@@ -2472,6 +2639,269 @@ export const MirrorStatusResponse = {
   },
 };
 
+function createBaseFlowStateChangeRequest(): FlowStateChangeRequest {
+  return { workflowId: "", flowJobName: "", requestedFlowState: 0 };
+}
+
+export const FlowStateChangeRequest = {
+  encode(message: FlowStateChangeRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.workflowId !== "") {
+      writer.uint32(10).string(message.workflowId);
+    }
+    if (message.flowJobName !== "") {
+      writer.uint32(18).string(message.flowJobName);
+    }
+    if (message.requestedFlowState !== 0) {
+      writer.uint32(24).int32(message.requestedFlowState);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): FlowStateChangeRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowStateChangeRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.workflowId = reader.string();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.flowJobName = reader.string();
+          continue;
+        case 3:
+          if (tag !== 24) {
+            break;
+          }
+
+          message.requestedFlowState = reader.int32() as any;
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FlowStateChangeRequest {
+    return {
+      workflowId: isSet(object.workflowId) ? String(object.workflowId) : "",
+      flowJobName: isSet(object.flowJobName) ? String(object.flowJobName) : "",
+      requestedFlowState: isSet(object.requestedFlowState) ? flowStateFromJSON(object.requestedFlowState) : 0,
+    };
+  },
+
+  toJSON(message: FlowStateChangeRequest): unknown {
+    const obj: any = {};
+    if (message.workflowId !== "") {
+      obj.workflowId = message.workflowId;
+    }
+    if (message.flowJobName !== "") {
+      obj.flowJobName = message.flowJobName;
+    }
+    if (message.requestedFlowState !== 0) {
+      obj.requestedFlowState = flowStateToJSON(message.requestedFlowState);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<FlowStateChangeRequest>, I>>(base?: I): FlowStateChangeRequest {
+    return FlowStateChangeRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowStateChangeRequest>, I>>(object: I): FlowStateChangeRequest {
+    const message = createBaseFlowStateChangeRequest();
+    message.workflowId = object.workflowId ?? "";
+    message.flowJobName = object.flowJobName ?? "";
+    message.requestedFlowState = object.requestedFlowState ?? 0;
+    return message;
+  },
+};
+
+function createBaseFlowStateChangeResponse(): FlowStateChangeResponse {
+  return { ok: false, errorMessage: "" };
+}
+
+export const FlowStateChangeResponse = {
+  encode(message: FlowStateChangeResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.ok === true) {
+      writer.uint32(8).bool(message.ok);
+    }
+    if (message.errorMessage !== "") {
+      writer.uint32(18).string(message.errorMessage);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): FlowStateChangeResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowStateChangeResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 8) {
+            break;
+          }
+
+          message.ok = reader.bool();
+          continue;
+        case 2:
+          if (tag !== 18) {
+            break;
+          }
+
+          message.errorMessage = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): FlowStateChangeResponse {
+    return {
+      ok: isSet(object.ok) ? Boolean(object.ok) : false,
+      errorMessage: isSet(object.errorMessage) ? String(object.errorMessage) : "",
+    };
+  },
+
+  toJSON(message: FlowStateChangeResponse): unknown {
+    const obj: any = {};
+    if (message.ok === true) {
+      obj.ok = message.ok;
+    }
+    if (message.errorMessage !== "") {
+      obj.errorMessage = message.errorMessage;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<FlowStateChangeResponse>, I>>(base?: I): FlowStateChangeResponse {
+    return FlowStateChangeResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowStateChangeResponse>, I>>(object: I): FlowStateChangeResponse {
+    const message = createBaseFlowStateChangeResponse();
+    message.ok = object.ok ?? false;
+    message.errorMessage = object.errorMessage ?? "";
+    return message;
+  },
+};
+
+function createBasePeerDBVersionRequest(): PeerDBVersionRequest {
+  return {};
+}
+
+export const PeerDBVersionRequest = {
+  encode(_: PeerDBVersionRequest, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PeerDBVersionRequest {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePeerDBVersionRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): PeerDBVersionRequest {
+    return {};
+  },
+
+  toJSON(_: PeerDBVersionRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PeerDBVersionRequest>, I>>(base?: I): PeerDBVersionRequest {
+    return PeerDBVersionRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PeerDBVersionRequest>, I>>(_: I): PeerDBVersionRequest {
+    const message = createBasePeerDBVersionRequest();
+    return message;
+  },
+};
+
+function createBasePeerDBVersionResponse(): PeerDBVersionResponse {
+  return { version: "" };
+}
+
+export const PeerDBVersionResponse = {
+  encode(message: PeerDBVersionResponse, writer: _m0.Writer = _m0.Writer.create()): _m0.Writer {
+    if (message.version !== "") {
+      writer.uint32(10).string(message.version);
+    }
+    return writer;
+  },
+
+  decode(input: _m0.Reader | Uint8Array, length?: number): PeerDBVersionResponse {
+    const reader = input instanceof _m0.Reader ? input : _m0.Reader.create(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePeerDBVersionResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1:
+          if (tag !== 10) {
+            break;
+          }
+
+          message.version = reader.string();
+          continue;
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skipType(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PeerDBVersionResponse {
+    return { version: isSet(object.version) ? String(object.version) : "" };
+  },
+
+  toJSON(message: PeerDBVersionResponse): unknown {
+    const obj: any = {};
+    if (message.version !== "") {
+      obj.version = message.version;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PeerDBVersionResponse>, I>>(base?: I): PeerDBVersionResponse {
+    return PeerDBVersionResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PeerDBVersionResponse>, I>>(object: I): PeerDBVersionResponse {
+    const message = createBasePeerDBVersionResponse();
+    message.version = object.version ?? "";
+    return message;
+  },
+};
+
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
   validatePeer: {
@@ -2538,6 +2968,16 @@ export const FlowServiceService = {
     responseSerialize: (value: SchemaTablesResponse) => Buffer.from(SchemaTablesResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => SchemaTablesResponse.decode(value),
   },
+  getAllTables: {
+    path: "/peerdb_route.FlowService/GetAllTables",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: PostgresPeerActivityInfoRequest) =>
+      Buffer.from(PostgresPeerActivityInfoRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PostgresPeerActivityInfoRequest.decode(value),
+    responseSerialize: (value: AllTablesResponse) => Buffer.from(AllTablesResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => AllTablesResponse.decode(value),
+  },
   getColumns: {
     path: "/peerdb_route.FlowService/GetColumns",
     requestStream: false,
@@ -2576,6 +3016,15 @@ export const FlowServiceService = {
     responseSerialize: (value: ShutdownResponse) => Buffer.from(ShutdownResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => ShutdownResponse.decode(value),
   },
+  flowStateChange: {
+    path: "/peerdb_route.FlowService/FlowStateChange",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: FlowStateChangeRequest) => Buffer.from(FlowStateChangeRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => FlowStateChangeRequest.decode(value),
+    responseSerialize: (value: FlowStateChangeResponse) => Buffer.from(FlowStateChangeResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => FlowStateChangeResponse.decode(value),
+  },
   mirrorStatus: {
     path: "/peerdb_route.FlowService/MirrorStatus",
     requestStream: false,
@@ -2584,6 +3033,15 @@ export const FlowServiceService = {
     requestDeserialize: (value: Buffer) => MirrorStatusRequest.decode(value),
     responseSerialize: (value: MirrorStatusResponse) => Buffer.from(MirrorStatusResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer) => MirrorStatusResponse.decode(value),
+  },
+  getVersion: {
+    path: "/peerdb_route.FlowService/GetVersion",
+    requestStream: false,
+    responseStream: false,
+    requestSerialize: (value: PeerDBVersionRequest) => Buffer.from(PeerDBVersionRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer) => PeerDBVersionRequest.decode(value),
+    responseSerialize: (value: PeerDBVersionResponse) => Buffer.from(PeerDBVersionResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer) => PeerDBVersionResponse.decode(value),
   },
 } as const;
 
@@ -2595,11 +3053,14 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   createQRepFlow: handleUnaryCall<CreateQRepFlowRequest, CreateQRepFlowResponse>;
   getSchemas: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSchemasResponse>;
   getTablesInSchema: handleUnaryCall<SchemaTablesRequest, SchemaTablesResponse>;
+  getAllTables: handleUnaryCall<PostgresPeerActivityInfoRequest, AllTablesResponse>;
   getColumns: handleUnaryCall<TableColumnsRequest, TableColumnsResponse>;
   getSlotInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerSlotResponse>;
   getStatInfo: handleUnaryCall<PostgresPeerActivityInfoRequest, PeerStatResponse>;
   shutdownFlow: handleUnaryCall<ShutdownRequest, ShutdownResponse>;
+  flowStateChange: handleUnaryCall<FlowStateChangeRequest, FlowStateChangeResponse>;
   mirrorStatus: handleUnaryCall<MirrorStatusRequest, MirrorStatusResponse>;
+  getVersion: handleUnaryCall<PeerDBVersionRequest, PeerDBVersionResponse>;
 }
 
 export interface FlowServiceClient extends Client {
@@ -2708,6 +3169,21 @@ export interface FlowServiceClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: SchemaTablesResponse) => void,
   ): ClientUnaryCall;
+  getAllTables(
+    request: PostgresPeerActivityInfoRequest,
+    callback: (error: ServiceError | null, response: AllTablesResponse) => void,
+  ): ClientUnaryCall;
+  getAllTables(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: AllTablesResponse) => void,
+  ): ClientUnaryCall;
+  getAllTables(
+    request: PostgresPeerActivityInfoRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: AllTablesResponse) => void,
+  ): ClientUnaryCall;
   getColumns(
     request: TableColumnsRequest,
     callback: (error: ServiceError | null, response: TableColumnsResponse) => void,
@@ -2768,6 +3244,21 @@ export interface FlowServiceClient extends Client {
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: ShutdownResponse) => void,
   ): ClientUnaryCall;
+  flowStateChange(
+    request: FlowStateChangeRequest,
+    callback: (error: ServiceError | null, response: FlowStateChangeResponse) => void,
+  ): ClientUnaryCall;
+  flowStateChange(
+    request: FlowStateChangeRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: FlowStateChangeResponse) => void,
+  ): ClientUnaryCall;
+  flowStateChange(
+    request: FlowStateChangeRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: FlowStateChangeResponse) => void,
+  ): ClientUnaryCall;
   mirrorStatus(
     request: MirrorStatusRequest,
     callback: (error: ServiceError | null, response: MirrorStatusResponse) => void,
@@ -2782,6 +3273,21 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: MirrorStatusResponse) => void,
+  ): ClientUnaryCall;
+  getVersion(
+    request: PeerDBVersionRequest,
+    callback: (error: ServiceError | null, response: PeerDBVersionResponse) => void,
+  ): ClientUnaryCall;
+  getVersion(
+    request: PeerDBVersionRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: PeerDBVersionResponse) => void,
+  ): ClientUnaryCall;
+  getVersion(
+    request: PeerDBVersionRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: PeerDBVersionResponse) => void,
   ): ClientUnaryCall;
 }
 

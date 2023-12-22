@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	log "github.com/sirupsen/logrus"
+	"log/slog"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
 	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
@@ -15,13 +14,14 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrUnsupportedFunctionality = errors.New("requested connector does not support functionality")
 
 type Connector interface {
 	Close() error
-	ConnectionActive() bool
+	ConnectionActive() error
 }
 
 type CDCPullConnector interface {
@@ -38,13 +38,16 @@ type CDCPullConnector interface {
 
 	// PullRecords pulls records from the source, and returns a RecordBatch.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(req *model.PullRecordsRequest) error
+	PullRecords(catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
 
-	// SendWALHeartbeat allows for activity to progress restart_lsn on postgres.
-	SendWALHeartbeat() error
+	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
+	GetSlotInfo(slotName string) ([]*protos.SlotInfo, error)
+
+	// GetOpenConnectionsForUser returns the number of open connections for the user configured in the peer.
+	GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error)
 }
 
 type CDCSyncConnector interface {
@@ -57,7 +60,10 @@ type CDCSyncConnector interface {
 	SetupMetadataTables() error
 
 	// GetLastOffset gets the last offset from the metadata table on the destination
-	GetLastOffset(jobName string) (*protos.LastSyncState, error)
+	GetLastOffset(jobName string) (int64, error)
+
+	// SetLastOffset updates the last offset on the metadata table on the destination
+	SetLastOffset(jobName string, lastOffset int64) error
 
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(jobName string) (int64, error)
@@ -101,7 +107,7 @@ type QRepPullConnector interface {
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
-	// GetQRepRecords returns the records for a given partition.
+	// PullQRepRecords returns the records for a given partition.
 	PullQRepRecords(config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error)
 }
 
@@ -131,7 +137,7 @@ func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConne
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), true)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -141,7 +147,7 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -158,11 +164,12 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 }
 
 func GetCDCNormalizeConnector(ctx context.Context,
-	config *protos.Peer) (CDCNormalizeConnector, error) {
+	config *protos.Peer,
+) (CDCNormalizeConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -176,7 +183,7 @@ func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullCon
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_SqlserverConfig:
 		return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	default:
@@ -188,7 +195,7 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -209,7 +216,10 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 		if pgConfig == nil {
 			return nil, fmt.Errorf("missing postgres config for %s peer %s", peer.Type.String(), peer.Name)
 		}
-		return connpostgres.NewPostgresConnector(ctx, pgConfig)
+		// we can't decide if a PG peer should have replication permissions on it because we don't know
+		// what the user wants to do with it, so defaulting to being permissive.
+		// can be revisited in the future or we can use some UI wizardry.
+		return connpostgres.NewPostgresConnector(ctx, pgConfig, false)
 	case protos.DBType_BIGQUERY:
 		bqConfig := peer.GetBigqueryConfig()
 		if bqConfig == nil {
@@ -223,15 +233,18 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 			return nil, fmt.Errorf("missing snowflake config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connsnowflake.NewSnowflakeConnector(ctx, sfConfig)
-
 	case protos.DBType_SQLSERVER:
 		sqlServerConfig := peer.GetSqlserverConfig()
 		if sqlServerConfig == nil {
 			return nil, fmt.Errorf("missing sqlserver config for %s peer %s", peer.Type.String(), peer.Name)
 		}
 		return connsqlserver.NewSQLServerConnector(ctx, sqlServerConfig)
-	// case protos.DBType_S3:
-	// 	return conns3.NewS3Connector(ctx, config.GetS3Config())
+	case protos.DBType_S3:
+		s3Config := peer.GetS3Config()
+		if s3Config == nil {
+			return nil, fmt.Errorf("missing s3 config for %s peer %s", peer.Type.String(), peer.Name)
+		}
+		return conns3.NewS3Connector(ctx, s3Config)
 	// case protos.DBType_EVENTHUB:
 	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	default:
@@ -240,7 +253,8 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 }
 
 func GetQRepConsolidateConnector(ctx context.Context,
-	config *protos.Peer) (QRepConsolidateConnector, error) {
+	config *protos.Peer,
+) (QRepConsolidateConnector, error) {
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_SnowflakeConfig:
@@ -258,6 +272,6 @@ func CloseConnector(conn Connector) {
 
 	err := conn.Close()
 	if err != nil {
-		log.Errorf("error closing connector: %v", err)
+		slog.Error("error closing connector", slog.Any("error", err))
 	}
 }

@@ -12,7 +12,7 @@ import (
 func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsToStreamResponse, error) {
 	recordStream := model.NewQRecordStream(1 << 16)
 	err := recordStream.SetSchema(&model.QRecordSchema{
-		Fields: []*model.QField{
+		Fields: []model.QField{
 			{
 				Name:     "_peerdb_uid",
 				Type:     qvalue.QValueKindString,
@@ -73,14 +73,14 @@ func RecordsToRawTableStream(req *model.RecordsToStreamRequest) (*model.RecordsT
 	}, nil
 }
 
-func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, record model.Record) *model.QRecordOrError {
+func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, record model.Record) model.QRecordOrError {
 	var entries [8]qvalue.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord:
 		// json.Marshal converts bytes in Hex automatically to BASE64 string.
 		itemsJSON, err := typedRecord.Items.ToJSON()
 		if err != nil {
-			return &model.QRecordOrError{
+			return model.QRecordOrError{
 				Err: fmt.Errorf("failed to serialize insert record items to JSON: %w", err),
 			}
 		}
@@ -110,13 +110,13 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 	case *model.UpdateRecord:
 		newItemsJSON, err := typedRecord.NewItems.ToJSON()
 		if err != nil {
-			return &model.QRecordOrError{
+			return model.QRecordOrError{
 				Err: fmt.Errorf("failed to serialize update record new items to JSON: %w", err),
 			}
 		}
 		oldItemsJSON, err := typedRecord.OldItems.ToJSON()
 		if err != nil {
-			return &model.QRecordOrError{
+			return model.QRecordOrError{
 				Err: fmt.Errorf("failed to serialize update record old items to JSON: %w", err),
 			}
 		}
@@ -145,7 +145,7 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 	case *model.DeleteRecord:
 		itemsJSON, err := typedRecord.Items.ToJSON()
 		if err != nil {
-			return &model.QRecordOrError{
+			return model.QRecordOrError{
 				Err: fmt.Errorf("failed to serialize delete record items to JSON: %w", err),
 			}
 		}
@@ -169,11 +169,11 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 		}
 		entries[7] = qvalue.QValue{
 			Kind:  qvalue.QValueKindString,
-			Value: "",
+			Value: KeysToString(typedRecord.UnchangedToastColumns),
 		}
 		tableMapping[typedRecord.DestinationTableName] += 1
 	default:
-		return &model.QRecordOrError{
+		return model.QRecordOrError{
 			Err: fmt.Errorf("unknown record type: %T", typedRecord),
 		}
 	}
@@ -191,8 +191,8 @@ func recordToQRecordOrError(tableMapping map[string]uint32, batchID int64, recor
 		Value: batchID,
 	}
 
-	return &model.QRecordOrError{
-		Record: &model.QRecord{
+	return model.QRecordOrError{
+		Record: model.QRecord{
 			NumEntries: 8,
 			Entries:    entries[:],
 		},

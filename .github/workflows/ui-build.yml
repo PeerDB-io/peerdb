@@ -2,27 +2,26 @@ name: Build & Test UI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+    paths: [ui/**]
 
 jobs:
   build-test:
     name: Build & Test UI
     strategy:
       matrix:
-        runner: [ubicloud]
+        runner: [ubicloud-standard-2-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Node.js dependencies
         working-directory: ui
-        run: yarn install --frozen-lockfile
+        run: npm ci
 
       - name: Build
         working-directory: ui
-        run: yarn build
+        run: npm run build

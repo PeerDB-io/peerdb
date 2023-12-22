@@ -5,26 +5,41 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"sync"
+	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
+
+type NameAndExclude struct {
+	Name    string
+	Exclude map[string]struct{}
+}
+
+func NewNameAndExclude(name string, exclude []string) NameAndExclude {
+	exset := make(map[string]struct{}, len(exclude))
+	for _, col := range exclude {
+		exset[col] = struct{}{}
+	}
+	return NameAndExclude{Name: name, Exclude: exset}
+}
 
 type PullRecordsRequest struct {
 	// FlowJobName is the name of the flow job.
 	FlowJobName string
-	// LastSyncedID is the last ID that was synced.
-	LastSyncState *protos.LastSyncState
+	// LastOffset is the latest LSN that was synced.
+	LastOffset int64
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
-	//relId to name Mapping
+	// relId to name Mapping
 	SrcTableIDNameMapping map[uint32]string
 	// source to destination table name mapping
-	TableNameMapping map[string]string
+	TableNameMapping map[string]NameAndExclude
 	// tablename to schema mapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// override publication name
@@ -35,6 +50,8 @@ type PullRecordsRequest struct {
 	RelationMessageMapping RelationMessageMapping
 	// record batch for pushing changes into
 	RecordStream *CDCRecordStream
+	// last offset may be forwarded while processing records
+	SetLastOffset func(int64) error
 }
 
 type Record interface {
@@ -46,43 +63,42 @@ type Record interface {
 	GetItems() *RecordItems
 }
 
+// encoding/gob cannot encode unexported fields
 type RecordItems struct {
-	colToValIdx map[string]int
-	values      []*qvalue.QValue
+	ColToValIdx map[string]int
+	Values      []qvalue.QValue
 }
 
-func NewRecordItems() *RecordItems {
+func NewRecordItems(capacity int) *RecordItems {
 	return &RecordItems{
-		colToValIdx: make(map[string]int),
-		// create a slice of 64 qvalues so that we don't have to allocate memory
-		// for each record to reduce GC pressure
-		values: make([]*qvalue.QValue, 0, 32),
+		ColToValIdx: make(map[string]int, capacity),
+		Values:      make([]qvalue.QValue, 0, capacity),
 	}
 }
 
-func NewRecordItemWithData(cols []string, val []*qvalue.QValue) *RecordItems {
-	recordItem := NewRecordItems()
+func NewRecordItemWithData(cols []string, val []qvalue.QValue) *RecordItems {
+	recordItem := NewRecordItems(len(cols))
 	for i, col := range cols {
-		recordItem.colToValIdx[col] = len(recordItem.values)
-		recordItem.values = append(recordItem.values, val[i])
+		recordItem.ColToValIdx[col] = len(recordItem.Values)
+		recordItem.Values = append(recordItem.Values, val[i])
 	}
 	return recordItem
 }
 
-func (r *RecordItems) AddColumn(col string, val *qvalue.QValue) {
-	if idx, ok := r.colToValIdx[col]; ok {
-		r.values[idx] = val
+func (r *RecordItems) AddColumn(col string, val qvalue.QValue) {
+	if idx, ok := r.ColToValIdx[col]; ok {
+		r.Values[idx] = val
 	} else {
-		r.colToValIdx[col] = len(r.values)
-		r.values = append(r.values, val)
+		r.ColToValIdx[col] = len(r.Values)
+		r.Values = append(r.Values, val)
 	}
 }
 
-func (r *RecordItems) GetColumnValue(col string) *qvalue.QValue {
-	if idx, ok := r.colToValIdx[col]; ok {
-		return r.values[idx]
+func (r *RecordItems) GetColumnValue(col string) qvalue.QValue {
+	if idx, ok := r.ColToValIdx[col]; ok {
+		return r.Values[idx]
 	}
-	return nil
+	return qvalue.QValue{}
 }
 
 // UpdateIfNotExists takes in a RecordItems as input and updates the values of the
@@ -91,43 +107,53 @@ func (r *RecordItems) GetColumnValue(col string) *qvalue.QValue {
 // We return the slice of col names that were updated.
 func (r *RecordItems) UpdateIfNotExists(input *RecordItems) []string {
 	updatedCols := make([]string, 0)
-	for col, idx := range input.colToValIdx {
-		if _, ok := r.colToValIdx[col]; !ok {
-			r.colToValIdx[col] = len(r.values)
-			r.values = append(r.values, input.values[idx])
+	for col, idx := range input.ColToValIdx {
+		if _, ok := r.ColToValIdx[col]; !ok {
+			r.ColToValIdx[col] = len(r.Values)
+			r.Values = append(r.Values, input.Values[idx])
 			updatedCols = append(updatedCols, col)
 		}
 	}
 	return updatedCols
 }
 
-func (r *RecordItems) GetValueByColName(colName string) (*qvalue.QValue, error) {
-	idx, ok := r.colToValIdx[colName]
+func (r *RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
+	idx, ok := r.ColToValIdx[colName]
 	if !ok {
-		return nil, fmt.Errorf("column name %s not found", colName)
+		return qvalue.QValue{}, fmt.Errorf("column name %s not found", colName)
 	}
-	return r.values[idx], nil
+	return r.Values[idx], nil
 }
 
 func (r *RecordItems) Len() int {
-	return len(r.values)
+	return len(r.Values)
 }
 
 func (r *RecordItems) toMap() (map[string]interface{}, error) {
-	if r.colToValIdx == nil {
+	if r.ColToValIdx == nil {
 		return nil, errors.New("colToValIdx is nil")
 	}
 
-	jsonStruct := make(map[string]interface{})
-	for col, idx := range r.colToValIdx {
-		v := r.values[idx]
+	jsonStruct := make(map[string]interface{}, len(r.ColToValIdx))
+	for col, idx := range r.ColToValIdx {
+		v := r.Values[idx]
+		if v.Value == nil {
+			jsonStruct[col] = nil
+			continue
+		}
+
 		var err error
 		switch v.Kind {
 		case qvalue.QValueKindString, qvalue.QValueKindJSON:
-			if len(v.Value.(string)) > 15*1024*1024 {
+			strVal, ok := v.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("expected string value for column %s for %T", col, v.Value)
+			}
+
+			if len(strVal) > 15*1024*1024 {
 				jsonStruct[col] = ""
 			} else {
-				jsonStruct[col] = v.Value
+				jsonStruct[col] = strVal
 			}
 		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
 			qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
@@ -150,13 +176,13 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 }
 
 type ToJSONOptions struct {
-	UnnestColumns map[string]bool
+	UnnestColumns map[string]struct{}
 }
 
 func NewToJSONOptions(unnestCols []string) *ToJSONOptions {
-	unnestColumns := make(map[string]bool)
+	unnestColumns := make(map[string]struct{}, len(unnestCols))
 	for _, col := range unnestCols {
-		unnestColumns[col] = true
+		unnestColumns[col] = struct{}{}
 	}
 	return &ToJSONOptions{
 		UnnestColumns: unnestColumns,
@@ -169,8 +195,8 @@ func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
 		return "", err
 	}
 
-	for col, idx := range r.colToValIdx {
-		v := r.values[idx]
+	for col, idx := range r.ColToValIdx {
+		v := r.Values[idx]
 		if v.Kind == qvalue.QValueKindJSON {
 			if _, ok := opts.UnnestColumns[col]; ok {
 				var unnestStruct map[string]interface{}
@@ -264,6 +290,8 @@ type DeleteRecord struct {
 	CheckPointID int64
 	// Items is a map of column name to value.
 	Items *RecordItems
+	// unchanged toast columns, filled from latest UpdateRecord
+	UnchangedToastColumns map[string]struct{}
 }
 
 // Implement Record interface for DeleteRecord.
@@ -272,7 +300,7 @@ func (r *DeleteRecord) GetCheckPointID() int64 {
 }
 
 func (r *DeleteRecord) GetTableName() string {
-	return r.SourceTableName
+	return r.DestinationTableName
 }
 
 func (r *DeleteRecord) GetItems() *RecordItems {
@@ -280,8 +308,9 @@ func (r *DeleteRecord) GetItems() *RecordItems {
 }
 
 type TableWithPkey struct {
-	TableName  string
-	PkeyColVal string
+	TableName string
+	// SHA256 hash of the primary key columns
+	PkeyColVal [32]byte
 }
 
 type CDCRecordStream struct {
@@ -291,59 +320,41 @@ type CDCRecordStream struct {
 	SchemaDeltas chan *protos.TableSchemaDelta
 	// Relation message mapping
 	RelationMessageMapping chan *RelationMessageMapping
-	// Mutex for synchronizing access to the checkpoint fields
-	checkpointMutex sync.Mutex
-	// firstCheckPointID is the first ID of the commit that corresponds to this batch.
-	firstCheckPointID int64
 	// Indicates if the last checkpoint has been set.
 	lastCheckpointSet bool
 	// lastCheckPointID is the last ID of the commit that corresponds to this batch.
-	lastCheckPointID int64
+	lastCheckPointID atomic.Int64
 	// empty signal to indicate if the records are going to be empty or not.
 	emptySignal chan bool
 }
 
 func NewCDCRecordStream() *CDCRecordStream {
+	channelBuffer := peerdbenv.PeerDBCDCChannelBufferSize()
 	return &CDCRecordStream{
-		records: make(chan Record, 1<<18),
+		records: make(chan Record, channelBuffer),
 		// TODO (kaushik): more than 1024 schema deltas can cause problems!
 		SchemaDeltas:           make(chan *protos.TableSchemaDelta, 1<<10),
 		emptySignal:            make(chan bool, 1),
 		RelationMessageMapping: make(chan *RelationMessageMapping, 1),
 		lastCheckpointSet:      false,
-		lastCheckPointID:       0,
-		firstCheckPointID:      0,
+		lastCheckPointID:       atomic.Int64{},
 	}
 }
 
 func (r *CDCRecordStream) UpdateLatestCheckpoint(val int64) {
-	r.checkpointMutex.Lock()
-	defer r.checkpointMutex.Unlock()
-
-	if r.firstCheckPointID == 0 {
-		r.firstCheckPointID = val
+	// TODO update with https://github.com/golang/go/issues/63999 once implemented
+	// r.lastCheckPointID.Max(val)
+	oldLast := r.lastCheckPointID.Load()
+	for oldLast < val && !r.lastCheckPointID.CompareAndSwap(oldLast, val) {
+		oldLast = r.lastCheckPointID.Load()
 	}
-
-	if val > r.lastCheckPointID {
-		r.lastCheckPointID = val
-	}
-}
-
-func (r *CDCRecordStream) GetFirstCheckpoint() int64 {
-	r.checkpointMutex.Lock()
-	defer r.checkpointMutex.Unlock()
-
-	return r.firstCheckPointID
 }
 
 func (r *CDCRecordStream) GetLastCheckpoint() (int64, error) {
-	r.checkpointMutex.Lock()
-	defer r.checkpointMutex.Unlock()
-
 	if !r.lastCheckpointSet {
 		return 0, errors.New("last checkpoint not set, stream is still active")
 	}
-	return r.lastCheckPointID, nil
+	return r.lastCheckPointID.Load(), nil
 }
 
 func (r *CDCRecordStream) AddRecord(record Record) {
@@ -363,9 +374,31 @@ func (r *CDCRecordStream) WaitAndCheckEmpty() bool {
 	return isEmpty
 }
 
-func (r *CDCRecordStream) WaitForSchemaDeltas() []*protos.TableSchemaDelta {
+func (r *CDCRecordStream) WaitForSchemaDeltas(tableMappings []*protos.TableMapping) []*protos.TableSchemaDelta {
 	schemaDeltas := make([]*protos.TableSchemaDelta, 0)
+schemaLoop:
 	for delta := range r.SchemaDeltas {
+		for _, tm := range tableMappings {
+			if delta.SrcTableName == tm.SourceTableIdentifier && delta.DstTableName == tm.DestinationTableIdentifier {
+				if len(tm.Exclude) == 0 {
+					break
+				}
+				added := make([]*protos.DeltaAddedColumn, 0, len(delta.AddedColumns))
+				for _, column := range delta.AddedColumns {
+					if !slices.Contains(tm.Exclude, column.ColumnName) {
+						added = append(added, column)
+					}
+				}
+				if len(added) != 0 {
+					schemaDeltas = append(schemaDeltas, &protos.TableSchemaDelta{
+						SrcTableName: delta.SrcTableName,
+						DstTableName: delta.DstTableName,
+						AddedColumns: added,
+					})
+				}
+				continue schemaLoop
+			}
+		}
 		schemaDeltas = append(schemaDeltas, delta)
 	}
 	return schemaDeltas
@@ -398,13 +431,13 @@ type SyncRecordsRequest struct {
 }
 
 type NormalizeRecordsRequest struct {
-	FlowJobName string
-	SoftDelete  bool
+	FlowJobName       string
+	SoftDelete        bool
+	SoftDeleteColName string
+	SyncedAtColName   string
 }
 
 type SyncResponse struct {
-	// FirstSyncedCheckPointID is the first ID that was synced.
-	FirstSyncedCheckPointID int64
 	// LastSyncedCheckPointID is the last ID that was synced.
 	LastSyncedCheckPointID int64
 	// NumRecordsSynced is the number of records that were synced.

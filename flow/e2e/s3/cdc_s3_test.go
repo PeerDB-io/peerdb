@@ -20,11 +20,16 @@ func (s *PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
 
 func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
+
+	setupErr := s.setupS3("s3")
+	if setupErr != nil {
+		s.Fail("failed to setup S3", setupErr)
+	}
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_s3")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_s3", "test_simple_flow_s3")
-	flowJobName := s.attachSuffix("test_simple_flow")
+	flowJobName := s.attachSuffix("test_simple_flow_s3")
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL PRIMARY KEY,
@@ -44,14 +49,15 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 5,
-		MaxBatchSize:   5,
+		TotalSyncFlows:   4,
+		ExitAfterRecords: 20,
+		MaxBatchSize:     5,
 	}
 
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		s.NoError(err)
-		//insert 20 rows
+		// insert 20 rows
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
@@ -87,7 +93,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 
 func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 	setupErr := s.setupS3("gcs")
 	if setupErr != nil {
 		s.Fail("failed to setup S3", setupErr)
@@ -95,7 +101,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_gcs_interop")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_gcs_interop", "test_simple_flow_gcs_interop")
-	flowJobName := s.attachSuffix("test_simple_flow")
+	flowJobName := s.attachSuffix("test_simple_flow_gcs_interop")
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE %s (
 			id SERIAL PRIMARY KEY,
@@ -115,14 +121,15 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 5,
-		MaxBatchSize:   5,
+		TotalSyncFlows:   4,
+		ExitAfterRecords: 20,
+		MaxBatchSize:     5,
 	}
 
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		s.NoError(err)
-		//insert 20 rows
+		// insert 20 rows
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
@@ -131,6 +138,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 		`, srcTableName), testKey, testValue)
 			s.NoError(err)
 		}
+		fmt.Println("Inserted 20 rows into the source table")
 		s.NoError(err)
 	}()
 

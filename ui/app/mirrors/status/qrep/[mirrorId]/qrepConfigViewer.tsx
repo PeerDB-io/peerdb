@@ -2,6 +2,7 @@ import prisma from '@/app/utils/prisma';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { Badge } from '@/lib/Badge';
 import { Icon } from '@/lib/Icon';
+import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 
 export const dynamic = 'force-dynamic';
@@ -27,9 +28,9 @@ export default async function QRepConfigViewer({
 
   if (!configBuffer?.config_proto) {
     return (
-      <div>
+      <div className='m-4' style={{ display: 'flex', alignItems: 'center' }}>
         <ProgressCircle variant='determinate_progress_circle' />
-        Waiting for mirror to start...
+        <Label>Waiting for mirror to start...</Label>
       </div>
     );
   }
@@ -38,7 +39,7 @@ export default async function QRepConfigViewer({
 
   return (
     <div className='my-4'>
-      <Badge variant='warning' type='longText'>
+      <Badge type='longText'>
         <Icon name={qrepConfig.initialCopyOnly ? 'double_arrow' : 'sync'} />
         <div className='font-bold'>
           {qrepConfig.initialCopyOnly ? 'Initial Load' : 'Continuous Sync'}

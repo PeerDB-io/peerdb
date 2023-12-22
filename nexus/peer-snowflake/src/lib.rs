@@ -7,7 +7,7 @@ use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser;
 use std::cmp::min;
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 use stream::SnowflakeDataType;
 
 use auth::SnowflakeAuth;
@@ -37,13 +37,22 @@ const TIMESTAMP_OUTPUT_FORMAT: &str = "YYYY-MM-DDTHH24:MI:SS.FF";
 const TIMESTAMP_TZ_OUTPUT_FORMAT: &str = "YYYY-MM-DDTHH24:MI:SS.FFTZHTZM";
 
 #[derive(Debug, Serialize)]
+struct SQLStatementParameters<'a> {
+    pub date_output_format: &'a str,
+    pub time_output_format: &'a str,
+    pub timestamp_ltz_output_format: &'a str,
+    pub timestamp_ntz_output_format: &'a str,
+    pub timestamp_tz_output_format: &'a str,
+}
+
+#[derive(Debug, Serialize)]
 struct SQLStatement<'a> {
     statement: &'a str,
     timeout: u64,
     database: &'a str,
     warehouse: &'a str,
     role: &'a str,
-    parameters: HashMap<String, String>,
+    parameters: SQLStatementParameters<'a>,
 }
 
 #[allow(non_snake_case)]
@@ -131,10 +140,10 @@ impl SnowflakeQueryExecutor {
                 SNOWFLAKE_URL_PREFIX, config.account_id, SNOWFLAKE_URL_SUFFIX
             ),
             auth: SnowflakeAuth::new(
-                config.clone().account_id,
-                config.clone().username,
-                config.clone().private_key,
-                config.clone().password,
+                config.account_id.clone(),
+                config.username.clone(),
+                &config.private_key,
+                config.password.as_deref(),
                 DEFAULT_REFRESH_THRESHOLD,
                 DEFAULT_EXPIRY_THRESHOLD,
             )?,
@@ -147,28 +156,6 @@ impl SnowflakeQueryExecutor {
     #[async_recursion]
     #[tracing::instrument(name = "peer_sflake::process_query", skip_all)]
     async fn process_query(&self, query_str: &str) -> anyhow::Result<ResultSet> {
-        let mut parameters = HashMap::new();
-        parameters.insert(
-            "date_output_format".to_string(),
-            DATE_OUTPUT_FORMAT.to_string(),
-        );
-        parameters.insert(
-            "time_output_format".to_string(),
-            TIME_OUTPUT_FORMAT.to_string(),
-        );
-        parameters.insert(
-            "timestamp_ltz_output_format".to_string(),
-            TIMESTAMP_TZ_OUTPUT_FORMAT.to_string(),
-        );
-        parameters.insert(
-            "timestamp_ntz_output_format".to_string(),
-            TIMESTAMP_OUTPUT_FORMAT.to_string(),
-        );
-        parameters.insert(
-            "timestamp_tz_output_format".to_string(),
-            TIMESTAMP_TZ_OUTPUT_FORMAT.to_string(),
-        );
-
         let mut auth = self.auth.clone();
         let jwt = auth.get_jwt()?;
         let secret = jwt.expose_secret().clone();
@@ -186,7 +173,13 @@ impl SnowflakeQueryExecutor {
                 database: &self.config.database,
                 warehouse: &self.config.warehouse,
                 role: &self.config.role,
-                parameters,
+                parameters: SQLStatementParameters {
+                    date_output_format: DATE_OUTPUT_FORMAT,
+                    time_output_format: TIME_OUTPUT_FORMAT,
+                    timestamp_ltz_output_format: TIMESTAMP_TZ_OUTPUT_FORMAT,
+                    timestamp_ntz_output_format: TIMESTAMP_OUTPUT_FORMAT,
+                    timestamp_tz_output_format: TIMESTAMP_TZ_OUTPUT_FORMAT,
+                },
             })
             .send()
             .await

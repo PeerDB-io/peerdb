@@ -10,6 +10,7 @@ use pt::{
     peerdb_peers::PostgresConfig,
     peerdb_peers::{peer::Config, DbType, Peer},
 };
+use serde_json::Value;
 use tokio_postgres::{types, Client};
 
 mod embedded {
@@ -19,7 +20,7 @@ mod embedded {
 
 pub struct Catalog {
     pg: Box<Client>,
-    executor: Arc<Box<dyn QueryExecutor>>,
+    executor: Arc<dyn QueryExecutor>,
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -37,13 +38,13 @@ async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
-pub struct CatalogConfig {
-    pub host: String,
+#[derive(Debug, Copy, Clone)]
+pub struct CatalogConfig<'a> {
+    pub host: &'a str,
     pub port: u16,
-    pub user: String,
-    pub password: String,
-    pub database: String,
+    pub user: &'a str,
+    pub password: &'a str,
+    pub database: &'a str,
 }
 
 #[derive(Debug, Clone)]
@@ -53,26 +54,18 @@ pub struct WorkflowDetails {
     pub destination_peer: pt::peerdb_peers::Peer,
 }
 
-impl CatalogConfig {
-    pub fn new(host: String, port: u16, user: String, password: String, database: String) -> Self {
-        Self {
-            host,
-            port,
-            user,
-            password,
-            database,
-        }
-    }
-
+impl<'a> CatalogConfig<'a> {
     // convert catalog config to PostgresConfig
     pub fn to_postgres_config(&self) -> pt::peerdb_peers::PostgresConfig {
         PostgresConfig {
-            host: self.host.clone(),
+            host: self.host.to_string(),
             port: self.port as u32,
-            user: self.user.clone(),
-            password: self.password.clone(),
-            database: self.database.clone(),
+            user: self.user.to_string(),
+            password: self.password.to_string(),
+            database: self.database.to_string(),
             transaction_snapshot: "".to_string(),
+            metadata_schema: Some("".to_string()),
+            ssh_config: None,
         }
     }
 
@@ -82,15 +75,13 @@ impl CatalogConfig {
 }
 
 impl Catalog {
-    pub async fn new(catalog_config: &CatalogConfig) -> anyhow::Result<Self> {
-        let pt_config = catalog_config.to_postgres_config();
+    pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
         let client = connect_postgres(&pt_config).await?;
         let executor = PostgresQueryExecutor::new(None, &pt_config).await?;
-        let boxed_trait = Box::new(executor) as Box<dyn QueryExecutor>;
 
         Ok(Self {
             pg: Box::new(client),
-            executor: Arc::new(boxed_trait),
+            executor: Arc::new(executor),
         })
     }
 
@@ -98,8 +89,8 @@ impl Catalog {
         run_migrations(&mut self.pg).await
     }
 
-    pub fn get_executor(&self) -> Arc<Box<dyn QueryExecutor>> {
-        self.executor.clone()
+    pub fn get_executor(&self) -> &Arc<dyn QueryExecutor> {
+        &self.executor
     }
 
     pub async fn create_peer(&self, peer: &Peer) -> anyhow::Result<i64> {
@@ -197,8 +188,8 @@ impl Catalog {
         self.pg
             .query_opt(&stmt, &[&peer_id])
             .await?
-            .map(|row| row.get(0))
-            .map(|r#type| DbType::from_i32(r#type).unwrap()) // if row was inserted properly, this should never fail
+            .map(|row| row.get::<usize, i32>(0))
+            .and_then(|r#type| DbType::try_from(r#type).ok()) // if row was inserted properly, this should never fail
             .context("Failed to get peer type")
     }
 
@@ -210,21 +201,21 @@ impl Catalog {
 
         let rows = self.pg.query(&stmt, &[]).await?;
 
-        let mut peers = HashMap::new();
+        let mut peers = HashMap::with_capacity(rows.len());
 
         for row in rows {
-            let name: String = row.get(1);
+            let name: &str = row.get(1);
             let peer_type: i32 = row.get(2);
-            let options: Vec<u8> = row.get(3);
-            let db_type = DbType::from_i32(peer_type);
-            let config = self.get_config(db_type, &name, options).await?;
+            let options: &[u8] = row.get(3);
+            let db_type = DbType::try_from(peer_type).ok();
+            let config = self.get_config(db_type, name, options).await?;
 
             let peer = Peer {
-                name: name.clone().to_lowercase(),
+                name: name.to_lowercase(),
                 r#type: peer_type,
                 config,
             };
-            peers.insert(name, peer);
+            peers.insert(name.to_string(), peer);
         }
 
         Ok(peers)
@@ -242,14 +233,14 @@ impl Catalog {
         let rows = self.pg.query(&stmt, &[&peer_name]).await?;
 
         if let Some(row) = rows.first() {
-            let name: String = row.get(1);
+            let name: &str = row.get(1);
             let peer_type: i32 = row.get(2);
-            let options: Vec<u8> = row.get(3);
-            let db_type = DbType::from_i32(peer_type);
-            let config = self.get_config(db_type, &name, options).await?;
+            let options: &[u8] = row.get(3);
+            let db_type = DbType::try_from(peer_type).ok();
+            let config = self.get_config(db_type, name, options).await?;
 
             let peer = Peer {
-                name: name.clone().to_lowercase(),
+                name: name.to_lowercase(),
                 r#type: peer_type,
                 config,
             };
@@ -269,14 +260,14 @@ impl Catalog {
         let rows = self.pg.query(&stmt, &[&peer_id]).await?;
 
         if let Some(row) = rows.first() {
-            let name: String = row.get(0);
+            let name: &str = row.get(0);
             let peer_type: i32 = row.get(1);
-            let options: Vec<u8> = row.get(2);
-            let db_type = DbType::from_i32(peer_type);
-            let config = self.get_config(db_type, &name, options).await?;
+            let options: &[u8] = row.get(2);
+            let db_type = DbType::try_from(peer_type).ok();
+            let config = self.get_config(db_type, name, options).await?;
 
             let peer = Peer {
-                name: name.clone().to_lowercase(),
+                name: name.to_lowercase(),
                 r#type: peer_type,
                 config,
             };
@@ -291,49 +282,47 @@ impl Catalog {
         &self,
         db_type: Option<DbType>,
         name: &str,
-        options: Vec<u8>,
+        options: &[u8],
     ) -> anyhow::Result<Option<Config>> {
         match db_type {
             Some(DbType::Snowflake) => {
                 let err = format!("unable to decode {} options for peer {}", "snowflake", name);
                 let snowflake_config =
-                    pt::peerdb_peers::SnowflakeConfig::decode(options.as_slice()).context(err)?;
+                    pt::peerdb_peers::SnowflakeConfig::decode(options).context(err)?;
                 Ok(Some(Config::SnowflakeConfig(snowflake_config)))
             }
             Some(DbType::Bigquery) => {
                 let err = format!("unable to decode {} options for peer {}", "bigquery", name);
                 let bigquery_config =
-                    pt::peerdb_peers::BigqueryConfig::decode(options.as_slice()).context(err)?;
+                    pt::peerdb_peers::BigqueryConfig::decode(options).context(err)?;
                 Ok(Some(Config::BigqueryConfig(bigquery_config)))
             }
             Some(DbType::Mongo) => {
                 let err = format!("unable to decode {} options for peer {}", "mongo", name);
-                let mongo_config =
-                    pt::peerdb_peers::MongoConfig::decode(options.as_slice()).context(err)?;
+                let mongo_config = pt::peerdb_peers::MongoConfig::decode(options).context(err)?;
                 Ok(Some(Config::MongoConfig(mongo_config)))
             }
             Some(DbType::Eventhub) => {
                 let err = format!("unable to decode {} options for peer {}", "eventhub", name);
                 let eventhub_config =
-                    pt::peerdb_peers::EventHubConfig::decode(options.as_slice()).context(err)?;
+                    pt::peerdb_peers::EventHubConfig::decode(options).context(err)?;
                 Ok(Some(Config::EventhubConfig(eventhub_config)))
             }
             Some(DbType::Postgres) => {
                 let err = format!("unable to decode {} options for peer {}", "postgres", name);
                 let postgres_config =
-                    pt::peerdb_peers::PostgresConfig::decode(options.as_slice()).context(err)?;
+                    pt::peerdb_peers::PostgresConfig::decode(options).context(err)?;
                 Ok(Some(Config::PostgresConfig(postgres_config)))
             }
             Some(DbType::S3) => {
                 let err = format!("unable to decode {} options for peer {}", "s3", name);
-                let s3_config =
-                    pt::peerdb_peers::S3Config::decode(options.as_slice()).context(err)?;
+                let s3_config = pt::peerdb_peers::S3Config::decode(options).context(err)?;
                 Ok(Some(Config::S3Config(s3_config)))
             }
             Some(DbType::Sqlserver) => {
                 let err = format!("unable to decode {} options for peer {}", "sqlserver", name);
                 let sqlserver_config =
-                    pt::peerdb_peers::SqlServerConfig::decode(options.as_slice()).context(err)?;
+                    pt::peerdb_peers::SqlServerConfig::decode(options).context(err)?;
                 Ok(Some(Config::SqlserverConfig(sqlserver_config)))
             }
             Some(DbType::EventhubGroup) => {
@@ -342,8 +331,7 @@ impl Catalog {
                     "eventhub_group", name
                 );
                 let eventhub_group_config =
-                    pt::peerdb_peers::EventHubGroupConfig::decode(options.as_slice())
-                        .context(err)?;
+                    pt::peerdb_peers::EventHubGroupConfig::decode(options).context(err)?;
                 Ok(Some(Config::EventhubGroupConfig(eventhub_group_config)))
             }
             None => Ok(None),
@@ -365,7 +353,7 @@ impl Catalog {
         Ok(table_identifier_parts.join("."))
     }
 
-    pub async fn create_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
+    pub async fn create_cdc_flow_job_entry(&self, job: &FlowJob) -> anyhow::Result<()> {
         let source_peer_id = self
             .get_peer_id_i32(&job.source_peer)
             .await
@@ -424,19 +412,22 @@ impl Catalog {
             .prepare_typed("SELECT f.*, sp.name as source_peer_name, dp.name as destination_peer_name FROM flows as f
                             INNER JOIN peers as sp ON f.source_peer = sp.id
                             INNER JOIN peers as dp ON f.destination_peer = dp.id
-                            WHERE f.name = $1", &[types::Type::TEXT])
+                            WHERE f.name = $1 AND f.query_string IS NOT NULL", &[types::Type::TEXT])
             .await?;
 
         let job = self.pg.query_opt(&stmt, &[&job_name]).await?.map(|row| {
+            let flow_opts: HashMap<String, Value> = row
+                .get::<&str, Option<Value>>("flow_metadata")
+                .and_then(|flow_opts| serde_json::from_value(flow_opts).ok())
+                .unwrap_or_default();
+
             QRepFlowJob {
                 name: row.get("name"),
                 source_peer: row.get("source_peer_name"),
                 target_peer: row.get("destination_peer_name"),
                 description: row.get("description"),
                 query_string: row.get("query_string"),
-                flow_options: serde_json::from_value(row.get("flow_metadata"))
-                    .context("unable to deserialize flow options")
-                    .unwrap_or_default(),
+                flow_options: flow_opts,
                 // we set the disabled flag to false by default
                 disabled: false,
             }
@@ -464,6 +455,10 @@ impl Catalog {
                  types::Type::TEXT, types::Type::TEXT, types::Type::JSONB],
             )
             .await?;
+
+        if job.flow_options.get("destination_table_name").is_none() {
+            return Err(anyhow!("destination_table_name not found in flow options"));
+        }
 
         let _rows = self
             .pg
@@ -528,13 +523,12 @@ impl Catalog {
 
         let first_row = rows.get(0).unwrap();
         let workflow_id: Option<String> = first_row.get(0);
-        if workflow_id.is_none() {
+        let Some(workflow_id) = workflow_id else {
             return Err(anyhow!(
                 "workflow id not found for existing flow job {}",
                 flow_job_name
             ));
-        }
-        let workflow_id = workflow_id.unwrap();
+        };
         let source_peer_id: i32 = first_row.get(1);
         let destination_peer_id: i32 = first_row.get(2);
 
@@ -572,5 +566,25 @@ impl Catalog {
             .await?;
         let peer_count: i64 = peer_check.get(0);
         Ok(peer_count)
+    }
+
+    pub async fn get_qrep_config_proto(
+        &self,
+        flow_job_name: &str,
+    ) -> anyhow::Result<Option<pt::peerdb_flow::QRepConfig>> {
+        let row = self
+            .pg
+            .query_opt(
+                "SELECT config_proto FROM flows WHERE name=$1 AND query_string IS NOT NULL",
+                &[&flow_job_name],
+            )
+            .await?;
+
+        Ok(match row {
+            Some(row) => Some(pt::peerdb_flow::QRepConfig::decode::<&[u8]>(
+                row.get("config_proto"),
+            )?),
+            None => None,
+        })
     }
 }

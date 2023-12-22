@@ -3,14 +3,14 @@ package connpostgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type testCase struct {
@@ -60,33 +60,6 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 	}
 }
 
-func (tc *testCase) appendPartition(start time.Time, end time.Time) *testCase {
-	tsRange := &protos.PartitionRange_TimestampRange{
-		TimestampRange: &protos.TimestampPartitionRange{
-			Start: timestamppb.New(start),
-			End:   timestamppb.New(end),
-		},
-	}
-	tc.want = append(tc.want, &protos.QRepPartition{
-		PartitionId: "test_uuid",
-		Range: &protos.PartitionRange{
-			Range: tsRange,
-		},
-	})
-	return tc
-}
-
-func (tc *testCase) appendPartitions(start, end time.Time, numPartitions int) *testCase {
-	duration := end.Sub(start)
-	partitionDuration := duration / time.Duration(numPartitions)
-	for i := 0; i < numPartitions; i++ {
-		partitionStart := start.Add(time.Duration(i) * partitionDuration)
-		partitionEnd := start.Add(time.Duration(i+1) * partitionDuration)
-		tc.appendPartition(partitionStart, partitionEnd)
-	}
-	return tc
-}
-
 func TestGetQRepPartitions(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 
@@ -98,13 +71,13 @@ func TestGetQRepPartitions(t *testing.T) {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
 
-	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	pool, err := NewSSHWrappedPostgresPool(context.Background(), config, nil)
 	if err != nil {
-		t.Fatalf("unable to connect to database: %v", err)
+		t.Fatalf("Failed to create pool: %v", err)
 	}
 
 	// Generate a random schema name
-	rndUint, err := util.RandomUInt64()
+	rndUint, err := shared.RandomUInt64()
 	if err != nil {
 		t.Fatalf("Failed to generate random uint: %v", err)
 	}
@@ -129,7 +102,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
-	numRows := prepareTestData(t, pool, schemaName)
+	numRows := prepareTestData(t, pool.Pool, schemaName)
 
 	secondsInADay := uint32(24 * time.Hour / time.Second)
 	fmt.Printf("secondsInADay: %d\n", secondsInADay)
@@ -196,6 +169,7 @@ func TestGetQRepPartitions(t *testing.T) {
 				ctx:     context.Background(),
 				config:  &protos.PostgresConfig{},
 				pool:    pool,
+				logger:  *slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions")),
 			}
 
 			got, err := c.GetQRepPartitions(tc.config, tc.last)

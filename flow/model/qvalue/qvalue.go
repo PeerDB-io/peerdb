@@ -12,13 +12,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// if new types are added, register them in gob - cdc_records_storage.go
 type QValue struct {
 	Kind  QValueKind
 	Value interface{}
 }
 
-func (q *QValue) Equals(other *QValue) bool {
+func (q QValue) Equals(other QValue) bool {
 	switch q.Kind {
+	case QValueKindEmpty:
+		return other.Kind == QValueKindEmpty
 	case QValueKindInvalid:
 		return true
 	case QValueKindFloat32:
@@ -68,7 +71,7 @@ func (q *QValue) Equals(other *QValue) bool {
 	return false
 }
 
-func (q *QValue) GoTimeConvert() (string, error) {
+func (q QValue) GoTimeConvert() (string, error) {
 	if q.Kind == QValueKindTime || q.Kind == QValueKindTimeTZ {
 		return q.Value.(time.Time).Format("15:04:05.999999"), nil
 		// no connector supports time with timezone yet
@@ -215,8 +218,8 @@ func compareStruct(value1, value2 interface{}) bool {
 		if !ok {
 			return false
 		}
-		q1, ok1 := v1.(*QValue)
-		q2, ok2 := v2.(*QValue)
+		q1, ok1 := v1.(QValue)
+		q2, ok2 := v2.(QValue)
 		if !ok1 || !ok2 || !q1.Equals(q2) {
 			return false
 		}

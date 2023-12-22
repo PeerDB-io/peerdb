@@ -1,14 +1,15 @@
 'use client';
 
+import TimeLabel from '@/components/TimeComponent';
 import { Button } from '@/lib/Button';
-import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import moment from 'moment';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import ReactSelect from 'react-select';
 
 export type QRepPartitionStatus = {
   partitionId: string;
@@ -16,14 +17,15 @@ export type QRepPartitionStatus = {
   status: string;
   startTime: Date | null;
   endTime: Date | null;
-  numRows: number | null;
+  pulledRows: number | null;
+  syncedRows: number | null;
 };
 
 function TimeOrProgressBar({ time }: { time: Date | null }) {
   if (time === null) {
     return <ProgressCircle variant='determinate_progress_circle' />;
   } else {
-    return <Label>{moment(time)?.format('YYYY-MM-DD HH:mm:ss')}</Label>;
+    return <TimeLabel timeVal={moment(time)?.format('YYYY-MM-DD HH:mm:ss')} />;
   }
 }
 
@@ -33,7 +35,8 @@ function RowPerPartition({
   status,
   startTime,
   endTime,
-  numRows,
+  pulledRows: numRows,
+  syncedRows,
 }: QRepPartitionStatus) {
   let duration = 'N/A';
   if (startTime && endTime) {
@@ -44,28 +47,30 @@ function RowPerPartition({
 
   return (
     <TableRow key={partitionId}>
-      <TableCell variant='button'>
-        <Checkbox />
+      <TableCell>
+        <Label as='label' style={{ fontSize: 15 }}>
+          {partitionId}
+        </Label>
       </TableCell>
       <TableCell>
-        <Label>{partitionId}</Label>
-      </TableCell>
-      <TableCell>
-        <Label>{runUuid}</Label>
+        <Label as='label' style={{ fontSize: 15 }}>
+          {runUuid}
+        </Label>
       </TableCell>
       <TableCell>
         <Label>{duration}</Label>
       </TableCell>
       <TableCell>
-        <Label>{moment(startTime)?.format('YYYY-MM-DD HH:mm:ss')}</Label>
+        <TimeLabel timeVal={moment(startTime)?.format('YYYY-MM-DD HH:mm:ss')} />
       </TableCell>
       <TableCell>
-        <Label>
-          <TimeOrProgressBar time={endTime} />
-        </Label>
+        <TimeOrProgressBar time={endTime} />
       </TableCell>
       <TableCell>
         <Label>{numRows}</Label>
+      </TableCell>
+      <TableCell>
+        <Label>{syncedRows ?? 0}</Label>
       </TableCell>
     </TableRow>
   );
@@ -89,6 +94,37 @@ export default function QRepStatusTable({
     currentPage * ROWS_PER_PAGE
   );
 
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortField, setSortField] = useState<'startTime' | 'endTime'>(
+    'startTime'
+  );
+  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
+  const displayedPartitions = useMemo(() => {
+    let currentPartitions = [...visiblePartitions];
+    (currentPartitions = currentPartitions.filter(
+      (partition: QRepPartitionStatus) => {
+        return partition.partitionId
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase());
+      }
+    )),
+      currentPartitions.sort((a, b) => {
+        const aValue = a[sortField];
+        const bValue = b[sortField];
+        if (aValue === null || bValue === null) {
+          return 0;
+        }
+        if (aValue < bValue) {
+          return sortDir === 'dsc' ? 1 : -1;
+        } else if (aValue > bValue) {
+          return sortDir === 'dsc' ? -1 : 1;
+        } else {
+          return 0;
+        }
+      });
+    return currentPartitions;
+  }, [visiblePartitions, searchQuery, sortField, sortDir]);
+
   const handleNext = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
   };
@@ -97,12 +133,16 @@ export default function QRepStatusTable({
     if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
 
+  const sortOptions = [
+    { value: 'startTime', label: 'Start Time' },
+    { value: 'endTime', label: 'End Time' },
+  ];
   return (
     <Table
-      title={<Label variant='headline'>Progress</Label>}
+      title={<Label>Progress</Label>}
       toolbar={{
         left: (
-          <>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
             <Button
               variant='normalBorderless'
               onClick={handlePrevious}
@@ -123,36 +163,78 @@ export default function QRepStatusTable({
             >
               <Icon name='refresh' />
             </Button>
-            <Button variant='normalBorderless'>
-              <Icon name='help' />
-            </Button>
             <Button variant='normalBorderless' disabled>
               <Icon name='download' />
             </Button>
+            <div style={{ minWidth: '10em' }}>
+              <ReactSelect
+                options={sortOptions}
+                value={{
+                  value: sortField,
+                  label: sortOptions.find((opt) => opt.value === sortField)
+                    ?.label,
+                }}
+                onChange={(val, _) => {
+                  const sortVal =
+                    (val?.value as 'startTime' | 'endTime') ?? 'startTime';
+                  setSortField(sortVal);
+                }}
+                defaultValue={{ value: 'startTime', label: 'Start Time' }}
+              />
+            </div>
+            <button
+              className='IconButton'
+              onClick={() => setSortDir('asc')}
+              aria-label='sort up'
+              style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+            >
+              <Icon name='arrow_upward' />
+            </button>
+            <button
+              className='IconButton'
+              onClick={() => setSortDir('dsc')}
+              aria-label='sort down'
+              style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+            >
+              <Icon name='arrow_downward' />
+            </button>
             <div>
               <Label>
                 {currentPage} of {totalPages}
               </Label>
             </div>
-          </>
+          </div>
         ),
-        right: <SearchField placeholder='Search' />,
+        right: (
+          <SearchField
+            placeholder='Search by partition'
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setSearchQuery(e.target.value)
+            }
+          />
+        ),
       }}
       header={
         <TableRow>
-          <TableCell as='th' variant='button'>
-            <Checkbox variant='mixed' defaultChecked />
-          </TableCell>
-          <TableCell as='th'>Partition UUID</TableCell>
-          <TableCell as='th'>Run UUID</TableCell>
-          <TableCell as='th'>Duration</TableCell>
-          <TableCell as='th'>Start Time</TableCell>
-          <TableCell as='th'>End Time</TableCell>
-          <TableCell as='th'>Num Rows Synced</TableCell>
+          {[
+            'Partition UUID',
+            'Run UUID',
+            'Duration',
+            'Start Time',
+            'End Time',
+            'Rows In Partition',
+            'Rows Synced',
+          ].map((heading, index) => (
+            <TableCell as='th' key={index}>
+              <Label as='label' style={{ fontWeight: 'bold' }}>
+                {heading}
+              </Label>
+            </TableCell>
+          ))}
         </TableRow>
       }
     >
-      {visiblePartitions.map((partition, index) => (
+      {displayedPartitions.map((partition, index) => (
         <RowPerPartition key={index} {...partition} />
       ))}
     </Table>

@@ -5,22 +5,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/testsuite"
 )
 
-// readFileToBytes reads a file to a byte array.
+// ReadFileToBytes reads a file to a byte array.
 func ReadFileToBytes(path string) ([]byte, error) {
 	var ret []byte
 
@@ -39,7 +43,12 @@ func ReadFileToBytes(path string) ([]byte, error) {
 	return ret, nil
 }
 
-func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
+func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment, t *testing.T) {
+	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	if err != nil {
+		t.Fatalf("unable to create catalog connection pool: %v", err)
+	}
+
 	// set a 300 second timeout for the workflow to execute a few runs.
 	env.SetTestTimeout(300 * time.Second)
 
@@ -49,13 +58,18 @@ func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment) {
 	env.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
 	env.RegisterWorkflow(peerflow.NormalizeFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepFlowWorkflow)
+	env.RegisterWorkflow(peerflow.XminFlowWorkflow)
 	env.RegisterWorkflow(peerflow.QRepPartitionWorkflow)
-	env.RegisterActivity(&activities.FlowableActivity{})
+	env.RegisterActivity(&activities.FlowableActivity{
+		CatalogPool: conn,
+		Alerter:     alerting.NewAlerter(conn),
+	})
 	env.RegisterActivity(&activities.SnapshotActivity{})
 }
 
 func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
-	connectionGen FlowConnectionGenerationConfig) {
+	connectionGen FlowConnectionGenerationConfig,
+) {
 	// wait for PeerFlowStatusQuery to finish setup
 	// sleep for 5 second to allow the workflow to start
 	time.Sleep(5 * time.Second)
@@ -65,19 +79,18 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.CDCFlowState
+			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				log.Errorln(err)
+				slog.Error(err.Error())
 			}
 
-			if state.SetupComplete {
-				fmt.Println("query indicates setup is complete")
+			if state.SnapshotComplete {
 				break
 			}
 		} else {
 			// log the error for informational purposes
-			log.Errorln(err)
+			slog.Error(err.Error())
 		}
 		time.Sleep(1 * time.Second)
 	}
@@ -85,7 +98,8 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 
 func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig,
-	minCount int) {
+	minCount int,
+) {
 	// wait for PeerFlowStatusQuery to finish setup
 	// sleep for 5 second to allow the workflow to start
 	time.Sleep(5 * time.Second)
@@ -95,10 +109,10 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.CDCFlowState
+			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
 			if err != nil {
-				log.Errorln(err)
+				slog.Error(err.Error())
 			}
 
 			if len(state.NormalizeFlowStatuses) >= minCount {
@@ -107,13 +121,13 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 		} else {
 			// log the error for informational purposes
-			log.Errorln(err)
+			slog.Error(err.Error())
 		}
 		time.Sleep(1 * time.Second)
 	}
 }
 
-func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
+func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
@@ -175,7 +189,7 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 }
 
 func generate20MBJson() ([]byte, error) {
-	xn := make(map[string]interface{})
+	xn := make(map[string]interface{}, 215000)
 	for i := 0; i < 215000; i++ {
 		xn[uuid.New().String()] = uuid.New().String()
 	}
@@ -233,7 +247,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8 
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
 					%s
 			) VALUES %s;
 	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
@@ -275,9 +289,10 @@ func CreateQRepWorkflowConfig(
 	sourceTable string,
 	dstTable string,
 	query string,
-	syncMode protos.QRepSyncMode,
 	dest *protos.Peer,
 	stagingPath string,
+	setupDst bool,
+	syncedAtCol string,
 ) (*protos.QRepConfig, error) {
 	connectionGen := QRepFlowConnectionGenerationConfig{
 		FlowJobName:                flowJobName,
@@ -290,28 +305,33 @@ func CreateQRepWorkflowConfig(
 
 	watermark := "updated_at"
 
-	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark, syncMode)
+	qrepConfig, err := connectionGen.GenerateQRepConfig(query, watermark)
 	if err != nil {
 		return nil, err
 	}
-
 	qrepConfig.InitialCopyOnly = true
+	qrepConfig.SyncedAtColName = syncedAtCol
+	qrepConfig.SetupWatermarkTableOnDestination = setupDst
 
 	return qrepConfig, nil
 }
 
 func RunQrepFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
-	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-applicable-partition",
-		Range:       nil,
-	}
-	numPartitionsProcessed := 0
-	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+	state := peerflow.NewQRepFlowState()
+	time.Sleep(5 * time.Second)
+	env.ExecuteWorkflow(peerflow.QRepFlowWorkflow, config, state)
+}
+
+func RunXminFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.QRepConfig) {
+	state := peerflow.NewQRepFlowState()
+	state.LastPartition.PartitionId = uuid.New().String()
+	time.Sleep(5 * time.Second)
+	env.ExecuteWorkflow(peerflow.XminFlowWorkflow, config, state)
 }
 
 func GetOwnersSchema() *model.QRecordSchema {
 	return &model.QRecordSchema{
-		Fields: []*model.QField{
+		Fields: []model.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
@@ -354,10 +374,57 @@ func GetOwnersSchema() *model.QRecordSchema {
 
 func GetOwnersSelectorString() string {
 	schema := GetOwnersSchema()
-	var fields []string
+	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		// append quoted field name
 		fields = append(fields, fmt.Sprintf(`"%s"`, field.Name))
 	}
 	return strings.Join(fields, ",")
+}
+
+func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
+	testSuite := &testsuite.WorkflowTestSuite{}
+
+	logger := slog.New(logger.NewHandler(
+		slog.NewJSONHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelWarn},
+		)))
+	tLogger := NewTStructuredLogger(*logger)
+
+	testSuite.SetLogger(tLogger)
+	return testSuite.NewTestWorkflowEnvironment()
+}
+
+type TStructuredLogger struct {
+	logger *slog.Logger
+}
+
+func NewTStructuredLogger(logger slog.Logger) *TStructuredLogger {
+	return &TStructuredLogger{logger: &logger}
+}
+
+func (l *TStructuredLogger) keyvalsToFields(keyvals []interface{}) slog.Attr {
+	var attrs []any
+	for i := 0; i < len(keyvals); i += 1 {
+		key := fmt.Sprintf("%v", keyvals[i])
+		attrs = append(attrs, key)
+	}
+	return slog.Group("test-log", attrs...)
+}
+
+func (l *TStructuredLogger) Debug(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Debug(msg)
+}
+
+func (l *TStructuredLogger) Info(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Info(msg)
+}
+
+func (l *TStructuredLogger) Warn(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Warn(msg)
+}
+
+func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
+	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
 }

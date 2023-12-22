@@ -3,101 +3,168 @@ package e2e_bigquery
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
-	"go.temporal.io/sdk/testsuite"
+	"github.com/ysmood/got"
 )
 
-const bigquerySuffix = "bigquery"
-
 type PeerFlowE2ETestSuiteBQ struct {
-	suite.Suite
-	testsuite.WorkflowTestSuite
+	got.G
+	t *testing.T
 
+	bqSuffix string
 	pool     *pgxpool.Pool
 	bqHelper *BigQueryTestHelper
 }
 
 func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
-	suite.Run(t, new(PeerFlowE2ETestSuiteBQ))
+	got.Each(t, func(t *testing.T) PeerFlowE2ETestSuiteBQ {
+		g := got.New(t)
+
+		// Concurrently run each test
+		g.Parallel()
+
+		suite := setupSuite(t, g)
+
+		g.Cleanup(func() {
+			suite.tearDownSuite()
+		})
+
+		return suite
+	})
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) attachSchemaSuffix(tableName string) string {
-	return fmt.Sprintf("e2e_test_%s.%s", bigquerySuffix, tableName)
+func (s PeerFlowE2ETestSuiteBQ) attachSchemaSuffix(tableName string) string {
+	return fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tableName)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) attachSuffix(input string) string {
-	return fmt.Sprintf("%s_%s", input, bigquerySuffix)
+func (s PeerFlowE2ETestSuiteBQ) attachSuffix(input string) string {
+	return fmt.Sprintf("%s_%s", input, s.bqSuffix)
+}
+
+func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDelete bool) error {
+	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, dstQualified)
+	selector := "`_PEERDB_SYNCED_AT`"
+	if softDelete {
+		selector += ", `_PEERDB_IS_DELETED`"
+	}
+	query := fmt.Sprintf("SELECT %s FROM %s",
+		selector, qualifiedTableName)
+
+	recordBatch, err := s.bqHelper.ExecuteAndProcessQuery(query)
+	if err != nil {
+		return err
+	}
+
+	recordCount := 0
+
+	for _, record := range recordBatch.Records {
+		for _, entry := range record.Entries {
+			if entry.Kind == qvalue.QValueKindBoolean {
+				isDeleteVal, ok := entry.Value.(bool)
+				if !(ok && isDeleteVal) {
+					return fmt.Errorf("peerdb column failed: _PEERDB_IS_DELETED is not true")
+				}
+				recordCount += 1
+			}
+
+			if entry.Kind == qvalue.QValueKindTimestamp {
+				_, ok := entry.Value.(time.Time)
+				if !ok {
+					return fmt.Errorf("peerdb column failed: _PEERDB_SYNCED_AT is not valid")
+				}
+
+				recordCount += 1
+			}
+		}
+	}
+
+	if recordCount == 0 {
+		return fmt.Errorf("peerdb column check failed: no records found")
+	}
+
+	return nil
 }
 
 // setupBigQuery sets up the bigquery connection.
-func (s *PeerFlowE2ETestSuiteBQ) setupBigQuery() error {
+func setupBigQuery(t *testing.T) *BigQueryTestHelper {
 	bqHelper, err := NewBigQueryTestHelper()
 	if err != nil {
-		return fmt.Errorf("failed to create bigquery helper: %w", err)
+		slog.Error("Error in test", slog.Any("error", err))
+		t.FailNow()
 	}
 
 	err = bqHelper.RecreateDataset()
 	if err != nil {
-		return fmt.Errorf("failed to recreate bigquery dataset: %w", err)
+		slog.Error("Error in test", slog.Any("error", err))
+		t.FailNow()
 	}
 
-	s.bqHelper = bqHelper
-	return nil
+	return bqHelper
 }
 
 // Implement SetupAllSuite interface to setup the test suite
-func (s *PeerFlowE2ETestSuiteBQ) SetupSuite() {
+func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	log.SetReportCaller(true)
-
-	pool, err := e2e.SetupPostgres(bigquerySuffix)
-	if err != nil {
-		s.Fail("failed to setup postgres", err)
+	suffix := shared.RandomString(8)
+	tsSuffix := time.Now().Format("20060102150405")
+	bqSuffix := fmt.Sprintf("bq_%s_%s", strings.ToLower(suffix), tsSuffix)
+	pool, err := e2e.SetupPostgres(bqSuffix)
+	if err != nil || pool == nil {
+		slog.Error("failed to setup postgres", slog.Any("error", err))
+		t.FailNow()
 	}
-	s.pool = pool
 
-	err = s.setupBigQuery()
-	if err != nil {
-		s.Fail("failed to setup bigquery", err)
+	bq := setupBigQuery(t)
+
+	return PeerFlowE2ETestSuiteBQ{
+		G:        g,
+		t:        t,
+		bqSuffix: bqSuffix,
+		pool:     pool,
+		bqHelper: bq,
 	}
 }
 
 // Implement TearDownAllSuite interface to tear down the test suite
-func (s *PeerFlowE2ETestSuiteBQ) TearDownSuite() {
-	err := e2e.TearDownPostgres(s.pool, bigquerySuffix)
+func (s PeerFlowE2ETestSuiteBQ) tearDownSuite() {
+	err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
 	if err != nil {
-		s.Fail("failed to drop Postgres schema", err)
+		slog.Error("failed to tear down postgres", slog.Any("error", err))
+		s.FailNow()
 	}
 
 	err = s.bqHelper.DropDataset()
 	if err != nil {
-		s.Fail("failed to drop bigquery dataset", err)
+		slog.Error("failed to tear down bigquery", slog.Any("error", err))
+		s.FailNow()
 	}
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	// TODO (kaushikiska): ensure flow name can only be alpha numeric and underscores.
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   1,
+		ExitAfterRecords: 0,
+		MaxBatchSize:     1,
 	}
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, nil, &limits, nil)
@@ -107,15 +174,14 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	err := env.GetWorkflowError()
 
 	// assert that error contains "invalid connection configs"
-	s.Error(err)
-	s.Contains(err.Error(), "invalid connection configs")
+	require.Contains(s.t, err.Error(), "invalid connection configs")
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_no_data")
 	dstTableName := "test_no_data"
@@ -127,21 +193,22 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 			value VARCHAR(255) NOT NULL
 		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_complete_flow_no_data"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   1,
+		ExitAfterRecords: 0,
+		MaxBatchSize:     1,
 	}
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -151,15 +218,14 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_char_coltype")
 	dstTableName := "test_char_coltype"
@@ -171,21 +237,22 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 			value CHAR(255) NOT NULL
 		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_char_table"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   1,
+		ExitAfterRecords: 0,
+		MaxBatchSize:     1,
 	}
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -195,18 +262,17 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
 // Test_Complete_Simple_Flow_BQ tests a complete flow with data in the source table.
 // The test inserts 10 rows into the source table and verifies that the data is
 // correctly synced to the destination table after sync flow completes.
-func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_bq")
 	dstTableName := "test_simple_flow_bq"
@@ -218,21 +284,22 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 			value TEXT NOT NULL
 		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_complete_simple_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -246,7 +313,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(key, value) VALUES ($1, $2)
 		`, srcTableName), testKey, testValue)
-			s.NoError(err)
+			require.NoError(s.t, err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")
 	}()
@@ -258,22 +325,21 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	count, err := s.bqHelper.countRows(dstTableName)
-	s.NoError(err)
+	require.NoError(s.t, err)
 	s.Equal(10, count)
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_1")
 	dstTableName := "test_toast_bq_1"
@@ -284,26 +350,24 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 			t1 text,
 			t2 text,
 			k int
-		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
+		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_1"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 4,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -324,7 +388,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 			UPDATE %s SET t1='dummy' WHERE id=2;
 			END;
 		`, srcTableName, srcTableName, srcTableName))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
@@ -335,16 +399,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_2")
 	dstTableName := "test_toast_bq_2"
@@ -355,30 +418,29 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 			t1 text,
 			t2 text,
 			k int
-		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
+		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_2"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 0,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
+	done := make(chan struct{})
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* transaction updating no rows */
@@ -388,8 +450,9 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 			UPDATE %s SET t1='dummy' WHERE id=2;
 			END;
 		`, srcTableName, srcTableName))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Executed a transaction touching toast columns")
+		done <- struct{}{}
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -399,16 +462,16 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
+	<-done
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_3")
 	dstTableName := "test_toast_bq_3"
@@ -419,33 +482,31 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 			t1 text,
 			t2 text,
 			k int
-		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
+		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_3"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 11,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		//complex transaction with random DMLs on a table with toast columns
+		// complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s(t1,t2,k) SELECT random_string(9000),random_string(9000),
@@ -465,7 +526,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 			END;
 		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName,
 			srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
@@ -476,16 +537,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_4")
 	dstTableName := "test_toast_bq_4"
@@ -495,33 +555,31 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 			id SERIAL PRIMARY KEY,
 			t1 text,
 			k int
-		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
+		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_4"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 6,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		//complex transaction with random DMLs on a table with toast columns
+		// complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			BEGIN;
 			INSERT INTO %s(t1,k) SELECT random_string(9000),
@@ -535,7 +593,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 			UPDATE %s SET k=4 WHERE id=1;
 			END;
 		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
@@ -546,16 +604,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,k")
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_5")
 	dstTableName := "test_toast_bq_5"
@@ -566,26 +623,24 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 			t1 text,
 			t2 text,
 			k int
-		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
+		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_toast_bq_5"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 4,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -605,7 +660,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 			UPDATE %s SET t2='dummy' WHERE id=1;
 			END;
 		`, srcTableName, srcTableName, srcTableName, srcTableName))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Executed a transaction touching toast columns")
 	}()
 
@@ -616,16 +671,15 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_types_bq")
 	dstTableName := "test_types_bq"
@@ -637,31 +691,23 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
 		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[]);
-	CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
-		RETURNS bytea AS $body$
-			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
-			FROM generate_series(1, $1);
-		$body$
-		LANGUAGE 'sql'
-		VOLATILE
-		SET search_path = 'pg_catalog';
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_types_bq"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -683,8 +729,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		ARRAY[0.0003, 8902.0092],
 		ARRAY['hello','bye'];
 		`, srcTableName))
-		s.NoError(err)
-		fmt.Println("Executed an insert with all types")
+		require.NoError(s.t, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -694,179 +739,26 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
-	noNulls, err := s.bqHelper.CheckNull(dstTableName, []string{"c41", "c1", "c2", "c3", "c4",
+	noNulls, err := s.bqHelper.CheckNull(dstTableName, []string{
+		"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44"})
+		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44",
+	})
 	if err != nil {
 		fmt.Println("error  %w", err)
 	}
 	// Make sure that there are no nulls
 	s.True(noNulls)
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Types_Avro_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
-
-	srcTableName := s.attachSchemaSuffix("test_types_avro_bq")
-	dstTableName := "test_types_avro_bq"
-
-	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
-		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
-		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
-		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
-		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
-		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[]);
-	CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
-		RETURNS bytea AS $body$
-			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
-			FROM generate_series(1, $1);
-		$body$
-		LANGUAGE 'sql'
-		VOLATILE
-		SET search_path = 'pg_catalog';
-	`, srcTableName))
-	s.NoError(err)
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_types_avro_bq"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
-		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
-		CdcStagingPath:   "peerdb_staging",
-	}
-
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
-
-	limits := peerflow.CDCFlowLimits{
-
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
-	}
-
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		/* test inserting various types*/
-		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s SELECT 2,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
-		CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
-		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
-		'{"sai":1}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
-		1.2,1.23,4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
-		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
-		txid_current_snapshot(),
-		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello'),
-		ARRAY[9301,239827],
-		ARRAY[0.0003, 1039.0034],
-		ARRAY['hello','bye'];
-		`, srcTableName))
-		s.NoError(err)
-		fmt.Println("Executed an insert with all types")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
-
-	noNulls, err := s.bqHelper.CheckNull(dstTableName, []string{"c41", "c1", "c2", "c3", "c4",
-		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
-		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44"})
-	if err != nil {
-		fmt.Println("error  %w", err)
-	}
-	// Make sure that there are no nulls
-	s.True(noNulls)
-
-	env.AssertExpectations(s.T())
-}
-
-func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Flow_BQ_Avro_CDC() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
-
-	srcTableName := s.attachSchemaSuffix("test_simple_flow_bq_avro_cdc")
-	dstTableName := "test_simple_flow_bq_avro_cdc"
-
-	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL
-		);
-	`, srcTableName))
-	s.NoError(err)
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_simple_flow_bq_avro_cdc"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		PostgresPort:     e2e.PostgresPort,
-		Destination:      s.bqHelper.Peer,
-		CDCSyncMode:      protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
-		CdcStagingPath:   "peerdb_staging",
-	}
-
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
-
-	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
-	}
-
-	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		for i := 0; i < 10; i++ {
-			testKey := fmt.Sprintf("test_key_%d", i)
-			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s (key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
-			s.NoError(err)
-		}
-		fmt.Println("Inserted 10 rows into the source table")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
-
-	count, err := s.bqHelper.countRows(dstTableName)
-	s.NoError(err)
-	s.Equal(10, count)
-
-	// TODO: verify that the data is correctly synced to the destination table
-	// on the bigquery side
-
-	env.AssertExpectations(s.T())
-}
-
-func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
 	dstTable1Name := "test1_bq"
@@ -877,21 +769,22 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	CREATE TABLE %s (id serial primary key, c1 int, c2 text);
 	CREATE TABLE %s(id serial primary key, c1 int, c2 text);
 	`, srcTable1Name, srcTable2Name))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_multi_table_bq"),
 		TableNameMapping: map[string]string{srcTable1Name: dstTable1Name, srcTable2Name: dstTable2Name},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 1,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 2,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -903,31 +796,31 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		INSERT INTO %s (c1,c2) VALUES (1,'dummy_1');
 		INSERT INTO %s (c1,c2) VALUES (-1,'dummy_-1');
 		`, srcTable1Name, srcTable2Name))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Executed an insert on two tables")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.T(), env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	count1, err := s.bqHelper.countRows(dstTable1Name)
-	s.NoError(err)
+	require.NoError(s.t, err)
 	count2, err := s.bqHelper.countRows(dstTable2Name)
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	s.Equal(1, count1)
 	s.Equal(1, count2)
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
 // TODO: not checking schema exactly, add later
-func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
 	dstTableName := "test_simple_schema_changes"
@@ -938,21 +831,22 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 			c1 BIGINT
 		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_simple_schema_changes"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 10,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -962,7 +856,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Inserted initial row in the source table")
 
 		// verify we got our first row.
@@ -972,11 +866,11 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		// alter source table, add column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Altered source table, added column c2")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c2) VALUES ($1,$2)`, srcTableName), 2, 2)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Inserted row with added c2 in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
@@ -986,11 +880,11 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		// alter source table, add column c3, drop column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Altered source table, dropped column c2 and added column c3")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c3) VALUES ($1,$2)`, srcTableName), 3, 3)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Inserted row with added c3 in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
@@ -1000,11 +894,11 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		// alter source table, drop column c3 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c3`, srcTableName))
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Altered source table, dropped column c3")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 4)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		fmt.Println("Inserted row after dropping all columns in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
@@ -1019,15 +913,14 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
 	dstTableName := "test_simple_cpkey"
@@ -1041,21 +934,22 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 			PRIMARY KEY(id,t)
 		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 4,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1068,7 +962,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t) VALUES ($1,$2)
 		`, srcTableName), i, testValue)
-			s.NoError(err)
+			require.NoError(s.t, err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")
 
@@ -1078,9 +972,9 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 
 		_, err := s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
-		s.NoError(err)
+		require.NoError(s.t, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1090,17 +984,16 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	s.compareTableContentsBQ(dstTableName, "id,c1,c2,t")
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
 	dstTableName := "test_cpkey_toast1"
@@ -1113,26 +1006,24 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 			t TEXT,
 			t2 TEXT,
 			PRIMARY KEY(id,t)
-		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
+		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast1_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 20,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1140,7 +1031,7 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		rowsTx, err := s.pool.Begin(context.Background())
-		s.NoError(err)
+		require.NoError(s.t, err)
 
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
@@ -1148,18 +1039,18 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 			_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
 		`, srcTableName), i, testValue)
-			s.NoError(err)
+			require.NoError(s.t, err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")
 
 		_, err = rowsTx.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
-		s.NoError(err)
+		require.NoError(s.t, err)
 
 		err = rowsTx.Commit(context.Background())
-		s.NoError(err)
+		require.NoError(s.t, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1169,18 +1060,17 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
 	s.compareTableContentsBQ(dstTableName, "id,c1,c2,t,t2")
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
 	dstTableName := "test_cpkey_toast2"
@@ -1193,26 +1083,24 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 			t TEXT,
 			t2 TEXT,
 			PRIMARY KEY(id,t)
-		);CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
+		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_cpkey_toast2_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 4,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -1226,16 +1114,16 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))
 		`, srcTableName), i, testValue)
-			s.NoError(err)
+			require.NoError(s.t, err)
 		}
 		fmt.Println("Inserted 10 rows into the source table")
 
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		_, err = s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
-		s.NoError(err)
+		require.NoError(s.t, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1245,11 +1133,73 @@ func (s *PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
 	s.compareTableContentsBQ(dstTableName, "id,c1,c2,t,t2")
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
+}
+
+func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
+
+	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
+	dstTableName := "test_peerdb_cols_dst"
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_peerdb_cols_mirror"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.bqHelper.Peer,
+		SoftDelete:       true,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	require.NoError(s.t, err)
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 2,
+		MaxBatchSize:     100,
+	}
+
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		// insert 1 row into the source table
+		testKey := fmt.Sprintf("test_key_%d", 1)
+		testValue := fmt.Sprintf("test_value_%d", 1)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(key, value) VALUES ($1, $2)
+		`, srcTableName), testKey, testValue)
+		require.NoError(s.t, err)
+
+		// delete that row
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id=1
+		`, srcTableName))
+		require.NoError(s.t, err)
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	err = s.checkPeerdbColumns(dstTableName, true)
+	require.NoError(s.t, err)
+
+	env.AssertExpectations(s.t)
 }

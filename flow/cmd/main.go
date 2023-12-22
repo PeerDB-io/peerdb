@@ -3,17 +3,19 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/urfave/cli/v2"
 	_ "go.uber.org/automaxprocs"
 )
 
 func main() {
 	appCtx, appCancel := context.WithCancel(context.Background())
-
+	slog.SetDefault(slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))))
 	// setup shutdown handling
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -30,6 +32,18 @@ func main() {
 		EnvVars: []string{"TEMPORAL_HOST_PORT"},
 	}
 
+	temporalCertFlag := cli.StringFlag{
+		Name:    "temporal-cert",
+		Value:   "", // default: no cert needed
+		EnvVars: []string{"TEMPORAL_CLIENT_CERT"},
+	}
+
+	temporalKeyFlag := cli.StringFlag{
+		Name:    "temporal-key",
+		Value:   "", // default: no key needed
+		EnvVars: []string{"TEMPORAL_CLIENT_KEY"},
+	}
+
 	profilingFlag := &cli.BoolFlag{
 		Name:    "enable-profiling",
 		Value:   false, // Default is off
@@ -37,25 +51,11 @@ func main() {
 		EnvVars: []string{"ENABLE_PROFILING"},
 	}
 
-	metricsFlag := &cli.BoolFlag{
-		Name:    "enable-metrics",
-		Value:   false, // Default is off
-		Usage:   "Enable metrics collection for the application",
-		EnvVars: []string{"ENABLE_METRICS"},
-	}
-
 	pyroscopeServerFlag := &cli.StringFlag{
 		Name:    "pyroscope-server-address",
 		Value:   "http://pyroscope:4040",
 		Usage:   "HTTP server address for pyroscope",
 		EnvVars: []string{"PYROSCOPE_SERVER_ADDRESS"},
-	}
-
-	metricsServerFlag := &cli.StringFlag{
-		Name:    "metrics-server",
-		Value:   "localhost:6061", // Default is localhost:6061
-		Usage:   "HTTP server address for metrics collection",
-		EnvVars: []string{"METRICS_SERVER"},
 	}
 
 	temporalNamespaceFlag := &cli.StringFlag{
@@ -75,19 +75,19 @@ func main() {
 					return WorkerMain(&WorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						EnableProfiling:   ctx.Bool("enable-profiling"),
-						EnableMetrics:     ctx.Bool("enable-metrics"),
 						PyroscopeServer:   ctx.String("pyroscope-server-address"),
-						MetricsServer:     ctx.String("metrics-server"),
 						TemporalNamespace: ctx.String("temporal-namespace"),
+						TemporalCert:      ctx.String("temporal-cert"),
+						TemporalKey:       ctx.String("temporal-key"),
 					})
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					profilingFlag,
-					metricsFlag,
 					pyroscopeServerFlag,
-					metricsServerFlag,
 					temporalNamespaceFlag,
+					&temporalCertFlag,
+					&temporalKeyFlag,
 				},
 			},
 			{
@@ -97,11 +97,15 @@ func main() {
 					return SnapshotWorkerMain(&SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: ctx.String("temporal-namespace"),
+						TemporalCert:      ctx.String("temporal-cert"),
+						TemporalKey:       ctx.String("temporal-key"),
 					})
 				},
 				Flags: []cli.Flag{
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
+					&temporalCertFlag,
+					&temporalKeyFlag,
 				},
 			},
 			{
@@ -119,6 +123,8 @@ func main() {
 					},
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
+					&temporalCertFlag,
+					&temporalKeyFlag,
 				},
 				Action: func(ctx *cli.Context) error {
 					temporalHostPort := ctx.String("temporal-host-port")
@@ -129,6 +135,8 @@ func main() {
 						TemporalHostPort:  temporalHostPort,
 						GatewayPort:       ctx.Uint("gateway-port"),
 						TemporalNamespace: ctx.String("temporal-namespace"),
+						TemporalCert:      ctx.String("temporal-cert"),
+						TemporalKey:       ctx.String("temporal-key"),
 					})
 				},
 			},
@@ -136,6 +144,6 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		log.Fatalf("error running app: %v", err)
 	}
 }

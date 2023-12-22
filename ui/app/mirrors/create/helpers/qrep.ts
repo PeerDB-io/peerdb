@@ -1,33 +1,10 @@
 import {
   QRepConfig,
-  QRepSyncMode,
   QRepWriteMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
-import { Peer } from '@/grpc_generated/peers';
 import { MirrorSetting } from './common';
 export const qrepSettings: MirrorSetting[] = [
-  {
-    label: 'Source Peer',
-    stateHandler: (value, setter) =>
-      setter((curr: QRepConfig) => ({ ...curr, sourcePeer: value as Peer })),
-    tips: 'The peer from which we will be replicating data. Ensure the prerequisites for this peer are met.',
-    helpfulLink:
-      'https://docs.peerdb.io/usecases/Real-time%20CDC/postgres-to-snowflake#prerequisites',
-    type: 'select',
-    required: true,
-  },
-  {
-    label: 'Destination Peer',
-    stateHandler: (value, setter) =>
-      setter((curr: QRepConfig) => ({
-        ...curr,
-        destinationPeer: value as Peer,
-      })),
-    tips: 'The peer to which data will be replicated.',
-    type: 'select',
-    required: true,
-  },
   {
     label: 'Table',
     stateHandler: (value, setter) =>
@@ -35,6 +12,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         watermarkTable: (value as string) || '',
       })),
+    type: 'select',
     tips: 'The source table of the replication and the table to which the watermark column belongs.',
     required: true,
   },
@@ -45,6 +23,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         watermarkColumn: (value as string) || '',
       })),
+    type: 'select',
     tips: 'Watermark column is used to track the progress of the replication. This column should be a unique column in the query. Example: id',
     required: true,
   },
@@ -73,8 +52,9 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        numRowsPerPartition: parseInt(value as string, 10),
+        numRowsPerPartition: parseInt(value as string, 10) || 100000,
       })),
+    default: 100000,
     tips: 'PeerDB splits up table data into partitions for increased performance. This setting controls the number of rows per partition.',
     type: 'number',
     required: true,
@@ -84,25 +64,12 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        maxParallelWorkers: parseInt(value as string, 10) || 8,
+        maxParallelWorkers: parseInt(value as string, 10) || 4,
       })),
     tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 8.',
-    default: '8',
+    default: '4',
     type: 'number',
   },
-  {
-    label: 'Sync Mode',
-    stateHandler: (value, setter) =>
-      setter((curr: QRepConfig) => ({
-        ...curr,
-        syncMode:
-          (value as QRepSyncMode) || QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-      })),
-    tips: 'Specify whether you want the sync mode to be via SQL or by staging AVRO files. The default mode is SQL.',
-    default: 'SQL',
-    type: 'select',
-  },
-
   {
     label: 'Staging Path',
     stateHandler: (value, setter) =>
@@ -110,8 +77,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         stagingPath: (value as string) || '',
       })),
-    tips: `You can specify staging path if you have set the sync mode as AVRO. For Snowflake as destination peer.
-    If this starts with gs:// then it will be written to GCS.
+    tips: `You can specify staging path for sync mode AVRO. For Snowflake as destination peer:
     If this starts with s3:// then it will be written to S3.
     If nothing is specified then it will be written to local disk.`,
   },
@@ -164,10 +130,20 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        waitBetweenBatchesSeconds: parseInt(value as string, 10) || 30,
+        waitBetweenBatchesSeconds: parseInt(value as string, 10) || 5,
       })),
     tips: 'Time to wait (in seconds) between getting partitions to process.',
-    default: '0',
+    default: 5,
     type: 'number',
   },
+  // {
+  //   label: 'Resync Destination Table',
+  //   stateHandler: (value, setter) =>
+  //     setter((curr: QRepConfig) => ({
+  //       ...curr,
+  //       dstTableFullResync:value as boolean
+  //     })),
+  //   tips: 'Perform a resync of the provided destination table',
+  //   type: 'switch',
+  // },
 ];

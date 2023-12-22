@@ -26,6 +26,9 @@ const sizes = {
     width: ${({ theme }) => theme.size.xxLarge};
     ${css(({ theme }) => theme.dropShadow.xxLarge)};
   `,
+  auto: css`
+    width: fit-content;
+  `,
 };
 
 export type DialogSize = keyof typeof sizes;

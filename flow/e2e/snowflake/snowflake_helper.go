@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
+	"time"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SnowflakeTestHelper struct {
@@ -46,7 +49,7 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	}
 
 	peer := generateSFPeer(&config)
-	runID, err := util.RandomUInt64()
+	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
 	}
@@ -138,4 +141,60 @@ func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(query string) (*model.QReco
 
 func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
 	return s.testClient.CreateTable(schema, s.testSchemaName, tableName)
+}
+
+// runs a query that returns an int result
+func (s *SnowflakeTestHelper) RunIntQuery(query string) (int, error) {
+	rows, err := s.testClient.ExecuteAndProcessQuery(query)
+	if err != nil {
+		return 0, err
+	}
+
+	numRecords := 0
+	if rows == nil || len(rows.Records) != 1 {
+		if rows != nil {
+			numRecords = len(rows.Records)
+		}
+		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 rows", query, numRecords)
+	}
+
+	rec := rows.Records[0]
+	if rec.NumEntries != 1 {
+		return 0, fmt.Errorf("failed to execute query: %s, returned %d != 1 columns", query, rec.NumEntries)
+	}
+
+	switch rec.Entries[0].Kind {
+	case qvalue.QValueKindInt32:
+		return int(rec.Entries[0].Value.(int32)), nil
+	case qvalue.QValueKindInt64:
+		return int(rec.Entries[0].Value.(int64)), nil
+	case qvalue.QValueKindNumeric:
+		// get big.Rat and convert to int
+		rat := rec.Entries[0].Value.(*big.Rat)
+		return int(rat.Num().Int64() / rat.Denom().Int64()), nil
+	default:
+		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec.Entries[0].Kind)
+	}
+}
+
+// runs a query that returns an int result
+func (s *SnowflakeTestHelper) checkSyncedAt(query string) error {
+	recordBatch, err := s.testClient.ExecuteAndProcessQuery(query)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range recordBatch.Records {
+		for _, entry := range record.Entries {
+			if entry.Kind != qvalue.QValueKindTimestamp {
+				return fmt.Errorf("synced_at column check failed: _PEERDB_SYNCED_AT is not timestamp")
+			}
+			_, ok := entry.Value.(time.Time)
+			if !ok {
+				return fmt.Errorf("synced_at column failed: _PEERDB_SYNCED_AT is not valid")
+			}
+		}
+	}
+
+	return nil
 }

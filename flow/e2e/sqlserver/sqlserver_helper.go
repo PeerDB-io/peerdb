@@ -10,7 +10,7 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SQLServerHelper struct {
@@ -23,7 +23,7 @@ type SQLServerHelper struct {
 }
 
 func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
-	port, err := strconv.Atoi(os.Getenv("SQLSERVER_PORT"))
+	port, err := strconv.ParseUint(os.Getenv("SQLSERVER_PORT"), 10, 16)
 	if err != nil {
 		return nil, fmt.Errorf("invalid SQLSERVER_PORT: %s", os.Getenv("SQLSERVER_PORT"))
 	}
@@ -41,12 +41,12 @@ func NewSQLServerHelper(name string) (*SQLServerHelper, error) {
 		return nil, err
 	}
 
-	testConn := connector.ConnectionActive()
-	if !testConn {
-		return nil, fmt.Errorf("invalid connection configs")
+	connErr := connector.ConnectionActive()
+	if connErr != nil {
+		return nil, fmt.Errorf("invalid connection configs: %v", connErr)
 	}
 
-	rndNum, err := util.RandomUInt64()
+	rndNum, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, err
 	}

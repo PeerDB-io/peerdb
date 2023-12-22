@@ -2,12 +2,13 @@ package partition_utils
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	log "github.com/sirupsen/logrus"
+
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -53,7 +54,7 @@ func compareValues(prevEnd interface{}, start interface{}) int {
 				return 0
 			}
 		}
-	case uint32: //xmin
+	case uint32: // xmin
 		if prevEnd.(uint32) < v {
 			return -1
 		} else if prevEnd.(uint32) > v {
@@ -146,7 +147,7 @@ func NewPartitionHelper() *PartitionHelper {
 }
 
 func (p *PartitionHelper) AddPartition(start interface{}, end interface{}) error {
-	log.Debugf("adding partition - start: %v, end: %v", start, end)
+	slog.Debug(fmt.Sprintf("adding partition - start: %v, end: %v", start, end))
 
 	// Skip partition if it's fully contained within the previous one
 	// If it's not fully contained but overlaps, adjust the start
@@ -156,8 +157,9 @@ func (p *PartitionHelper) AddPartition(start interface{}, end interface{}) error
 			// If end is also less than or equal to prevEnd, skip this partition
 			if compareValues(p.prevEnd, end) >= 0 {
 				// log the skipped partition
-				log.Debugf("skipping partition - start: %v, end: %v", start, end)
-				log.Debugf("fully contained within previous partition: start: %v, end: %v", p.prevStart, p.prevEnd)
+				slog.Debug(fmt.Sprintf("skipping partition - start: %v, end: %v", start, end))
+				slog.Debug(fmt.Sprintf("fully contained within previous partition: start: %v, end: %v",
+					p.prevStart, p.prevEnd))
 				return nil
 			}
 			// If end is greater than prevEnd, adjust the start

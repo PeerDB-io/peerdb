@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Context;
 use pt::{
-    flow_model::{FlowJob, FlowJobTableMapping, FlowSyncMode, QRepFlowJob},
+    flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
         peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
         S3Config, SnowflakeConfig, SqlServerConfig,
@@ -40,13 +40,13 @@ impl<'a> PeerExistanceAnalyzer<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub enum QueryAssocation {
+pub enum QueryAssociation {
     Peer(Box<Peer>),
     Catalog,
 }
 
 impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
-    type Output = QueryAssocation;
+    type Output = QueryAssociation;
 
     fn analyze(&self, statement: &Statement) -> anyhow::Result<Self::Output> {
         let mut peers_touched: HashSet<String> = HashSet::new();
@@ -57,18 +57,18 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
         visit_statements(statement, |stmt| {
             if let &Statement::Drop { names, .. } = &stmt {
                 for name in names {
-                    let peer_name = &name.0[0].value.to_lowercase();
-                    if self.peers.contains_key(peer_name) {
-                        peers_touched.insert(peer_name.into());
+                    let peer_name = name.0[0].value.to_lowercase();
+                    if self.peers.contains_key(&peer_name) {
+                        peers_touched.insert(peer_name);
                     }
                 }
             }
             ControlFlow::<()>::Continue(())
         });
         visit_relations(statement, |relation| {
-            let peer_name = &relation.0[0].value.to_lowercase();
-            if self.peers.contains_key(peer_name) {
-                peers_touched.insert(peer_name.into());
+            let peer_name = relation.0[0].value.to_lowercase();
+            if self.peers.contains_key(&peer_name) {
+                peers_touched.insert(peer_name);
             }
             ControlFlow::<()>::Continue(())
         });
@@ -78,9 +78,9 @@ impl<'a> StatementAnalyzer for PeerExistanceAnalyzer<'a> {
             anyhow::bail!("queries touching multiple peers are not supported")
         } else if let Some(peer_name) = peers_touched.iter().next() {
             let peer = self.peers.get(peer_name).unwrap();
-            Ok(QueryAssocation::Peer(Box::new(peer.clone())))
+            Ok(QueryAssociation::Peer(Box::new(peer.clone())))
         } else {
-            Ok(QueryAssocation::Catalog)
+            Ok(QueryAssociation::Catalog)
         }
     }
 }
@@ -123,6 +123,19 @@ pub enum PeerDDL {
         if_exists: bool,
         flow_job_name: String,
     },
+    ResyncMirror {
+        if_exists: bool,
+        mirror_name: String,
+        query_string: Option<String>,
+    },
+    PauseMirror {
+        if_exists: bool,
+        flow_job_name: String,
+    },
+    ResumeMirror {
+        if_exists: bool,
+        flow_job_name: String,
+    },
 }
 
 impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
@@ -137,7 +150,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                 with_options,
             } => {
                 let db_type = DbType::from(peer_type.clone());
-                let config = parse_db_options(self.peers, db_type, with_options.clone())?;
+                let config = parse_db_options(self.peers, db_type, with_options)?;
                 let peer = Peer {
                     name: peer_name.to_string().to_lowercase(),
                     r#type: db_type as i32,
@@ -162,13 +175,18 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                 destination_table_identifier: table_mapping.destination.to_string(),
                                 partition_key: table_mapping
                                     .partition_key
-                                    .clone()
+                                    .as_ref()
                                     .map(|s| s.to_string()),
+                                exclude: table_mapping
+                                    .exclude
+                                    .as_ref()
+                                    .map(|ss| ss.iter().map(|s| s.to_string()).collect())
+                                    .unwrap_or_default(),
                             });
                         }
 
                         // get do_initial_copy from with_options
-                        let mut raw_options = HashMap::new();
+                        let mut raw_options = HashMap::with_capacity(cdc.with_options.len());
                         for option in &cdc.with_options {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
@@ -230,28 +248,12 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             Some(sqlparser::ast::Value::Number(n, _)) => Some(n.parse::<u32>()?),
                             _ => None,
                         };
-                        let snapshot_sync_mode: Option<FlowSyncMode> =
-                            match raw_options.remove("snapshot_sync_mode") {
-                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
-                                    let s = s.to_lowercase();
-                                    FlowSyncMode::parse_string(&s).ok()
-                                }
-                                _ => None,
-                            };
                         let snapshot_staging_path = match raw_options
                             .remove("snapshot_staging_path")
                         {
                             Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
-                            _ => None,
+                            _ => Some("".to_string()),
                         };
-                        let cdc_sync_mode: Option<FlowSyncMode> =
-                            match raw_options.remove("cdc_sync_mode") {
-                                Some(sqlparser::ast::Value::SingleQuotedString(s)) => {
-                                    let s = s.to_lowercase();
-                                    FlowSyncMode::parse_string(&s).ok()
-                                }
-                                _ => None,
-                            };
 
                         let snapshot_max_parallel_workers: Option<u32> = match raw_options
                             .remove("snapshot_max_parallel_workers")
@@ -262,7 +264,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
 
                         let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
                             Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
-                            _ => None,
+                            _ => Some("".to_string()),
                         };
 
                         let soft_delete = match raw_options.remove("soft_delete") {
@@ -290,6 +292,20 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             _ => None,
                         };
 
+                        let soft_delete_col_name: Option<String> = match raw_options
+                            .remove("soft_delete_col_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
+                        let synced_at_col_name: Option<String> = match raw_options
+                            .remove("synced_at_col_name")
+                        {
+                            Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                            _ => None,
+                        };
+
                         let flow_job = FlowJob {
                             name: cdc.mirror_name.to_string().to_lowercase(),
                             source_peer: cdc.source_peer.to_string().to_lowercase(),
@@ -301,9 +317,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             snapshot_num_rows_per_partition,
                             snapshot_max_parallel_workers,
                             snapshot_num_tables_in_parallel,
-                            snapshot_sync_mode,
                             snapshot_staging_path,
-                            cdc_sync_mode,
                             cdc_staging_path,
                             soft_delete,
                             replication_slot_name,
@@ -311,16 +325,9 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             push_parallelism,
                             max_batch_size,
                             resync,
+                            soft_delete_col_name,
+                            synced_at_col_name,
                         };
-
-                        // Error reporting
-                        if Some(FlowSyncMode::Avro) == flow_job.snapshot_sync_mode
-                            && flow_job.snapshot_staging_path.is_none()
-                        {
-                            return Err(anyhow::anyhow!(
-                                "snapshot_staging_path must be set for AVRO snapshot mode."
-                            ));
-                        }
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC {
                             if_not_exists: *if_not_exists,
@@ -328,7 +335,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                         }))
                     }
                     Select(select) => {
-                        let mut raw_options = HashMap::new();
+                        let mut raw_options = HashMap::with_capacity(select.with_options.len());
                         for option in &select.with_options {
                             raw_options.insert(&option.name.value as &str, &option.value);
                         }
@@ -377,6 +384,41 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
             } => Ok(Some(PeerDDL::DropPeer {
                 if_exists: *if_exists,
                 peer_name: peer_name.to_string().to_lowercase(),
+            })),
+            Statement::ResyncMirror {
+                if_exists,
+                mirror_name,
+                with_options,
+            } => {
+                let mut raw_options = HashMap::with_capacity(with_options.len());
+                for option in with_options {
+                    raw_options.insert(&option.name.value as &str, &option.value);
+                }
+
+                let query_string = match raw_options.remove("query_string") {
+                    Some(sqlparser::ast::Value::SingleQuotedString(s)) => Some(s.clone()),
+                    _ => None,
+                };
+
+                Ok(Some(PeerDDL::ResyncMirror {
+                    if_exists: *if_exists,
+                    mirror_name: mirror_name.to_string().to_lowercase(),
+                    query_string,
+                }))
+            }
+            Statement::PauseMirror {
+                if_exists,
+                mirror_name,
+            } => Ok(Some(PeerDDL::PauseMirror {
+                if_exists: *if_exists,
+                flow_job_name: mirror_name.to_string().to_lowercase(),
+            })),
+            Statement::ResumeMirror {
+                if_exists,
+                mirror_name,
+            } => Ok(Some(PeerDDL::ResumeMirror {
+                if_exists: *if_exists,
+                flow_job_name: mirror_name.to_string().to_lowercase(),
             })),
             _ => Ok(None),
         }
@@ -440,61 +482,78 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
 fn parse_db_options(
     peers: &HashMap<String, Peer>,
     db_type: DbType,
-    with_options: Vec<SqlOption>,
+    with_options: &[SqlOption],
 ) -> anyhow::Result<Option<Config>> {
-    let mut opts: HashMap<String, String> = HashMap::new();
+    let mut opts: HashMap<&str, &str> = HashMap::with_capacity(with_options.len());
     for opt in with_options {
-        let key = opt.name.value;
         let val = match opt.value {
-            sqlparser::ast::Value::SingleQuotedString(str) => str,
-            sqlparser::ast::Value::Number(v, _) => v,
-            sqlparser::ast::Value::Boolean(v) => v.to_string(),
+            sqlparser::ast::Value::SingleQuotedString(ref str) => str,
+            sqlparser::ast::Value::Number(ref v, _) => v,
+            sqlparser::ast::Value::Boolean(v) => {
+                if v {
+                    "true"
+                } else {
+                    "false"
+                }
+            }
             _ => panic!("invalid option type for peer"),
         };
-        opts.insert(key, val);
+        opts.insert(&opt.name.value, val);
     }
 
     let config = match db_type {
         DbType::Bigquery => {
             let pem_str = opts
-                .remove("private_key")
+                .get("private_key")
                 .ok_or_else(|| anyhow::anyhow!("missing private_key option for bigquery"))?;
             pem::parse(pem_str.as_bytes())
                 .map_err(|err| anyhow::anyhow!("unable to parse private_key: {:?}", err))?;
             let bq_config = BigqueryConfig {
                 auth_type: opts
-                    .remove("type")
-                    .ok_or_else(|| anyhow::anyhow!("missing type option for bigquery"))?,
+                    .get("type")
+                    .ok_or_else(|| anyhow::anyhow!("missing type option for bigquery"))?
+                    .to_string(),
                 project_id: opts
-                    .remove("project_id")
-                    .ok_or_else(|| anyhow::anyhow!("missing project_id in peer options"))?,
+                    .get("project_id")
+                    .ok_or_else(|| anyhow::anyhow!("missing project_id in peer options"))?
+                    .to_string(),
                 private_key_id: opts
-                    .remove("private_key_id")
-                    .ok_or_else(|| anyhow::anyhow!("missing private_key_id option for bigquery"))?,
-                private_key: pem_str,
+                    .get("private_key_id")
+                    .ok_or_else(|| anyhow::anyhow!("missing private_key_id option for bigquery"))?
+                    .to_string(),
+                private_key: pem_str.to_string(),
                 client_email: opts
-                    .remove("client_email")
-                    .ok_or_else(|| anyhow::anyhow!("missing client_email option for bigquery"))?,
+                    .get("client_email")
+                    .ok_or_else(|| anyhow::anyhow!("missing client_email option for bigquery"))?
+                    .to_string(),
                 client_id: opts
-                    .remove("client_id")
-                    .ok_or_else(|| anyhow::anyhow!("missing client_id option for bigquery"))?,
+                    .get("client_id")
+                    .ok_or_else(|| anyhow::anyhow!("missing client_id option for bigquery"))?
+                    .to_string(),
                 auth_uri: opts
-                    .remove("auth_uri")
-                    .ok_or_else(|| anyhow::anyhow!("missing auth_uri option for bigquery"))?,
+                    .get("auth_uri")
+                    .ok_or_else(|| anyhow::anyhow!("missing auth_uri option for bigquery"))?
+                    .to_string(),
                 token_uri: opts
-                    .remove("token_uri")
-                    .ok_or_else(|| anyhow::anyhow!("missing token_uri option for bigquery"))?,
+                    .get("token_uri")
+                    .ok_or_else(|| anyhow::anyhow!("missing token_uri option for bigquery"))?
+                    .to_string(),
                 auth_provider_x509_cert_url: opts
-                    .remove("auth_provider_x509_cert_url")
+                    .get("auth_provider_x509_cert_url")
                     .ok_or_else(|| {
                         anyhow::anyhow!("missing auth_provider_x509_cert_url option for bigquery")
-                    })?,
-                client_x509_cert_url: opts.remove("client_x509_cert_url").ok_or_else(|| {
-                    anyhow::anyhow!("missing client_x509_cert_url option for bigquery")
-                })?,
+                    })?
+                    .to_string(),
+                client_x509_cert_url: opts
+                    .get("client_x509_cert_url")
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("missing client_x509_cert_url option for bigquery")
+                    })?
+                    .to_string(),
                 dataset_id: opts
-                    .remove("dataset_id")
-                    .ok_or_else(|| anyhow::anyhow!("missing dataset_id in peer options"))?,
+                    .get("dataset_id")
+                    .ok_or_else(|| anyhow::anyhow!("missing dataset_id in peer options"))?
+                    .to_string(),
             };
             let config = Config::BigqueryConfig(bq_config);
             Some(config)
@@ -533,6 +592,7 @@ fn parse_db_options(
                     .parse::<u64>()
                     .context("unable to parse query_timeout")?,
                 password: opts.get("password").map(|s| s.to_string()),
+                metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
             let config = Config::SnowflakeConfig(snowflake_config);
@@ -585,7 +645,9 @@ fn parse_db_options(
                     .get("database")
                     .context("no default database specified")?
                     .to_string(),
+                metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 transaction_snapshot: "".to_string(),
+                ssh_config: None,
             };
             let config = Config::PostgresConfig(postgres_config);
             Some(config)
@@ -703,23 +765,18 @@ fn parse_db_options(
                 })
                 .unwrap_or_default();
 
-            let keys_to_ignore: HashSet<String> = vec!["metadata_db", "unnest_columns"]
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect();
-
             let mut eventhubs: HashMap<String, EventHubConfig> = HashMap::new();
             for (key, _) in opts {
-                if keys_to_ignore.contains(&key) {
+                if matches!(key, "metadata_db" | "unnest_columns") {
                     continue;
                 }
 
                 // check if peers contains key and if it does
                 // then add it to the eventhubs hashmap, if not error
-                if let Some(peer) = peers.get(&key) {
-                    let eventhub_config = peer.config.clone().unwrap();
+                if let Some(peer) = peers.get(key) {
+                    let eventhub_config = peer.config.as_ref().unwrap();
                     if let Config::EventhubConfig(eventhub_config) = eventhub_config {
-                        eventhubs.insert(key.to_string(), eventhub_config);
+                        eventhubs.insert(key.to_string(), eventhub_config.clone());
                     } else {
                         anyhow::bail!("Peer '{}' is not an eventhub", key);
                     }

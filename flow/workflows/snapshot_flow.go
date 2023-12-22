@@ -2,7 +2,9 @@ package peerflow
 
 import (
 	"fmt"
+	"log/slog"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/concurrency"
@@ -10,10 +12,11 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
-	logrus "github.com/sirupsen/logrus"
+
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"golang.org/x/exp/maps"
 )
 
 type SnapshotFlowExecution struct {
@@ -86,6 +89,10 @@ func (s *SnapshotFlowExecution) cloneTable(
 	mapping *protos.TableMapping,
 ) error {
 	flowName := s.config.FlowJobName
+	cloneLog := slog.Group("clone-log",
+		slog.String(string(shared.FlowNameKey), flowName),
+		slog.String("snapshotName", snapshotName))
+
 	srcName := mapping.SourceTableIdentifier
 	dstName := mapping.DestinationTableIdentifier
 	childWorkflowIDSideEffect := workflow.SideEffect(childCtx, func(ctx workflow.Context) interface{} {
@@ -96,30 +103,24 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	var childWorkflowID string
 	if err := childWorkflowIDSideEffect.Get(&childWorkflowID); err != nil {
-		logrus.WithFields(logrus.Fields{
-			"flowName":     flowName,
-			"snapshotName": snapshotName,
-		}).Errorf("failed to get child id for source table %s and destination table %s",
-			srcName, dstName)
+		slog.Error(fmt.Sprintf("failed to get child id for source table %s and destination table %s",
+			srcName, dstName), slog.Any("error", err), cloneLog)
 		return fmt.Errorf("failed to get child workflow ID: %w", err)
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"flowName":     flowName,
-		"snapshotName": snapshotName,
-	}).Infof("Obtained child id %s for source table %s and destination table %s",
-		childWorkflowID, srcName, dstName)
+	slog.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
+		childWorkflowID, srcName, dstName), cloneLog)
+
+	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
+	if queueErr != nil {
+		return queueErr
+	}
 
 	childCtx = workflow.WithChildOptions(childCtx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
-		TaskQueue:           shared.PeerFlowTaskQueue,
+		TaskQueue:           taskQueue,
 	})
-
-	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-applicable-partition",
-		Range:       nil,
-	}
 
 	// we know that the source is postgres as setup replication output is non-nil
 	// only for postgres
@@ -133,14 +134,25 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"flowName":     flowName,
-			"snapshotName": snapshotName,
-		}).Errorf("unable to parse source table")
+		slog.Error("unable to parse source table", slog.Any("error", err), cloneLog)
 		return fmt.Errorf("unable to parse source table: %w", err)
 	}
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-		parsedSrcTable.String(), partitionCol)
+	from := "*"
+	if len(mapping.Exclude) != 0 {
+		for _, v := range s.config.TableNameSchemaMapping {
+			if v.TableIdentifier == srcName {
+				cols := maps.Keys(v.Columns)
+				for i, col := range cols {
+					cols[i] = fmt.Sprintf(`"%s"`, col)
+				}
+				from = strings.Join(cols, ",")
+				break
+			}
+		}
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+		from, parsedSrcTable.String(), partitionCol)
 
 	numWorkers := uint32(8)
 	if s.config.SnapshotMaxParallelWorkers > 0 {
@@ -162,41 +174,38 @@ func (s *SnapshotFlowExecution) cloneTable(
 		InitialCopyOnly:            true,
 		DestinationTableIdentifier: dstName,
 		NumRowsPerPartition:        numRowsPerPartition,
-		SyncMode:                   s.config.SnapshotSyncMode,
 		MaxParallelWorkers:         numWorkers,
 		StagingPath:                s.config.SnapshotStagingPath,
+		SyncedAtColName:            s.config.SyncedAtColName,
+		SoftDeleteColName:          s.config.SoftDeleteColName,
 		WriteMode: &protos.QRepWriteMode{
 			WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 		},
 	}
 
-	numPartitionsProcessed := 0
-
-	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, config, lastPartition, numPartitionsProcessed)
+	state := NewQRepFlowState()
+	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, config, state)
 	return nil
 }
 
-// startChildQrepWorkflow starts a child workflow for query based replication.
 func (s *SnapshotFlowExecution) cloneTables(
 	ctx workflow.Context,
 	slotInfo *protos.SetupReplicationOutput,
 	maxParallelClones int,
 ) {
-	logrus.Infof("cloning tables for slot name %s and snapshotName %s",
-		slotInfo.SlotName, slotInfo.SnapshotName)
+	slog.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
+		slotInfo.SlotName, slotInfo.SnapshotName))
 
-	numTables := len(s.config.TableMappings)
-	boundSelector := concurrency.NewBoundSelector(maxParallelClones, numTables, ctx)
+	boundSelector := concurrency.NewBoundSelector(maxParallelClones, ctx)
 
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
 		destination := v.DestinationTableIdentifier
 		snapshotName := slotInfo.SnapshotName
-		logrus.WithFields(logrus.Fields{
-			"snapshotName": snapshotName,
-		}).Infof(
+		slog.Info(fmt.Sprintf(
 			"Cloning table with source table %s and destination table name %s",
-			source, destination,
+			source, destination),
+			slog.String("snapshotName", snapshotName),
 		)
 		err := s.cloneTable(boundSelector, ctx, snapshotName, v)
 		if err != nil {
@@ -221,8 +230,8 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		logger: logger,
 	}
 
-	var replCtx = ctx
-
+	replCtx := ctx
+	replCtx = workflow.WithValue(replCtx, shared.FlowNameKey, config.FlowJobName)
 	if config.DoInitialCopy {
 		sessionOpts := &workflow.SessionOptions{
 			CreationTimeout:  5 * time.Minute,

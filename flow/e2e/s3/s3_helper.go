@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -90,7 +90,6 @@ func (h *S3TestHelper) ListAllFiles(
 	ctx context.Context,
 	jobName string,
 ) ([]*s3.Object, error) {
-
 	Bucket := h.bucketName
 	Prefix := fmt.Sprintf("%s/%s/", h.prefix, jobName)
 	files, err := h.client.ListObjects(&s3.ListObjectsInput{
@@ -98,10 +97,10 @@ func (h *S3TestHelper) ListAllFiles(
 		Prefix: &Prefix,
 	})
 	if err != nil {
-		log.Errorf("failed to list bucket files: %v", err)
+		slog.Error("failed to list bucket files", slog.Any("error", err))
 		return nil, err
 	}
-	log.Infof("Files in ListAllFiles in S3 test: %v", files)
+	slog.Info(fmt.Sprintf("Files in ListAllFiles in S3 test: %v", files))
 	return files.Contents, nil
 }
 
@@ -114,7 +113,7 @@ func (h *S3TestHelper) CleanUp() error {
 		Prefix: &Prefix,
 	})
 	if err != nil {
-		log.Errorf("failed to list bucket files: %v", err)
+		slog.Error("failed to list bucket files", slog.Any("error", err))
 		return err
 	}
 
@@ -131,6 +130,6 @@ func (h *S3TestHelper) CleanUp() error {
 		}
 	}
 
-	log.Infof("Deletion completed.")
+	slog.Info("Deletion completed.")
 	return nil
 }

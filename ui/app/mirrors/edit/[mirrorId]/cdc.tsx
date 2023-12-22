@@ -1,12 +1,13 @@
 'use client';
 
+import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
+import TimeLabel from '@/components/TimeComponent';
 import {
   CDCMirrorStatus,
   QRepMirrorStatus,
   SnapshotStatus,
 } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
-import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
@@ -14,10 +15,11 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import * as Tabs from '@radix-ui/react-tabs';
 import moment, { Duration, Moment } from 'moment';
-import { useQueryState } from 'next-usequerystate';
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import ReactSelect from 'react-select';
 import styled from 'styled-components';
-import CDCDetails from './cdcDetails';
+import CdcDetails from './cdcDetails';
 
 class TableCloneSummary {
   flowJobName: string;
@@ -94,77 +96,179 @@ function summarizeTableClone(clone: QRepMirrorStatus): TableCloneSummary {
 type SnapshotStatusProps = {
   status: SnapshotStatus;
 };
-const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => (
-  <Table
-    title={<Label variant='headline'>Initial Copy</Label>}
-    toolbar={{
-      left: (
-        <>
-          <Button variant='normalBorderless'>
-            <Icon name='chevron_left' />
-          </Button>
-          <Button variant='normalBorderless'>
-            <Icon name='chevron_right' />
-          </Button>
-          <Button
-            variant='normalBorderless'
-            onClick={() => window.location.reload()}
-          >
-            <Icon name='refresh' />
-          </Button>
-        </>
-      ),
-      right: <SearchField placeholder='Search' />,
-    }}
-    header={
-      <TableRow>
-        <TableCell as='th' variant='button'>
-          <Checkbox variant='mixed' defaultChecked />
-        </TableCell>
-        <TableCell as='th'>Table Identifier</TableCell>
-        <TableCell as='th'>Start Time</TableCell>
-        <TableCell as='th'>Progress Partitions</TableCell>
-        <TableCell as='th'>Num Rows Synced</TableCell>
-        <TableCell as='th'>Avg Time Per Partition</TableCell>
-      </TableRow>
-    }
-  >
-    {status.clones.map(summarizeTableClone).map((clone, index) => (
-      <TableRow key={index}>
-        <TableCell variant='button'>
-          <Checkbox />
-        </TableCell>
-        <TableCell>
-          <Label>
-            <Link
-              href={`/mirrors/status/qrep/${clone.flowJobName}`}
-              className='underline cursor-pointer'
-            >
-              {clone.tableName}
-            </Link>
-          </Label>
-        </TableCell>
-        <TableCell>
-          <Label>{clone.cloneStartTime?.format('YYYY-MM-DD HH:mm:ss')}</Label>
-        </TableCell>
-        <TableCell>
-          <ProgressBar progress={clone.getPartitionProgressPercentage()} />
-          {clone.completedNumPartitions} / {clone.totalNumPartitions}
-        </TableCell>
-        <TableCell>{clone.completedNumRows}</TableCell>
-        <TableCell>
-          <Label>
-            {clone.avgTimePerPartition?.humanize({ ss: 1 }) || 'N/A'}
-          </Label>
-        </TableCell>
-      </TableRow>
-    ))}
-  </Table>
-);
 
-const Trigger = styled(({ isActive, ...props }) => (
-  <Tabs.Trigger {...props} />
-))<{ isActive?: boolean }>`
+const ROWS_PER_PAGE = 5;
+export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
+  const [sortField, setSortField] = useState<
+    'cloneStartTime' | 'avgTimePerPartition'
+  >('cloneStartTime');
+  const allRows = status.clones.map(summarizeTableClone);
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.ceil(allRows.length / ROWS_PER_PAGE);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
+  const displayedRows = useMemo(() => {
+    const shownRows = allRows.filter((row: any) =>
+      row.tableName.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    shownRows.sort((a, b) => {
+      const aValue = a[sortField];
+      const bValue = b[sortField];
+      if (aValue === null || bValue === null) {
+        return 0;
+      }
+
+      if (aValue < bValue) {
+        return sortDir === 'dsc' ? 1 : -1;
+      } else if (aValue > bValue) {
+        return sortDir === 'dsc' ? -1 : 1;
+      } else {
+        return 0;
+      }
+    });
+
+    const startRow = (currentPage - 1) * ROWS_PER_PAGE;
+    const endRow = startRow + ROWS_PER_PAGE;
+    return shownRows.length > ROWS_PER_PAGE
+      ? shownRows.slice(startRow, endRow)
+      : shownRows;
+  }, [allRows, currentPage, searchQuery, sortField, sortDir]);
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const sortOptions = [
+    { value: 'cloneStartTime', label: 'Start Time' },
+    { value: 'avgTimePerPartition', label: 'Time Per Partition' },
+  ];
+  return (
+    <div style={{ marginTop: '2rem' }}>
+      <Table
+        title={<Label variant='headline'>Initial Copy</Label>}
+        toolbar={{
+          left: (
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Button variant='normalBorderless' onClick={handlePrevPage}>
+                <Icon name='chevron_left' />
+              </Button>
+              <Button variant='normalBorderless' onClick={handleNextPage}>
+                <Icon name='chevron_right' />
+              </Button>
+              <Label>{`${currentPage} of ${totalPages}`}</Label>
+              <Button
+                variant='normalBorderless'
+                onClick={() => window.location.reload()}
+              >
+                <Icon name='refresh' />
+              </Button>
+              <div style={{ minWidth: '10em' }}>
+                <ReactSelect
+                  options={sortOptions}
+                  onChange={(val, _) => {
+                    const sortVal =
+                      (val?.value as
+                        | 'cloneStartTime'
+                        | 'avgTimePerPartition') ?? 'cloneStartTime';
+                    setSortField(sortVal);
+                  }}
+                  value={{
+                    value: sortField,
+                    label: sortOptions.find((opt) => opt.value === sortField)
+                      ?.label,
+                  }}
+                  defaultValue={{
+                    value: 'cloneStartTime',
+                    label: 'Start Time',
+                  }}
+                />
+              </div>
+              <button
+                className='IconButton'
+                onClick={() => setSortDir('asc')}
+                aria-label='sort up'
+                style={{ color: sortDir == 'asc' ? 'green' : 'gray' }}
+              >
+                <Icon name='arrow_upward' />
+              </button>
+              <button
+                className='IconButton'
+                onClick={() => setSortDir('dsc')}
+                aria-label='sort down'
+                style={{ color: sortDir == 'dsc' ? 'green' : 'gray' }}
+              >
+                <Icon name='arrow_downward' />
+              </button>
+            </div>
+          ),
+          right: (
+            <SearchField
+              placeholder='Search by table name'
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setSearchQuery(e.target.value)
+              }
+            />
+          ),
+        }}
+        header={
+          <TableRow>
+            <TableCell as='th'>Table Identifier</TableCell>
+            <TableCell as='th'>Start Time</TableCell>
+            <TableCell as='th'>Progress Partitions</TableCell>
+            <TableCell as='th'>Num Rows Synced</TableCell>
+            <TableCell as='th'>Avg Time Per Partition</TableCell>
+          </TableRow>
+        }
+      >
+        {displayedRows.map((clone, index) => (
+          <TableRow key={index}>
+            <TableCell>
+              <Label>
+                <Link
+                  href={`/mirrors/status/qrep/${clone.flowJobName}`}
+                  className='underline cursor-pointer'
+                >
+                  {clone.tableName}
+                </Link>
+              </Label>
+            </TableCell>
+            <TableCell>
+              <TimeLabel
+                timeVal={
+                  clone.cloneStartTime?.format('YYYY-MM-DD HH:mm:ss') || 'N/A'
+                }
+              />
+            </TableCell>
+            <TableCell>
+              <ProgressBar progress={clone.getPartitionProgressPercentage()} />
+              {clone.completedNumPartitions} / {clone.totalNumPartitions}
+            </TableCell>
+            <TableCell>{clone.completedNumRows}</TableCell>
+            <TableCell>
+              <Label>
+                {clone.avgTimePerPartition?.humanize({ ss: 1 }) || 'N/A'}
+              </Label>
+            </TableCell>
+          </TableRow>
+        ))}
+      </Table>
+    </div>
+  );
+};
+
+const Trigger = styled(
+  ({ isActive, ...props }: { isActive?: boolean } & Tabs.TabsTriggerProps) => (
+    <Tabs.Trigger {...props} />
+  )
+)<{ isActive?: boolean }>`
   background-color: ${({ theme, isActive }) =>
     isActive ? theme.colors.accent.surface.selected : 'white'};
 
@@ -177,24 +281,39 @@ const Trigger = styled(({ isActive, ...props }) => (
 
 type CDCMirrorStatusProps = {
   cdc: CDCMirrorStatus;
+  rows: SyncStatusRow[];
+  createdAt?: Date;
   syncStatusChild?: React.ReactNode;
 };
-export function CDCMirror({ cdc, syncStatusChild }: CDCMirrorStatusProps) {
-  const [selectedTab, setSelectedTab] = useQueryState('tab', {
-    history: 'push',
-    defaultValue: 'tab1',
-  });
+export function CDCMirror({
+  cdc,
+  rows,
+  createdAt,
+  syncStatusChild,
+}: CDCMirrorStatusProps) {
+  const [selectedTab, setSelectedTab] = useState('');
 
   let snapshot = <></>;
   if (cdc.snapshotStatus) {
     snapshot = <SnapshotStatusTable status={cdc.snapshotStatus} />;
   }
 
+  const handleTab = (tabVal: string) => {
+    localStorage.setItem('mirrortab', tabVal);
+    setSelectedTab(tabVal);
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setSelectedTab(localStorage?.getItem('mirrortab') || 'tab1');
+    }
+  }, []);
+
   return (
     <Tabs.Root
       className='flex flex-col w-full'
-      defaultValue={selectedTab}
-      onValueChange={setSelectedTab}
+      value={selectedTab}
+      onValueChange={(val) => handleTab(val)}
       style={{ marginTop: '2rem' }}
     >
       <Tabs.List className='flex border-b' aria-label='Details'>
@@ -203,7 +322,7 @@ export function CDCMirror({ cdc, syncStatusChild }: CDCMirrorStatusProps) {
           className='flex-1 px-5 h-[45px] flex items-center justify-center text-sm focus:shadow-outline focus:outline-none'
           value='tab1'
         >
-          Details
+          Overview
         </Trigger>
         <Trigger
           isActive={selectedTab === 'tab2'}
@@ -221,7 +340,11 @@ export function CDCMirror({ cdc, syncStatusChild }: CDCMirrorStatusProps) {
         </Trigger>
       </Tabs.List>
       <Tabs.Content className='p-5 rounded-b-md' value='tab1'>
-        <CDCDetails config={cdc.config} />
+        <CdcDetails
+          syncs={rows}
+          createdAt={createdAt}
+          mirrorConfig={cdc.config}
+        />
       </Tabs.Content>
       <Tabs.Content className='p-5 rounded-b-md' value='tab2'>
         {syncStatusChild}

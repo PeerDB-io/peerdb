@@ -2,12 +2,14 @@ package conns3
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	log "github.com/sirupsen/logrus"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (c *S3Connector) SyncQRepRecords(
@@ -17,10 +19,9 @@ func (c *S3Connector) SyncQRepRecords(
 ) (int, error) {
 	schema, err := stream.Schema()
 	if err != nil {
-		log.WithFields(log.Fields{
-			"flowName":    config.FlowJobName,
-			"partitionID": partition.PartitionId,
-		}).Errorf("failed to get schema from stream: %v", err)
+		c.logger.Error("failed to get schema from stream",
+			slog.Any("error", err),
+			slog.String(string(shared.PartitionIDKey), partition.PartitionId))
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
@@ -62,17 +63,18 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
-	writer := avro.NewPeerDBOCFWriter(c.ctx, stream, avroSchema)
-	numRecords, err := writer.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, c.creds)
+	writer := avro.NewPeerDBOCFWriter(c.ctx, stream, avroSchema, avro.CompressNone, qvalue.QDWHTypeSnowflake)
+	avroFile, err := writer.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, c.creds)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}
+	defer avroFile.Cleanup()
 
-	return numRecords, nil
+	return avroFile.NumRecords, nil
 }
 
 // S3 just sets up destination, not metadata tables
 func (c *S3Connector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	log.Infof("QRep metadata setup not needed for S3.")
+	c.logger.Info("QRep metadata setup not needed for S3.")
 	return nil
 }

@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use pt::peerdb_peers::PostgresConfig;
@@ -10,15 +11,9 @@ pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
         connection_string.push(':');
         connection_string.push_str(&urlencoding::encode(&config.password));
     }
-    connection_string.push('@');
-    connection_string.push_str(&config.host);
-    connection_string.push(':');
-    connection_string.push_str(&config.port.to_string());
-    connection_string.push('/');
-    connection_string.push_str(&config.database);
 
     // Add the timeout as a query parameter, sslmode changes here appear to be useless
-    connection_string.push_str("?connect_timeout=15");
+    write!(connection_string, "@{}:{}/{}?connect_timeout=15", config.host, config.port, config.database).ok();
 
     connection_string
 }

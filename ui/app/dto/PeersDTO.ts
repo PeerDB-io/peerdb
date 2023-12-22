@@ -1,4 +1,9 @@
-import { PostgresConfig, SnowflakeConfig } from '@/grpc_generated/peers';
+import {
+  BigqueryConfig,
+  PostgresConfig,
+  S3Config,
+  SnowflakeConfig,
+} from '@/grpc_generated/peers';
 
 export type UValidatePeerResponse = {
   valid: boolean;
@@ -27,10 +32,15 @@ export type UDropPeerResponse = {
   errorMessage: string;
 };
 
-export type PeerConfig = PostgresConfig | SnowflakeConfig;
+export type PeerConfig =
+  | PostgresConfig
+  | SnowflakeConfig
+  | BigqueryConfig
+  | S3Config;
 export type CatalogPeer = {
   id: number;
   name: string;
   type: number;
   options: Buffer;
 };
+export type PeerSetter = React.Dispatch<React.SetStateAction<PeerConfig>>;

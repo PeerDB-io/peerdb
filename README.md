@@ -13,13 +13,9 @@
 
 ## PeerDB
 
-PeerDB is a Postgres-first data-movement platform that makes moving data in and out of Postgres fast and simple. It enables you to **sync**, **transform** and **query** data across your stores using simple SQL commands. We implement multiple Postgres native and infrastructural optimizations for 10x faster data-movement in and out of PostgreSQL.
+At PeerDB, we are building a fast, simple and the most cost effective way to stream data from Postgres to Data Warehouses, Queues and Storage engines. If you are running Postgres at the heart of your data-stack and move data at scale from Postgres to any of the above targets, PeerDB can provide value.
 
-You can use PeerDB for any of the below use-cases:
-
-1. Real-time Change Data Capture from PostgreSQL.
-2. Real-time Streaming of Query results across data-stores
-3. Federated query workloads - Query multiple data-stores through a common SQL interface
+We support different modes of streaming - log based (CDC), cursor based (timestamp or integer) and XMIN based. Performance wise, we are 10x faster than existing tools. Features wise, we support native Postgres features such as comprehensive set of data-types incl. jsonb/arrays/geospatial, efficiently streaming toast columns, schema changes and so on.
 
 ## Get started
 
@@ -32,7 +28,7 @@ bash ./run-peerdb.sh
 # OR for local development, images will be built locally:
 bash ./dev-peerdb.sh
 
-# connect to peerdb and query away (Use psql version >=14.0, <16.0)
+# connect to peerdb and query away (Use psql version >=14.0)
 psql "port=9900 host=localhost password=peerdb"
 ```
 
@@ -70,16 +66,6 @@ You can use Postgres’ eco-system to manage your ETL —
 
 We support multiple target connectors to move data from Postgres and a couple of source connectors to move data into Postgres. Check the status of connectors [here](https://docs.peerdb.io/sql/commands/supported-connectors)
 
-#### Metrics for MIRROR
-
-Both types of MIRRORs export some crucial metrics with regards to the health of the MIRROR. By default, our development Docker stack does not capture or visualize these metrics. They are available in a Docker Compose profile called `metrics`, which can be enabled by:
-
-```bash
-# add --profile metrics like this in front of any docker compose command being used.
-docker compose --profile metrics up --build
-```
-
-This sets up both a Prometheus instance on port 9090 that scrapes the metrics from the flow workers, and also a Grafana instance on port 3000 that reads and visualizes the metrics from mirrors in a preconfigured dashboard. To view the dashboard, access the Grafana instance on `localhost:3000` with the user `admin` and the password `peerdb`.
 
 ## License
 

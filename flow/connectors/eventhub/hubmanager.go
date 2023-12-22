@@ -2,9 +2,12 @@ package conneventhub
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
@@ -12,7 +15,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	cmap "github.com/orcaman/concurrent-map/v2"
-	log "github.com/sirupsen/logrus"
 )
 
 type EventHubManager struct {
@@ -24,7 +26,6 @@ type EventHubManager struct {
 }
 
 func NewEventHubManager(
-	ctx context.Context,
 	creds *azidentity.DefaultAzureCredential,
 	groupConfig *protos.EventHubGroupConfig,
 ) *EventHubManager {
@@ -40,7 +41,9 @@ func NewEventHubManager(
 	}
 }
 
-func (m *EventHubManager) GetOrCreateHubClient(name ScopedEventhub) (*azeventhubs.ProducerClient, error) {
+func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
+	*azeventhubs.ProducerClient, error,
+) {
 	ehConfig, ok := m.peerConfig.Get(name.PeerName)
 	if !ok {
 		return nil, fmt.Errorf("eventhub '%s' not configured", name)
@@ -53,9 +56,33 @@ func (m *EventHubManager) GetOrCreateHubClient(name ScopedEventhub) (*azeventhub
 		namespace = fmt.Sprintf("%s.servicebus.windows.net", namespace)
 	}
 
-	hub, ok := m.hubs.Load(name)
-	if !ok {
-		opts := &azeventhubs.ProducerClientOptions{}
+	var hubConnectOK bool
+	var hub any
+	hub, hubConnectOK = m.hubs.Load(name)
+	if hubConnectOK {
+		hubTmp := hub.(*azeventhubs.ProducerClient)
+		_, err := hubTmp.GetEventHubProperties(ctx, nil)
+		if err != nil {
+			slog.Info(fmt.Sprintf("eventhub %s", name)+
+				"not reachable. Will re-establish connection and re-create it.",
+				slog.Any("error", err))
+			closeError := m.closeProducerClient(ctx, hubTmp)
+			if closeError != nil {
+				slog.Error("failed to close producer client", slog.Any("error", closeError))
+			}
+			m.hubs.Delete(name)
+			hubConnectOK = false
+		}
+	}
+
+	if !hubConnectOK {
+		opts := &azeventhubs.ProducerClientOptions{
+			RetryOptions: azeventhubs.RetryOptions{
+				MaxRetries:    32,
+				RetryDelay:    2 * time.Second,
+				MaxRetryDelay: 16 * time.Second,
+			},
+		}
 		hub, err := azeventhubs.NewProducerClient(namespace, name.Eventhub, m.creds, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create eventhub client: %v", err)
@@ -67,8 +94,34 @@ func (m *EventHubManager) GetOrCreateHubClient(name ScopedEventhub) (*azeventhub
 	return hub.(*azeventhubs.ProducerClient), nil
 }
 
-func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (*azeventhubs.EventDataBatch, error) {
-	hub, err := m.GetOrCreateHubClient(name)
+func (m *EventHubManager) closeProducerClient(ctx context.Context, pc *azeventhubs.ProducerClient) error {
+	if pc != nil {
+		return pc.Close(ctx)
+	}
+	return nil
+}
+
+func (m *EventHubManager) Close(ctx context.Context) error {
+	var allErrors error
+
+	m.hubs.Range(func(key any, value any) bool {
+		name := key.(ScopedEventhub)
+		hub := value.(*azeventhubs.ProducerClient)
+		err := m.closeProducerClient(ctx, hub)
+		if err != nil {
+			slog.Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
+			allErrors = errors.Join(allErrors, err)
+		}
+		return true
+	})
+
+	return allErrors
+}
+
+func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (
+	*azeventhubs.EventDataBatch, error,
+) {
+	hub, err := m.GetOrCreateHubClient(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -111,13 +164,13 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 		_, err := hubClient.CreateOrUpdate(ctx, resourceGroup, namespace, name.Eventhub, opts, nil)
 		if err != nil {
-			log.Errorf("failed to create event hub: %v", err)
+			slog.Error("failed to create event hub", slog.Any("error", err))
 			return err
 		}
 
-		log.Infof("event hub %s created", name)
+		slog.Info("event hub created", slog.Any("name", name))
 	} else {
-		log.Infof("event hub %s already exists", name)
+		slog.Info("event hub exists already", slog.Any("name", name))
 	}
 
 	return nil
@@ -127,7 +180,7 @@ func (m *EventHubManager) getEventHubMgmtClient(subID string) (*armeventhub.Even
 	if subID == "" {
 		envSubID, err := utils.GetAzureSubscriptionID()
 		if err != nil {
-			log.Errorf("failed to get azure subscription id: %v", err)
+			slog.Error("failed to get azure subscription id", slog.Any("error", err))
 			return nil, err
 		}
 		subID = envSubID
@@ -135,7 +188,7 @@ func (m *EventHubManager) getEventHubMgmtClient(subID string) (*armeventhub.Even
 
 	hubClient, err := armeventhub.NewEventHubsClient(subID, m.creds, nil)
 	if err != nil {
-		log.Errorf("failed to get event hub client: %v", err)
+		slog.Error("failed to get event hub client", slog.Any("error", err))
 		return nil, err
 	}
 

@@ -28,6 +28,9 @@ target "flow-api" {
     "linux/amd64",
     "linux/arm64",
   ]
+  args = {
+    PEERDB_VERSION_SHA_SHORT = "${SHA_SHORT}"
+  }
   tags = [
     "${REGISTRY}/flow-api:${TAG}",
     "${REGISTRY}/flow-api:${SHA_SHORT}",

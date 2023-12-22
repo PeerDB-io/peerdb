@@ -3,7 +3,8 @@ import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import Link from 'next/link';
-import { SlotTable, StatTable } from './datatables';
+import SlotTable from './slottable';
+import StatTable from './stattable';
 export const dynamic = 'force-dynamic';
 
 type DataConfigProps = {
@@ -18,7 +19,24 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
       `${flowServiceAddr}/v1/peers/slots/${peerName}`
     ).then((res) => res.json());
 
-    return peerSlots.slotData;
+    const slotArray = peerSlots.slotData;
+    // slots with 'peerflow_slot' should come first
+    slotArray?.sort((slotA, slotB) => {
+      if (
+        slotA.slotName.startsWith('peerflow_slot') &&
+        !slotB.slotName.startsWith('peerflow_slot')
+      ) {
+        return -1;
+      } else if (
+        !slotA.slotName.startsWith('peerflow_slot') &&
+        slotB.slotName.startsWith('peerflow_slot')
+      ) {
+        return 1;
+      } else {
+        return 0;
+      }
+    });
+    return slotArray;
   };
 
   const getStatData = async () => {
@@ -37,7 +55,7 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
   return (
     <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 25, fontWeight: 'bold' }}>{peerName}</div>
+        <div style={{ fontSize: 20, fontWeight: 'bold' }}>{peerName}</div>
         <ReloadButton />
       </div>
       {slots && stats ? (

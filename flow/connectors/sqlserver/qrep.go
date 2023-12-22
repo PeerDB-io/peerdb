@@ -3,20 +3,22 @@ package connsqlserver
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"text/template"
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
-	log "github.com/sirupsen/logrus"
 )
 
 func (c *SQLServerConnector) GetQRepPartitions(
-	config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
+	config *protos.QRepConfig, last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
-		log.Infof("watermark table is empty, doing full table refresh")
+		c.logger.Info("watermark table is empty, doing full table refresh")
 		return []*protos.QRepPartition{
 			{
 				PartitionId:        uuid.New().String(),
@@ -42,7 +44,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	//nolint:gosec
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
 	var minVal interface{} = nil
-	var totalRows int64
+	var totalRows pgtype.Int8
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -50,7 +52,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
-		log.Infof("count query: %s - minVal: %v", countQuery, minVal)
+		c.logger.Info(fmt.Sprintf("count query: %s - minVal: %v", countQuery, minVal))
 		params := map[string]interface{}{
 			"minVal": minVal,
 		}
@@ -74,18 +76,18 @@ func (c *SQLServerConnector) GetQRepPartitions(
 		}
 	}
 
-	if totalRows == 0 {
-		log.Warnf("no records to replicate for flow job %s, returning", config.FlowJobName)
+	if totalRows.Int64 == 0 {
+		c.logger.Warn("no records to replicate, returning")
 		return make([]*protos.QRepPartition, 0), nil
 	}
 
 	// Calculate the number of partitions
-	numPartitions := totalRows / numRowsPerPartition
-	if totalRows%numRowsPerPartition != 0 {
+	numPartitions := totalRows.Int64 / numRowsPerPartition
+	if totalRows.Int64%numRowsPerPartition != 0 {
 		numPartitions++
 	}
-	log.Infof("total rows: %d, num partitions: %d, num rows per partition: %d",
-		totalRows, numPartitions, numRowsPerPartition)
+	c.logger.Info(fmt.Sprintf("total rows: %d, num partitions: %d, num rows per partition: %d",
+		totalRows.Int64, numPartitions, numRowsPerPartition))
 	var rows *sqlx.Rows
 	if minVal != nil {
 		// Query to get partitions using window functions
@@ -104,7 +106,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			config.WatermarkTable,
 			quotedWatermarkColumn,
 		)
-		log.Infof("partitions query: %s - minVal: %v", partitionsQuery, minVal)
+		c.logger.Info(fmt.Sprintf("partitions query: %s - minVal: %v", partitionsQuery, minVal))
 		params := map[string]interface{}{
 			"minVal": minVal,
 		}
@@ -124,7 +126,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			quotedWatermarkColumn,
 			config.WatermarkTable,
 		)
-		log.Infof("partitions query: %s", partitionsQuery)
+		c.logger.Info("partitions query: " + partitionsQuery)
 		rows, err = c.db.Queryx(partitionsQuery)
 	}
 	if err != nil {
@@ -135,7 +137,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 	partitionHelper := utils.NewPartitionHelper()
 	for rows.Next() {
-		var bucket int64
+		var bucket pgtype.Int8
 		var start, end interface{}
 		if err := rows.Scan(&bucket, &start, &end); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -151,7 +153,8 @@ func (c *SQLServerConnector) GetQRepPartitions(
 }
 
 func (c *SQLServerConnector) PullQRepRecords(
-	config *protos.QRepConfig, partition *protos.QRepPartition) (*model.QRecordBatch, error) {
+	config *protos.QRepConfig, partition *protos.QRepPartition,
+) (*model.QRecordBatch, error) {
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
 	query, err := BuildQuery(config.Query)
@@ -206,6 +209,6 @@ func BuildQuery(query string) (string, error) {
 	}
 	res := buf.String()
 
-	log.Infof("templated query: %s", res)
+	slog.Info("templated query: " + res)
 	return res, nil
 }

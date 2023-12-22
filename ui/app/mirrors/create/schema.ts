@@ -1,14 +1,26 @@
 import * as z from 'zod';
 
+export const flowNameSchema = z
+  .string({
+    invalid_type_error: 'Mirror name is invalid.',
+    required_error: 'Mirror name is required.',
+  })
+  .min(1, { message: 'Mirror name cannot be empty.' })
+  .regex(/^[a-z0-9_]*$/, {
+    message:
+      'Mirror name must contain only lowercase letters, numbers and underscores',
+  });
+
 export const tableMappingSchema = z
   .array(
     z.object({
-      source: z
+      sourceTableIdentifier: z
         .string()
         .min(1, 'source table names, if added, must be non-empty'),
-      destination: z
+      destinationTableIdentifier: z
         .string()
         .min(1, 'destination table names, if added, must be non-empty'),
+      exclude: z.array(z.string()).optional(),
       partitionKey: z.string().optional(),
     })
   )
@@ -46,24 +58,24 @@ export const cdcSchema = z.object({
     .optional(),
   snapshotNumRowsPerPartition: z
     .number({
-      invalid_type_error: 'Snapshow rows per partition must be a number',
+      invalid_type_error: 'Snapshot rows per partition must be a number',
     })
     .int()
-    .min(1, 'Snapshow rows per partition must be a positive integer')
+    .min(1, 'Snapshot rows per partition must be a positive integer')
     .optional(),
   snapshotMaxParallelWorkers: z
     .number({
-      invalid_type_error: 'Snapshow max workers must be a number',
+      invalid_type_error: 'Snapshot max workers must be a number',
     })
     .int()
-    .min(1, 'Snapshow max workers must be a positive integer')
+    .min(1, 'Snapshot max workers must be a positive integer')
     .optional(),
   snapshotNumTablesInParallel: z
     .number({
-      invalid_type_error: 'Snapshow parallel tables must be a number',
+      invalid_type_error: 'Snapshot parallel tables must be a number',
     })
     .int()
-    .min(1, 'Snapshow parallel tables must be a positive integer')
+    .min(1, 'Snapshot parallel tables must be a positive integer')
     .optional(),
   snapshotStagingPath: z
     .string({
@@ -140,14 +152,17 @@ export const qrepSchema = z.object({
     })
     .max(255, 'Staging path must be less than 255 characters')
     .optional(),
-  writeMode: z.object({
-    writeType: z
-      .number({ required_error: 'Write type is required' })
-      .int()
-      .min(0)
-      .max(2),
-    upsert_key_columns: z.array(z.string()).optional(),
-  }),
+  writeMode: z.object(
+    {
+      writeType: z
+        .number({ required_error: 'Write type is required' })
+        .int()
+        .min(0)
+        .max(2),
+      upsert_key_columns: z.array(z.string()).optional(),
+    },
+    { required_error: 'Write mode is required' }
+  ),
   waitBetweenBatchesSeconds: z
     .number({
       invalid_type_error: 'Batch wait must be a number',

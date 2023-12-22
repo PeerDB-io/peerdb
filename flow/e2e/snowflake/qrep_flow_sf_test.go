@@ -3,6 +3,7 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -11,36 +12,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func (s *PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateSourceTableQRep(s.pool, snowflakeSuffix, tableName)
-	s.NoError(err)
-	err = e2e.PopulateSourceTable(s.pool, snowflakeSuffix, tableName, rowCount)
-	s.NoError(err)
+func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) {
+	err := e2e.CreateTableForQRep(s.pool, s.pgSuffix, tableName)
+	require.NoError(s.t, err)
+	err = e2e.PopulateSourceTable(s.pool, s.pgSuffix, tableName, numRows)
+	require.NoError(s.t, err)
 }
 
-func (s *PeerFlowE2ETestSuiteSF) setupSFDestinationTable(dstTable string) {
+func (s PeerFlowE2ETestSuiteSF) setupSFDestinationTable(dstTable string) {
 	schema := e2e.GetOwnersSchema()
 	err := s.sfHelper.CreateTable(dstTable, schema)
-
 	// fail if table creation fails
 	if err != nil {
-		s.FailNow("unable to create table on snowflake", err)
+		require.FailNow(s.t, "unable to create table on snowflake", err)
 	}
 
-	fmt.Printf("created table on snowflake: %s.%s. %v\n", s.sfHelper.testSchemaName, dstTable, err)
+	slog.Info(fmt.Sprintf("created table on snowflake: %s.%s.", s.sfHelper.testSchemaName, dstTable))
 }
 
-func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
+func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, selector string, caseSensitive bool) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", selector, snowflakeSuffix, tableName),
+		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", selector, s.pgSuffix, tableName),
 	)
-	require.NoError(s.T(), err)
+	require.NoError(s.t, err)
 
 	// read rows from destination table
-	qualifiedTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
+	qualifiedTableName := fmt.Sprintf("%s.%s.%s", s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
 	var sfSelQuery string
 	if caseSensitive {
 		sfSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY "id"`, selector, qualifiedTableName)
@@ -50,14 +50,14 @@ func (s *PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, select
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
 
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
-	require.NoError(s.T(), err)
+	require.NoError(s.t, err)
 
-	s.True(pgRows.Equals(sfRows), "rows from source and destination tables are not equal")
+	require.True(s.t, pgRows.Equals(sfRows), "rows from source and destination tables are not equal")
 }
 
-func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10
 
@@ -68,37 +68,37 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		s.pgSuffix, tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf",
-		fmt.Sprintf("e2e_test_%s.%s", snowflakeSuffix, tblName),
+		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
 		"",
+		false,
+		"",
 	)
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorString()
 	s.compareTableContentsSF(tblName, sel, true)
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10
 
@@ -109,41 +109,41 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple()
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		s.pgSuffix, tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf",
-		fmt.Sprintf("e2e_test_%s.%s", snowflakeSuffix, tblName),
+		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
+		"",
+		false,
 		"",
 	)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
 		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
 		UpsertKeyColumns: []string{"id"},
 	}
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorString()
 	s.compareTableContentsSF(tblName, sel, true)
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10
 
@@ -154,18 +154,19 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		s.pgSuffix, tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf",
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
 		"",
+		false,
+		"",
 	)
-	s.NoError(err)
+	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
@@ -174,16 +175,17 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	s.True(env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorString()
 	s.compareTableContentsSF(tblName, sel, true)
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
-func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+
+func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10
 
@@ -193,16 +195,17 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE xmin::text::bigint BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s",
+		s.pgSuffix, tblName)
 
 	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
 		"test_qrep_flow_avro_sf_xmin",
-		fmt.Sprintf("e2e_test_%s.%s", snowflakeSuffix, tblName),
+		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.sfHelper.Peer,
+		"",
+		false,
 		"",
 	)
 	qrepConfig.WriteMode = &protos.QRepWriteMode{
@@ -210,25 +213,25 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 		UpsertKeyColumns: []string{"id"},
 	}
 	qrepConfig.WatermarkColumn = "xmin"
-	s.NoError(err)
+	require.NoError(s.t, err)
 
-	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+	e2e.RunXminFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorString()
 	s.compareTableContentsSF(tblName, sel, true)
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
 
 	numRows := 10
 
@@ -239,7 +242,7 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		snowflakeSuffix, tblName)
+		s.pgSuffix, tblName)
 
 	sfPeer := s.sfHelper.Peer
 	sfPeer.GetSnowflakeConfig().S3Integration = "peerdb_s3_integration"
@@ -249,11 +252,13 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
+
 		sfPeer,
 		"",
+		false,
+		"",
 	)
-	s.NoError(err)
+	require.NoError(s.t, err)
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
@@ -262,10 +267,55 @@ func (s *PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration(
 	s.True(env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorString()
 	s.compareTableContentsSF(tblName, sel, true)
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
+}
+
+func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
+
+	numRows := 10
+
+	tblName := "test_qrep_columns_sf"
+	s.setupSourceTable(tblName, numRows)
+
+	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		s.pgSuffix, tblName)
+
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+		"test_columns_qrep_sf",
+		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
+		dstSchemaQualified,
+		query,
+		s.sfHelper.Peer,
+		"",
+		true,
+		"_PEERDB_SYNCED_AT",
+	)
+	qrepConfig.WriteMode = &protos.QRepWriteMode{
+		WriteType:        protos.QRepWriteType_QREP_WRITE_MODE_UPSERT,
+		UpsertKeyColumns: []string{"id"},
+	}
+	require.NoError(s.t, err)
+
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	err = env.GetWorkflowError()
+	require.NoError(s.t, err)
+
+	err = s.sfHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s.%s`,
+		s.sfHelper.testSchemaName, tblName))
+	require.NoError(s.t, err)
+
+	env.AssertExpectations(s.t)
 }

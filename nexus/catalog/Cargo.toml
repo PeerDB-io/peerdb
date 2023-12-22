@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4.22", default-features = false }
-prost = "0.11"
+prost = "0.12"
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 pt = { path = "../pt" }
@@ -17,7 +17,7 @@ tokio = { version = "1.13.0", features = ["full"] }
 tokio-postgres = { version = "0.7.6", features = [
   "with-chrono-0_4",
   "with-serde_json-1",
-  "with-uuid-0_8",
+  "with-uuid-1",
 ] }
 tracing = "0.1.29"
 serde_json = "1.0"

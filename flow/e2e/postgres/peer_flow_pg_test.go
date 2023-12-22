@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func (s *PeerFlowE2ETestSuitePG) attachSchemaSuffix(tableName string) string {
@@ -18,9 +19,30 @@ func (s *PeerFlowE2ETestSuitePG) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, postgresSuffix)
 }
 
+func (s *PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, rowID int8) error {
+	query := fmt.Sprintf(`SELECT "_PEERDB_IS_DELETED","_PEERDB_SYNCED_AT" FROM %s WHERE id = %d`,
+		dstSchemaQualified, rowID)
+	var isDeleted pgtype.Bool
+	var syncedAt pgtype.Timestamp
+	err := s.pool.QueryRow(context.Background(), query).Scan(&isDeleted, &syncedAt)
+	if err != nil {
+		return fmt.Errorf("failed to query row: %w", err)
+	}
+
+	if !isDeleted.Bool {
+		return fmt.Errorf("isDeleted is not true")
+	}
+
+	if !syncedAt.Valid {
+		return fmt.Errorf("syncedAt is not valid")
+	}
+
+	return nil
+}
+
 func (s *PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow")
 	dstTableName := s.attachSchemaSuffix("test_simple_flow_dst")
@@ -45,8 +67,8 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -83,7 +105,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 
 func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
 	dstTableName := s.attachSchemaSuffix("test_simple_schema_changes_dst")
@@ -107,8 +129,8 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 10,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -244,7 +266,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
 	dstTableName := s.attachSchemaSuffix("test_simple_cpkey_dst")
@@ -271,8 +293,8 @@ func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 4,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -319,7 +341,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 
 func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
 	dstTableName := s.attachSchemaSuffix("test_cpkey_toast1_dst")
@@ -350,8 +372,8 @@ func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 2,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 20,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -400,7 +422,7 @@ func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 
 func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
 	dstTableName := s.attachSchemaSuffix("test_cpkey_toast2_dst")
@@ -431,8 +453,8 @@ func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	s.NoError(err)
 
 	limits := peerflow.CDCFlowLimits{
-		TotalSyncFlows: 4,
-		MaxBatchSize:   100,
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -472,5 +494,69 @@ func (s *PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2")
 	s.NoError(err)
 
+	env.AssertExpectations(s.T())
+}
+
+func (s *PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
+
+	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
+	dstTableName := s.attachSchemaSuffix("test_peerdb_cols_dst")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL
+		);
+	`, srcTableName))
+	s.NoError(err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_peerdb_cols_mirror"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.peer,
+		SoftDelete:       true,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	s.NoError(err)
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 2,
+		MaxBatchSize:     100,
+	}
+
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		// insert 1 row into the source table
+		testKey := fmt.Sprintf("test_key_%d", 1)
+		testValue := fmt.Sprintf("test_value_%d", 1)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(key, value) VALUES ($1, $2)
+		`, srcTableName), testKey, testValue)
+		s.NoError(err)
+
+		// delete that row
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id=1
+		`, srcTableName))
+		s.NoError(err)
+		fmt.Println("Inserted and deleted a row for peerdb column check")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	err = env.GetWorkflowError()
+	// allow only continue as new error
+	s.Error(err)
+	s.Contains(err.Error(), "continue as new")
+	checkErr := s.checkPeerdbColumns(dstTableName, 1)
+	s.NoError(checkErr)
 	env.AssertExpectations(s.T())
 }

@@ -3,15 +3,14 @@ package activities
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	log "github.com/sirupsen/logrus"
 )
 
 type SnapshotActivity struct {
-	EnableMetrics       bool
 	SnapshotConnections map[string]*SlotSnapshotSignal
 }
 
@@ -22,7 +21,7 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(flowJobName string) error {
 	}
 
 	if s, ok := a.SnapshotConnections[flowJobName]; ok {
-		s.signal.CloneComplete <- true
+		s.signal.CloneComplete <- struct{}{}
 		s.connector.Close()
 	}
 
@@ -35,7 +34,7 @@ func (a *SnapshotActivity) SetupReplication(
 ) (*protos.SetupReplicationOutput, error) {
 	dbType := config.PeerConnectionConfig.Type
 	if dbType != protos.DBType_POSTGRES {
-		log.Infof("setup replication is no-op for %s", dbType)
+		slog.InfoContext(ctx, fmt.Sprintf("setup replication is no-op for %s", dbType))
 		return nil, nil
 	}
 
@@ -54,23 +53,17 @@ func (a *SnapshotActivity) SetupReplication(
 		pgConn := conn.(*connpostgres.PostgresConnector)
 		err = pgConn.SetupReplication(slotSignal, config)
 		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": config.FlowJobName,
-			}).Errorf("failed to setup replication: %v", err)
+			slog.ErrorContext(ctx, "failed to setup replication", slog.Any("error", err))
 			replicationErr <- err
 			return
 		}
 	}()
 
-	log.WithFields(log.Fields{
-		"flowName": config.FlowJobName,
-	}).Info("waiting for slot to be created...")
+	slog.InfoContext(ctx, "waiting for slot to be created...")
 	var slotInfo *connpostgres.SlotCreationResult
 	select {
 	case slotInfo = <-slotSignal.SlotCreated:
-		log.WithFields(log.Fields{
-			"flowName": config.FlowJobName,
-		}).Infof("slot '%s' created", slotInfo.SlotName)
+		slog.InfoContext(ctx, fmt.Sprintf("slot '%s' created", slotInfo.SlotName))
 	case err := <-replicationErr:
 		return nil, fmt.Errorf("failed to setup replication: %w", err)
 	}

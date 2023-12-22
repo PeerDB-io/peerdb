@@ -3,15 +3,16 @@ package e2e_postgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
 )
@@ -37,13 +38,11 @@ func (s *PeerFlowE2ETestSuitePG) SetupSuite() {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	log.SetReportCaller(true)
-
 	pool, err := e2e.SetupPostgres(postgresSuffix)
-	if err != nil {
+	if err != nil || pool == nil {
 		s.Fail("failed to setup postgres", err)
 	}
 	s.pool = pool
@@ -56,7 +55,7 @@ func (s *PeerFlowE2ETestSuitePG) SetupSuite() {
 			User:     "postgres",
 			Password: "postgres",
 			Database: "postgres",
-		})
+		}, false)
 	s.NoError(err)
 }
 
@@ -69,7 +68,7 @@ func (s *PeerFlowE2ETestSuitePG) TearDownSuite() {
 }
 
 func (s *PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateSourceTableQRep(s.pool, postgresSuffix, tableName)
+	err := e2e.CreateTableForQRep(s.pool, postgresSuffix, tableName)
 	s.NoError(err)
 	err = e2e.PopulateSourceTable(s.pool, postgresSuffix, tableName, rowCount)
 	s.NoError(err)
@@ -136,9 +135,30 @@ func (s *PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQuali
 	return nil
 }
 
+func (s *PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
+	query := fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s`, dstSchemaQualified)
+
+	rows, _ := s.pool.Query(context.Background(), query)
+
+	defer rows.Close()
+	for rows.Next() {
+		var syncedAt pgtype.Timestamp
+		err := rows.Scan(&syncedAt)
+		if err != nil {
+			return err
+		}
+
+		if !syncedAt.Valid {
+			return fmt.Errorf("synced_at is not valid")
+		}
+	}
+
+	return rows.Err()
+}
+
 func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	numRows := 10
 
@@ -148,8 +168,8 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	//nolint:gosec
 	dstTable := "test_qrep_flow_avro_pg_2"
-	// the name is misleading, but this is the destination table
-	err := e2e.CreateSourceTableQRep(s.pool, postgresSuffix, dstTable)
+
+	err := e2e.CreateTableForQRep(s.pool, postgresSuffix, dstTable)
 	s.NoError(err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, srcTable)
@@ -165,8 +185,9 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
 		postgresPeer,
+		"",
+		true,
 		"",
 	)
 	s.NoError(err)
@@ -176,11 +197,59 @@ func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
 
-	// assert that error contains "invalid connection configs"
 	err = env.GetWorkflowError()
 	s.NoError(err)
 
 	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
+	if err != nil {
+		s.FailNow(err.Error())
+	}
+
+	env.AssertExpectations(s.T())
+}
+
+func (s *PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
+
+	numRows := 10
+
+	//nolint:gosec
+	srcTable := "test_qrep_columns_pg_1"
+	s.setupSourceTable(srcTable, numRows)
+
+	//nolint:gosec
+	dstTable := "test_qrep_columns_pg_2"
+
+	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, dstTable)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		postgresSuffix, srcTable)
+
+	postgresPeer := e2e.GeneratePostgresPeer(e2e.PostgresPort)
+
+	qrepConfig, err := e2e.CreateQRepWorkflowConfig(
+		"test_qrep_columns_pg",
+		srcSchemaQualified,
+		dstSchemaQualified,
+		query,
+		postgresPeer,
+		"",
+		true,
+		"_PEERDB_SYNCED_AT",
+	)
+	s.NoError(err)
+
+	e2e.RunQrepFlowWorkflow(env, qrepConfig)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+
+	err = env.GetWorkflowError()
+	s.NoError(err)
+
+	err = s.checkSyncedAt(dstSchemaQualified)
 	if err != nil {
 		s.FailNow(err.Error())
 	}

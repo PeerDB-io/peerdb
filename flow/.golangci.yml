@@ -5,8 +5,9 @@ linters:
   enable:
     - dogsled
     - dupl
-    - gofmt
+    - gofumpt
     - gosec
+    - gosimple
     - misspell
     - nakedret
     - stylecheck
@@ -14,7 +15,7 @@ linters:
     - unparam
     - whitespace
     - errcheck
-    - gosimple
+    - prealloc
     - staticcheck
     - ineffassign
     - unused

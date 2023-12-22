@@ -2,6 +2,14 @@ syntax = "proto3";
 
 package peerdb_peers;
 
+message SSHConfig {
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string private_key = 5;
+}
+
 message SnowflakeConfig {
   string account_id = 1;
   string username = 2;
@@ -12,6 +20,8 @@ message SnowflakeConfig {
   uint64 query_timeout = 8;
   string s3_integration = 9;
   optional string password = 10;
+  // defaults to _PEERDB_INTERNAL
+  optional string metadata_schema = 11;
 }
 
 message BigqueryConfig {
@@ -42,9 +52,11 @@ message PostgresConfig {
   string user = 3;
   string password = 4;
   string database = 5;
-
   // this is used only in query replication mode right now.
   string transaction_snapshot = 6;
+  // defaults to _peerdb_internal
+  optional string metadata_schema = 7;
+  optional SSHConfig ssh_config = 8;
 }
 
 message EventHubConfig {

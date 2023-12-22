@@ -5,19 +5,22 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"strings"
 
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
-	log "github.com/sirupsen/logrus"
+
 	"go.temporal.io/sdk/activity"
 )
 
 type SQLQueryExecutor interface {
-	ConnectionActive() bool
+	ConnectionActive() error
 	Close() error
 
 	CreateSchema(schemaName string) error
@@ -39,6 +42,7 @@ type GenericSQLQueryExecutor struct {
 	db                 *sqlx.DB
 	dbtypeToQValueKind map[string]qvalue.QValueKind
 	qvalueKindToDBType map[qvalue.QValueKind]string
+	logger             slog.Logger
 }
 
 func NewGenericSQLQueryExecutor(
@@ -47,11 +51,13 @@ func NewGenericSQLQueryExecutor(
 	dbtypeToQValueKind map[string]qvalue.QValueKind,
 	qvalueKindToDBType map[qvalue.QValueKind]string,
 ) *GenericSQLQueryExecutor {
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &GenericSQLQueryExecutor{
 		ctx:                ctx,
 		db:                 db,
 		dbtypeToQValueKind: dbtypeToQValueKind,
 		qvalueKindToDBType: qvalueKindToDBType,
+		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}
 }
 
@@ -76,11 +82,11 @@ func (g *GenericSQLQueryExecutor) DropSchema(schemaName string) error {
 
 // the SQL query this function executes appears to be MySQL/MariaDB specific.
 func (g *GenericSQLQueryExecutor) CheckSchemaExists(schemaName string) (bool, error) {
-	var exists bool
+	var exists pgtype.Bool
 	// use information schemata to check if schema exists
 	err := g.db.QueryRowxContext(g.ctx,
 		"SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = $1)", schemaName).Scan(&exists)
-	return exists, err
+	return exists.Bool, err
 }
 
 func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
@@ -98,7 +104,7 @@ func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
 }
 
 func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error {
-	var fields []string
+	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		dbType, ok := g.qvalueKindToDBType[field.Type]
 		if !ok {
@@ -119,30 +125,31 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 }
 
 func (g *GenericSQLQueryExecutor) CountRows(schemaName string, tableName string) (int64, error) {
-	var count int64
+	var count pgtype.Int8
 	err := g.db.QueryRowx("SELECT COUNT(*) FROM " + schemaName + "." + tableName).Scan(&count)
-	return count, err
+	return count.Int64, err
 }
 
 func (g *GenericSQLQueryExecutor) CountNonNullRows(
 	schemaName string,
 	tableName string,
-	columnName string) (int64, error) {
-	var count int64
+	columnName string,
+) (int64, error) {
+	var count pgtype.Int8
 	err := g.db.QueryRowx("SELECT COUNT(CASE WHEN " + columnName +
 		" IS NOT NULL THEN 1 END) AS non_null_count FROM " + schemaName + "." + tableName).Scan(&count)
-	return count, err
+	return count.Int64, err
 }
 
-func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (*model.QField, error) {
+func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.QField, error) {
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {
-		return nil, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
+		return model.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
 	}
 
 	nullable, ok := ct.Nullable()
 
-	return &model.QField{
+	return model.QField{
 		Name:     ct.Name(),
 		Type:     qvKind,
 		Nullable: ok && nullable,
@@ -156,17 +163,18 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	}
 
 	// Convert dbColTypes to QFields
-	qfields := make([]*model.QField, len(dbColTypes))
+	qfields := make([]model.QField, len(dbColTypes))
 	for i, ct := range dbColTypes {
 		qfield, err := g.columnTypeToQField(ct)
 		if err != nil {
-			log.Errorf("failed to convert column type %v: %v", ct, err)
+			g.logger.Error(fmt.Sprintf("failed to convert column type %v", ct),
+				slog.Any("error", err))
 			return nil, err
 		}
 		qfields[i] = qfield
 	}
 
-	var records []*model.QRecord
+	var records []model.QRecord
 	totalRowsProcessed := 0
 	const heartBeatNumRows = 25000
 
@@ -224,7 +232,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 		for i, val := range values {
 			qv, err := toQValue(qfields[i].Type, val)
 			if err != nil {
-				log.Errorf("failed to convert value: %v", err)
+				g.logger.Error("failed to convert value", slog.Any("error", err))
 				return nil, err
 			}
 			qValues[i] = qv
@@ -245,7 +253,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Errorf("failed to iterate over rows: %v", err)
+		g.logger.Error("failed to iterate over rows", slog.Any("Error", err))
 		return nil, err
 	}
 
@@ -258,7 +266,8 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 }
 
 func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
-	query string, args ...interface{}) (*model.QRecordBatch, error) {
+	query string, args ...interface{},
+) (*model.QRecordBatch, error) {
 	rows, err := g.db.QueryxContext(g.ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -269,7 +278,8 @@ func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
 }
 
 func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
-	query string, arg interface{}) (*model.QRecordBatch, error) {
+	query string, arg interface{},
+) (*model.QRecordBatch, error) {
 	rows, err := g.db.NamedQueryContext(g.ctx, query, arg)
 	if err != nil {
 		return nil, err
@@ -290,7 +300,7 @@ func (g *GenericSQLQueryExecutor) NamedExec(query string, arg interface{}) (sql.
 
 // returns true if any of the columns are null in value
 func (g *GenericSQLQueryExecutor) CheckNull(schema string, tableName string, colNames []string) (bool, error) {
-	var count int
+	var count pgtype.Int8
 	joinedString := strings.Join(colNames, " is null or ") + " is null"
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s.%s WHERE %s",
 		schema, tableName, joinedString)
@@ -300,7 +310,7 @@ func (g *GenericSQLQueryExecutor) CheckNull(schema string, tableName string, col
 		return false, err
 	}
 
-	return count == 0, nil
+	return count.Int64 == 0, nil
 }
 
 func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {

@@ -1,16 +1,6 @@
-import { QRepSyncMode } from '@/grpc_generated/flow';
-import { Peer } from '@/grpc_generated/peers';
 import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
-  {
-    label: 'Destination Peer',
-    stateHandler: (value, setter) =>
-      setter((curr: CDCConfig) => ({ ...curr, destination: value as Peer })),
-    tips: 'The peer to which data will be replicated.',
-    type: 'select',
-    required: true,
-  },
   {
     label: 'Initial Copy',
     stateHandler: (value, setter) =>
@@ -20,6 +10,18 @@ export const cdcSettings: MirrorSetting[] = [
       })),
     tips: 'Specify if you want initial load to happen for your tables.',
     type: 'switch',
+  },
+  {
+    label: 'Pull Batch Size',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        maxBatchSize: (value as boolean) || false,
+      })),
+    tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 100,000 rows.',
+    type: 'number',
+    default: '100000',
+    advanced: true,
   },
   {
     label: 'Publication Name',
@@ -55,10 +57,10 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        snapshotMaxParallelWorkers: parseInt(value as string, 10) || 8,
+        snapshotMaxParallelWorkers: parseInt(value as string, 10) || 1,
       })),
-    tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 8.',
-    default: '8',
+    tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 1.',
+    default: '1',
     type: 'number',
   },
   {
@@ -66,35 +68,11 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        snapshotNumTablesInParallel: parseInt(value as string, 10) || 1,
+        snapshotNumTablesInParallel: parseInt(value as string, 10) || 4,
       })),
-    tips: 'Specify the number of tables to sync perform initial load for, in parallel. The default value is 1.',
-    default: '1',
+    tips: 'Specify the number of tables to sync perform initial load for, in parallel. The default value is 4.',
+    default: '4',
     type: 'number',
-  },
-  {
-    label: 'Snapshot Sync Mode',
-    stateHandler: (value, setter) =>
-      setter((curr: CDCConfig) => ({
-        ...curr,
-        snapshotSyncMode:
-          (value as QRepSyncMode) || QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-      })),
-    tips: 'Specify whether you want the sync mode for initial load to be via SQL or by staging AVRO files. The default mode is SQL.',
-    default: 'SQL',
-    type: 'select',
-  },
-  {
-    label: 'CDC Sync Mode',
-    stateHandler: (value, setter) =>
-      setter((curr: CDCConfig) => ({
-        ...curr,
-        cdcSyncMode:
-          (value as QRepSyncMode) || QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT,
-      })),
-    tips: 'Specify whether you want the sync mode for CDC to be via SQL or by staging AVRO files. The default mode is SQL.',
-    default: 'SQL',
-    type: 'select',
   },
   {
     label: 'Snapshot Staging Path',
@@ -103,7 +81,7 @@ export const cdcSettings: MirrorSetting[] = [
         ...curr,
         snapshotStagingPath: value as string | '',
       })),
-    tips: 'You can specify staging path if you have set the Snapshot sync mode as AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL.',
+    tips: 'You can specify staging path for Snapshot sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
   },
   {
     label: 'CDC Staging Path',
@@ -112,7 +90,7 @@ export const cdcSettings: MirrorSetting[] = [
         ...curr,
         cdcStagingPath: (value as string) || '',
       })),
-    tips: 'You can specify staging path if you have set the CDC sync mode as AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket url',
+    tips: 'You can specify staging path for CDC sync mode AVRO. For Snowflake as destination peer, this must be either empty or an S3 bucket URL. For BigQuery, this must be either empty or an existing GCS bucket name. In both cases, if empty, the local filesystem will be used.',
   },
   {
     label: 'Soft Delete',

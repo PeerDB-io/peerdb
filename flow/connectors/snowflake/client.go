@@ -11,7 +11,8 @@ import (
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	util "github.com/PeerDB-io/peer-flow/utils"
+	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type SnowflakeClient struct {
@@ -23,7 +24,7 @@ type SnowflakeClient struct {
 }
 
 func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*SnowflakeClient, error) {
-	privateKey, err := util.DecodePKCS8PrivateKey([]byte(config.PrivateKey), config.Password)
+	privateKey, err := shared.DecodePKCS8PrivateKey([]byte(config.PrivateKey), config.Password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %w", err)
 	}
@@ -74,12 +75,12 @@ func (c *SnowflakeConnector) getTableCounts(tables []string) (int64, error) {
 		}
 		//nolint:gosec
 		row := c.database.QueryRowContext(c.ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", table))
-		var count int64
+		var count pgtype.Int8
 		err = row.Scan(&count)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get count for table %s: %w", table, err)
 		}
-		totalRecords += count
+		totalRecords += count.Int64
 	}
 	return totalRecords, nil
 }

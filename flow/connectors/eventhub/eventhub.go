@@ -4,18 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
+	"log/slog"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	cmap "github.com/orcaman/concurrent-map/v2"
-	log "github.com/sirupsen/logrus"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type EventHubConnector struct {
@@ -25,6 +23,7 @@ type EventHubConnector struct {
 	tableSchemas map[string]*protos.TableSchema
 	creds        *azidentity.DefaultAzureCredential
 	hubManager   *EventHubManager
+	logger       slog.Logger
 }
 
 // NewEventHubConnector creates a new EventHubConnector.
@@ -34,25 +33,29 @@ func NewEventHubConnector(
 ) (*EventHubConnector, error) {
 	defaultAzureCreds, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		log.Errorf("failed to get default azure credentials: %v", err)
+		slog.ErrorContext(ctx, "failed to get default azure credentials",
+			slog.Any("error", err))
 		return nil, err
 	}
 
-	hubManager := NewEventHubManager(ctx, defaultAzureCreds, config)
+	hubManager := NewEventHubManager(defaultAzureCreds, config)
 	metadataSchemaName := "peerdb_eventhub_metadata" // #nosec G101
 	pgMetadata, err := metadataStore.NewPostgresMetadataStore(ctx, config.GetMetadataDb(),
 		metadataSchemaName)
 	if err != nil {
-		log.Errorf("failed to create postgres metadata store: %v", err)
+		slog.ErrorContext(ctx, "failed to create postgres metadata store",
+			slog.Any("error", err))
 		return nil, err
 	}
 
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &EventHubConnector{
 		ctx:        ctx,
 		config:     config,
 		pgMetadata: pgMetadata,
 		creds:      defaultAzureCreds,
 		hubManager: hubManager,
+		logger:     *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -62,15 +65,21 @@ func (c *EventHubConnector) Close() error {
 	// close the postgres metadata store.
 	err := c.pgMetadata.Close()
 	if err != nil {
-		log.Errorf("failed to close postgres metadata store: %v", err)
+		c.logger.Error(fmt.Sprintf("failed to close postgres metadata store: %v", err))
+		allErrors = errors.Join(allErrors, err)
+	}
+
+	err = c.hubManager.Close(context.Background())
+	if err != nil {
+		slog.Error("failed to close event hub manager", slog.Any("error", err))
 		allErrors = errors.Join(allErrors, err)
 	}
 
 	return allErrors
 }
 
-func (c *EventHubConnector) ConnectionActive() bool {
-	return true
+func (c *EventHubConnector) ConnectionActive() error {
+	return nil
 }
 
 func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
@@ -85,7 +94,7 @@ func (c *EventHubConnector) NeedsSetupMetadataTables() bool {
 func (c *EventHubConnector) SetupMetadataTables() error {
 	err := c.pgMetadata.SetupMetadata()
 	if err != nil {
-		log.Errorf("failed to setup metadata tables: %v", err)
+		c.logger.Error(fmt.Sprintf("failed to setup metadata tables: %v", err))
 		return err
 	}
 
@@ -93,27 +102,17 @@ func (c *EventHubConnector) SetupMetadataTables() error {
 }
 
 func (c *EventHubConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	syncBatchID, err := c.pgMetadata.GetLastBatchID(jobName)
-	if err != nil {
-		return 0, err
-	}
-
-	return syncBatchID, nil
+	return c.pgMetadata.GetLastBatchID(jobName)
 }
 
-func (c *EventHubConnector) GetLastOffset(jobName string) (*protos.LastSyncState, error) {
-	res, err := c.pgMetadata.FetchLastOffset(jobName)
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
+func (c *EventHubConnector) GetLastOffset(jobName string) (int64, error) {
+	return c.pgMetadata.FetchLastOffset(jobName)
 }
 
-func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error {
+func (c *EventHubConnector) SetLastOffset(jobName string, offset int64) error {
 	err := c.pgMetadata.UpdateLastOffset(jobName, offset)
 	if err != nil {
-		log.Errorf("failed to update last offset: %v", err)
+		c.logger.Error(fmt.Sprintf("failed to update last offset: %v", err))
 		return err
 	}
 
@@ -124,89 +123,85 @@ func (c *EventHubConnector) updateLastOffset(jobName string, offset int64) error
 func (c *EventHubConnector) processBatch(
 	flowJobName string,
 	batch *model.CDCRecordStream,
-	eventsPerBatch int,
 	maxParallelism int64,
 ) (uint32, error) {
 	ctx := context.Background()
-
-	tableNameRowsMapping := cmap.New[uint32]()
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
+	eventHubFlushTimeout := peerdbenv.PeerDBEventhubFlushTimeoutSeconds()
+
+	ticker := time.NewTicker(eventHubFlushTimeout)
+	defer ticker.Stop()
+
+	lastSeenLSN := int64(0)
+	lastUpdatedOffset := int64(0)
+
 	numRecords := 0
-	for record := range batch.GetRecords() {
-		numRecords++
-		json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Infof("failed to convert record to json: %v", err)
-			return 0, err
-		}
+	for {
+		select {
+		case record, ok := <-batch.GetRecords():
+			if !ok {
+				err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+				if err != nil {
+					return 0, err
+				}
 
-		flushBatch := func() error {
-			err := c.sendEventBatch(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
-			if err != nil {
-				log.WithFields(log.Fields{
-					"flowName": flowJobName,
-				}).Infof("failed to send event batch: %v", err)
-				return err
+				c.logger.Info("processBatch", slog.Int("Total records sent to event hub", numRecords))
+				return uint32(numRecords), nil
 			}
-			batchPerTopic.Clear()
-			return nil
-		}
 
-		topicName, err := NewScopedEventhub(record.GetTableName())
-		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Infof("failed to get topic name: %v", err)
-			return 0, err
-		}
+			numRecords++
 
-		err = batchPerTopic.AddEvent(ctx, topicName, json)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": flowJobName,
-			}).Infof("failed to add event to batch: %v", err)
-			return 0, err
-		}
+			recordLSN := record.GetCheckPointID()
+			if recordLSN > lastSeenLSN {
+				lastSeenLSN = recordLSN
+			}
 
-		if (numRecords)%eventsPerBatch == 0 {
-			err := flushBatch()
+			json, err := record.GetItems().ToJSONWithOpts(toJSONOpts)
+			if err != nil {
+				c.logger.Info("failed to convert record to json: %v", err)
+				return 0, err
+			}
+
+			topicName, err := NewScopedEventhub(record.GetTableName())
+			if err != nil {
+				c.logger.Error("failed to get topic name", slog.Any("error", err))
+				return 0, err
+			}
+
+			err = batchPerTopic.AddEvent(ctx, topicName, json, false)
+			if err != nil {
+				c.logger.Error("failed to add event to batch", slog.Any("error", err))
+				return 0, err
+			}
+
+			if numRecords%1000 == 0 {
+				c.logger.Error("processBatch", slog.Int("number of records processed for sending", numRecords))
+			}
+
+		case <-ticker.C:
+			err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
 			if err != nil {
 				return 0, err
 			}
+
+			if lastSeenLSN > lastUpdatedOffset {
+				err = c.SetLastOffset(flowJobName, lastSeenLSN)
+				lastUpdatedOffset = lastSeenLSN
+				c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeenLSN))
+				if err != nil {
+					return 0, fmt.Errorf("failed to update last offset: %v", err)
+				}
+			}
+
+			ticker.Stop()
+			ticker = time.NewTicker(eventHubFlushTimeout)
 		}
 	}
-
-	if batchPerTopic.Len() > 0 {
-		err := c.sendEventBatch(ctx, batchPerTopic, maxParallelism, flowJobName, tableNameRowsMapping)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	log.WithFields(log.Fields{
-		"flowName": flowJobName,
-	}).Infof("[total] successfully sent %d records to event hub", numRecords)
-	return uint32(numRecords), nil
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf("syncing records to eventhub with"+
-			" push parallelism %d and push batch size %d",
-			req.PushParallelism, req.PushBatchSize)
-	})
-	defer func() {
-		shutdown <- true
-	}()
-
-	eventsPerBatch := int(req.PushBatchSize)
-	if eventsPerBatch <= 0 {
-		eventsPerBatch = 10000
-	}
 	maxParallelism := req.PushParallelism
 	if maxParallelism <= 0 {
 		maxParallelism = 10
@@ -216,131 +211,45 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	batch := req.Records
 	var numRecords uint32
 
-	// if env var PEERDB_BETA_EVENTHUB_PUSH_ASYNC=true
-	// we kick off processBatch in a goroutine and return immediately.
-	// otherwise, we block until processBatch is done.
-	if utils.GetEnvBool("PEERDB_BETA_EVENTHUB_PUSH_ASYNC", false) {
-		go func() {
-			numRecords, err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
-			if err != nil {
-				log.Errorf("[async] failed to process batch: %v", err)
-			}
-		}()
-	} else {
-		numRecords, err = c.processBatch(req.FlowJobName, batch, eventsPerBatch, maxParallelism)
-		if err != nil {
-			log.Errorf("failed to process batch: %v", err)
-			return nil, err
-		}
+	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
+		return fmt.Sprintf(
+			"processed %d records for flow %s",
+			numRecords, req.FlowJobName,
+		)
+	})
+	defer func() {
+		shutdown <- struct{}{}
+	}()
+
+	numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
+	if err != nil {
+		c.logger.Error("failed to process batch", slog.Any("error", err))
+		return nil, err
 	}
 
 	lastCheckpoint, err := req.Records.GetLastCheckpoint()
 	if err != nil {
-		log.Errorf("failed to get last checkpoint: %v", err)
+		c.logger.Error("failed to get last checkpoint", err)
 		return nil, err
 	}
 
-	err = c.updateLastOffset(req.FlowJobName, lastCheckpoint)
+	err = c.SetLastOffset(req.FlowJobName, lastCheckpoint)
 	if err != nil {
-		log.Errorf("failed to update last offset: %v", err)
+		c.logger.Error("failed to update last offset", slog.Any("error", err))
 		return nil, err
 	}
 	err = c.pgMetadata.IncrementID(req.FlowJobName)
 	if err != nil {
-		log.Errorf("%v", err)
+		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
 
 	rowsSynced := int64(numRecords)
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: batch.GetFirstCheckpoint(),
-		LastSyncedCheckPointID:  lastCheckpoint,
-		NumRecordsSynced:        rowsSynced,
-		TableNameRowsMapping:    make(map[string]uint32),
+		LastSyncedCheckPointID: lastCheckpoint,
+		NumRecordsSynced:       rowsSynced,
+		TableNameRowsMapping:   make(map[string]uint32),
 	}, nil
-}
-
-func (c *EventHubConnector) sendEventBatch(
-	ctx context.Context,
-	events *HubBatches,
-	maxParallelism int64,
-	flowName string,
-	tableNameRowsMapping cmap.ConcurrentMap[string, uint32]) error {
-	if events.Len() == 0 {
-		log.WithFields(log.Fields{
-			"flowName": flowName,
-		}).Infof("no events to send")
-		return nil
-	}
-
-	var numEventsPushed int32
-	var wg sync.WaitGroup
-	var once sync.Once
-	var firstErr error
-	// Limiting concurrent sends
-	guard := make(chan struct{}, maxParallelism)
-
-	events.ForEach(func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
-		guard <- struct{}{}
-		wg.Add(1)
-		go func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
-			defer func() {
-				<-guard
-				wg.Done()
-			}()
-
-			numEvents := eventBatch.NumEvents()
-			err := c.sendBatch(ctx, tblName, eventBatch)
-			if err != nil {
-				once.Do(func() { firstErr = err })
-				return
-			}
-
-			atomic.AddInt32(&numEventsPushed, numEvents)
-			log.WithFields(log.Fields{
-				"flowName": flowName,
-			}).Infof("pushed %d events to event hub: %s", numEvents, tblName)
-			rowCount, ok := tableNameRowsMapping.Get(tblName.ToString())
-			if !ok {
-				rowCount = uint32(0)
-			}
-			rowCount += uint32(numEvents)
-			tableNameRowsMapping.Set(tblName.ToString(), rowCount)
-		}(tblName, eventBatch)
-	})
-
-	wg.Wait()
-
-	if firstErr != nil {
-		log.Error(firstErr)
-		return firstErr
-	}
-
-	log.Infof("successfully sent %d events to event hub", numEventsPushed)
-	return nil
-}
-
-func (c *EventHubConnector) sendBatch(
-	ctx context.Context,
-	tblName ScopedEventhub,
-	events *azeventhubs.EventDataBatch,
-) error {
-	subCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
-	hub, err := c.hubManager.GetOrCreateHubClient(tblName)
-	if err != nil {
-		return err
-	}
-
-	opts := &azeventhubs.SendEventDataBatchOptions{}
-	err = hub.SendEventDataBatch(subCtx, events, opts)
-	if err != nil {
-		return err
-	}
-
-	log.Infof("successfully sent %d events to event hub topic - %s", events.NumEvents(), tblName.ToString())
-	return nil
 }
 
 func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
@@ -348,23 +257,19 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	// key is the source table and value is the "eh_peer.eh_topic" that ought to be used.
 	tableMap := req.GetTableNameMapping()
 
-	for _, table := range tableMap {
+	for _, destinationTable := range tableMap {
 		// parse peer name and topic name.
-		name, err := NewScopedEventhub(table)
+		name, err := NewScopedEventhub(destinationTable)
 		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-				"table":    table,
-			}).Errorf("failed to parse peer and topic name: %v", err)
+			c.logger.Error("failed to parse scoped eventhub name",
+				slog.Any("error", err), slog.String("destinationTable", destinationTable))
 			return nil, err
 		}
 
 		err = c.hubManager.EnsureEventHubExists(c.ctx, name)
 		if err != nil {
-			log.WithFields(log.Fields{
-				"flowName": req.FlowJobName,
-				"table":    table,
-			}).Errorf("failed to ensure event hub exists: %v", err)
+			c.logger.Error("failed to ensure eventhub exists",
+				slog.Any("error", err), slog.String("destinationTable", destinationTable))
 			return nil, err
 		}
 	}
@@ -376,8 +281,9 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 
 func (c *EventHubConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (
-	*protos.SetupNormalizedTableBatchOutput, error) {
-	log.Infof("normalization for event hub is a no-op")
+	*protos.SetupNormalizedTableBatchOutput, error,
+) {
+	c.logger.Info("normalization for event hub is a no-op")
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: nil,
 	}, nil

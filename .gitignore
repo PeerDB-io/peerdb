@@ -1,4 +1,12 @@
-.vscode
+.vscode/
 .env
 tmp/
 .envrc
+.idea/
+
+private/
+nexus/server/tests/assets/*.json
+nexus/server/tests/results/actual/
+
+go.work
+go.work.sum

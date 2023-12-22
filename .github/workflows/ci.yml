@@ -4,15 +4,13 @@ on:
   push:
     branches: [main, release/*]
   pull_request:
-    branches:
-      - "main"
-      - "release/*"
+    branches: [main, release/*]
 
 jobs:
   build:
     strategy:
       matrix:
-        runner: [ubicloud-standard-8]
+        runner: [ubicloud-standard-8-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -30,7 +28,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 

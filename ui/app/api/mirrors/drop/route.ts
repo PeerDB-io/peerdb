@@ -11,21 +11,26 @@ export async function POST(request: Request) {
     flowJobName,
     sourcePeer,
     destinationPeer,
+    removeFlowEntry: true,
   };
   console.log('/drop/mirror: req:', req);
-  const dropStatus: ShutdownResponse = await fetch(
-    `${flowServiceAddr}/v1/mirrors/drop`,
-    {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }
-  ).then((res) => {
-    return res.json();
-  });
-  let response: UDropMirrorResponse = {
-    dropped: dropStatus.ok,
-    errorMessage: dropStatus.errorMessage,
-  };
+  try {
+    const dropStatus: ShutdownResponse = await fetch(
+      `${flowServiceAddr}/v1/mirrors/drop`,
+      {
+        method: 'POST',
+        body: JSON.stringify(req),
+      }
+    ).then((res) => {
+      return res.json();
+    });
+    let response: UDropMirrorResponse = {
+      dropped: dropStatus.ok,
+      errorMessage: dropStatus.errorMessage,
+    };
 
-  return new Response(JSON.stringify(response));
+    return new Response(JSON.stringify(response));
+  } catch (e) {
+    console.log(e);
+  }
 }

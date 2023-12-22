@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,47 +14,49 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 )
 
 // grpc server implementation
 type FlowRequestHandler struct {
-	temporalClient client.Client
-	pool           *pgxpool.Pool
+	temporalClient      client.Client
+	pool                *pgxpool.Pool
+	peerflowTaskQueueID string
 	protos.UnimplementedFlowServiceServer
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool) *FlowRequestHandler {
+func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
-		temporalClient: temporalClient,
-		pool:           pool,
+		temporalClient:      temporalClient,
+		pool:                pool,
+		peerflowTaskQueueID: taskQueue,
 	}
 }
 
 func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (int32, int32, error) {
-	var id int32
-	var peerType int32
+	var id pgtype.Int4
+	var peerType pgtype.Int4
 	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
 	if err != nil {
-		log.Errorf("unable to query peer id for peer %s: %s", peerName, err.Error())
+		slog.Error("unable to query peer id for peer "+peerName, slog.Any("error", err))
 		return -1, -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
 	}
-	return id, peerType, nil
+	return id.Int32, peerType.Int32, nil
 }
 
 func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
-	tableIdentifierParts := strings.Split(tableIdentifier, ".")
-	if len(tableIdentifierParts) == 1 && peerDBType != int32(protos.DBType_BIGQUERY) {
-		tableIdentifierParts = append([]string{"public"}, tableIdentifierParts...)
+	if peerDBType != int32(protos.DBType_BIGQUERY) && !strings.ContainsRune(tableIdentifier, '.') {
+		return "public." + tableIdentifier
 	}
-	return strings.Join(tableIdentifierParts, ".")
+	return tableIdentifier
 }
 
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
-	req *protos.CreateCDCFlowRequest, workflowID string) error {
+	req *protos.CreateCDCFlowRequest, workflowID string,
+) error {
 	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.Source.Name)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
@@ -83,7 +87,8 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 }
 
 func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
-	req *protos.CreateQRepFlowRequest, workflowID string) error {
+	req *protos.CreateQRepFlowRequest, workflowID string,
+) error {
 	sourcePeerName := req.QrepConfig.SourcePeer.Name
 	sourcePeerID, _, srcErr := h.getPeerID(ctx, sourcePeerName)
 	if srcErr != nil {
@@ -113,37 +118,50 @@ func (h *FlowRequestHandler) createQrepJobEntry(ctx context.Context,
 	return nil
 }
 
-// Close closes the connection pool
-func (h *FlowRequestHandler) Close() {
-	if h.pool != nil {
-		h.pool.Close()
-	}
-}
-
 func (h *FlowRequestHandler) CreateCDCFlow(
-	ctx context.Context, req *protos.CreateCDCFlowRequest) (*protos.CreateCDCFlowResponse, error) {
+	ctx context.Context, req *protos.CreateCDCFlowRequest,
+) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
 	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		},
 	}
 
 	maxBatchSize := int(cfg.MaxBatchSize)
 	if maxBatchSize == 0 {
-		maxBatchSize = 100000
+		maxBatchSize = 1_000_000
 		cfg.MaxBatchSize = uint32(maxBatchSize)
 	}
 
 	limits := &peerflow.CDCFlowLimits{
 		TotalSyncFlows:      0,
+		ExitAfterRecords:    -1,
 		TotalNormalizeFlows: 0,
 		MaxBatchSize:        maxBatchSize,
+	}
+
+	if req.ConnectionConfigs.SoftDeleteColName == "" {
+		req.ConnectionConfigs.SoftDeleteColName = "_PEERDB_IS_DELETED"
+	} else {
+		// make them all uppercase
+		req.ConnectionConfigs.SoftDeleteColName = strings.ToUpper(req.ConnectionConfigs.SoftDeleteColName)
+	}
+
+	if req.ConnectionConfigs.SyncedAtColName == "" {
+		req.ConnectionConfigs.SyncedAtColName = "_PEERDB_SYNCED_AT"
+	} else {
+		// make them all uppercase
+		req.ConnectionConfigs.SyncedAtColName = strings.ToUpper(req.ConnectionConfigs.SyncedAtColName)
 	}
 
 	if req.CreateCatalogEntry {
 		err := h.createCdcJobEntry(ctx, req, workflowID)
 		if err != nil {
+			slog.Error("unable to create flow job entry", slog.Any("error", err))
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
@@ -151,10 +169,11 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	var err error
 	err = h.updateFlowConfigInCatalog(cfg)
 	if err != nil {
+		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	state := peerflow.NewCDCFlowState()
+	state := peerflow.NewCDCFlowWorkflowState()
 	_, err = h.temporalClient.ExecuteWorkflow(
 		ctx,                                // context
 		workflowOptions,                    // workflow start options
@@ -164,6 +183,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		state,                              // workflow state
 	)
 	if err != nil {
+		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
 
@@ -207,39 +227,65 @@ func (h *FlowRequestHandler) removeFlowEntryInCatalog(
 }
 
 func (h *FlowRequestHandler) CreateQRepFlow(
-	ctx context.Context, req *protos.CreateQRepFlowRequest) (*protos.CreateQRepFlowResponse, error) {
-	lastPartition := &protos.QRepPartition{
-		PartitionId: "not-applicable-partition",
-		Range:       nil,
-	}
-
+	ctx context.Context, req *protos.CreateQRepFlowRequest,
+) (*protos.CreateQRepFlowResponse, error) {
 	cfg := req.QrepConfig
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: cfg.FlowJobName,
+		},
 	}
 	if req.CreateCatalogEntry {
 		err := h.createQrepJobEntry(ctx, req, workflowID)
 		if err != nil {
+			slog.Error("unable to create flow job entry",
+				slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 		}
 	}
-	numPartitionsProcessed := 0
-	_, err := h.temporalClient.ExecuteWorkflow(
-		ctx,                       // context
-		workflowOptions,           // workflow start options
-		peerflow.QRepFlowWorkflow, // workflow function
-		cfg,                       // workflow input
-		lastPartition,             // last partition
-		numPartitionsProcessed,    // number of partitions processed
-	)
+
+	state := peerflow.NewQRepFlowState()
+	preColon, postColon, hasColon := strings.Cut(cfg.WatermarkColumn, "::")
+	var workflowFn interface{}
+	if cfg.SourcePeer.Type == protos.DBType_POSTGRES &&
+		preColon == "xmin" {
+		state.LastPartition.PartitionId = uuid.New().String()
+		if hasColon {
+			// hack to facilitate migrating from existing xmin sync
+			txid, err := strconv.ParseInt(postColon, 10, 64)
+			if err != nil {
+				slog.Error("invalid xmin txid for xmin rep",
+					slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
+				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
+			}
+			state.LastPartition.Range = &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}}}
+		}
+
+		workflowFn = peerflow.XminFlowWorkflow
+	} else {
+		workflowFn = peerflow.QRepFlowWorkflow
+	}
+
+	if req.QrepConfig.SyncedAtColName == "" {
+		cfg.SyncedAtColName = "_PEERDB_SYNCED_AT"
+	} else {
+		// make them all uppercase
+		cfg.SyncedAtColName = strings.ToUpper(req.QrepConfig.SyncedAtColName)
+	}
+	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
+		slog.Error("unable to start QRepFlow workflow",
+			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
 	err = h.updateQRepConfigInCatalog(cfg)
 	if err != nil {
+		slog.Error("unable to update qrep config in catalog",
+			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to update qrep config in catalog: %w", err)
 	}
 
@@ -274,6 +320,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	ctx context.Context,
 	req *protos.ShutdownRequest,
 ) (*protos.ShutdownResponse, error) {
+	logs := slog.Group("shutdown-log",
+		slog.String("flowName", req.FlowJobName),
+		slog.String("workflowId", req.WorkflowId),
+	)
 	err := h.temporalClient.SignalWorkflow(
 		ctx,
 		req.WorkflowId,
@@ -282,6 +332,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		shared.ShutdownSignal,
 	)
 	if err != nil {
+		slog.Error("unable to signal PeerFlow workflow",
+			logs,
+			slog.Any("error", err),
+		)
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to signal PeerFlow workflow: %v", err),
@@ -290,6 +344,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 
 	err = h.waitForWorkflowClose(ctx, req.WorkflowId)
 	if err != nil {
+		slog.Error("unable to wait for PeerFlow workflow to close",
+			logs,
+			slog.Any("error", err),
+		)
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to wait for PeerFlow workflow to close: %v", err),
@@ -299,7 +357,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	workflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: shared.PeerFlowTaskQueue,
+		TaskQueue: h.peerflowTaskQueueID,
+		SearchAttributes: map[string]interface{}{
+			shared.MirrorNameSearchAttribute: req.FlowJobName,
+		},
 	}
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(
 		ctx,                       // context
@@ -308,6 +369,9 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		req,                       // workflow input
 	)
 	if err != nil {
+		slog.Error("unable to start DropFlow workflow",
+			logs,
+			slog.Any("error", err))
 		return &protos.ShutdownResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("unable to start DropFlow workflow: %v", err),
@@ -325,6 +389,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	select {
 	case err := <-errChan:
 		if err != nil {
+			slog.Error("DropFlow workflow did not execute successfully",
+				logs,
+				slog.Any("error", err),
+			)
 			return &protos.ShutdownResponse{
 				Ok:           false,
 				ErrorMessage: fmt.Sprintf("DropFlow workflow did not execute successfully: %v", err),
@@ -333,6 +401,10 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	case <-time.After(1 * time.Minute):
 		err := h.handleWorkflowNotClosed(ctx, workflowID, "")
 		if err != nil {
+			slog.Error("unable to wait for DropFlow workflow to close",
+				logs,
+				slog.Any("error", err),
+			)
 			return &protos.ShutdownResponse{
 				Ok:           false,
 				ErrorMessage: fmt.Sprintf("unable to wait for DropFlow workflow to close: %v", err),
@@ -340,15 +412,52 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		}
 	}
 
-	delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
-	if delErr != nil {
-		return &protos.ShutdownResponse{
-			Ok:           false,
-			ErrorMessage: err.Error(),
-		}, err
+	if req.RemoveFlowEntry {
+		delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
+		if delErr != nil {
+			slog.Error("unable to remove flow job entry",
+				slog.String("flowName", req.FlowJobName),
+				slog.Any("error", err),
+				slog.String("workflowId", req.WorkflowId))
+			return &protos.ShutdownResponse{
+				Ok:           false,
+				ErrorMessage: err.Error(),
+			}, err
+		}
 	}
 
 	return &protos.ShutdownResponse{
+		Ok: true,
+	}, nil
+}
+
+func (h *FlowRequestHandler) FlowStateChange(
+	ctx context.Context,
+	req *protos.FlowStateChangeRequest,
+) (*protos.FlowStateChangeResponse, error) {
+	var err error
+	if req.RequestedFlowState == protos.FlowState_STATE_PAUSED {
+		err = h.temporalClient.SignalWorkflow(
+			ctx,
+			req.WorkflowId,
+			"",
+			shared.CDCFlowSignalName,
+			shared.PauseSignal,
+		)
+	} else if req.RequestedFlowState == protos.FlowState_STATE_RUNNING {
+		err = h.temporalClient.SignalWorkflow(
+			ctx,
+			req.WorkflowId,
+			"",
+			shared.CDCFlowSignalName,
+			shared.NoopSignal,
+		)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
+	}
+
+	return &protos.FlowStateChangeResponse{
 		Ok: true,
 	}, nil
 }
@@ -400,7 +509,7 @@ func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workfl
 	select {
 	case err := <-errChan:
 		if err != nil {
-			log.Errorf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error())
+			slog.Error(fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
 			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 			if err = h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 				return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
@@ -408,7 +517,7 @@ func (h *FlowRequestHandler) handleWorkflowNotClosed(ctx context.Context, workfl
 		}
 	case <-time.After(1 * time.Minute):
 		// If 1 minute has passed and we haven't received an error, terminate the workflow
-		log.Errorf("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.")
+		slog.Error("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.")
 		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 		if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
@@ -446,12 +555,12 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 
-	status := conn.ConnectionActive()
-	if !status {
+	connErr := conn.ConnectionActive()
+	if connErr != nil {
 		return &protos.ValidatePeerResponse{
 			Status: protos.ValidatePeerStatus_INVALID,
-			Message: fmt.Sprintf("failed to establish active connection to %s peer %s.",
-				req.Peer.Type, req.Peer.Name),
+			Message: fmt.Sprintf("failed to establish active connection to %s peer %s: %v",
+				req.Peer.Type, req.Peer.Name, connErr),
 		}, nil
 	}
 
@@ -503,6 +612,13 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		sfConfig := sfConfigObject.SnowflakeConfig
 		encodedConfig, encodingErr = proto.Marshal(sfConfig)
+	case protos.DBType_BIGQUERY:
+		bqConfigObject, ok := config.(*protos.Peer_BigqueryConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		bqConfig := bqConfigObject.BigqueryConfig
+		encodedConfig, encodingErr = proto.Marshal(bqConfig)
 	case protos.DBType_SQLSERVER:
 		sqlServerConfigObject, ok := config.(*protos.Peer_SqlserverConfig)
 		if !ok {
@@ -510,13 +626,19 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		sqlServerConfig := sqlServerConfigObject.SqlserverConfig
 		encodedConfig, encodingErr = proto.Marshal(sqlServerConfig)
-
+	case protos.DBType_S3:
+		s3ConfigObject, ok := config.(*protos.Peer_S3Config)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		s3Config := s3ConfigObject.S3Config
+		encodedConfig, encodingErr = proto.Marshal(s3Config)
 	default:
 		return wrongConfigResponse, nil
 	}
 	if encodingErr != nil {
-		log.Errorf("failed to encode peer configuration for %s peer %s : %v",
-			req.Peer.Type, req.Peer.Name, encodingErr)
+		slog.Error(fmt.Sprintf("failed to encode peer configuration for %s peer %s : %v",
+			req.Peer.Type, req.Peer.Name, encodingErr))
 		return nil, encodingErr
 	}
 
@@ -557,7 +679,7 @@ func (h *FlowRequestHandler) DropPeer(
 		}, fmt.Errorf("failed to obtain peer ID for peer %s: %v", req.PeerName, err)
 	}
 
-	var inMirror int64
+	var inMirror pgtype.Int8
 	queryErr := h.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM flows WHERE source_peer=$1 or destination_peer=$2",
 		peerID, peerID).Scan(&inMirror)
@@ -568,7 +690,7 @@ func (h *FlowRequestHandler) DropPeer(
 		}, fmt.Errorf("failed to check for existing mirrors with peer %s", req.PeerName)
 	}
 
-	if inMirror != 0 {
+	if inMirror.Int64 != 0 {
 		return &protos.DropPeerResponse{
 			Ok:           false,
 			ErrorMessage: fmt.Sprintf("Peer %s is currently involved in an ongoing mirror.", req.PeerName),
@@ -586,5 +708,4 @@ func (h *FlowRequestHandler) DropPeer(
 	return &protos.DropPeerResponse{
 		Ok: true,
 	}, nil
-
 }

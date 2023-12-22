@@ -1,6 +1,3 @@
-use std::time::Duration;
-
-use anyhow::Context;
 use catalog::WorkflowDetails;
 use pt::{
     flow_model::{FlowJob, QRepFlowJob},
@@ -20,36 +17,6 @@ pub struct FlowGrpcClient {
     health_client: health_client::HealthClient<tonic::transport::Channel>,
 }
 
-async fn connect_with_retries(grpc_endpoint: String) -> anyhow::Result<tonic::transport::Channel> {
-    let mut retries = 0;
-    let max_retries = 3;
-    let delay = Duration::from_secs(5);
-
-    loop {
-        match tonic::transport::Channel::from_shared(grpc_endpoint.clone())?
-            .connect()
-            .await
-        {
-            Ok(channel) => return Ok(channel),
-            Err(e) if retries < max_retries => {
-                retries += 1;
-                tracing::warn!(
-                    "Failed to connect to flow server at {}, error {}, retrying in {} seconds...",
-                    grpc_endpoint,
-                    e,
-                    delay.as_secs()
-                );
-                tokio::time::sleep(delay).await;
-            }
-            Err(e) => {
-                return Err(e).with_context(|| {
-                    format!("failed to connect to flow server at {}", grpc_endpoint)
-                })
-            }
-        }
-    }
-}
-
 impl FlowGrpcClient {
     // create a new grpc client to the flow server using flow server address
     pub async fn new(flow_server_addr: &str) -> anyhow::Result<Self> {
@@ -60,8 +27,8 @@ impl FlowGrpcClient {
         let grpc_endpoint = format!("{}/grpc", flow_server_addr);
         tracing::info!("connecting to flow server at {}", grpc_endpoint);
 
-        // Create a gRPC channel and connect to the server
-        let channel = connect_with_retries(grpc_endpoint).await?;
+        // Create a gRPC channel
+        let channel = tonic::transport::Channel::from_shared(grpc_endpoint.clone())?.connect_lazy();
 
         // construct a grpc client to the flow server
         let client = peerdb_route::flow_service_client::FlowServiceClient::new(channel.clone());
@@ -75,7 +42,7 @@ impl FlowGrpcClient {
         })
     }
 
-    async fn start_query_replication_flow(
+    pub async fn start_query_replication_flow(
         &mut self,
         qrep_config: &pt::peerdb_flow::QRepConfig,
     ) -> anyhow::Result<String> {
@@ -129,6 +96,7 @@ impl FlowGrpcClient {
             workflow_id: workflow_details.workflow_id,
             source_peer: Some(workflow_details.source_peer),
             destination_peer: Some(workflow_details.destination_peer),
+            remove_flow_entry: false,
         };
         let response = self.client.shutdown_flow(shutdown_flow_req).await?;
         let shutdown_response = response.into_inner();
@@ -158,6 +126,32 @@ impl FlowGrpcClient {
         }
     }
 
+    pub async fn flow_state_change(
+        &mut self,
+        flow_job_name: &str,
+        workflow_id: &str,
+        pause: bool,
+    ) -> anyhow::Result<()> {
+        let pause_flow_req = pt::peerdb_route::FlowStateChangeRequest {
+            flow_job_name: flow_job_name.to_owned(),
+            workflow_id: workflow_id.to_owned(),
+            requested_flow_state: match pause {
+                true => pt::peerdb_route::FlowState::StatePaused.into(),
+                false => pt::peerdb_route::FlowState::StateRunning.into(),
+            },
+        };
+        let response = self.client.flow_state_change(pause_flow_req).await?;
+        let pause_response = response.into_inner();
+        if pause_response.ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "failed to pause/unpause flow job: {:?}",
+                pause_response.error_message
+            )))
+        }
+    }
+
     pub async fn start_peer_flow_job(
         &mut self,
         job: &FlowJob,
@@ -170,6 +164,7 @@ impl FlowGrpcClient {
                 source_table_identifier: mapping.source_table_identifier.clone(),
                 destination_table_identifier: mapping.destination_table_identifier.clone(),
                 partition_key: mapping.partition_key.clone().unwrap_or_default(),
+                exclude: mapping.exclude.clone(),
             });
         });
 
@@ -190,17 +185,7 @@ impl FlowGrpcClient {
             snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
             snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
             snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
-            snapshot_sync_mode: job
-                .snapshot_sync_mode
-                .clone()
-                .map(|s| s.as_proto_sync_mode())
-                .unwrap_or(0),
             snapshot_staging_path: job.snapshot_staging_path.clone().unwrap_or_default(),
-            cdc_sync_mode: job
-                .cdc_sync_mode
-                .clone()
-                .map(|s| s.as_proto_sync_mode())
-                .unwrap_or(0),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             soft_delete: job.soft_delete,
             replication_slot_name: replication_slot_name.unwrap_or_default(),
@@ -208,6 +193,8 @@ impl FlowGrpcClient {
             push_parallelism: job.push_parallelism.unwrap_or_default(),
             max_batch_size: job.max_batch_size.unwrap_or_default(),
             resync: job.resync,
+            soft_delete_col_name: job.soft_delete_col_name.clone().unwrap_or_default(),
+            synced_at_col_name: job.synced_at_col_name.clone().unwrap_or_default(),
             ..Default::default()
         };
 
@@ -234,12 +221,6 @@ impl FlowGrpcClient {
                     "destination_table_name" => cfg.destination_table_identifier = s.clone(),
                     "watermark_column" => cfg.watermark_column = s.clone(),
                     "watermark_table_name" => cfg.watermark_table = s.clone(),
-                    "sync_data_format" => {
-                        cfg.sync_mode = match s.as_str() {
-                            "avro" => pt::peerdb_flow::QRepSyncMode::QrepSyncModeStorageAvro as i32,
-                            _ => pt::peerdb_flow::QRepSyncMode::QrepSyncModeMultiInsert as i32,
-                        }
-                    }
                     "mode" => {
                         let mut wm = QRepWriteMode {
                             write_type: QRepWriteType::QrepWriteModeAppend as i32,
@@ -293,6 +274,8 @@ impl FlowGrpcClient {
                         cfg.initial_copy_only = *v;
                     } else if key == "setup_watermark_table_on_destination" {
                         cfg.setup_watermark_table_on_destination = *v;
+                    } else if key == "dst_table_full_resync" {
+                        cfg.dst_table_full_resync = *v;
                     } else {
                         return anyhow::Result::Err(anyhow::anyhow!("invalid bool option {}", key));
                     }
@@ -318,24 +301,21 @@ impl FlowGrpcClient {
         self.start_query_replication_flow(&cfg).await
     }
 
-    pub async fn is_healthy(&mut self) -> anyhow::Result<bool> {
+    pub async fn is_healthy(&mut self) -> bool {
         let health_check_req = tonic_health::pb::HealthCheckRequest {
             service: "".to_string(),
         };
 
-        self.health_client
-            .check(health_check_req)
-            .await
-            .map_or_else(
-                |e| {
-                    tracing::error!("failed to check health of flow server: {}", e);
-                    Ok(false)
-                },
-                |response| {
-                    let status = response.into_inner().status;
-                    tracing::info!("flow server health status: {:?}", status);
-                    Ok(status == (tonic_health::ServingStatus::Serving as i32))
-                },
-            )
+        match self.health_client.check(health_check_req).await {
+            Ok(response) => {
+                let status = response.into_inner().status;
+                tracing::info!("flow server health status: {:?}", status);
+                status == (tonic_health::ServingStatus::Serving as i32)
+            }
+            Err(e) => {
+                tracing::error!("failed to check health of flow server: {}", e);
+                false
+            }
+        }
     }
 }

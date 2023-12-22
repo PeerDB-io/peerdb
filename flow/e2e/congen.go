@@ -3,9 +3,12 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,12 +37,6 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 		return fmt.Errorf("failed to drop e2e_test schema: %w", err)
 	}
 
-	// drop the S3 metadata database if it exists
-	_, err = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS peerdb_s3_metadata CASCADE")
-	if err != nil {
-		return fmt.Errorf("failed to drop metadata schema: %w", err)
-	}
-
 	// drop all open slots with the given suffix
 	_, err = pool.Exec(
 		context.Background(),
@@ -61,15 +58,15 @@ func cleanPostgres(pool *pgxpool.Pool, suffix string) error {
 
 	// drop all publications with the given suffix
 	for rows.Next() {
-		var pubName string
+		var pubName pgtype.Text
 		err = rows.Scan(&pubName)
 		if err != nil {
 			return fmt.Errorf("failed to scan publication name: %w", err)
 		}
 
-		_, err = pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName))
+		_, err = pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubName.String))
 		if err != nil {
-			return fmt.Errorf("failed to drop publication %s: %w", pubName, err)
+			return fmt.Errorf("failed to drop publication %s: %w", pubName.String, err)
 		}
 	}
 
@@ -88,10 +85,50 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
+	setupTx, err := pool.Begin(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to start setup transaction")
+	}
+
 	// create an e2e_test schema
-	_, err = pool.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA e2e_test_%s", suffix))
+	_, err = setupTx.Exec(context.Background(), "SELECT pg_advisory_xact_lock(hashtext('Megaton Mile'))")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get lock: %w", err)
+	}
+	defer func() {
+		deferErr := setupTx.Rollback(context.Background())
+		if deferErr != pgx.ErrTxClosed && deferErr != nil {
+			slog.Error("error rolling back setup transaction", slog.Any("error", err))
+		}
+	}()
+
+	// create an e2e_test schema
+	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA e2e_test_%s", suffix))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create e2e_test schema: %w", err)
+	}
+
+	_, err = setupTx.Exec(context.Background(), `
+		CREATE OR REPLACE FUNCTION random_string( int ) RETURNS TEXT as $$
+			SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
+			round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
+		$$ language sql;
+		CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
+		RETURNS bytea AS $body$
+			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
+			FROM generate_series(1, $1);
+		$body$
+		LANGUAGE 'sql'
+		VOLATILE
+		SET search_path = 'pg_catalog';
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create utility functions: %w", err)
+	}
+
+	err = setupTx.Commit(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("error committing setup transaction: %w", err)
 	}
 
 	return pool, nil
@@ -133,8 +170,8 @@ type FlowConnectionGenerationConfig struct {
 	TableNameMapping map[string]string
 	PostgresPort     int
 	Destination      *protos.Peer
-	CDCSyncMode      protos.QRepSyncMode
 	CdcStagingPath   string
+	SoftDelete       bool
 }
 
 // GenerateSnowflakePeer generates a snowflake peer config for testing.
@@ -164,8 +201,12 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 	ret.TableMappings = tblMappings
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
 	ret.Destination = c.Destination
-	ret.CdcSyncMode = c.CDCSyncMode
 	ret.CdcStagingPath = c.CdcStagingPath
+	ret.SoftDelete = c.SoftDelete
+	if ret.SoftDelete {
+		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
+	}
+	ret.SyncedAtColName = "_PEERDB_SYNCED_AT"
 	return ret, nil
 }
 
@@ -180,7 +221,8 @@ type QRepFlowConnectionGenerationConfig struct {
 
 // GenerateQRepConfig generates a qrep config for testing.
 func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
-	query string, watermark string, syncMode protos.QRepSyncMode) (*protos.QRepConfig, error) {
+	query string, watermark string,
+) (*protos.QRepConfig, error) {
 	ret := &protos.QRepConfig{}
 	ret.FlowJobName = c.FlowJobName
 	ret.WatermarkTable = c.WatermarkTable
@@ -194,7 +236,6 @@ func (c *QRepFlowConnectionGenerationConfig) GenerateQRepConfig(
 	ret.Query = query
 	ret.WatermarkColumn = watermark
 
-	ret.SyncMode = syncMode
 	ret.StagingPath = c.StagingPath
 	ret.WriteMode = &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,

@@ -3,14 +3,13 @@ package e2e_s3
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
@@ -31,7 +30,7 @@ func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
 }
 
 func (s *PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateSourceTableQRep(s.pool, s3Suffix, tableName)
+	err := e2e.CreateTableForQRep(s.pool, s3Suffix, tableName)
 	s.NoError(err)
 	err = e2e.PopulateSourceTable(s.pool, s3Suffix, tableName, rowCount)
 	s.NoError(err)
@@ -56,13 +55,11 @@ func (s *PeerFlowE2ETestSuiteS3) SetupSuite() {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	log.SetReportCaller(true)
-
 	pool, err := e2e.SetupPostgres(s3Suffix)
-	if err != nil {
+	if err != nil || pool == nil {
 		s.Fail("failed to setup postgres", err)
 	}
 	s.pool = pool
@@ -94,7 +91,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	jobName := "test_complete_flow_s3"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s3Suffix, jobName)
@@ -107,9 +104,10 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		schemaQualifiedName,
 		"e2e_dest_1",
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.s3Helper.GetPeer(),
 		"stage",
+		false,
+		"",
 	)
 	s.NoError(err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
@@ -142,7 +140,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	jobName := "test_complete_flow_s3_ctid"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s3Suffix, jobName)
@@ -154,9 +152,10 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		schemaQualifiedName,
 		"e2e_dest_ctid",
 		query,
-		protos.QRepSyncMode_QREP_SYNC_MODE_STORAGE_AVRO,
 		s.s3Helper.GetPeer(),
 		"stage",
+		false,
+		"",
 	)
 	s.NoError(err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url

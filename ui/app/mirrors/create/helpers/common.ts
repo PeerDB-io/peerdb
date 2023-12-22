@@ -1,6 +1,5 @@
 import {
   FlowConnectionConfigs,
-  QRepConfig,
   QRepSyncMode,
   QRepWriteType,
 } from '@/grpc_generated/flow';
@@ -17,6 +16,7 @@ export interface MirrorSetting {
   tips?: string;
   helpfulLink?: string;
   default?: string | number;
+  advanced?: boolean; // whether it should come under an 'Advanced' section
 }
 
 export const blankCDCSetting: FlowConnectionConfigs = {
@@ -28,11 +28,11 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   srcTableIdNameMapping: {},
   tableNameSchemaMapping: {},
   metadataPeer: undefined,
-  maxBatchSize: 0,
+  maxBatchSize: 100000,
   doInitialCopy: false,
   publicationName: '',
   snapshotNumRowsPerPartition: 500000,
-  snapshotMaxParallelWorkers: 8,
+  snapshotMaxParallelWorkers: 1,
   snapshotNumTablesInParallel: 1,
   snapshotSyncMode: 0,
   cdcSyncMode: 0,
@@ -43,12 +43,11 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   pushBatchSize: 0,
   pushParallelism: 0,
   resync: false,
+  softDeleteColName: '',
+  syncedAtColName: '',
 };
 
-export const blankQRepSetting: QRepConfig = {
-  flowJobName: '',
-  sourcePeer: undefined,
-  destinationPeer: undefined,
+export const blankQRepSetting = {
   destinationTableIdentifier: '',
   query: '',
   watermarkTable: '',
@@ -57,10 +56,11 @@ export const blankQRepSetting: QRepConfig = {
   syncMode: 0,
   batchSizeInt: 0,
   batchDurationSeconds: 0,
-  maxParallelWorkers: 8,
+  maxParallelWorkers: 1,
   waitBetweenBatchesSeconds: 30,
   writeMode: undefined,
   stagingPath: '',
-  numRowsPerPartition: 0,
+  numRowsPerPartition: 100000,
   setupWatermarkTableOnDestination: false,
+  dstTableFullResync: false,
 };

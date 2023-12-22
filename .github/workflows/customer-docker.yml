@@ -12,21 +12,21 @@ jobs:
   docker-build:
     strategy:
       matrix:
-        runner: [ubicloud]
+        runner: [ubicloud-standard-2-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     steps:
       - name: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - uses: depot/setup-action@v1
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2.1.0
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{github.actor}}
@@ -34,12 +34,12 @@ jobs:
 
       - name: Set Short Commit Hash
         id: vars
-        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: extract branch name suffix for customer
         id: branch
         run: |
-          echo "::set-output name=branch::$(echo $GITHUB_REF | sed -e 's/.*customer-//')"
+          echo "branch=$(echo $GITHUB_REF | sed -e 's/.*customer-//')" >> $GITHUB_OUTPUT
 
       - name: Build (optionally publish) PeerDB Images
         uses: depot/bake-action@v1

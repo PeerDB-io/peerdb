@@ -10,8 +10,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 catalog = { path = "../catalog" }
 flow-rs = { path = "../flow-rs" }
-lazy_static = "1.4"
-pem = "1.1.0"
+pem = "3.0"
 pt = { path = "../pt" }
-sqlparser = { path = "../sqlparser-rs", features = ["visitor"] }
+sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", features = ["visitor"] }
 serde_json = "1.0"

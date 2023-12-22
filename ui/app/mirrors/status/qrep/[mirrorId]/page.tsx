@@ -2,6 +2,7 @@ import prisma from '@/app/utils/prisma';
 import { Header } from '@/lib/Header';
 import { LayoutMain } from '@/lib/Layout';
 import QRepConfigViewer from './qrepConfigViewer';
+import QrepGraph from './qrepGraph';
 import QRepStatusTable, { QRepPartitionStatus } from './qrepStatusTable';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,9 @@ export default async function QRepMirrorStatus({
       start_time: {
         not: null,
       },
+      rows_in_partition: {
+        not: 0,
+      },
     },
     orderBy: {
       start_time: 'desc',
@@ -31,7 +35,8 @@ export default async function QRepMirrorStatus({
       runUuid: run.run_uuid,
       startTime: run.start_time,
       endTime: run.end_time,
-      numRows: run.rows_in_partition,
+      pulledRows: run.rows_in_partition,
+      syncedRows: run.rows_synced,
       status: '',
     };
     return ret;
@@ -41,6 +46,15 @@ export default async function QRepMirrorStatus({
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
       <Header variant='title2'>{mirrorId}</Header>
       <QRepConfigViewer mirrorId={mirrorId} />
+      <QrepGraph
+        syncs={partitions.map((partition) => ({
+          partitionID: partition.partitionId,
+          startTime: partition.startTime,
+          endTime: partition.endTime,
+          numRows: partition.pulledRows,
+        }))}
+      />
+      <br></br>
       <QRepStatusTable flowJobName={mirrorId} partitions={partitions} />
     </LayoutMain>
   );

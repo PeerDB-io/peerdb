@@ -26,11 +26,14 @@ const (
 	FlowService_CreateQRepFlow_FullMethodName    = "/peerdb_route.FlowService/CreateQRepFlow"
 	FlowService_GetSchemas_FullMethodName        = "/peerdb_route.FlowService/GetSchemas"
 	FlowService_GetTablesInSchema_FullMethodName = "/peerdb_route.FlowService/GetTablesInSchema"
+	FlowService_GetAllTables_FullMethodName      = "/peerdb_route.FlowService/GetAllTables"
 	FlowService_GetColumns_FullMethodName        = "/peerdb_route.FlowService/GetColumns"
 	FlowService_GetSlotInfo_FullMethodName       = "/peerdb_route.FlowService/GetSlotInfo"
 	FlowService_GetStatInfo_FullMethodName       = "/peerdb_route.FlowService/GetStatInfo"
 	FlowService_ShutdownFlow_FullMethodName      = "/peerdb_route.FlowService/ShutdownFlow"
+	FlowService_FlowStateChange_FullMethodName   = "/peerdb_route.FlowService/FlowStateChange"
 	FlowService_MirrorStatus_FullMethodName      = "/peerdb_route.FlowService/MirrorStatus"
+	FlowService_GetVersion_FullMethodName        = "/peerdb_route.FlowService/GetVersion"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -44,11 +47,14 @@ type FlowServiceClient interface {
 	CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error)
 	GetSchemas(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSchemasResponse, error)
 	GetTablesInSchema(ctx context.Context, in *SchemaTablesRequest, opts ...grpc.CallOption) (*SchemaTablesResponse, error)
+	GetAllTables(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*AllTablesResponse, error)
 	GetColumns(ctx context.Context, in *TableColumnsRequest, opts ...grpc.CallOption) (*TableColumnsResponse, error)
 	GetSlotInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerSlotResponse, error)
 	GetStatInfo(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*PeerStatResponse, error)
 	ShutdownFlow(ctx context.Context, in *ShutdownRequest, opts ...grpc.CallOption) (*ShutdownResponse, error)
+	FlowStateChange(ctx context.Context, in *FlowStateChangeRequest, opts ...grpc.CallOption) (*FlowStateChangeResponse, error)
 	MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error)
+	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
 }
 
 type flowServiceClient struct {
@@ -122,6 +128,15 @@ func (c *flowServiceClient) GetTablesInSchema(ctx context.Context, in *SchemaTab
 	return out, nil
 }
 
+func (c *flowServiceClient) GetAllTables(ctx context.Context, in *PostgresPeerActivityInfoRequest, opts ...grpc.CallOption) (*AllTablesResponse, error) {
+	out := new(AllTablesResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetAllTables_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) GetColumns(ctx context.Context, in *TableColumnsRequest, opts ...grpc.CallOption) (*TableColumnsResponse, error) {
 	out := new(TableColumnsResponse)
 	err := c.cc.Invoke(ctx, FlowService_GetColumns_FullMethodName, in, out, opts...)
@@ -158,9 +173,27 @@ func (c *flowServiceClient) ShutdownFlow(ctx context.Context, in *ShutdownReques
 	return out, nil
 }
 
+func (c *flowServiceClient) FlowStateChange(ctx context.Context, in *FlowStateChangeRequest, opts ...grpc.CallOption) (*FlowStateChangeResponse, error) {
+	out := new(FlowStateChangeResponse)
+	err := c.cc.Invoke(ctx, FlowService_FlowStateChange_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) MirrorStatus(ctx context.Context, in *MirrorStatusRequest, opts ...grpc.CallOption) (*MirrorStatusResponse, error) {
 	out := new(MirrorStatusResponse)
 	err := c.cc.Invoke(ctx, FlowService_MirrorStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error) {
+	out := new(PeerDBVersionResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetVersion_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -178,11 +211,14 @@ type FlowServiceServer interface {
 	CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error)
 	GetSchemas(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSchemasResponse, error)
 	GetTablesInSchema(context.Context, *SchemaTablesRequest) (*SchemaTablesResponse, error)
+	GetAllTables(context.Context, *PostgresPeerActivityInfoRequest) (*AllTablesResponse, error)
 	GetColumns(context.Context, *TableColumnsRequest) (*TableColumnsResponse, error)
 	GetSlotInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerSlotResponse, error)
 	GetStatInfo(context.Context, *PostgresPeerActivityInfoRequest) (*PeerStatResponse, error)
 	ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error)
+	FlowStateChange(context.Context, *FlowStateChangeRequest) (*FlowStateChangeResponse, error)
 	MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error)
+	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -211,6 +247,9 @@ func (UnimplementedFlowServiceServer) GetSchemas(context.Context, *PostgresPeerA
 func (UnimplementedFlowServiceServer) GetTablesInSchema(context.Context, *SchemaTablesRequest) (*SchemaTablesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTablesInSchema not implemented")
 }
+func (UnimplementedFlowServiceServer) GetAllTables(context.Context, *PostgresPeerActivityInfoRequest) (*AllTablesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllTables not implemented")
+}
 func (UnimplementedFlowServiceServer) GetColumns(context.Context, *TableColumnsRequest) (*TableColumnsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetColumns not implemented")
 }
@@ -223,8 +262,14 @@ func (UnimplementedFlowServiceServer) GetStatInfo(context.Context, *PostgresPeer
 func (UnimplementedFlowServiceServer) ShutdownFlow(context.Context, *ShutdownRequest) (*ShutdownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ShutdownFlow not implemented")
 }
+func (UnimplementedFlowServiceServer) FlowStateChange(context.Context, *FlowStateChangeRequest) (*FlowStateChangeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FlowStateChange not implemented")
+}
 func (UnimplementedFlowServiceServer) MirrorStatus(context.Context, *MirrorStatusRequest) (*MirrorStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MirrorStatus not implemented")
+}
+func (UnimplementedFlowServiceServer) GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVersion not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 
@@ -365,6 +410,24 @@ func _FlowService_GetTablesInSchema_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetAllTables_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PostgresPeerActivityInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetAllTables(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetAllTables_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetAllTables(ctx, req.(*PostgresPeerActivityInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_GetColumns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TableColumnsRequest)
 	if err := dec(in); err != nil {
@@ -437,6 +500,24 @@ func _FlowService_ShutdownFlow_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_FlowStateChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FlowStateChangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).FlowStateChange(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_FlowStateChange_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).FlowStateChange(ctx, req.(*FlowStateChangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_MirrorStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MirrorStatusRequest)
 	if err := dec(in); err != nil {
@@ -451,6 +532,24 @@ func _FlowService_MirrorStatus_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).MirrorStatus(ctx, req.(*MirrorStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_GetVersion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerDBVersionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetVersion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetVersion_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetVersion(ctx, req.(*PeerDBVersionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -491,6 +590,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _FlowService_GetTablesInSchema_Handler,
 		},
 		{
+			MethodName: "GetAllTables",
+			Handler:    _FlowService_GetAllTables_Handler,
+		},
+		{
 			MethodName: "GetColumns",
 			Handler:    _FlowService_GetColumns_Handler,
 		},
@@ -507,8 +610,16 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _FlowService_ShutdownFlow_Handler,
 		},
 		{
+			MethodName: "FlowStateChange",
+			Handler:    _FlowService_FlowStateChange_Handler,
+		},
+		{
 			MethodName: "MirrorStatus",
 			Handler:    _FlowService_MirrorStatus_Handler,
+		},
+		{
+			MethodName: "GetVersion",
+			Handler:    _FlowService_GetVersion_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

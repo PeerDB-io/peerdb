@@ -31,6 +31,7 @@ message ShutdownRequest {
   string flow_job_name = 2;
   peerdb_peers.Peer source_peer = 3;
   peerdb_peers.Peer destination_peer = 4;
+  bool remove_flow_entry = 5;
 }
 
 message ShutdownResponse {
@@ -116,6 +117,10 @@ message SchemaTablesResponse {
   repeated string tables = 1;
 }
 
+message AllTablesResponse {
+  repeated string tables = 1;
+}
+
 message TableColumnsRequest {
   string peer_name = 1;
   string schema_name = 2;
@@ -136,6 +141,8 @@ message SlotInfo {
   string restart_lSN = 3;
   bool active = 4;
   float lag_in_mb = 5;
+  string confirmed_flush_lSN = 6;
+  string wal_status = 7;
 }
 
 message StatInfo {
@@ -172,6 +179,31 @@ message MirrorStatusResponse {
     CDCMirrorStatus cdc_status = 3;
   }
   string error_message = 4;
+}
+
+// in the future, consider moving DropFlow to this and reduce route surface
+enum FlowState {
+  STATE_UNKNOWN = 0;
+  STATE_RUNNING = 1;
+  STATE_PAUSED = 2;
+}
+
+message FlowStateChangeRequest {
+  string workflow_id = 1;
+  string flow_job_name = 2;
+  FlowState requested_flow_state = 3;
+}
+
+message FlowStateChangeResponse {
+  bool ok = 1;
+  string error_message = 2;
+}
+
+message PeerDBVersionRequest {
+}
+
+message PeerDBVersionResponse {
+  string version = 1;
 }
 
 service FlowService {
@@ -214,6 +246,10 @@ service FlowService {
     option (google.api.http) = { get: "/v1/peers/tables" };
   }
 
+  rpc GetAllTables(PostgresPeerActivityInfoRequest) returns (AllTablesResponse) {
+    option (google.api.http) = { get: "/v1/peers/tables/all" };
+  }
+
   rpc GetColumns(TableColumnsRequest) returns (TableColumnsResponse) {
     option (google.api.http) = { get: "/v1/peers/columns" };
   }
@@ -227,7 +263,12 @@ service FlowService {
   rpc ShutdownFlow(ShutdownRequest) returns (ShutdownResponse) {
     option (google.api.http) = { post: "/v1/mirrors/drop", body: "*" };
   }
+  rpc FlowStateChange(FlowStateChangeRequest) returns (FlowStateChangeResponse) {}
   rpc MirrorStatus(MirrorStatusRequest) returns (MirrorStatusResponse) {
     option (google.api.http) = { get: "/v1/mirrors/{flow_job_name}" };
+  }
+
+  rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {
+    option (google.api.http) = { get: "/v1/version" };
   }
 }

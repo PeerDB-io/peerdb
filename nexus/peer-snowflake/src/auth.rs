@@ -6,9 +6,9 @@ use std::{
 use anyhow::Context;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use jsonwebtoken::{encode as jwt_encode, Algorithm, EncodingKey, Header};
-use pkcs1::EncodeRsaPrivateKey;
-use pkcs8::{DecodePrivateKey, EncodePublicKey};
-use rsa::{RsaPrivateKey, RsaPublicKey};
+use rsa::RsaPrivateKey;
+use rsa::pkcs1::EncodeRsaPrivateKey;
+use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
 use secrecy::{Secret, SecretString};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -36,22 +36,19 @@ pub struct SnowflakeAuth {
 }
 
 impl SnowflakeAuth {
-    // When initializing, private_key must not be copied, to improve security of credentials.
     #[tracing::instrument(name = "peer_sflake::init_client_auth", skip_all)]
     pub fn new(
         account_id: String,
         username: String,
-        private_key: String,
-        password: Option<String>,
+        private_key: &str,
+        password: Option<&str>,
         refresh_threshold: u64,
         expiry_threshold: u64,
     ) -> anyhow::Result<Self> {
         let pkey = match password {
-            Some(pw) => DecodePrivateKey::from_pkcs8_encrypted_pem(&private_key, pw)
+            Some(pw) => DecodePrivateKey::from_pkcs8_encrypted_pem(private_key, pw)
                 .context("Invalid private key or decryption failed")?,
-            None => {
-                DecodePrivateKey::from_pkcs8_pem(&private_key).context("Invalid private key")?
-            }
+            None => DecodePrivateKey::from_pkcs8_pem(private_key).context("Invalid private key")?,
         };
         let mut snowflake_auth: SnowflakeAuth = SnowflakeAuth {
             // moved normalized_account_id above account_id to satisfy the borrow checker.
@@ -86,15 +83,15 @@ impl SnowflakeAuth {
                 .get_or_insert(raw_account.chars().count())
         };
         raw_account
-            .to_uppercase()
             .chars()
+            .flat_map(char::to_uppercase)
             .take(split_index)
             .collect()
     }
 
     #[tracing::instrument(name = "peer_sflake::gen_public_key_fp", skip_all)]
     fn gen_public_key_fp(private_key: &RsaPrivateKey) -> anyhow::Result<String> {
-        let public_key = EncodePublicKey::to_public_key_der(&RsaPublicKey::from(private_key))?;
+        let public_key = private_key.to_public_key().to_public_key_der()?;
         let res = format!(
             "SHA256:{}",
             BASE64_STANDARD.encode(Sha256::new_with_prefix(public_key.as_bytes()).finalize())
@@ -105,7 +102,7 @@ impl SnowflakeAuth {
     #[tracing::instrument(name = "peer_sflake::auth_refresh_jwt", skip_all)]
     fn refresh_jwt(&mut self) -> anyhow::Result<()> {
         let private_key_jwt: EncodingKey = EncodingKey::from_rsa_der(
-            EncodeRsaPrivateKey::to_pkcs1_der(&self.private_key)?.as_bytes(),
+            self.private_key.to_pkcs1_der()?.as_bytes(),
         );
         self.last_refreshed = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         info!(

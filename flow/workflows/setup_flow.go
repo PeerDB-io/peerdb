@@ -164,7 +164,8 @@ func (s *SetupFlowExecution) createRawTable(
 // fetchTableSchemaAndSetupNormalizedTables fetches the table schema for the source table and
 // sets up the normalized tables on the destination peer.
 func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
-	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs) (map[string]*protos.TableSchema, error) {
+	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigs,
+) (map[string]*protos.TableSchema, error) {
 	s.logger.Info("fetching table schema for peer flow - ", s.CDCFlowName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -197,7 +198,24 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	for _, srcTableName := range sortedSourceTables {
 		tableSchema := tableNameSchemaMapping[srcTableName]
 		normalizedTableName := s.tableNameMapping[srcTableName]
+		for _, mapping := range flowConnectionConfigs.TableMappings {
+			if mapping.SourceTableIdentifier == srcTableName {
+				if len(mapping.Exclude) != 0 {
+					tableSchema = &protos.TableSchema{
+						TableIdentifier:       tableSchema.TableIdentifier,
+						Columns:               maps.Clone(tableSchema.Columns),
+						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
+						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
+					}
+					for _, exclude := range mapping.Exclude {
+						delete(tableSchema.Columns, exclude)
+					}
+				}
+				break
+			}
+		}
 		normalizedTableMapping[normalizedTableName] = tableSchema
+
 		s.logger.Info("normalized table schema: ", normalizedTableName, " -> ", tableSchema)
 	}
 
@@ -205,6 +223,8 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
 		PeerConnectionConfig:   flowConnectionConfigs.Destination,
 		TableNameSchemaMapping: normalizedTableMapping,
+		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
+		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
 	}
 
 	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
@@ -251,7 +271,8 @@ func (s *SetupFlowExecution) executeSetupFlow(
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
 func SetupFlowWorkflow(ctx workflow.Context,
-	config *protos.FlowConnectionConfigs) (*protos.FlowConnectionConfigs, error) {
+	config *protos.FlowConnectionConfigs,
+) (*protos.FlowConnectionConfigs, error) {
 	tblNameMapping := make(map[string]string)
 	for _, v := range config.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier

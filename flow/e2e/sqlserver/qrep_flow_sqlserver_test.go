@@ -3,6 +3,7 @@ package e2e_sqlserver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -11,15 +12,16 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
+
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
 )
 
-const sqlserverSuffix = "s3"
+const sqlserverSuffix = "sqlserver"
 
 type PeerFlowE2ETestSuiteSQLServer struct {
 	suite.Suite
@@ -51,13 +53,11 @@ func (s *PeerFlowE2ETestSuiteSQLServer) SetupSuite() {
 	if err != nil {
 		// it's okay if the .env file is not present
 		// we will use the default values
-		log.Infof("Unable to load .env file, using default values from env")
+		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	log.SetReportCaller(true)
-
 	pool, err := e2e.SetupPostgres(sqlserverSuffix)
-	if err != nil {
+	if err != nil || pool == nil {
 		s.Fail("failed to setup postgres", err)
 	}
 	s.pool = pool
@@ -120,7 +120,7 @@ func (s *PeerFlowE2ETestSuiteSQLServer) setupPGDestinationTable(tableName string
 
 func getSimpleTableSchema() *model.QRecordSchema {
 	return &model.QRecordSchema{
-		Fields: []*model.QField{
+		Fields: []model.QField{
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "v_from", Type: qvalue.QValueKindTimestamp, Nullable: true},
@@ -136,7 +136,7 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env)
+	e2e.RegisterWorkflowsAndActivities(env, s.T())
 
 	numRows := 10
 	tblName := "test_qrep_flow_avro_ss_append"
@@ -163,7 +163,6 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 		WatermarkColumn:            "v_from",
 		NumRowsPerPartition:        5,
 		InitialCopyOnly:            true,
-		SyncMode:                   protos.QRepSyncMode_QREP_SYNC_MODE_MULTI_INSERT,
 		MaxParallelWorkers:         1,
 		WaitBetweenBatchesSeconds:  5,
 	}
@@ -177,10 +176,10 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 	s.NoError(err)
 
 	// Verify that the destination table has the same number of rows as the source table
-	var numRowsInDest int
+	var numRowsInDest pgtype.Int8
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", dstTableName)
 	err = s.pool.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	s.NoError(err)
 
-	s.Equal(numRows, numRowsInDest)
+	s.Equal(numRows, int(numRowsInDest.Int64))
 }
