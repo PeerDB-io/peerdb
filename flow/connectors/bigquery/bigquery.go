@@ -782,23 +782,11 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
 	}
 
-	stmts := []string{}
 	// append all the statements to one list
 	c.logger.Info(fmt.Sprintf("merge raw records to corresponding tables: %s %s %v",
 		c.datasetID, rawTableName, distinctTableNames))
 
-	release, err := c.grabJobsUpdateLock()
-	if err != nil {
-		return nil, fmt.Errorf("failed to grab lock: %v", err)
-	}
-
-	defer func() {
-		err := release()
-		if err != nil {
-			c.logger.Error("failed to release lock", slog.Any("error", err))
-		}
-	}()
-
+	stmts := make([]string, 0, len(distinctTableNames)*3+3)
 	stmts = append(stmts, "BEGIN TRANSACTION;")
 
 	for _, tableName := range distinctTableNames {
@@ -817,8 +805,8 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			},
 		}
 		// normalize anything between last normalized batch id to last sync batchid
-		mergeStmts := mergeGen.generateMergeStmts()
-		stmts = append(stmts, mergeStmts...)
+		createTemp, mergeStmt, dropTemp := mergeGen.generateMergeStmts()
+		stmts = append(stmts, createTemp, mergeStmt, dropTemp)
 	}
 	// update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
@@ -826,12 +814,25 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
+	mergeQuery := strings.Join(stmts, "\n")
+
+	release, err := c.grabJobsUpdateLock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to grab lock: %v", err)
+	}
+
+	defer func() {
+		err := release()
+		if err != nil {
+			c.logger.Error("failed to release lock", slog.Any("error", err))
+		}
+	}()
 
 	// put this within a transaction
 	// TODO - not truncating rows in staging table as of now.
 	// err = c.truncateTable(staging...)
 
-	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
+	_, err = c.client.Query(mergeQuery).Read(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statements %s in a transaction: %v", strings.Join(stmts, "\n"), err)
 	}

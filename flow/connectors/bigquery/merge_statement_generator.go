@@ -30,8 +30,8 @@ type mergeStmtGenerator struct {
 	peerdbCols *protos.PeerDBColumns
 }
 
-// GenerateMergeStmt generates a merge statements.
-func (m *mergeStmtGenerator) generateMergeStmts() []string {
+// GenerateMergeStmt returns 3 strings to create temp, merge, drop temp
+func (m *mergeStmtGenerator) generateMergeStmts() (string, string, string) {
 	// return an empty array for now
 	flattenedCTE := m.generateFlattenedCTE()
 	deDupedCTE := m.generateDeDupedCTE()
@@ -45,7 +45,7 @@ func (m *mergeStmtGenerator) generateMergeStmts() []string {
 
 	dropTempTableStmt := fmt.Sprintf("DROP TABLE %s;", tempTable)
 
-	return []string{createTempTableStmt, mergeStmt, dropTempTableStmt}
+	return createTempTableStmt, mergeStmt, dropTempTableStmt
 }
 
 // generateFlattenedCTE generates a flattened CTE.
