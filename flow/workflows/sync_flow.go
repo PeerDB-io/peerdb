@@ -35,7 +35,6 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 	opts *protos.SyncFlowOptions,
-	relationMessageMapping model.RelationMessageMapping,
 	normFlowId string,
 	normFlowRunId string,
 ) (*model.SyncResponse, error) {
@@ -74,7 +73,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		FlowConnectionConfigs:  config,
 		LastSyncState:          dstSyncState,
 		SyncFlowOptions:        opts,
-		RelationMessageMapping: relationMessageMapping,
+		RelationMessageMapping: opts.RelationMessageMapping,
 	}
 	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 
@@ -127,7 +126,6 @@ func SyncFlowWorkflow(ctx workflow.Context,
 		ctx,
 		config,
 		options,
-		options.RelationMessageMapping,
 		normFlowId,
 		normFlowRunId,
 	)
