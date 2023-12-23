@@ -15,6 +15,9 @@ const MirrorError = async ({ params: { mirrorName } }: MirrorErrorProps) => {
       error_type: 'error',
     },
     distinct: ['error_message'],
+    orderBy: {
+      error_timestamp: 'desc',
+    },
   });
 
   return (
@@ -40,12 +43,10 @@ const MirrorError = async ({ params: { mirrorName } }: MirrorErrorProps) => {
             header={
               <TableRow style={{ textAlign: 'left' }}>
                 <TableCell>Type</TableCell>
+                <Label as='label' style={{ fontSize: 15 }}>
+                  Time
+                </Label>
                 <TableCell>Message</TableCell>
-                <TableCell>
-                  <Label as='label' style={{ fontSize: 15 }}>
-                    Timestamp
-                  </Label>
-                </TableCell>
               </TableRow>
             }
           >
@@ -54,14 +55,14 @@ const MirrorError = async ({ params: { mirrorName } }: MirrorErrorProps) => {
                 <TableCell style={{ color: '#F45156', width: '10%' }}>
                   {mirrorError.error_type.toUpperCase()}
                 </TableCell>
-                <TableCell style={{ width: '70%', fontSize: 13 }}>
-                  {mirrorError.error_message}
-                </TableCell>
-                <TableCell style={{ width: '30%' }}>
+                <TableCell style={{ width: '20%' }}>
                   <TimeLabel
                     fontSize={14}
                     timeVal={mirrorError.error_timestamp.toLocaleString()}
                   />
+                </TableCell>
+                <TableCell style={{ width: '70%', fontSize: 13 }}>
+                  {mirrorError.error_message}
                 </TableCell>
               </TableRow>
             ))}
