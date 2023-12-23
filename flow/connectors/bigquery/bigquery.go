@@ -233,11 +233,11 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
-func (c *BigQueryConnector) WaitForTableReady(tblName string) error {
+func (c *BigQueryConnector) waitForTableReady(tblName string) error {
 	table := c.client.Dataset(c.datasetID).Table(tblName)
 	maxDuration := 5 * time.Minute
 	deadline := time.Now().Add(maxDuration)
-	sleepInterval := 15 * time.Second
+	sleepInterval := 5 * time.Second
 	attempt := 0
 
 	for {

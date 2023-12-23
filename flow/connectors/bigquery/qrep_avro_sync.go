@@ -343,7 +343,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		slog.String("batchOrPartitionID", syncID),
 	)
 	if s.gcsBucket != "" {
-
 		bucket := s.connector.storageClient.Bucket(s.gcsBucket)
 		avroFilePath := fmt.Sprintf("%s/%s.avro", objectFolder, syncID)
 		obj := bucket.Object(avroFilePath)
@@ -415,7 +414,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	}
 	slog.Info(fmt.Sprintf("Pushed into %s/%s", avroFile.FilePath, syncID))
 
-	err = s.connector.WaitForTableReady(stagingTable)
+	err = s.connector.waitForTableReady(stagingTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to wait for table to be ready: %w", err)
 	}
