@@ -824,7 +824,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		sfType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		qvKind := qvalue.QValueKind(genericColumnType)
+		sfType, err := qValueKindToSnowflakeType(qvKind)
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 				genericColumnType, err)
@@ -849,9 +850,10 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		// 		"Microseconds*1000) "+
 		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
-			if sfType == "NUMBER(38, 9)" {
-				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s,",
-					toVariantColumnName, columnName, sfType, targetColumnName))
+			if qvKind == qvalue.QValueKindNumeric {
+				flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s,",
+						toVariantColumnName, columnName, sfType, targetColumnName))
 			} else {
 				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
 					toVariantColumnName, columnName, sfType, targetColumnName))
