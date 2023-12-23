@@ -759,7 +759,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	// if job is not yet found in the peerdb_mirror_jobs_table
 	// OR sync is lagging end normalize
-	if !hasJob || normalizeBatchID == syncBatchID {
+	if !hasJob || normalizeBatchID >= syncBatchID {
 		c.logger.Info("waiting for sync to catch up, so finishing")
 		return &model.NormalizeResponse{
 			Done:         false,

@@ -419,7 +419,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, err
 	}
 	// normalize has caught up with sync or no SyncFlow has run, chill until more records are loaded.
-	if syncBatchID == normalizeBatchID || !jobMetadataExists {
+	if normalizeBatchID >= syncBatchID || !jobMetadataExists {
 		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
 			syncBatchID, normalizeBatchID))
 		return &model.NormalizeResponse{

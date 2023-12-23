@@ -596,7 +596,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 		return nil, err
 	}
 	// normalize has caught up with sync, chill until more records are loaded.
-	if syncBatchID == normalizeBatchID {
+	if normalizeBatchID >= syncBatchID {
 		return &model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normalizeBatchID,
