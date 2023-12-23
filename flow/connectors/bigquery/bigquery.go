@@ -816,15 +816,16 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			},
 		}
 		// normalize anything between last normalized batch id to last sync batchid
-		mergeStmts := mergeGen.generateMergeStmts()
-		stmts = append(stmts, mergeStmts...)
+		mergeStmt := mergeGen.generateMergeStmt()
+		stmts = append(stmts, mergeStmt)
 	}
 	// update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
-		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name = '%s';",
+		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name='%s';",
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
+	fmt.Println(stmts)
 
 	// put this within a transaction
 	// TODO - not truncating rows in staging table as of now.
