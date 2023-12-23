@@ -112,7 +112,7 @@ export const qrepSettings: MirrorSetting[] = [
           writeMode: currWriteMode,
         };
       }),
-    tips: `Comma separated string column names. Needed when write mode is set to UPSERT.
+    tips: `Needed when write mode is set to UPSERT.
     These columns need to be unique and are used for updates.`,
     type: 'select',
   },
