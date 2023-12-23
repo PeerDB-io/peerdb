@@ -26,7 +26,13 @@ export const ErrorModal = ({ flowName }: { flowName: string }) => {
   );
 };
 
-export const MirrorError = ({ flowName }: { flowName: string }) => {
+export const MirrorError = ({
+  flowName,
+  detailed = false,
+}: {
+  flowName: string;
+  detailed: boolean;
+}) => {
   const [flowStatus, setFlowStatus] = useState<string>();
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +82,13 @@ export const MirrorError = ({ flowName }: { flowName: string }) => {
   }
 
   if (flowStatus == 'healthy') {
+    if (detailed)
+      return (
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <Icon name='check_circle' fill={true} />
+          <Label>Healthy</Label>
+        </div>
+      );
     return <Icon name='check_circle' fill={true} />;
   }
 
