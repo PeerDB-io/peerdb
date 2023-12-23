@@ -28,7 +28,7 @@ export const ErrorModal = ({ flowName }: { flowName: string }) => {
 
 export const MirrorError = ({
   flowName,
-  detailed = false,
+  detailed,
 }: {
   flowName: string;
   detailed: boolean;
