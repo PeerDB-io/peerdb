@@ -23,6 +23,11 @@ func (a *FlowableActivity) handleSlotInfo(
 		return err
 	}
 
+	if slotInfo == nil || len(slotInfo) == 0 {
+		slog.WarnContext(ctx, "warning: unable to get slot info", slog.Any("slotName", slotName))
+		return nil
+	}
+
 	deploymentUIDPrefix := ""
 	if peerdbenv.PeerDBDeploymentUID() != "" {
 		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
