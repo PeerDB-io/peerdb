@@ -825,11 +825,6 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
-	fmt.Println(stmts)
-
-	// put this within a transaction
-	// TODO - not truncating rows in staging table as of now.
-	// err = c.truncateTable(staging...)
 
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
