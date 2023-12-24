@@ -233,11 +233,11 @@ func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSc
 	return nil
 }
 
-func (c *BigQueryConnector) WaitForTableReady(tblName string) error {
+func (c *BigQueryConnector) waitForTableReady(tblName string) error {
 	table := c.client.Dataset(c.datasetID).Table(tblName)
 	maxDuration := 5 * time.Minute
 	deadline := time.Now().Add(maxDuration)
-	sleepInterval := 15 * time.Second
+	sleepInterval := 5 * time.Second
 	attempt := 0
 
 	for {
@@ -816,19 +816,15 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			},
 		}
 		// normalize anything between last normalized batch id to last sync batchid
-		mergeStmts := mergeGen.generateMergeStmts()
-		stmts = append(stmts, mergeStmts...)
+		mergeStmt := mergeGen.generateMergeStmt()
+		stmts = append(stmts, mergeStmt)
 	}
 	// update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
-		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name = '%s';",
+		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name='%s';",
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
 	stmts = append(stmts, updateMetadataStmt)
 	stmts = append(stmts, "COMMIT TRANSACTION;")
-
-	// put this within a transaction
-	// TODO - not truncating rows in staging table as of now.
-	// err = c.truncateTable(staging...)
 
 	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
 	if err != nil {
