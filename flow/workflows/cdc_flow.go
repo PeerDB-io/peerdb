@@ -25,10 +25,6 @@ type CDCFlowLimits struct {
 	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
 	// This is typically non-zero for testing purposes.
 	TotalSyncFlows int
-	// Number of normalize flows to execute in total.
-	// If 0, the number of sync flows will be continuously executed until the peer flow is cancelled.
-	// This is typically non-zero for testing purposes.
-	TotalNormalizeFlows int
 	// Maximum number of rows in a sync flow batch.
 	MaxBatchSize int
 	// Rows synced after which we can say a test is done.
@@ -443,17 +439,13 @@ func CDCFlowWorkflowWithConfig(
 			cfg,
 		)
 
-		selector := workflow.NewSelector(ctx)
-		selector.AddFuture(childNormalizeFlowFuture, func(f workflow.Future) {
-			var childNormalizeFlowRes *model.NormalizeResponse
-			if err := f.Get(ctx, &childNormalizeFlowRes); err != nil {
-				w.logger.Error("failed to execute normalize flow: ", err)
-				state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
-			} else {
-				state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
-			}
-		})
-		selector.Select(ctx)
+		var childNormalizeFlowRes *model.NormalizeResponse
+		if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
+			w.logger.Error("failed to execute normalize flow: ", err)
+			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
+		} else {
+			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
+		}
 		batchSizeSelector.Select(ctx)
 	}
 

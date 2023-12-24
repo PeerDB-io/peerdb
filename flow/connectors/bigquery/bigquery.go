@@ -382,29 +382,32 @@ func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	}
 }
 
-func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
+func (c *BigQueryConnector) GetLastSyncAndNormalizeBatchID(jobName string) (int64, int64, error) {
+	query := fmt.Sprintf("SELECT sync_batch_id, normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
 		c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return -1, err
+		return -1, -1, err
 	}
 
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
 		c.logger.Info("no row found for job")
-		return 0, nil
+		return 0, 0, nil
 	}
 
-	if row[0] == nil {
-		c.logger.Info("no normalize_batch_id found returning 0")
-		return 0, nil
-	} else {
-		return row[0].(int64), nil
+	syncBatchID := int64(0)
+	normBatchID := int64(0)
+	if row[0] != nil {
+		syncBatchID = row[0].(int64)
 	}
+	if row[1] != nil {
+		normBatchID = row[1].(int64)
+	}
+	return syncBatchID, normBatchID, nil
 }
 
 func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -746,13 +749,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
-	}
-
-	// get last batchid that has been normalize
-	normalizeBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
+	syncBatchID, normalizeBatchID, err := c.GetLastSyncAndNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
@@ -763,7 +760,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	// if job is not yet found in the peerdb_mirror_jobs_table
 	// OR sync is lagging end normalize
-	if !hasJob || normalizeBatchID == syncBatchID {
+	if !hasJob || normalizeBatchID >= syncBatchID {
 		c.logger.Info("waiting for sync to catch up, so finishing")
 		return &model.NormalizeResponse{
 			Done:         false,
