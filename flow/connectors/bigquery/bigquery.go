@@ -781,24 +781,10 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
 	}
 
-	stmts := []string{}
+	stmts := make([]string, 0, len(distinctTableNames)+1)
 	// append all the statements to one list
 	c.logger.Info(fmt.Sprintf("merge raw records to corresponding tables: %s %s %v",
 		c.datasetID, rawTableName, distinctTableNames))
-
-	release, err := c.grabJobsUpdateLock()
-	if err != nil {
-		return nil, fmt.Errorf("failed to grab lock: %v", err)
-	}
-
-	defer func() {
-		err := release()
-		if err != nil {
-			c.logger.Error("failed to release lock", slog.Any("error", err))
-		}
-	}()
-
-	stmts = append(stmts, "BEGIN TRANSACTION;")
 
 	for _, tableName := range distinctTableNames {
 		mergeGen := &mergeStmtGenerator{
@@ -824,11 +810,11 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name='%s';",
 		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
 	stmts = append(stmts, updateMetadataStmt)
-	stmts = append(stmts, "COMMIT TRANSACTION;")
 
-	_, err = c.client.Query(strings.Join(stmts, "\n")).Read(c.ctx)
+	query := strings.Join(stmts, "\n")
+	_, err = c.client.Query(query).Read(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute statements %s in a transaction: %v", strings.Join(stmts, "\n"), err)
+		return nil, fmt.Errorf("failed to execute statements %s: %v", query, err)
 	}
 
 	return &model.NormalizeResponse{
@@ -1023,21 +1009,9 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(jobName string) error {
-	release, err := c.grabJobsUpdateLock()
-	if err != nil {
-		return fmt.Errorf("failed to grab lock: %w", err)
-	}
-
-	defer func() {
-		err := release()
-		if err != nil {
-			c.logger.Error("failed to release lock", slog.Any("error", err))
-		}
-	}()
-
 	dataset := c.client.Dataset(c.datasetID)
 	// deleting PeerDB specific tables
-	err = dataset.Table(c.getRawTableName(jobName)).Delete(c.ctx)
+	err := dataset.Table(c.getRawTableName(jobName)).Delete(c.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to delete raw table: %w", err)
 	}
@@ -1067,33 +1041,6 @@ func (c *BigQueryConnector) getStagingTableName(flowJobName string) string {
 	// replace all non-alphanumeric characters with _
 	flowJobName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(flowJobName, "_")
 	return fmt.Sprintf("_peerdb_staging_%s", flowJobName)
-}
-
-// Bigquery doesn't allow concurrent updates to the same table.
-// we grab a lock on catalog to ensure that only one job is updating
-// bigquery tables at a time.
-// returns a function to release the lock.
-func (c *BigQueryConnector) grabJobsUpdateLock() (func() error, error) {
-	tx, err := c.catalogPool.Begin(c.ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// grab an advisory lock based on the mirror jobs table hash
-	mjTbl := fmt.Sprintf("%s.%s", c.datasetID, MirrorJobsTable)
-	_, err = tx.Exec(c.ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", mjTbl)
-	if err != nil {
-		err = tx.Rollback(c.ctx)
-		return nil, fmt.Errorf("failed to grab lock on %s: %w", mjTbl, err)
-	}
-
-	return func() error {
-		err = tx.Commit(c.ctx)
-		if err != nil {
-			return fmt.Errorf("failed to commit transaction: %w", err)
-		}
-		return nil
-	}, nil
 }
 
 func (c *BigQueryConnector) RenameTables(req *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
