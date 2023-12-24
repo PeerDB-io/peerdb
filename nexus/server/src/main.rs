@@ -30,7 +30,6 @@ use pgwire::{
         portal::{Format, Portal},
         query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal},
         results::{DescribeResponse, Response, Tag},
-        store::MemPortalStore,
         ClientInfo, MakeHandler, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
@@ -82,7 +81,6 @@ impl AuthSource for FixedPasswordAuthSource {
 pub struct NexusBackend {
     catalog: Arc<Mutex<Catalog>>,
     peer_connections: PeerConnectionTracker,
-    portal_store: Arc<MemPortalStore<NexusParsedStatement>>,
     query_parser: NexusQueryParser,
     peer_cursors: Mutex<PeerCursors>,
     executors: DashMap<String, Arc<dyn QueryExecutor>>,
@@ -101,7 +99,6 @@ impl NexusBackend {
         Self {
             catalog,
             peer_connections,
-            portal_store: Arc::new(MemPortalStore::new()),
             query_parser,
             peer_cursors: Mutex::new(PeerCursors::new()),
             executors: DashMap::new(),
@@ -1008,12 +1005,7 @@ fn parameter_to_string(portal: &Portal<NexusParsedStatement>, idx: usize) -> PgW
 #[async_trait]
 impl ExtendedQueryHandler for NexusBackend {
     type Statement = NexusParsedStatement;
-    type PortalStore = MemPortalStore<Self::Statement>;
     type QueryParser = NexusQueryParser;
-
-    fn portal_store(&self) -> Arc<Self::PortalStore> {
-        self.portal_store.clone()
-    }
 
     fn query_parser(&self) -> Arc<Self::QueryParser> {
         Arc::new(self.query_parser.clone())
