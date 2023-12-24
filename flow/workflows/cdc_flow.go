@@ -162,6 +162,7 @@ func CDCFlowWorkflowWithConfig(
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 
+	ctx = workflow.WithValue(ctx, "flowName", cfg.FlowJobName)
 	w := NewCDCFlowWorkflowExecution(ctx)
 
 	if limits.TotalSyncFlows == 0 {
