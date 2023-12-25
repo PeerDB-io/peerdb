@@ -17,14 +17,15 @@ const AckButton = ({ ack, id }: { ack: boolean; id: number | bigint }) => {
   // handleAck updates ack to true for the given mirrorID
   const handleAck = async (mirrorID: bigint | number) => {
     setLoading(true);
-    const updateRes = await fetch('/api/mirrors/alerts', {
+    const updateResResult = await fetch('/api/mirrors/alerts', {
       method: 'PUT',
       body: JSON.stringify({
         mirrorIDStringList: [mirrorID.toString()],
       }),
-    }).then((res) => res.json());
+    });
+    const updateRes = await updateResResult.json();
     setLoading(false);
-    if (!updateRes || updateRes === 0) {
+    if (!updateRes) {
       notifyErr('Something went wrong when trying to acknowledge');
       return;
     }
