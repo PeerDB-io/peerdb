@@ -360,7 +360,6 @@ func (p *PostgresCDCSource) consumeStream(
 			p.logger.Debug(fmt.Sprintf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s\n",
 				xld.WALStart, xld.ServerWALEnd, xld.ServerTime))
 			rec, err := p.processMessage(records, xld, clientXLogPos)
-
 			if err != nil {
 				return fmt.Errorf("error processing message: %w", err)
 			}
@@ -470,7 +469,8 @@ func (p *PostgresCDCSource) consumeStream(
 }
 
 func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pglogrepl.XLogData,
-	currentClientXlogPos pglogrepl.LSN) (model.Record, error) {
+	currentClientXlogPos pglogrepl.LSN,
+) (model.Record, error) {
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)

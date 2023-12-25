@@ -416,6 +416,11 @@ func (r *CDCRecordStream) GetRecords() chan Record {
 	return r.records
 }
 
+type SyncAndNormalizeBatchID struct {
+	SyncBatchID      int64
+	NormalizeBatchID int64
+}
+
 type SyncRecordsRequest struct {
 	Records *CDCRecordStream
 	// FlowJobName is the name of the flow job.
