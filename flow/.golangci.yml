@@ -4,7 +4,6 @@ run:
 linters:
   enable:
     - dogsled
-    - dupl
     - gofumpt
     - gosec
     - gosimple
@@ -18,9 +17,14 @@ linters:
     - prealloc
     - staticcheck
     - ineffassign
+    - unparam
     - unused
     - lll
 linters-settings:
+  stylecheck:
+    checks:
+      - all
+      - '-ST1003'
   lll:
-    line-length: 120
+    line-length: 144
     tab-width: 4

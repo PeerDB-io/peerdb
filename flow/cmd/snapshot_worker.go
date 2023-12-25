@@ -32,7 +32,10 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 		}
 
 		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{Certificates: certs},
+			TLS: &tls.Config{
+				Certificates: certs,
+				MinVersion:   tls.VersionTLS13,
+			},
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}
