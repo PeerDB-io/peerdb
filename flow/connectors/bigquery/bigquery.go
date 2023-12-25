@@ -913,7 +913,7 @@ func (c *BigQueryConnector) getUpdateMetadataStmt(jobName string, lastSyncedChec
 		c.datasetID, MirrorJobsTable, jobName, lastSyncedCheckpointID, batchID)
 	if hasJob {
 		jobStatement = fmt.Sprintf(
-			"UPDATE %s.%s SET offset = %d,sync_batch_id=%d WHERE mirror_job_name = '%s';",
+			"UPDATE %s.%s SET offset=GREATEST(offset,%d),sync_batch_id=%d WHERE mirror_job_name = '%s';",
 			c.datasetID, MirrorJobsTable, lastSyncedCheckpointID, batchID, jobName)
 	}
 

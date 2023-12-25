@@ -13,9 +13,7 @@ export default function Login() {
   const searchParams = useSearchParams();
   const [pass, setPass] = useState('');
   const [show, setShow] = useState(false);
-  const [error, setError] = useState(() =>
-    searchParams.has('reject') ? 'Authentication failed, please login' : ''
-  );
+  const [error, setError] = useState(() => '');
   const login = () => {
     fetch('/api/login', {
       method: 'POST',
