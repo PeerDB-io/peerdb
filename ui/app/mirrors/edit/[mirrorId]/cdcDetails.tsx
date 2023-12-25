@@ -32,10 +32,9 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
               </Label>
             </div>
             <div>
-              <MirrorError
-                detailed
-                flowName={mirrorConfig?.flowJobName || ''}
-              />
+              <Label>
+                <MirrorError flowName={mirrorConfig?.flowJobName || ''} />
+              </Label>
             </div>
           </div>
           <div className='basis-1/4 md:basis-1/3'>
