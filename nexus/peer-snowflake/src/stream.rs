@@ -3,7 +3,6 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use futures::Stream;
 use peer_cursor::Schema;
 use peer_cursor::{Record, RecordStream, SchemaRef};
-use pgerror::PgError;
 use pgwire::{
     api::{
         results::{FieldFormat, FieldInfo},
@@ -236,25 +235,15 @@ impl SnowflakeRecordStream {
 impl Stream for SnowflakeRecordStream {
     type Item = PgWireResult<Record>;
 
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        match this.advance() {
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.advance() {
             Ok(true) => {
-                let record = this.convert_result_set_item();
-                let result = record.map_err(|e| {
-                    PgWireError::ApiError(Box::new(PgError::Internal {
-                        err_msg: format!("error getting current row: {}", e),
-                    }))
-                });
+                let record = self.convert_result_set_item();
+                let result = record.map_err(|e| PgWireError::ApiError(e.into()));
                 Poll::Ready(Some(result))
             }
             Ok(false) => Poll::Ready(None),
-            Err(err) => Poll::Ready(Some(Err(PgWireError::ApiError(Box::new(
-                PgError::Internal {
-                    err_msg: format!("Checking for next row in result set failed: {}", err),
-                },
-            ))))),
+            Err(err) => Poll::Ready(Some(Err(PgWireError::ApiError(err.into())))),
         }
     }
 }

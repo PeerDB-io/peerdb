@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use futures::{stream, StreamExt};
-use pgerror::PgError;
 use pgwire::{
     api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response},
     error::{PgWireError, PgWireResult},
@@ -48,14 +47,13 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
             let s = u.to_string();
             builder.encode_field(&s)
         }
-        Value::Enum(_) | Value::Hstore(_) => {
-            Err(PgWireError::ApiError(Box::new(PgError::Internal {
-                err_msg: format!(
-                    "cannot write value {:?} in postgres protocol: unimplemented",
-                    &value
-                ),
-            })))
-        }
+        Value::Enum(_) | Value::Hstore(_) => Err(PgWireError::ApiError(
+            format!(
+                "cannot write value {:?} in postgres protocol: unimplemented",
+                &value
+            )
+            .into(),
+        )),
     }
 }
 

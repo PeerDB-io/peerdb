@@ -2,7 +2,6 @@ use anyhow::Context;
 use async_recursion::async_recursion;
 use cursor::SnowflakeCursorManager;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
-use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser;
@@ -209,11 +208,10 @@ impl SnowflakeQueryExecutor {
         let query_str: String = query.to_string();
         info!("Processing SnowFlake query: {}", query_str);
 
-        let result_set = self.process_query(&query_str).await.map_err(|err| {
-            PgWireError::ApiError(Box::new(PgError::Internal {
-                err_msg: err.to_string(),
-            }))
-        })?;
+        let result_set = self
+            .process_query(&query_str)
+            .await
+            .map_err(|err| PgWireError::ApiError(err.into()))?;
         Ok(result_set)
     }
 
@@ -309,11 +307,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 snowflake_ast
                     .rewrite(&mut new_query)
                     .context("unable to rewrite query")
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        }))
-                    })?;
+                    .map_err(|err| PgWireError::ApiError(err.into()))?;
 
                 let result_set = self.query(&query.clone()).await?;
 
@@ -361,11 +355,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 // If parsing the count resulted in an error, return an internal error
                 let count = match count {
                     Ok(c) => c,
-                    Err(err) => {
-                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        })))
-                    }
+                    Err(err) => return Err(PgWireError::ApiError(err.into())),
                 };
 
                 tracing::info!("fetching {} rows", count);
@@ -413,11 +403,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                 sf_ast
                     .rewrite(&mut new_query)
                     .context("unable to rewrite query")
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        }))
-                    })?;
+                    .map_err(|err| PgWireError::ApiError(err.into()))?;
 
                 // new_query.limit = Some(Expr::Value(Value::Number("1".to_owned(), false)));
 

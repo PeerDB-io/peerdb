@@ -783,12 +783,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "doc-comment"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
-
-[[package]]
 name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1847,7 +1841,6 @@ dependencies = [
  "gcp-bigquery-client",
  "peer-connections",
  "peer-cursor",
- "pgerror",
  "pgwire",
  "pt",
  "rust_decimal",
@@ -1882,7 +1875,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "futures",
- "pgerror",
  "pgwire",
  "sqlparser",
  "tokio",
@@ -1900,7 +1892,6 @@ dependencies = [
  "futures",
  "peer-connections",
  "peer-cursor",
- "pgerror",
  "pgwire",
  "postgres-connection",
  "postgres-inet",
@@ -1932,7 +1923,6 @@ dependencies = [
  "hex",
  "jsonwebtoken",
  "peer-cursor",
- "pgerror",
  "pgwire",
  "pt",
  "reqwest",
@@ -1987,7 +1977,6 @@ dependencies = [
  "peer-postgres",
  "peer-snowflake",
  "peerdb-parser",
- "pgerror",
  "pgwire",
  "postgres",
  "prost",
@@ -2037,13 +2026,6 @@ checksum = "e1d3afd2628e69da2be385eb6f2fd57c8ac7977ceeff6dc166ff1657b0e386a9"
 dependencies = [
  "fixedbitset",
  "indexmap 2.1.0",
-]
-
-[[package]]
-name = "pgerror"
-version = "0.1.0"
-dependencies = [
- "snafu",
 ]
 
 [[package]]
@@ -3085,29 +3067,6 @@ name = "smallvec"
 version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4dccd0940a2dcdf68d092b8cbab7dc0ad8fa938bf95787e1b916b0e3d0e8e970"
-
-[[package]]
-name = "snafu"
-version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4de37ad025c587a29e8f3f5605c00f70b98715ef90b9061a815b9e59e9042d6"
-dependencies = [
- "backtrace",
- "doc-comment",
- "snafu-derive",
-]
-
-[[package]]
-name = "snafu-derive"
-version = "0.7.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "990079665f075b699031e9c08fd3ab99be5029b96f3b78dc0709e8f77e4efebf"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
 
 [[package]]
 name = "socket2"

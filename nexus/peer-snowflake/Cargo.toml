@@ -11,7 +11,6 @@ peer-cursor = { path = "../peer-cursor" }
 sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git" }
 value = { path = "../value" }
 tracing = "0.1"
-pgerror = { path = "../pgerror" }
 secrecy = { version = "0.8.0" }
 async-trait = "0.1.57"
 jsonwebtoken = { version = "9.0", features = ["use_pem"] }
