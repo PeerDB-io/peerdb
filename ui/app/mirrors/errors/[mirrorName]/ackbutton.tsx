@@ -14,13 +14,13 @@ const notifyErr = (errMsg: string) => {
 const AckButton = ({ ack, id }: { ack: boolean; id: number | bigint }) => {
   const [loading, setLoading] = useState(false);
   const [updated, setUpdated] = useState(false);
-  // handleAck updates ack to true for the given mirrorId list
-  const handleAck = async (mirrorIDList: (bigint | number)[]) => {
+  // handleAck updates ack to true for the given mirrorID
+  const handleAck = async (mirrorID: bigint | number) => {
     setLoading(true);
     const updateRes = await fetch('/api/mirrors/alerts', {
       method: 'PUT',
       body: JSON.stringify({
-        mirrorIDStringList: mirrorIDList.map((id) => id.toString()),
+        mirrorIDStringList: [mirrorID.toString()],
       }),
     }).then((res) => res.json());
     setLoading(false);
@@ -33,7 +33,7 @@ const AckButton = ({ ack, id }: { ack: boolean; id: number | bigint }) => {
   return (
     <>
       {ack !== true && updated !== true ? (
-        <Button variant='normalSolid' onClick={() => handleAck([id])}>
+        <Button variant='normalSolid' onClick={() => handleAck(id)}>
           <Label as='label' style={{ fontSize: 13 }}>
             {loading ? (
               <ProgressCircle variant='intermediate_progress_circle' />

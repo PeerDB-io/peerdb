@@ -20,6 +20,7 @@ export async function POST(request: Request) {
   return new Response(JSON.stringify(mirrorStatus));
 }
 
+// We accept a list here in preparation for a Select All feature in UI
 export async function PUT(request: Request) {
   const { mirrorIDStringList } = await request.json();
   const mirrorIDList: bigint[] = mirrorIDStringList.map((id: string) =>

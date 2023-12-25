@@ -32,6 +32,18 @@ const MirrorError = async ({ params: { mirrorName } }: MirrorErrorProps) => {
             <b>Mirror name</b>:
           </Label>
           <Label variant='body'>{mirrorName}</Label>
+
+          <div>
+            <Label as='label' style={{ fontSize: 14, marginTop: '1rem' }}>
+              Here you can view error logs for your mirror and mark them as
+              acknowledged. Once all errors are acknowledged, we will show the
+              status for this mirror as Active.
+              <br></br>
+              This is purely for displaying mirror status and has{' '}
+              <b>no effect on the mirror</b>.
+            </Label>
+          </div>
+
           <div
             style={{
               fontSize: 15,
