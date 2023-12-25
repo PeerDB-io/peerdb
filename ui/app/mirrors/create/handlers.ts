@@ -73,45 +73,33 @@ const validateCDCFields = (
       }
     | undefined
   )[],
-  setMsg: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
   config: CDCConfig
-): boolean => {
+): string | undefined => {
   let validationErr: string | undefined;
   const tablesValidity = tableMappingSchema.safeParse(tableMapping);
   if (!tablesValidity.success) {
     validationErr = tablesValidity.error.issues[0].message;
-    setMsg({ ok: false, msg: validationErr });
-    return false;
   }
   const configValidity = cdcSchema.safeParse(config);
   if (!configValidity.success) {
     validationErr = configValidity.error.issues[0].message;
-    setMsg({ ok: false, msg: validationErr });
-    return false;
   }
-  setMsg({ ok: true, msg: '' });
-  return true;
+  return validationErr;
 };
 
 const validateQRepFields = (
   query: string,
-  setMsg: Dispatch<SetStateAction<{ ok: boolean; msg: string }>>,
   config: QRepConfig
-): boolean => {
+): string | undefined => {
   if (query.length < 5) {
-    setMsg({ ok: false, msg: 'Query is invalid' });
-    return false;
+    return 'Query is invalid';
   }
-
   let validationErr: string | undefined;
   const configValidity = qrepSchema.safeParse(config);
   if (!configValidity.success) {
     validationErr = configValidity.error.issues[0].message;
-    setMsg({ ok: false, msg: validationErr });
-    return false;
   }
-  setMsg({ ok: true, msg: '' });
-  return true;
+  return validationErr;
 };
 
 interface TableMapping {
@@ -140,25 +128,23 @@ export const handleCreateCDC = async (
   flowJobName: string,
   rows: TableMapRow[],
   config: CDCConfig,
-  setMsg: Dispatch<
-    SetStateAction<{
-      ok: boolean;
-      msg: string;
-    }>
-  >,
+  notify: (msg: string) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback
 ) => {
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
     const flowNameErr = flowNameValid.error.issues[0].message;
-    setMsg({ ok: false, msg: flowNameErr });
+    notify(flowNameErr);
     return;
   }
 
   const tableNameMapping = reformattedTableMapping(rows);
-  const isValid = validateCDCFields(tableNameMapping, setMsg, config);
-  if (!isValid) return;
+  const fieldErr = validateCDCFields(tableNameMapping, config);
+  if (fieldErr) {
+    notify(fieldErr);
+    return;
+  }
 
   config['tableMappings'] = tableNameMapping as TableMapping[];
   config['flowJobName'] = flowJobName;
@@ -170,6 +156,12 @@ export const handleCreateCDC = async (
     config.cdcSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
     config.snapshotSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
   }
+
+  if (config.doInitialCopy == false && config.initialCopyOnly == true) {
+    notify('Initial Copy Only cannot be true if Initial Copy is false.');
+    return;
+  }
+
   setLoading(true);
   const statusMessage: UCreateMirrorResponse = await fetch('/api/mirrors/cdc', {
     method: 'POST',
@@ -178,11 +170,11 @@ export const handleCreateCDC = async (
     }),
   }).then((res) => res.json());
   if (!statusMessage.created) {
-    setMsg({ ok: false, msg: 'unable to create mirror.' });
+    notify('unable to create mirror.');
     setLoading(false);
     return;
   }
-  setMsg({ ok: true, msg: 'CDC Mirror created successfully' });
+  notify('CDC Mirror created successfully');
   route();
   setLoading(false);
 };
@@ -200,12 +192,7 @@ export const handleCreateQRep = async (
   flowJobName: string,
   query: string,
   config: QRepConfig,
-  setMsg: Dispatch<
-    SetStateAction<{
-      ok: boolean;
-      msg: string;
-    }>
-  >,
+  notify: (msg: string) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   route: RouteCallback,
   xmin?: boolean
@@ -213,7 +200,7 @@ export const handleCreateQRep = async (
   const flowNameValid = flowNameSchema.safeParse(flowJobName);
   if (!flowNameValid.success) {
     const flowNameErr = flowNameValid.error.issues[0].message;
-    setMsg({ ok: false, msg: flowNameErr });
+    notify(flowNameErr);
     return;
   }
 
@@ -228,16 +215,17 @@ export const handleCreateQRep = async (
 
   if (
     config.writeMode?.writeType == QRepWriteType.QREP_WRITE_MODE_UPSERT &&
-    !config.writeMode?.upsertKeyColumns
+    (!config.writeMode?.upsertKeyColumns ||
+      config.writeMode?.upsertKeyColumns.length == 0)
   ) {
-    setMsg({
-      ok: false,
-      msg: 'For upsert mode, unique key columns cannot be empty.',
-    });
+    notify('For upsert mode, unique key columns cannot be empty.');
     return;
   }
-  const isValid = validateQRepFields(query, setMsg, config);
-  if (!isValid) return;
+  const fieldErr = validateQRepFields(query, config);
+  if (fieldErr) {
+    notify(fieldErr);
+    return;
+  }
   config.flowJobName = flowJobName;
   config.query = query;
 
@@ -258,11 +246,11 @@ export const handleCreateQRep = async (
     }
   ).then((res) => res.json());
   if (!statusMessage.created) {
-    setMsg({ ok: false, msg: 'unable to create mirror.' });
+    notify('unable to create mirror.');
     setLoading(false);
     return;
   }
-  setMsg({ ok: true, msg: 'Query Replication Mirror created successfully' });
+  notify('Query Replication Mirror created successfully');
   route();
   setLoading(false);
 };

@@ -14,6 +14,7 @@ import { MirrorSetter } from '../../../dto/MirrorsDTO';
 import { defaultSyncMode } from '../cdc/cdc';
 import { fetchAllTables, fetchColumns } from '../handlers';
 import { MirrorSetting, blankQRepSetting } from '../helpers/common';
+import UpsertColsDisplay from './upsertcols';
 
 interface QRepConfigProps {
   settings: MirrorSetting[];
@@ -29,10 +30,6 @@ interface QRepConfigProps {
   xmin?: boolean;
 }
 
-const SyncModes = ['AVRO', 'Copy with Binary'].map((value) => ({
-  label: value,
-  value,
-}));
 const WriteModes = ['Append', 'Upsert', 'Overwrite'].map((value) => ({
   label: value,
   value,
@@ -50,6 +47,7 @@ export default function QRepConfigForm({
   const [watermarkColumns, setWatermarkColumns] = useState<
     { value: string; label: string }[]
   >([]);
+
   const [loading, setLoading] = useState(false);
 
   const handleChange = (val: string | boolean, setting: MirrorSetting) => {
@@ -219,6 +217,13 @@ export default function QRepConfigForm({
                             val && handleChange(val.value, setting)
                           }
                           options={WriteModes}
+                        />
+                      ) : setting.label === 'Upsert Key Columns' ? (
+                        <UpsertColsDisplay
+                          columns={watermarkColumns}
+                          loading={loading}
+                          setter={setter}
+                          setting={setting}
                         />
                       ) : (
                         <ReactSelect

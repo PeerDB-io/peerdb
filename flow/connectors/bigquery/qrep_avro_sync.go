@@ -74,12 +74,12 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			flowJobName, dstTableName, syncBatchID),
 	)
 
-	// execute the statements in a transaction
-	stmts := []string{}
-	stmts = append(stmts, "BEGIN TRANSACTION;")
-	stmts = append(stmts, insertStmt)
-	stmts = append(stmts, updateMetadataStmt)
-	stmts = append(stmts, "COMMIT TRANSACTION;")
+	stmts := []string{
+		"BEGIN TRANSACTION;",
+		insertStmt,
+		updateMetadataStmt,
+		"COMMIT TRANSACTION;",
+	}
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
@@ -136,8 +136,6 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	)
 	bqClient := s.connector.client
 	datasetID := s.connector.datasetID
-	// Start a transaction
-	stmts := []string{"BEGIN TRANSACTION;"}
 
 	selector := "*"
 	if softDeleteCol != "" { // PeerDB column
@@ -150,16 +148,18 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT %s FROM `%s.%s`;",
 		datasetID, dstTableName, selector, datasetID, stagingTable)
 
-	stmts = append(stmts, insertStmt)
-
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {
 		return -1, fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
 	slog.Info("Performing transaction inside QRep sync function", flowLog)
-	stmts = append(stmts, insertMetadataStmt)
-	stmts = append(stmts, "COMMIT TRANSACTION;")
-	// Execute the statements in a transaction
+
+	stmts := []string{
+		"BEGIN TRANSACTION;",
+		insertStmt,
+		insertMetadataStmt,
+		"COMMIT TRANSACTION;",
+	}
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
@@ -343,7 +343,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		slog.String("batchOrPartitionID", syncID),
 	)
 	if s.gcsBucket != "" {
-
 		bucket := s.connector.storageClient.Bucket(s.gcsBucket)
 		avroFilePath := fmt.Sprintf("%s/%s.avro", objectFolder, syncID)
 		obj := bucket.Object(avroFilePath)
@@ -415,7 +414,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	}
 	slog.Info(fmt.Sprintf("Pushed into %s/%s", avroFile.FilePath, syncID))
 
-	err = s.connector.WaitForTableReady(stagingTable)
+	err = s.connector.waitForTableReady(stagingTable)
 	if err != nil {
 		return 0, fmt.Errorf("failed to wait for table to be ready: %w", err)
 	}

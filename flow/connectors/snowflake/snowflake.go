@@ -39,11 +39,10 @@ const (
 	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	toVariantColumnName         = "VAR_COLS"
-	mergeStatementSQL           = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (SELECT _PEERDB_UID,
-		_PEERDB_TIMESTAMP,
-		TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
-		_PEERDB_UNCHANGED_TOAST_COLUMNS FROM
-		 _PEERDB_INTERNAL.%s WHERE _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND
+	mergeStatementSQL           = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (
+		SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,
+		 _PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,_PEERDB_UNCHANGED_TOAST_COLUMNS
+		FROM _PEERDB_INTERNAL.%s WHERE _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND
 		 _PEERDB_DESTINATION_TABLE_NAME = ? ), FLATTENED AS
 		 (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
 			_PEERDB_UNCHANGED_TOAST_COLUMNS,%s
@@ -66,7 +65,8 @@ const (
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
-	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET OFFSET=?, SYNC_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
+	updateMetadataForSyncRecordsSQL = `UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?), SYNC_BATCH_ID=?
+	 WHERE MIRROR_JOB_NAME=?`
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET NORMALIZE_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
@@ -824,7 +824,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		sfType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		qvKind := qvalue.QValueKind(genericColumnType)
+		sfType, err := qValueKindToSnowflakeType(qvKind)
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 				genericColumnType, err)
@@ -849,8 +850,14 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		// 		"Microseconds*1000) "+
 		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
-				toVariantColumnName, columnName, sfType, targetColumnName))
+			if qvKind == qvalue.QValueKindNumeric {
+				flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s,",
+						toVariantColumnName, columnName, sfType, targetColumnName))
+			} else {
+				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
+					toVariantColumnName, columnName, sfType, targetColumnName))
+			}
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")

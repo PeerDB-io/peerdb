@@ -80,3 +80,8 @@ func PeerDBAlertingGapMinutesAsDuration() time.Duration {
 func PeerDBOpenConnectionsAlertThreshold() uint32 {
 	return getEnvUint32("PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD", 5)
 }
+
+// PEERDB_ENABLE_WAL_HEARTBEAT
+func PeerDBEnableWALHeartbeat() bool {
+	return getEnvBool("PEERDB_ENABLE_WAL_HEARTBEAT", false)
+}

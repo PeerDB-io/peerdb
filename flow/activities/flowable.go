@@ -176,7 +176,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	return setupNormalizedTablesOutput, nil
 }
 
-// StartFlow implements StartFlow.
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput,
 ) (*model.SyncResponse, error) {
@@ -742,6 +741,11 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 }
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
+	if !peerdbenv.PeerDBEnableWALHeartbeat() {
+		slog.InfoContext(ctx, "wal heartbeat is disabled")
+		return nil
+	}
+
 	sendTimeout := 10 * time.Minute
 	ticker := time.NewTicker(sendTimeout)
 	defer ticker.Stop()
