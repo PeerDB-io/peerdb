@@ -90,7 +90,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
                 <TimeLabel timeVal={flow.created_at} />
               </TableCell>
               <TableCell>
-                <MirrorError flowName={flow.name} />
+                <MirrorError flowName={flow.name} detailed={false} />
               </TableCell>
               <TableCell>
                 <DropDialog

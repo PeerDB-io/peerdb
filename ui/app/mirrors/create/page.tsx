@@ -4,17 +4,18 @@ import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { DBType, Peer } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
-import { ButtonGroup } from '@/lib/ButtonGroup';
+import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import { TextField } from '@/lib/TextField';
 import { Divider } from '@tremor/react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import { InfoPopover } from '../../../components/InfoPopover';
 import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
@@ -47,22 +48,23 @@ function getPeerLabel(peer: Peer) {
   );
 }
 
+const notifyErr = (errMsg: string) => {
+  toast.error(errMsg, {
+    position: toast.POSITION.BOTTOM_CENTER,
+  });
+};
 export default function CreateMirrors() {
   const router = useRouter();
   const [mirrorName, setMirrorName] = useState<string>('');
   const [mirrorType, setMirrorType] = useState<string>('');
-  const [formMessage, setFormMessage] = useState<{ ok: boolean; msg: string }>({
-    ok: true,
-    msg: '',
-  });
   const [loading, setLoading] = useState<boolean>(false);
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [qrepQuery, setQrepQuery] =
     useState<string>(`-- Here's a sample template:
-    SELECT * FROM <table_name> 
-    WHERE <watermark_column> 
+    SELECT * FROM <table_name>
+    WHERE <watermark_column>
     BETWEEN {{.start}} AND {{.end}}`);
 
   useEffect(() => {
@@ -183,15 +185,7 @@ export default function CreateMirrors() {
             Configuration
           </Label>
         )}
-        {!loading && formMessage.msg.length > 0 && (
-          <Label
-            colorName='lowContrast'
-            colorSet={formMessage.ok ? 'positive' : 'destructive'}
-            variant='subheadline'
-          >
-            {formMessage.msg}
-          </Label>
-        )}
+        {!loading && <ToastContainer />}
         {mirrorType === '' ? (
           <></>
         ) : mirrorType === 'CDC' ? (
@@ -213,36 +207,41 @@ export default function CreateMirrors() {
       </Panel>
       <Panel>
         {mirrorType && (
-          <ButtonGroup className='justify-end'>
-            <Button as={Link} href='/mirrors'>
-              Cancel
-            </Button>
-            <Button
-              variant='normalSolid'
-              onClick={() =>
-                mirrorType === 'CDC'
-                  ? handleCreateCDC(
-                      mirrorName,
-                      rows,
-                      config as CDCConfig,
-                      setFormMessage,
-                      setLoading,
-                      listMirrorsPage
-                    )
-                  : handleCreateQRep(
-                      mirrorName,
-                      qrepQuery,
-                      config as QRepConfig,
-                      setFormMessage,
-                      setLoading,
-                      listMirrorsPage,
-                      mirrorType === 'XMIN' // for handling xmin specific
-                    )
-              }
-            >
-              Create Mirror
-            </Button>
-          </ButtonGroup>
+          <Button
+            style={{
+              position: 'fixed',
+              bottom: '5%',
+              right: '5%',
+              width: '10em',
+              height: '3em',
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+              borderRadius: '2em',
+              fontWeight: 'bold',
+            }}
+            variant='normalSolid'
+            onClick={() =>
+              mirrorType === 'CDC'
+                ? handleCreateCDC(
+                    mirrorName,
+                    rows,
+                    config as CDCConfig,
+                    notifyErr,
+                    setLoading,
+                    listMirrorsPage
+                  )
+                : handleCreateQRep(
+                    mirrorName,
+                    qrepQuery,
+                    config as QRepConfig,
+                    notifyErr,
+                    setLoading,
+                    listMirrorsPage,
+                    mirrorType === 'XMIN' // for handling xmin specific
+                  )
+            }
+          >
+            <Icon name='add' /> Create Mirror
+          </Button>
         )}
       </Panel>
     </div>
