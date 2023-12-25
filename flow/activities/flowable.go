@@ -72,7 +72,7 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	flowName := ctx.Value(shared.FlowNameKey).(string)
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	if err := dstConn.SetupMetadataTables(); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
@@ -170,7 +170,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	setupNormalizedTablesOutput, err := conn.SetupNormalizedTables(config)
 	if err != nil {
-		flowName := ctx.Value(shared.FlowNameKey).(string)
+		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, fmt.Errorf("failed to setup normalized tables: %w", err)
 	}
