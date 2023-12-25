@@ -197,7 +197,6 @@ func (p *PostgresCDCSource) consumeStream(
 			return fmt.Errorf("[initial-flush] SendStandbyStatusUpdate failed: %w", err)
 		}
 	}
-	proposedConsumedXLogPos := consumedXLogPos
 
 	var standByLastLogged time.Time
 	cdcRecordsStorage := cdc_records.NewCDCRecordsStore(p.flowJobName)
@@ -254,17 +253,6 @@ func (p *PostgresCDCSource) consumeStream(
 
 	for {
 		if pkmRequiresResponse {
-			// Update XLogPos to the last processed position, we can only confirm
-			// that this is the last row committed on the destination.
-			if proposedConsumedXLogPos > consumedXLogPos {
-				p.logger.Info(fmt.Sprintf("Heartbeat adjusting lsn from %d to %d", consumedXLogPos, proposedConsumedXLogPos))
-				consumedXLogPos = proposedConsumedXLogPos
-				err := p.SetLastOffset(int64(consumedXLogPos))
-				if err != nil {
-					return fmt.Errorf("storing updated LSN failed: %w", err)
-				}
-			}
-
 			err := pglogrepl.SendStandbyStatusUpdate(p.ctx, conn,
 				pglogrepl.StandbyStatusUpdate{WALWritePosition: consumedXLogPos})
 			if err != nil {
@@ -476,13 +464,6 @@ func (p *PostgresCDCSource) consumeStream(
 
 			if xld.WALStart > clientXLogPos {
 				clientXLogPos = xld.WALStart
-			}
-
-			if cdcRecordsStorage.IsEmpty() {
-				// given that we have no records it is safe to update the flush wal position
-				// to the clientXLogPos. clientXLogPos can be moved forward due to PKM messages.
-				proposedConsumedXLogPos = clientXLogPos
-				records.UpdateLatestCheckpoint(int64(clientXLogPos))
 			}
 		}
 	}
