@@ -31,24 +31,24 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 	return &pgPeerConfig, nil
 }
 
-func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName string) (*pgxpool.Pool, string, error) {
+func (h *FlowRequestHandler) getPoolForPGPeer(ctx context.Context, peerName string) (*pgxpool.Pool, error) {
 	pgPeerConfig, err := h.getPGPeerConfig(ctx, peerName)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	connStr := utils.GetPGConnectionString(pgPeerConfig)
 	peerPool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return peerPool, pgPeerConfig.User, nil
+	return peerPool, nil
 }
 
 func (h *FlowRequestHandler) GetSchemas(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSchemasResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.PeerSchemasResponse{Schemas: nil}, err
 	}
@@ -78,7 +78,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	ctx context.Context,
 	req *protos.SchemaTablesRequest,
 ) (*protos.SchemaTablesResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
@@ -110,7 +110,7 @@ func (h *FlowRequestHandler) GetAllTables(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.AllTablesResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.AllTablesResponse{Tables: nil}, err
 	}
@@ -140,7 +140,7 @@ func (h *FlowRequestHandler) GetColumns(
 	ctx context.Context,
 	req *protos.TableColumnsRequest,
 ) (*protos.TableColumnsResponse, error) {
-	peerPool, _, err := h.getPoolForPGPeer(ctx, req.PeerName)
+	peerPool, err := h.getPoolForPGPeer(ctx, req.PeerName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
 	}

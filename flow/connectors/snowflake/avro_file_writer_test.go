@@ -55,6 +55,7 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 	}
 }
 
+// nolint:unparam
 func generateRecords(
 	t *testing.T,
 	nullable bool,
