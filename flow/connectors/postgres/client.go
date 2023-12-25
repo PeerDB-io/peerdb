@@ -84,9 +84,9 @@ type ReplicaIdentityType rune
 
 const (
 	ReplicaIdentityDefault ReplicaIdentityType = 'd'
-	ReplicaIdentityFull                        = 'f'
-	ReplicaIdentityIndex                       = 'i'
-	ReplicaIdentityNothing                     = 'n'
+	ReplicaIdentityFull    ReplicaIdentityType = 'f'
+	ReplicaIdentityIndex   ReplicaIdentityType = 'i'
+	ReplicaIdentityNothing ReplicaIdentityType = 'n'
 )
 
 // getRelIDForTable returns the relation ID for a table.
