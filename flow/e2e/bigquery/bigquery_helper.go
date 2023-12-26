@@ -455,3 +455,15 @@ func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecord
 
 	return nil
 }
+
+func (b *BigQueryTestHelper) RunInt64Query(query string) (int64, error) {
+	recordBatch, err := b.ExecuteAndProcessQuery(query)
+	if err != nil {
+		return 0, fmt.Errorf("could not execute query: %w", err)
+	}
+	if recordBatch.NumRecords != 1 {
+		return 0, fmt.Errorf("expected only 1 record, got %d", recordBatch.NumRecords)
+	}
+
+	return recordBatch.Records[0].Entries[0].Value.(int64), nil
+}
