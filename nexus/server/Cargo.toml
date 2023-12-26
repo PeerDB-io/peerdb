@@ -60,7 +60,6 @@ tracing-appender = "0.2"
 tracing-subscriber = "0.3"
 uuid = "1.0"
 cargo-deb = "2.0"
-pgerror = { path = "../pgerror" }
 
 [dev-dependencies]
 postgres = "0.19.4"

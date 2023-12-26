@@ -10,7 +10,6 @@ use gcp_bigquery_client::model::{
     field_type::FieldType, query_response::ResultSet, table_field_schema::TableFieldSchema,
 };
 use peer_cursor::{Record, RecordStream, Schema, SchemaRef};
-use pgerror::PgError;
 use pgwire::{
     api::{
         results::{FieldFormat, FieldInfo},
@@ -181,19 +180,13 @@ impl BqRecordStream {
 impl Stream for BqRecordStream {
     type Item = PgWireResult<Record>;
 
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        match this.result_set.next_row() {
-            true => {
-                let record = this.convert_result_set_item(&this.result_set);
-                let result = record.map_err(|e| {
-                    PgWireError::ApiError(Box::new(PgError::Internal {
-                        err_msg: format!("error getting curent row: {}", e),
-                    }))
-                });
-                Poll::Ready(Some(result))
-            }
-            false => Poll::Ready(None),
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.result_set.next_row() {
+            let record = self.convert_result_set_item(&self.result_set);
+            let result = record.map_err(|e| PgWireError::ApiError(e.into()));
+            Poll::Ready(Some(result))
+        } else {
+            Poll::Ready(None)
         }
     }
 }
