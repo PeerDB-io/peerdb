@@ -365,7 +365,7 @@ func (p *PostgresCDCSource) consumeStream(
 			}
 
 			if rec != nil {
-				tableName := rec.GetTableName()
+				tableName := rec.GetDestinationTableName()
 				switch r := rec.(type) {
 				case *model.UpdateRecord:
 					// tableName here is destination tableName.
@@ -843,7 +843,7 @@ func (p *PostgresCDCSource) processRelationMessage(
 func (p *PostgresCDCSource) recToTablePKey(req *model.PullRecordsRequest,
 	rec model.Record,
 ) (*model.TableWithPkey, error) {
-	tableName := rec.GetTableName()
+	tableName := rec.GetDestinationTableName()
 	pkeyColsMerged := make([]byte, 0)
 
 	for _, pkeyCol := range req.TableNameSchemaMapping[tableName].PrimaryKeyColumns {
