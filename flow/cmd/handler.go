@@ -261,7 +261,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 					slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
 			}
-			state.LastPartition.Range = &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}}}
+			state.LastPartition.Range = &protos.PartitionRange{
+				Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}},
+			}
 		}
 
 		workflowFn = peerflow.XminFlowWorkflow

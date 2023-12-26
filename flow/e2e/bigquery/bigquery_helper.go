@@ -94,12 +94,11 @@ func generateBQPeer(bigQueryConfig *protos.BigqueryConfig) *protos.Peer {
 }
 
 // datasetExists checks if the dataset exists.
-func (b *BigQueryTestHelper) datasetExists() (bool, error) {
-	dataset := b.client.Dataset(b.Config.DatasetId)
+func (b *BigQueryTestHelper) datasetExists(datasetName string) (bool, error) {
+	dataset := b.client.Dataset(datasetName)
 	meta, err := dataset.Metadata(context.Background())
 	if err != nil {
 		// if err message contains `notFound` then dataset does not exist.
-		// first we cast the error to a bigquery.Error
 		if strings.Contains(err.Error(), "notFound") {
 			fmt.Printf("dataset %s does not exist\n", b.Config.DatasetId)
 			return false, nil
@@ -117,12 +116,12 @@ func (b *BigQueryTestHelper) datasetExists() (bool, error) {
 
 // RecreateDataset recreates the dataset, i.e, deletes it if exists and creates it again.
 func (b *BigQueryTestHelper) RecreateDataset() error {
-	exists, err := b.datasetExists()
+	exists, err := b.datasetExists(b.datasetName)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
 
-	dataset := b.client.Dataset(b.Config.DatasetId)
+	dataset := b.client.Dataset(b.datasetName)
 	if exists {
 		err := dataset.DeleteWithContents(context.Background())
 		if err != nil {
@@ -135,13 +134,13 @@ func (b *BigQueryTestHelper) RecreateDataset() error {
 		return fmt.Errorf("failed to create dataset: %w", err)
 	}
 
-	fmt.Printf("created dataset %s successfully\n", b.Config.DatasetId)
+	fmt.Printf("created dataset %s successfully\n", b.datasetName)
 	return nil
 }
 
 // DropDataset drops the dataset.
-func (b *BigQueryTestHelper) DropDataset() error {
-	exists, err := b.datasetExists()
+func (b *BigQueryTestHelper) DropDataset(datasetName string) error {
+	exists, err := b.datasetExists(datasetName)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
@@ -150,7 +149,7 @@ func (b *BigQueryTestHelper) DropDataset() error {
 		return nil
 	}
 
-	dataset := b.client.Dataset(b.Config.DatasetId)
+	dataset := b.client.Dataset(datasetName)
 	err = dataset.DeleteWithContents(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to delete dataset: %w", err)
@@ -171,7 +170,11 @@ func (b *BigQueryTestHelper) RunCommand(command string) error {
 
 // countRows(tableName) returns the number of rows in the given table.
 func (b *BigQueryTestHelper) countRows(tableName string) (int, error) {
-	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", b.Config.DatasetId, tableName)
+	return b.countRowsWithDataset(b.datasetName, tableName)
+}
+
+func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string) (int, error) {
+	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", dataset, tableName)
 	it, err := b.client.Query(command).Read(context.Background())
 	if err != nil {
 		return 0, fmt.Errorf("failed to run command: %w", err)

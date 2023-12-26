@@ -41,8 +41,9 @@ func GetSSHClientConfig(user, password, privateKeyString string) (*ssh.ClientCon
 	}
 
 	return &ssh.ClientConfig{
-		User:            user,
-		Auth:            authMethods,
+		User: user,
+		Auth: authMethods,
+		//nolint:gosec
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}, nil
 }
