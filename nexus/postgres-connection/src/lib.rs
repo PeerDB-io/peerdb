@@ -1,7 +1,7 @@
-use std::fmt::Write;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use pt::peerdb_peers::PostgresConfig;
+use std::fmt::Write;
 
 pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
     let mut connection_string = String::from("postgres://");
@@ -13,7 +13,12 @@ pub fn get_pg_connection_string(config: &PostgresConfig) -> String {
     }
 
     // Add the timeout as a query parameter, sslmode changes here appear to be useless
-    write!(connection_string, "@{}:{}/{}?connect_timeout=15", config.host, config.port, config.database).ok();
+    write!(
+        connection_string,
+        "@{}:{}/{}?connect_timeout=15",
+        config.host, config.port, config.database
+    )
+    .ok();
 
     connection_string
 }

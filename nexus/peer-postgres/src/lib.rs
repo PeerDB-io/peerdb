@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use peer_cursor::{QueryExecutor, QueryOutput, Schema, SchemaRef};
-use pgerror::PgError;
 use pgwire::{
     api::results::{FieldFormat, FieldInfo},
     error::{PgWireError, PgWireResult},
@@ -71,9 +70,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                     .await
                     .map_err(|e| {
                         tracing::error!("error getting schema: {}", e);
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: format!("error getting schema: {}", e),
-                        }))
+                        PgWireError::ApiError(format!("error getting schema: {}", e).into())
                     })?;
 
                 tracing::info!("[peer-postgres] rewritten query: {}", rewritten_query);
@@ -86,9 +83,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                     .await
                     .map_err(|e| {
                         tracing::error!("error executing query: {}", e);
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: format!("error executing query: {}", e),
-                        }))
+                        PgWireError::ApiError(format!("error executing query: {}", e).into())
                     })?;
 
                 // log that raw query execution has completed
@@ -101,9 +96,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                 let mut rewritten_stmt = stmt.clone();
                 ast.rewrite_statement(&mut rewritten_stmt).map_err(|e| {
                     tracing::error!("error rewriting statement: {}", e);
-                    PgWireError::ApiError(Box::new(PgError::Internal {
-                        err_msg: format!("error rewriting statement: {}", e),
-                    }))
+                    PgWireError::ApiError(format!("error rewriting statement: {}", e).into())
                 })?;
                 let rewritten_query = rewritten_stmt.to_string();
                 tracing::info!("[peer-postgres] rewritten statement: {}", rewritten_query);
@@ -113,9 +106,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                         .await
                         .map_err(|e| {
                             tracing::error!("error executing query: {}", e);
-                            PgWireError::ApiError(Box::new(PgError::Internal {
-                                err_msg: format!("error executing query: {}", e),
-                            }))
+                            PgWireError::ApiError(format!("error executing query: {}", e).into())
                         })?;
                 Ok(QueryOutput::AffectedRows(rows_affected as usize))
             }
@@ -130,9 +121,7 @@ impl QueryExecutor for PostgresQueryExecutor {
                     .await
                     .map_err(|e| {
                         tracing::error!("error getting schema: {}", e);
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: format!("error getting schema: {}", e),
-                        }))
+                        PgWireError::ApiError(format!("error getting schema: {}", e).into())
                     })?;
                 Ok(Some(schema))
             }

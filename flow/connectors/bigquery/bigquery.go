@@ -382,29 +382,35 @@ func (c *BigQueryConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	}
 }
 
-func (c *BigQueryConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	query := fmt.Sprintf("SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
+func (c *BigQueryConnector) GetLastSyncAndNormalizeBatchID(jobName string) (model.SyncAndNormalizeBatchID, error) {
+	query := fmt.Sprintf("SELECT sync_batch_id, normalize_batch_id FROM %s.%s WHERE mirror_job_name = '%s'",
 		c.datasetID, MirrorJobsTable, jobName)
 	q := c.client.Query(query)
 	it, err := q.Read(c.ctx)
 	if err != nil {
 		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return -1, err
+		return model.SyncAndNormalizeBatchID{}, err
 	}
 
 	var row []bigquery.Value
 	err = it.Next(&row)
 	if err != nil {
 		c.logger.Info("no row found for job")
-		return 0, nil
+		return model.SyncAndNormalizeBatchID{}, nil
 	}
 
-	if row[0] == nil {
-		c.logger.Info("no normalize_batch_id found returning 0")
-		return 0, nil
-	} else {
-		return row[0].(int64), nil
+	syncBatchID := int64(0)
+	normBatchID := int64(0)
+	if row[0] != nil {
+		syncBatchID = row[0].(int64)
 	}
+	if row[1] != nil {
+		normBatchID = row[1].(int64)
+	}
+	return model.SyncAndNormalizeBatchID{
+		SyncBatchID:      syncBatchID,
+		NormalizeBatchID: normBatchID,
+	}, nil
 }
 
 func (c *BigQueryConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -740,13 +746,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
-	}
-
-	// get last batchid that has been normalize
-	normalizeBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
+	batchIDs, err := c.GetLastSyncAndNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
@@ -757,20 +757,28 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	// if job is not yet found in the peerdb_mirror_jobs_table
 	// OR sync is lagging end normalize
-	if !hasJob || normalizeBatchID == syncBatchID {
+	if !hasJob || batchIDs.NormalizeBatchID >= batchIDs.SyncBatchID {
 		c.logger.Info("waiting for sync to catch up, so finishing")
 		return &model.NormalizeResponse{
 			Done:         false,
-			StartBatchID: normalizeBatchID,
-			EndBatchID:   syncBatchID,
+			StartBatchID: batchIDs.NormalizeBatchID,
+			EndBatchID:   batchIDs.SyncBatchID,
 		}, nil
 	}
-	distinctTableNames, err := c.getDistinctTableNamesInBatch(req.FlowJobName, syncBatchID, normalizeBatchID)
+	distinctTableNames, err := c.getDistinctTableNamesInBatch(
+		req.FlowJobName,
+		batchIDs.SyncBatchID,
+		batchIDs.NormalizeBatchID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
 	}
 
-	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, syncBatchID, normalizeBatchID)
+	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(
+		req.FlowJobName,
+		batchIDs.SyncBatchID,
+		batchIDs.NormalizeBatchID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get tablename to unchanged cols mapping: %w", err)
 	}
@@ -790,8 +798,8 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			dstTableName:          tableName,
 			dstDatasetTable:       dstDatasetTable,
 			normalizedTableSchema: c.tableNameSchemaMapping[tableName],
-			syncBatchID:           syncBatchID,
-			normalizeBatchID:      normalizeBatchID,
+			syncBatchID:           batchIDs.SyncBatchID,
+			normalizeBatchID:      batchIDs.NormalizeBatchID,
 			unchangedToastColumns: tableNametoUnchangedToastCols[tableName],
 			peerdbCols: &protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
@@ -806,7 +814,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	// update metadata to make the last normalized batch id to the recent last sync batch id.
 	updateMetadataStmt := fmt.Sprintf(
 		"UPDATE %s.%s SET normalize_batch_id=%d WHERE mirror_job_name='%s';",
-		c.datasetID, MirrorJobsTable, syncBatchID, req.FlowJobName)
+		c.datasetID, MirrorJobsTable, batchIDs.SyncBatchID, req.FlowJobName)
 	stmts = append(stmts, updateMetadataStmt)
 
 	query := strings.Join(stmts, "\n")
@@ -817,8 +825,8 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: normalizeBatchID + 1,
-		EndBatchID:   syncBatchID,
+		StartBatchID: batchIDs.NormalizeBatchID + 1,
+		EndBatchID:   batchIDs.SyncBatchID,
 	}, nil
 }
 
