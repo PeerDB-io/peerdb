@@ -14,7 +14,7 @@ serde_json = "1.0"
 postgres-inet = "0.19.0"
 chrono = { version = "0.4", features = ["serde"] }
 hex = "0.4"
-pgwire = "0.17"
+pgwire = "0.18"
 postgres = { version = "0.19", features = ["with-chrono-0_4"] }
 postgres-types = { version = "0.2.5", features = ["array-impls"] }
 uuid = { version = "1.0", features = ["serde", "v4"] }

@@ -9,7 +9,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.0.2
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.2.0
-	github.com/aws/aws-sdk-go v1.49.8
+	github.com/aws/aws-sdk-go v1.49.9
 	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/cockroachdb/pebble v0.0.0-20231210175914-b4d301aeb46a
 	github.com/google/uuid v1.5.0

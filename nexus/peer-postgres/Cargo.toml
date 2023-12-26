@@ -15,7 +15,7 @@ futures = "0.3"
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
 pgerror = { path = "../pgerror" }
-pgwire = "0.17"
+pgwire = "0.18"
 postgres-connection = { path = "../postgres-connection" }
 pt = { path = "../pt" }
 serde = { version = "1.0", features = ["derive"] }
