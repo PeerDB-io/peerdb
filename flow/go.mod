@@ -15,6 +15,7 @@ require (
 	github.com/google/uuid v1.5.0
 	github.com/grafana/pyroscope-go v1.0.4
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.1
+	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pglogrepl v0.0.0-20231111135425-1627ab1b5780
 	github.com/jackc/pgx/v5 v5.5.1
 	github.com/jmoiron/sqlx v1.3.5
