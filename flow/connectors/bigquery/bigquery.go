@@ -450,6 +450,9 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 	rawTableName := c.getRawTableName(flowJobName)
 
 	// Prepare the query to retrieve distinct tables in that batch
+	// we want to only select the unchanged cols from UpdateRecords, as we have a workaround
+	// where a placeholder value for unchanged cols can be set in DeleteRecord if there is no backfill
+	// we don't want these particular DeleteRecords to be used in the update statement
 	query := fmt.Sprintf(`SELECT _peerdb_destination_table_name,
 	array_agg(DISTINCT _peerdb_unchanged_toast_columns) as unchanged_toast_columns FROM %s.%s
 	 WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND _peerdb_record_type != 2
