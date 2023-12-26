@@ -81,11 +81,6 @@ const (
 	checkSchemaExistsSQL            = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 )
 
-type tableNameComponents struct {
-	schemaIdentifier string
-	tableIdentifier  string
-}
-
 type SnowflakeConnector struct {
 	ctx                context.Context
 	database           *sql.DB
@@ -245,12 +240,11 @@ func (c *SnowflakeConnector) GetTableSchema(
 }
 
 func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
-	tableNameComponents, err := parseTableName(tableName)
+	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
-	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, tableNameComponents.schemaIdentifier,
-		tableNameComponents.tableIdentifier)
+	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, schemaTable.Schema, schemaTable.Table)
 	if err != nil {
 		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
 	}
@@ -423,12 +417,11 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		normalizedTableNameComponents, err := parseTableName(tableIdentifier)
+		normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
 		if err != nil {
 			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 		}
-		tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
-			normalizedTableNameComponents.tableIdentifier)
+		tableAlreadyExists, err := c.checkIfTableExists(normalizedSchemaTable.Schema, normalizedSchemaTable.Table)
 		if err != nil {
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
@@ -938,16 +931,6 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		destinationTableIdentifier, endTime.Sub(startTime)/time.Second))
 
 	return result.RowsAffected()
-}
-
-// parseTableName parses a table name into schema and table name.
-func parseTableName(tableName string) (*tableNameComponents, error) {
-	schemaIdentifier, tableIdentifier, hasDot := strings.Cut(tableName, ".")
-	if !hasDot || strings.ContainsRune(tableIdentifier, '.') {
-		return nil, fmt.Errorf("invalid table name: %s", tableName)
-	}
-
-	return &tableNameComponents{schemaIdentifier, tableIdentifier}, nil
 }
 
 func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
