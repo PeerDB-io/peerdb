@@ -13,7 +13,7 @@ dashmap = "5.0"
 futures = { version = "0.3.28", features = ["executor"] }
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
-pgwire = "0.17"
+pgwire = "0.18"
 pt = { path = "../pt" }
 rust_decimal = { version = "1.30.0", features = [ "tokio-pg" ] }
 serde = { version = "1.0", features = ["derive"] }
