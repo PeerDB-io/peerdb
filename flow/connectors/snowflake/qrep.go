@@ -278,21 +278,17 @@ func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
 
 func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnInformation, error) {
 	// parse the table name to get the schema and table name
-	components, err := parseTableName(tableName)
+	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
-
-	// convert tableIdentifier and schemaIdentifier to upper case
-	components.tableIdentifier = strings.ToUpper(components.tableIdentifier)
-	components.schemaIdentifier = strings.ToUpper(components.schemaIdentifier)
 
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
 	SELECT column_name, data_type
 	FROM information_schema.columns
 	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
-	`, components.tableIdentifier, components.schemaIdentifier)
+	`, strings.ToUpper(schemaTable.Table), strings.ToUpper(schemaTable.Schema))
 
 	rows, err := c.database.QueryContext(c.ctx, queryString)
 	if err != nil {
