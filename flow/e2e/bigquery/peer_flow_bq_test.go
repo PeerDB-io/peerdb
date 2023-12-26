@@ -150,7 +150,7 @@ func (s PeerFlowE2ETestSuiteBQ) tearDownSuite() {
 		s.FailNow()
 	}
 
-	err = s.bqHelper.DropDataset()
+	err = s.bqHelper.DropDataset(s.bqHelper.datasetName)
 	if err != nil {
 		slog.Error("failed to tear down bigquery", slog.Any("error", err))
 		s.FailNow()
@@ -1199,6 +1199,74 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	err = s.checkPeerdbColumns(dstTableName, true)
+	require.NoError(s.t, err)
+
+	env.AssertExpectations(s.t)
+}
+
+func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(env, s.t)
+
+	srcTable1Name := s.attachSchemaSuffix("test1_bq")
+	dstTable1Name := "test1_bq"
+	secondDataset := fmt.Sprintf("%s_2", s.bqHelper.datasetName)
+	srcTable2Name := s.attachSchemaSuffix("test2_bq")
+	dstTable2Name := "test2_bq"
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+	CREATE TABLE %s(id serial primary key, c1 int, c2 text);
+	CREATE TABLE %s(id serial primary key, c1 int, c2 text);
+	`, srcTable1Name, srcTable2Name))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_multi_table_multi_dataset_bq"),
+		TableNameMapping: map[string]string{
+			srcTable1Name: dstTable1Name,
+			srcTable2Name: fmt.Sprintf("%s.%s", secondDataset, dstTable2Name),
+		},
+		PostgresPort:   e2e.PostgresPort,
+		Destination:    s.bqHelper.Peer,
+		CdcStagingPath: "",
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	require.NoError(s.t, err)
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 2,
+		MaxBatchSize:     100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and execute a transaction touching toast columns
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		/* inserting across multiple tables*/
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s (c1,c2) VALUES (1,'dummy_1');
+		INSERT INTO %s (c1,c2) VALUES (-1,'dummy_-1');
+		`, srcTable1Name, srcTable2Name))
+		require.NoError(s.t, err)
+		fmt.Println("Executed an insert on two tables")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	count1, err := s.bqHelper.countRows(dstTable1Name)
+	require.NoError(s.t, err)
+	count2, err := s.bqHelper.countRowsWithDataset(secondDataset, dstTable2Name)
+	require.NoError(s.t, err)
+
+	s.Equal(1, count1)
+	s.Equal(1, count2)
+
+	err = s.bqHelper.DropDataset(secondDataset)
 	require.NoError(s.t, err)
 
 	env.AssertExpectations(s.t)

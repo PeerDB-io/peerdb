@@ -15,7 +15,7 @@ const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
   }, [tables, searchQuery]);
   if (tables)
     return (
-      <>
+      <div style={{ height: '30em' }}>
         <div style={{ width: '20%', marginTop: '2rem' }}>
           <SearchField
             placeholder='Search by table name'
@@ -24,59 +24,67 @@ const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
             }}
           />
         </div>
-        <table
+        <div
           style={{
+            maxHeight: '80%',
+            overflow: 'scroll',
             marginTop: '1rem',
-            borderCollapse: 'collapse',
-            width: '100%',
-            border: '1px solid #ddd',
-            fontSize: 15,
           }}
         >
-          <thead>
-            <tr
-              style={{
-                borderBottom: '1px solid #ddd',
-                backgroundColor: '#f9f9f9',
-              }}
-            >
-              <th
-                style={{
-                  textAlign: 'left',
-                  padding: '0.5rem',
-                  fontWeight: 'bold',
-                }}
-              >
-                Source Table
-              </th>
-              <th
-                style={{
-                  textAlign: 'left',
-                  padding: '0.5rem',
-                  fontWeight: 'bold',
-                }}
-              >
-                Destination Table
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {shownTables?.map((table) => (
+          <table
+            style={{
+              marginTop: '1rem',
+              width: '100%',
+              border: '1px solid #ddd',
+              fontSize: 15,
+              overflow: 'scroll',
+            }}
+          >
+            <thead style={{ position: 'sticky', top: 0 }}>
               <tr
-                key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
-                style={{ borderBottom: '1px solid #ddd' }}
+                style={{
+                  borderBottom: '1px solid #ddd',
+                  backgroundColor: '#f9f9f9',
+                }}
               >
-                <td style={{ padding: '0.5rem' }}>
-                  {table.sourceTableIdentifier}
-                </td>
-                <td style={{ padding: '0.5rem' }}>
-                  {table.destinationTableIdentifier}
-                </td>
+                <th
+                  style={{
+                    textAlign: 'left',
+                    padding: '0.5rem',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  Source Table
+                </th>
+                <th
+                  style={{
+                    textAlign: 'left',
+                    padding: '0.5rem',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  Destination Table
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </>
+            </thead>
+            <tbody>
+              {shownTables?.map((table) => (
+                <tr
+                  key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
+                  style={{ borderBottom: '1px solid #ddd' }}
+                >
+                  <td style={{ padding: '0.5rem' }}>
+                    {table.sourceTableIdentifier}
+                  </td>
+                  <td style={{ padding: '0.5rem' }}>
+                    {table.destinationTableIdentifier}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     );
 };
 

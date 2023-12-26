@@ -164,7 +164,7 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
-			topicName, err := NewScopedEventhub(record.GetTableName())
+			topicName, err := NewScopedEventhub(record.GetDestinationTableName())
 			if err != nil {
 				c.logger.Error("failed to get topic name", slog.Any("error", err))
 				return 0, err

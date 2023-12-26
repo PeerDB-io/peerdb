@@ -11,20 +11,20 @@ import (
 )
 
 type mergeStmtGenerator struct {
-	// dataset of all the tables
-	Dataset string
-	// the table to merge into
-	NormalizedTable string
-	// the table where the data is currently staged.
-	RawTable string
+	// dataset + raw table
+	rawDatasetTable *datasetTable
+	// destination table name, used to retrieve records from raw table
+	dstTableName string
+	// dataset + destination table
+	dstDatasetTable *datasetTable
 	// last synced batchID.
-	SyncBatchID int64
+	syncBatchID int64
 	// last normalized batchID.
-	NormalizeBatchID int64
+	normalizeBatchID int64
 	// the schema of the table to merge into
-	NormalizedTableSchema *protos.TableSchema
+	normalizedTableSchema *protos.TableSchema
 	// array of toast column combinations that are unchanged
-	UnchangedToastColumns []string
+	unchangedToastColumns []string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
 }
@@ -34,7 +34,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
 	// statement.
 	flattenedProjs := make([]string, 0)
-	for colName, colType := range m.NormalizedTableSchema.Columns {
+	for colName, colType := range m.normalizedTableSchema.Columns {
 		bqType := qValueKindToBigQueryType(colType)
 		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
 		if bqType == bigquery.FloatFieldType {
@@ -87,10 +87,10 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 
 	// normalize anything between last normalized batch id to last sync batchid
 	return fmt.Sprintf(`WITH _peerdb_flattened AS
-	 (SELECT %s FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d and
+	 (SELECT %s FROM %s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d and
 	 _peerdb_destination_table_name='%s')`,
-		strings.Join(flattenedProjs, ", "), m.Dataset, m.RawTable, m.NormalizeBatchID,
-		m.SyncBatchID, m.NormalizedTable)
+		strings.Join(flattenedProjs, ", "), m.rawDatasetTable.string(), m.normalizeBatchID,
+		m.syncBatchID, m.dstTableName)
 }
 
 // generateDeDupedCTE generates a de-duped CTE.
@@ -104,7 +104,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 			) _peerdb_ranked
 			WHERE _peerdb_rank = 1
 	) SELECT * FROM _peerdb_de_duplicated_data_res`
-	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(m.NormalizedTableSchema.PrimaryKeyColumns,
+	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(m.normalizedTableSchema.PrimaryKeyColumns,
 		", '_peerdb_concat_', "))
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
@@ -112,9 +112,9 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 // generateMergeStmt generates a merge statement.
 func (m *mergeStmtGenerator) generateMergeStmt() string {
 	// comma separated list of column names
-	backtickColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
-	pureColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
-	for colName := range m.NormalizedTableSchema.Columns {
+	backtickColNames := make([]string, 0, len(m.normalizedTableSchema.Columns))
+	pureColNames := make([]string, 0, len(m.normalizedTableSchema.Columns))
+	for colName := range m.normalizedTableSchema.Columns {
 		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
 		pureColNames = append(pureColNames, colName)
 	}
@@ -123,7 +123,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() string {
 	insertValuesSQL := csep + ",CURRENT_TIMESTAMP"
 
 	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames,
-		m.UnchangedToastColumns, m.peerdbCols)
+		m.unchangedToastColumns, m.peerdbCols)
 	if m.peerdbCols.SoftDelete {
 		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(", `%s`", m.peerdbCols.SoftDeleteColName)
 		softDeleteInsertValuesSQL := insertValuesSQL + ", TRUE"
@@ -134,8 +134,8 @@ func (m *mergeStmtGenerator) generateMergeStmt() string {
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
-	pkeySelectSQLArray := make([]string, 0, len(m.NormalizedTableSchema.PrimaryKeyColumns))
-	for _, pkeyColName := range m.NormalizedTableSchema.PrimaryKeyColumns {
+	pkeySelectSQLArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyColName := range m.normalizedTableSchema.PrimaryKeyColumns {
 		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("_peerdb_target.%s = _peerdb_deduped.%s",
 			pkeyColName, pkeyColName))
 	}
@@ -153,14 +153,14 @@ func (m *mergeStmtGenerator) generateMergeStmt() string {
 	}
 
 	return fmt.Sprintf(`
-	MERGE %s.%s _peerdb_target USING (%s,%s) _peerdb_deduped
+	MERGE %s _peerdb_target USING (%s,%s) _peerdb_deduped
 	ON %s
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	%s;
-	`, m.Dataset, m.NormalizedTable, m.generateFlattenedCTE(), m.generateDeDupedCTE(),
+	`, m.dstDatasetTable.string(), m.generateFlattenedCTE(), m.generateDeDupedCTE(),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 

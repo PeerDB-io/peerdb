@@ -13,13 +13,14 @@ export const ErrorModal = ({ flowName }: { flowName: string }) => {
     <Link href={`/mirrors/errors/${flowName}`}>
       <Button
         style={{
-          backgroundColor: 'rgba(240, 128, 128, 0.5)',
+          backgroundColor: 'rgba(240, 128, 128, 0.2)',
           height: '2rem',
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+          border: '1px solid rgba(0, 0, 0, 0.2)',
         }}
       >
-        <Label as='label' style={{ fontSize: 13, color: 'darkred' }}>
-          Show errors
+        <Icon name='error' />
+        <Label as='label' style={{ fontSize: 13 }}>
+          Errors
         </Label>
       </Button>
     </Link>
@@ -75,8 +76,23 @@ export const MirrorError = ({ flowName }: { flowName: string }) => {
     );
   }
 
-  if (flowStatus == 'healthy') {
-    return <Icon name='check_circle' fill={true} />;
+  if (flowStatus === 'healthy') {
+    return (
+      <Link href={`/mirrors/errors/${flowName}`}>
+        <Button
+          style={{
+            backgroundColor: 'white',
+            height: '2rem',
+            border: '1px solid rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          <Icon name='check_circle' fill={true} />
+          <Label as='label' style={{ fontSize: 13 }}>
+            Active
+          </Label>
+        </Button>
+      </Link>
+    );
   }
 
   return <ErrorModal flowName={flowName} />;
