@@ -45,7 +45,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		" partition %s of destination table %s",
 		partition.PartitionId, destTable))
 
-	avroSync := &QRepAvroSyncMethod{connector: c, gcsBucket: config.StagingPath}
+	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
 	return avroSync.SyncQRepRecords(config.FlowJobName, destTable, partition,
 		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
 }
@@ -53,11 +53,11 @@ func (c *BigQueryConnector) SyncQRepRecords(
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfig, partition *protos.QRepPartition,
 	srcSchema *model.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
-	destTable := config.DestinationTableIdentifier
-	bqTable := c.client.Dataset(c.datasetID).Table(destTable)
+	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
+	bqTable := c.client.Dataset(destDatasetTable.dataset).Table(destDatasetTable.table)
 	dstTableMetadata, err := bqTable.Metadata(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destTable, err)
+		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destDatasetTable, err)
 	}
 
 	tableSchemaDelta := &protos.TableSchemaDelta{
@@ -92,7 +92,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(config *protos.QRepConfi
 	}
 	dstTableMetadata, err = bqTable.Metadata(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destTable, err)
+		return nil, fmt.Errorf("failed to get metadata of table %s: %w", destDatasetTable, err)
 	}
 	return dstTableMetadata, nil
 }
