@@ -13,6 +13,8 @@ import (
 )
 
 func setupDB(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+
 	config, err := pgxpool.ParseConfig("postgres://postgres:postgres@localhost:7132/postgres")
 	if err != nil {
 		t.Fatalf("unable to parse config: %v", err)
@@ -36,6 +38,8 @@ func setupDB(t *testing.T) (*pgxpool.Pool, string) {
 }
 
 func teardownDB(t *testing.T, pool *pgxpool.Pool, schemaName string) {
+	t.Helper()
+
 	_, err := pool.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
 	if err != nil {
 		t.Fatalf("error while dropping schema: %v", err)

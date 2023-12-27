@@ -97,7 +97,6 @@ func (s *PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName s
 		params["status"] = 1
 
 		_, err := s.sqlsHelper.E.NamedExec(
-			//nolint:lll
 			"INSERT INTO "+schemaQualified+" (id, card_id, v_from, price, status) VALUES (:id, :card_id, :v_from, :price, :status)",
 			params,
 		)
@@ -136,7 +135,7 @@ func (s *PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.T())
+	e2e.RegisterWorkflowsAndActivities(s.T(), env)
 
 	numRows := 10
 	tblName := "test_qrep_flow_avro_ss_append"

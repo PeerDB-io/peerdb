@@ -1,4 +1,3 @@
-//nolint:stylecheck
 package cdc_records
 
 import (

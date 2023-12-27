@@ -25,7 +25,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-//nolint:stylecheck
 const (
 	mirrorJobsTableIdentifier = "PEERDB_MIRROR_JOBS"
 	createMirrorJobsTableSQL  = `CREATE TABLE IF NOT EXISTS %s.%s(MIRROR_JOB_NAME STRING NOT NULL,OFFSET INT NOT NULL,
@@ -326,6 +325,7 @@ func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error querying Snowflake peer for last syncBatchId: %w", err)
 	}
+	defer rows.Close()
 
 	var result pgtype.Int8
 	if !rows.Next() {
@@ -346,6 +346,7 @@ func (c *SnowflakeConnector) GetLastSyncAndNormalizeBatchID(jobName string) (mod
 		return model.SyncAndNormalizeBatchID{},
 			fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
 	}
+	defer rows.Close()
 
 	var syncResult, normResult pgtype.Int8
 	if !rows.Next() {
@@ -372,6 +373,7 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, sy
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}
+	defer rows.Close()
 
 	var result pgtype.Text
 	destinationTableNames := make([]string, 0)
@@ -395,6 +397,8 @@ func (c *SnowflakeConnector) getTableNametoUnchangedCols(flowJobName string, syn
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
 	}
+	defer rows.Close()
+
 	// Create a map to store the results
 	resultMap := make(map[string][]string)
 	// Process the rows and populate the map

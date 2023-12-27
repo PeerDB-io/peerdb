@@ -4,18 +4,22 @@ run:
 linters:
   enable:
     - dogsled
+    - durationcheck
+    - errcheck
     - gofumpt
     - gosec
     - gosimple
     - misspell
     - nakedret
+    - nolintlint
+    - staticcheck
     - stylecheck
+    - sqlclosecheck
     - unconvert
     - unparam
     - whitespace
-    - errcheck
     - prealloc
-    - staticcheck
+    - thelper
     - ineffassign
     - unparam
     - unused
