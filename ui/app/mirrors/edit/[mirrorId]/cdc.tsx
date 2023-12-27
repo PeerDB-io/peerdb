@@ -290,7 +290,7 @@ export function CDCMirror({
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setSelectedTab(
-        parseInt(localStorage?.getItem(LocalStorageTabKey) || '0')
+        parseInt(localStorage?.getItem(LocalStorageTabKey)) | 0
       );
     }
   }, []);
