@@ -1,5 +1,6 @@
 'use client';
 
+import { UVersionResponse } from '@/app/dto/VersionDTO';
 import useTZStore from '@/app/globalstate/time';
 import Logout from '@/components/Logout';
 import { BrandLogo } from '@/lib/BrandLogo';
@@ -8,11 +9,30 @@ import { Label } from '@/lib/Label';
 import { RowWithSelect } from '@/lib/Layout';
 import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import Link from 'next/link';
+import useSWR from 'swr';
 
+const centerFlexStyle = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  width: '100%',
+  marginBottom: '0.5rem',
+};
+const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
 export default function SidebarComponent(props: { logout?: boolean }) {
   const timezones = ['UTC', 'Local', 'Relative'];
   const setZone = useTZStore((state) => state.setZone);
   const zone = useTZStore((state) => state.timezone);
+
+  const {
+    data: version,
+    error,
+    isLoading,
+  }: { data: UVersionResponse; error: any; isLoading: boolean } = useSWR(
+    '/api/version',
+    fetcher
+  );
+
   return (
     <Sidebar
       topTitle={
@@ -24,15 +44,7 @@ export default function SidebarComponent(props: { logout?: boolean }) {
       }
       bottomRow={
         <>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              width: '100%',
-              marginBottom: '0.5rem',
-            }}
-          >
+          <div style={centerFlexStyle}>
             <div style={{ width: '80%' }}>
               <RowWithSelect
                 label={<Label>Timezone:</Label>}
@@ -63,7 +75,15 @@ export default function SidebarComponent(props: { logout?: boolean }) {
           {props.logout && <Logout />}
         </>
       }
-      bottomLabel={<Label variant='footnote'>App. v0.7.0</Label>}
+      bottomLabel={
+        <div style={centerFlexStyle}>
+          <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
+            {' '}
+            <b>Version: </b>
+            {isLoading ? 'Loading...' : version?.version}
+          </Label>
+        </div>
+      }
     >
       <SidebarItem
         as={Link}
