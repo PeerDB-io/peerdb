@@ -72,11 +72,16 @@ func PeerDBSlotLagMBAlertThreshold() uint32 {
 
 // PEERDB_ALERTING_GAP_MINUTES, 0 disables all alerting entirely
 func PeerDBAlertingGapMinutesAsDuration() time.Duration {
-	why := time.Duration(getEnvUint32("PEERDB_ALERTING_GAP_MINUTES", 15))
-	return why * time.Minute
+	why := int64(getEnvUint32("PEERDB_ALERTING_GAP_MINUTES", 15))
+	return time.Duration(why) * time.Minute
 }
 
 // PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD, 0 disables open connections alerting entirely
 func PeerDBOpenConnectionsAlertThreshold() uint32 {
 	return getEnvUint32("PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD", 5)
+}
+
+// PEERDB_ENABLE_WAL_HEARTBEAT
+func PeerDBEnableWALHeartbeat() bool {
+	return getEnvBool("PEERDB_ENABLE_WAL_HEARTBEAT", false)
 }

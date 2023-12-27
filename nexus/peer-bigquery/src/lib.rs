@@ -8,7 +8,6 @@ use gcp_bigquery_client::{
 };
 use peer_connections::PeerConnectionTracker;
 use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
-use pgerror::PgError;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::BigqueryConfig;
 use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
@@ -76,9 +75,7 @@ impl BigQueryQueryExecutor {
             .await
             .map_err(|err| {
                 tracing::error!("error tracking query: {}", err);
-                PgWireError::ApiError(Box::new(PgError::Internal {
-                    err_msg: err.to_string(),
-                }))
+                PgWireError::ApiError(err.into())
             })?;
 
         let result_set = self
@@ -88,16 +85,12 @@ impl BigQueryQueryExecutor {
             .await
             .map_err(|err| {
                 tracing::error!("error running query: {}", err);
-                PgWireError::ApiError(Box::new(PgError::Internal {
-                    err_msg: err.to_string(),
-                }))
+                PgWireError::ApiError(err.into())
             })?;
 
         token.end().await.map_err(|err| {
             tracing::error!("error closing tracking token: {}", err);
-            PgWireError::ApiError(Box::new(PgError::Internal {
-                err_msg: err.to_string(),
-            }))
+            PgWireError::ApiError(err.into())
         })?;
 
         Ok(result_set)
@@ -116,11 +109,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 bq_ast
                     .rewrite(&self.dataset_id, &mut query)
                     .context("unable to rewrite query")
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        }))
-                    })?;
+                    .map_err(|err| PgWireError::ApiError(err.into()))?;
 
                 let query = query.to_string();
                 tracing::info!("bq rewritten query: {}", query);
@@ -170,11 +159,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 // If parsing the count resulted in an error, return an internal error
                 let count = match count {
                     Ok(c) => c,
-                    Err(err) => {
-                        return Err(PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        })))
-                    }
+                    Err(err) => return Err(PgWireError::ApiError(err.into())),
                 };
 
                 tracing::info!("fetching {} rows", count);
@@ -226,11 +211,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                 bq_ast
                     .rewrite(&self.dataset_id, &mut query)
                     .context("unable to rewrite query")
-                    .map_err(|err| {
-                        PgWireError::ApiError(Box::new(PgError::Internal {
-                            err_msg: err.to_string(),
-                        }))
-                    })?;
+                    .map_err(|err| PgWireError::ApiError(err.into()))?;
 
                 // add LIMIT 0 to the root level query.
                 // this is a workaround for the bigquery API not supporting DESCRIBE

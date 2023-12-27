@@ -4,23 +4,31 @@ run:
 linters:
   enable:
     - dogsled
-    - dupl
+    - durationcheck
+    - errcheck
     - gofumpt
     - gosec
     - gosimple
     - misspell
     - nakedret
+    - nolintlint
+    - staticcheck
     - stylecheck
+    - sqlclosecheck
     - unconvert
     - unparam
     - whitespace
-    - errcheck
     - prealloc
-    - staticcheck
+    - thelper
     - ineffassign
+    - unparam
     - unused
     - lll
 linters-settings:
+  stylecheck:
+    checks:
+      - all
+      - '-ST1003'
   lll:
-    line-length: 120
+    line-length: 144
     tab-width: 4

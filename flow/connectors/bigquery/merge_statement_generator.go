@@ -8,44 +8,25 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type mergeStmtGenerator struct {
-	// dataset of all the tables
-	Dataset string
-	// the table to merge into
-	NormalizedTable string
-	// the table where the data is currently staged.
-	RawTable string
+	// dataset + raw table
+	rawDatasetTable *datasetTable
+	// destination table name, used to retrieve records from raw table
+	dstTableName string
+	// dataset + destination table
+	dstDatasetTable *datasetTable
 	// last synced batchID.
-	SyncBatchID int64
+	syncBatchID int64
 	// last normalized batchID.
-	NormalizeBatchID int64
+	normalizeBatchID int64
 	// the schema of the table to merge into
-	NormalizedTableSchema *protos.TableSchema
+	normalizedTableSchema *protos.TableSchema
 	// array of toast column combinations that are unchanged
-	UnchangedToastColumns []string
+	unchangedToastColumns []string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
-}
-
-// GenerateMergeStmt generates a merge statements.
-func (m *mergeStmtGenerator) generateMergeStmts() []string {
-	// return an empty array for now
-	flattenedCTE := m.generateFlattenedCTE()
-	deDupedCTE := m.generateDeDupedCTE()
-	tempTable := fmt.Sprintf("_peerdb_de_duplicated_data_%s", shared.RandomString(5))
-	// create temp table stmt
-	createTempTableStmt := fmt.Sprintf(
-		"CREATE TEMP TABLE %s AS (%s, %s);",
-		tempTable, flattenedCTE, deDupedCTE)
-
-	mergeStmt := m.generateMergeStmt(tempTable, m.peerdbCols)
-
-	dropTempTableStmt := fmt.Sprintf("DROP TABLE %s;", tempTable)
-
-	return []string{createTempTableStmt, mergeStmt, dropTempTableStmt}
 }
 
 // generateFlattenedCTE generates a flattened CTE.
@@ -53,7 +34,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
 	// statement.
 	flattenedProjs := make([]string, 0)
-	for colName, colType := range m.NormalizedTableSchema.Columns {
+	for colName, colType := range m.normalizedTableSchema.Columns {
 		bqType := qValueKindToBigQueryType(colType)
 		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
 		if bqType == bigquery.FloatFieldType {
@@ -99,17 +80,16 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	flattenedProjs = append(
 		flattenedProjs,
 		"_peerdb_timestamp",
-		"_peerdb_timestamp_nanos",
 		"_peerdb_record_type",
 		"_peerdb_unchanged_toast_columns",
 	)
 
 	// normalize anything between last normalized batch id to last sync batchid
 	return fmt.Sprintf(`WITH _peerdb_flattened AS
-	 (SELECT %s FROM %s.%s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d and
+	 (SELECT %s FROM %s WHERE _peerdb_batch_id > %d and _peerdb_batch_id <= %d and
 	 _peerdb_destination_table_name='%s')`,
-		strings.Join(flattenedProjs, ", "), m.Dataset, m.RawTable, m.NormalizeBatchID,
-		m.SyncBatchID, m.NormalizedTable)
+		strings.Join(flattenedProjs, ", "), m.rawDatasetTable.string(), m.normalizeBatchID,
+		m.syncBatchID, m.dstTableName)
 }
 
 // generateDeDupedCTE generates a de-duped CTE.
@@ -118,33 +98,33 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 		SELECT _peerdb_ranked.*
 			FROM (
 				SELECT RANK() OVER (
-					PARTITION BY %s ORDER BY _peerdb_timestamp_nanos DESC
+					PARTITION BY %s ORDER BY _peerdb_timestamp DESC
 				) as _peerdb_rank, * FROM _peerdb_flattened
 			) _peerdb_ranked
 			WHERE _peerdb_rank = 1
 	) SELECT * FROM _peerdb_de_duplicated_data_res`
-	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(m.NormalizedTableSchema.PrimaryKeyColumns,
+	pkeyColsStr := fmt.Sprintf("(CONCAT(%s))", strings.Join(m.normalizedTableSchema.PrimaryKeyColumns,
 		", '_peerdb_concat_', "))
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt(tempTable string, peerdbCols *protos.PeerDBColumns) string {
+func (m *mergeStmtGenerator) generateMergeStmt() string {
 	// comma separated list of column names
-	backtickColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
-	pureColNames := make([]string, 0, len(m.NormalizedTableSchema.Columns))
-	for colName := range m.NormalizedTableSchema.Columns {
+	backtickColNames := make([]string, 0, len(m.normalizedTableSchema.Columns))
+	pureColNames := make([]string, 0, len(m.normalizedTableSchema.Columns))
+	for colName := range m.normalizedTableSchema.Columns {
 		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
 		pureColNames = append(pureColNames, colName)
 	}
 	csep := strings.Join(backtickColNames, ", ")
-	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", peerdbCols.SyncedAtColName)
+	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
 	insertValuesSQL := csep + ",CURRENT_TIMESTAMP"
 
 	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames,
-		m.UnchangedToastColumns, peerdbCols)
+		m.unchangedToastColumns, m.peerdbCols)
 	if m.peerdbCols.SoftDelete {
-		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(", `%s`", peerdbCols.SoftDeleteColName)
+		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(", `%s`", m.peerdbCols.SoftDeleteColName)
 		softDeleteInsertValuesSQL := insertValuesSQL + ", TRUE"
 
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
@@ -153,8 +133,8 @@ func (m *mergeStmtGenerator) generateMergeStmt(tempTable string, peerdbCols *pro
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
-	pkeySelectSQLArray := make([]string, 0, len(m.NormalizedTableSchema.PrimaryKeyColumns))
-	for _, pkeyColName := range m.NormalizedTableSchema.PrimaryKeyColumns {
+	pkeySelectSQLArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyColName := range m.normalizedTableSchema.PrimaryKeyColumns {
 		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("_peerdb_target.%s = _peerdb_deduped.%s",
 			pkeyColName, pkeyColName))
 	}
@@ -162,25 +142,25 @@ func (m *mergeStmtGenerator) generateMergeStmt(tempTable string, peerdbCols *pro
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	deletePart := "DELETE"
-	if peerdbCols.SoftDelete {
-		colName := peerdbCols.SoftDeleteColName
+	if m.peerdbCols.SoftDelete {
+		colName := m.peerdbCols.SoftDeleteColName
 		deletePart = fmt.Sprintf("UPDATE SET %s = TRUE", colName)
-		if peerdbCols.SyncedAtColName != "" {
+		if m.peerdbCols.SyncedAtColName != "" {
 			deletePart = fmt.Sprintf("%s, %s = CURRENT_TIMESTAMP",
-				deletePart, peerdbCols.SyncedAtColName)
+				deletePart, m.peerdbCols.SyncedAtColName)
 		}
 	}
 
 	return fmt.Sprintf(`
-	MERGE %s.%s _peerdb_target USING %s _peerdb_deduped
+	MERGE %s _peerdb_target USING (%s,%s) _peerdb_deduped
 	ON %s
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	%s;
-	`, m.Dataset, m.NormalizedTable, tempTable, pkeySelectSQL, insertColumnsSQL, insertValuesSQL,
-		updateStringToastCols, deletePart)
+	`, m.dstDatasetTable.string(), m.generateFlattenedCTE(), m.generateDeDupedCTE(),
+		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 
 /*

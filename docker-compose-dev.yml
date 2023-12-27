@@ -44,7 +44,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready", "-d", "postgres", "-U", "postgres"]
+      test: ["CMD", "pg_isready", "-d", "postgres", "-U", "postgres"]
       interval: 10s
       timeout: 30s
       retries: 5
@@ -209,6 +209,8 @@ services:
       DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
       PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
       PEERDB_PASSWORD:
+    depends_on:
+      - flow-api
 
 volumes:
   pgdata:

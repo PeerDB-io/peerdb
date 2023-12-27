@@ -43,7 +43,7 @@ func (s PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, ro
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow")
 	dstTableName := s.attachSchemaSuffix("test_simple_flow_dst")
@@ -106,7 +106,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
 	dstTableName := s.attachSchemaSuffix("test_simple_schema_changes_dst")
@@ -267,7 +267,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
 	dstTableName := s.attachSchemaSuffix("test_simple_cpkey_dst")
@@ -342,7 +342,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
 	dstTableName := s.attachSchemaSuffix("test_cpkey_toast1_dst")
@@ -423,7 +423,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
 	dstTableName := s.attachSchemaSuffix("test_cpkey_toast2_dst")
@@ -500,7 +500,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
 	dstTableName := s.attachSchemaSuffix("test_peerdb_cols_dst")

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+//nolint:unparam
 func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) {
 	err := e2e.CreateTableForQRep(s.pool, s.pgSuffix, tableName)
 	require.NoError(s.t, err)
@@ -57,7 +58,7 @@ func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, selecto
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
 
@@ -98,7 +99,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
 
@@ -143,7 +144,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
 
@@ -185,7 +186,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
 
@@ -231,7 +232,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
 
@@ -277,7 +278,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 
 func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
 

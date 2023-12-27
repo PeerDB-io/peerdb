@@ -1,4 +1,3 @@
-//nolint:stylecheck
 package cdc_records
 
 import (
@@ -11,6 +10,8 @@ import (
 )
 
 func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record) {
+	t.Helper()
+
 	pkeyColVal := make([]byte, 32)
 	_, err := rand.Read(pkeyColVal)
 	require.NoError(t, err)

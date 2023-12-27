@@ -20,7 +20,7 @@ func (s PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	helper, setupErr := setupS3("s3")
 	if setupErr != nil {
@@ -93,7 +93,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	helper, setupErr := setupS3("gcs")
 	if setupErr != nil {

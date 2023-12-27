@@ -100,7 +100,10 @@ func WorkerMain(opts *WorkerOptions) error {
 			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{Certificates: certs},
+			TLS: &tls.Config{
+				Certificates: certs,
+				MinVersion:   tls.VersionTLS13,
+			},
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}

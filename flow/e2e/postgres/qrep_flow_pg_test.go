@@ -164,15 +164,13 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 
 func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
 
-	//nolint:gosec
 	srcTable := "test_qrep_flow_avro_pg_1"
 	s.setupSourceTable(srcTable, numRows)
 
-	//nolint:gosec
 	dstTable := "test_qrep_flow_avro_pg_2"
 
 	err := e2e.CreateTableForQRep(s.pool, s.suffix, dstTable)
@@ -216,15 +214,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
 
-	//nolint:gosec
 	srcTable := "test_qrep_columns_pg_1"
 	s.setupSourceTable(srcTable, numRows)
 
-	//nolint:gosec
 	dstTable := "test_qrep_columns_pg_2"
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)

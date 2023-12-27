@@ -17,6 +17,8 @@ import (
 
 // createQValue creates a QValue of the appropriate kind for a given placeholder.
 func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.QValue {
+	t.Helper()
+
 	var value interface{}
 	switch kind {
 	case qvalue.QValueKindInt16, qvalue.QValueKindInt32, qvalue.QValueKindInt64:
@@ -55,12 +57,15 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeHolder int) qvalue.
 	}
 }
 
+//nolint:unparam
 func generateRecords(
 	t *testing.T,
 	nullable bool,
 	numRows uint32,
 	allnulls bool,
 ) (*model.QRecordStream, *model.QRecordSchema) {
+	t.Helper()
+
 	allQValueKinds := []qvalue.QValueKind{
 		qvalue.QValueKindFloat32,
 		qvalue.QValueKindFloat64,

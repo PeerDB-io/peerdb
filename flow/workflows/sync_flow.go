@@ -21,31 +21,12 @@ type SyncFlowExecution struct {
 	logger      log.Logger
 }
 
-type NormalizeFlowState struct {
-	CDCFlowName string
-	Progress    []string
-}
-
-type NormalizeFlowExecution struct {
-	NormalizeFlowState
-	executionID string
-	logger      log.Logger
-}
-
 // NewSyncFlowExecution creates a new instance of SyncFlowExecution.
 func NewSyncFlowExecution(ctx workflow.Context, state *SyncFlowState) *SyncFlowExecution {
 	return &SyncFlowExecution{
 		SyncFlowState: *state,
 		executionID:   workflow.GetInfo(ctx).WorkflowExecution.ID,
 		logger:        workflow.GetLogger(ctx),
-	}
-}
-
-func NewNormalizeFlowExecution(ctx workflow.Context, state *NormalizeFlowState) *NormalizeFlowExecution {
-	return &NormalizeFlowExecution{
-		NormalizeFlowState: *state,
-		executionID:        workflow.GetInfo(ctx).WorkflowExecution.ID,
-		logger:             workflow.GetLogger(ctx),
 	}
 }
 
@@ -130,40 +111,4 @@ func SyncFlowWorkflow(ctx workflow.Context,
 	})
 
 	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
-}
-
-func NormalizeFlowWorkflow(ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
-) (*model.NormalizeResponse, error) {
-	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
-		CDCFlowName: config.FlowJobName,
-		Progress:    []string{},
-	})
-
-	return s.executeNormalizeFlow(ctx, config)
-}
-
-func (s *NormalizeFlowExecution) executeNormalizeFlow(
-	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
-) (*model.NormalizeResponse, error) {
-	s.logger.Info("executing normalize flow - ", s.CDCFlowName)
-
-	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 7 * 24 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
-	})
-
-	// execute StartFlow on the peers to start the flow
-	startNormalizeInput := &protos.StartNormalizeInput{
-		FlowConnectionConfigs: config,
-	}
-	fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
-
-	var normalizeResponse *model.NormalizeResponse
-	if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-		return nil, fmt.Errorf("failed to flow: %w", err)
-	}
-
-	return normalizeResponse, nil
 }

@@ -20,6 +20,11 @@ const (
 	lastSyncStateTableName = "last_sync_state"
 )
 
+func isUniqueError(err error) bool {
+	var pgerr *pgconn.PgError
+	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
+}
+
 type PostgresMetadataStore struct {
 	ctx        context.Context
 	config     *protos.PostgresConfig

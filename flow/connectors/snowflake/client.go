@@ -9,6 +9,7 @@ import (
 	"github.com/snowflakedb/gosnowflake"
 
 	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -69,11 +70,10 @@ func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*S
 func (c *SnowflakeConnector) getTableCounts(tables []string) (int64, error) {
 	var totalRecords int64
 	for _, table := range tables {
-		_, err := parseTableName(table)
+		_, err := utils.ParseSchemaTable(table)
 		if err != nil {
 			return 0, fmt.Errorf("failed to parse table name %s: %w", table, err)
 		}
-		//nolint:gosec
 		row := c.database.QueryRowContext(c.ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", table))
 		var count pgtype.Int8
 		err = row.Scan(&count)

@@ -24,6 +24,8 @@ type SnowflakeSchemaDeltaTestSuite struct {
 }
 
 func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
+	t.Helper()
+
 	sfTestHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
 		slog.Error("Error in test", slog.Any("error", err))
@@ -44,13 +46,6 @@ func setupSchemaDeltaSuite(t *testing.T) SnowflakeSchemaDeltaTestSuite {
 		connector:    connector,
 		sfTestHelper: sfTestHelper,
 	}
-}
-
-func (suite SnowflakeSchemaDeltaTestSuite) TearDownSuite() {
-	err := suite.sfTestHelper.Cleanup()
-	require.NoError(suite.t, err)
-	err = suite.connector.Close()
-	require.NoError(suite.t, err)
 }
 
 func (suite SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
@@ -210,5 +205,8 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 }
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
-	got.Each(t, e2eshared.GotSuite(setupSchemaDeltaSuite))
+	e2eshared.GotSuite(t, setupSchemaDeltaSuite, func(suite SnowflakeSchemaDeltaTestSuite) {
+		suite.failTestError(suite.sfTestHelper.Cleanup())
+		suite.failTestError(suite.connector.Close())
+	})
 }

@@ -138,10 +138,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	limits := &peerflow.CDCFlowLimits{
-		TotalSyncFlows:      0,
-		ExitAfterRecords:    -1,
-		TotalNormalizeFlows: 0,
-		MaxBatchSize:        maxBatchSize,
+		TotalSyncFlows:   0,
+		ExitAfterRecords: -1,
+		MaxBatchSize:     maxBatchSize,
 	}
 
 	if req.ConnectionConfigs.SoftDeleteColName == "" {
@@ -261,7 +260,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 					slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 				return nil, fmt.Errorf("invalid xmin txid for xmin rep: %w", err)
 			}
-			state.LastPartition.Range = &protos.PartitionRange{Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}}}
+			state.LastPartition.Range = &protos.PartitionRange{
+				Range: &protos.PartitionRange_IntRange{IntRange: &protos.IntPartitionRange{Start: txid}},
+			}
 		}
 
 		workflowFn = peerflow.XminFlowWorkflow
