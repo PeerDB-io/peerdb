@@ -428,7 +428,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
-	done := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* transaction updating no rows */
@@ -440,7 +442,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 		`, srcTableName, srcTableName))
 		require.NoError(s.t, err)
 		s.t.Log("Executed a transaction touching toast columns")
-		done <- struct{}{}
+		wg.Done()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -454,7 +456,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 
 	s.compareTableContentsBQ(dstTableName, "id,t1,t2,k")
 	env.AssertExpectations(s.t)
-	<-done
+	wg.Wait()
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {

@@ -413,6 +413,7 @@ func CDCFlowWorkflowWithConfig(
 			w.logger.Error("failed to execute sync flow: ", err)
 			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 		} else {
+			workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "Sync", false)
 			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			if childSyncFlowRes != nil {
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
@@ -421,7 +422,6 @@ func CDCFlowWorkflowWithConfig(
 		}
 
 		w.logger.Info("Total records synced: ", totalRecordsSynced)
-		workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "Sync", false)
 
 		var tableSchemaDeltas []*protos.TableSchemaDelta = nil
 		if childSyncFlowRes != nil {

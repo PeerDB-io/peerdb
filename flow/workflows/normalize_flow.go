@@ -63,28 +63,32 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 			}
 			fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
 
-			var normalizeResponse *model.NormalizeResponse
+			var normalizeResponse model.NormalizeResponse
 			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
 				return result, fmt.Errorf("failed to flow: %w", err)
 			}
-			result = append(result, *normalizeResponse)
+			result = append(result, normalizeResponse)
 		}
 
 		if !stopLoop {
 			var stopLoopVal bool
-			syncChan.Receive(normalizeFlowCtx, &stopLoopVal)
-			stopLoop = stopLoop || stopLoopVal
+			if !syncChan.Receive(normalizeFlowCtx, &stopLoopVal) {
+				break
+			}
+			stopLoop = stopLoopVal
 			needSync = !stopLoopVal
 			for syncChan.ReceiveAsync(&stopLoopVal) {
 				stopLoop = stopLoop || stopLoopVal
 				needSync = needSync || !stopLoopVal
 			}
-		} else {
-			needSync = false
-		}
 
-		if stopLoop && !needSync {
-			return result, nil
+			if stopLoop && !needSync {
+				break
+			}
+		} else {
+			break
 		}
 	}
+
+	return result, nil
 }
