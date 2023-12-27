@@ -671,7 +671,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		Field: "_peerdb_batch_id",
 		Range: &bigquery.RangePartitioningRange{
 			Start:    0,
-			End:      10_000_000,
+			End:      1_000_000,
 			Interval: 100,
 		},
 	}
