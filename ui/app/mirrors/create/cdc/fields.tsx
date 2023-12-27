@@ -25,6 +25,7 @@ const CDCFields = ({ setting, handleChange }: FieldProps) => {
           }}
         >
           <Switch
+            defaultChecked={setting.default as boolean}
             onCheckedChange={(state: boolean) => handleChange(state, setting)}
           />
           {setting.tips && (
@@ -52,7 +53,7 @@ const CDCFields = ({ setting, handleChange }: FieldProps) => {
           <TextField
             variant='simple'
             type={setting.type}
-            defaultValue={setting.default}
+            defaultValue={setting.default as string}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               handleChange(e.target.value, setting)
             }
