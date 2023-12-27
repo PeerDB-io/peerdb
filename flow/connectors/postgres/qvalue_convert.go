@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 
-	//nolint:all
 	geom "github.com/twpayne/go-geos"
 )
 

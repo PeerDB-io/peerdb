@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -24,26 +23,9 @@ import (
 	"go.temporal.io/sdk/testsuite"
 )
 
-// ReadFileToBytes reads a file to a byte array.
-func ReadFileToBytes(path string) ([]byte, error) {
-	var ret []byte
+func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
 
-	f, err := os.Open(path)
-	if err != nil {
-		return ret, fmt.Errorf("failed to open file: %w", err)
-	}
-
-	defer f.Close()
-
-	ret, err = io.ReadAll(f)
-	if err != nil {
-		return ret, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return ret, nil
-}
-
-func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment, t *testing.T) {
 	conn, err := utils.GetCatalogConnectionPoolFromEnv()
 	if err != nil {
 		t.Fatalf("unable to create catalog connection pool: %v", err)
