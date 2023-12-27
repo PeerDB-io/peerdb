@@ -55,7 +55,7 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	syncChan := workflow.GetSignalChannel(normalizeFlowCtx, "Sync")
 
 	stopLoop := false
-	for stopLoop {
+	for !stopLoop {
 		var stopLoopVal bool
 		var anyFalse bool
 		syncChan.Receive(normalizeFlowCtx, &stopLoopVal)
