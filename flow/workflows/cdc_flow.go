@@ -343,6 +343,17 @@ func CDCFlowWorkflowWithConfig(
 		return state, fmt.Errorf("normalize workflow failed to start: %w", err)
 	}
 
+	finishNormalize := func() {
+		workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "Sync", true)
+		var childNormalizeFlowRes []model.NormalizeResponse
+		if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
+			w.logger.Error("failed to execute normalize flow: ", err)
+			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
+		} else {
+			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes...)
+		}
+	}
+
 	for {
 		// check and act on signals before a fresh flow starts.
 		w.receiveAndHandleSignalAsync(ctx, state)
@@ -363,7 +374,7 @@ func CDCFlowWorkflowWithConfig(
 		}
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
-			workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "Sync", true)
+			finishNormalize()
 			w.logger.Info("peer flow has been shutdown")
 			return state, nil
 		}
@@ -386,7 +397,7 @@ func CDCFlowWorkflowWithConfig(
 
 		syncFlowID, err := GetChildWorkflowID(ctx, "sync-flow", cfg.FlowJobName)
 		if err != nil {
-			workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "Sync", true)
+			finishNormalize()
 			return state, err
 		}
 
@@ -462,15 +473,7 @@ func CDCFlowWorkflowWithConfig(
 		cdcPropertiesSelector.Select(ctx)
 	}
 
-	workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "Sync", true)
-	var childNormalizeFlowRes []model.NormalizeResponse
-	if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
-		w.logger.Error("failed to execute normalize flow: ", err)
-		state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
-	} else {
-		state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes...)
-	}
-
+	finishNormalize()
 	state.TruncateProgress(w.logger)
 	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
 }
