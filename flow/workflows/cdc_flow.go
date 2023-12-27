@@ -338,13 +338,9 @@ func CDCFlowWorkflowWithConfig(
 		NormalizeFlowWorkflow,
 		cfg,
 	)
-	var normExecution workflow.Execution
-	if err := childNormalizeFlowFuture.GetChildWorkflowExecution().Get(ctx, &normExecution); err != nil {
-		return state, fmt.Errorf("normalize workflow failed to start: %w", err)
-	}
 
 	finishNormalize := func() {
-		workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "Sync", true)
+		childNormalizeFlowFuture.SignalChildWorkflow(ctx, "Sync", true)
 		var childNormalizeFlowRes []model.NormalizeResponse
 		if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
 			w.logger.Error("failed to execute normalize flow: ", err)
@@ -424,7 +420,7 @@ func CDCFlowWorkflowWithConfig(
 			w.logger.Error("failed to execute sync flow: ", err)
 			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 		} else {
-			workflow.SignalExternalWorkflow(ctx, normExecution.ID, normExecution.RunID, "Sync", false)
+			childNormalizeFlowFuture.SignalChildWorkflow(ctx, "Sync", false)
 			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			if childSyncFlowRes != nil {
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
