@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/ysmood/got"
@@ -56,13 +57,6 @@ func setupSchemaDeltaSuite(
 		connector:    connector,
 		sfTestHelper: sfTestHelper,
 	}
-}
-
-func (suite SnowflakeSchemaDeltaTestSuite) tearDownSuite() {
-	err := suite.sfTestHelper.Cleanup()
-	suite.failTestError(err)
-	err = suite.connector.Close()
-	suite.failTestError(err)
 }
 
 func (suite SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
@@ -222,18 +216,8 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 }
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
-	got.Each(t, func(t *testing.T) SnowflakeSchemaDeltaTestSuite {
-		t.Helper()
-
-		g := got.New(t)
-		g.Parallel()
-
-		suite := setupSchemaDeltaSuite(t, g)
-
-		g.Cleanup(func() {
-			suite.tearDownSuite()
-		})
-
-		return suite
+	e2eshared.GotSuite(t, setupSchemaDeltaSuite, func(suite SnowflakeSchemaDeltaTestSuite) {
+		suite.failTestError(suite.sfTestHelper.Cleanup())
+		suite.failTestError(suite.connector.Close())
 	})
 }

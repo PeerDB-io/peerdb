@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -30,19 +31,18 @@ type PeerFlowE2ETestSuiteBQ struct {
 }
 
 func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
-	got.Each(t, func(t *testing.T) PeerFlowE2ETestSuiteBQ {
-		t.Helper()
+	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteBQ) {
+		err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
+		if err != nil {
+			slog.Error("failed to tear down postgres", slog.Any("error", err))
+			s.FailNow()
+		}
 
-		g := got.New(t)
-		g.Parallel()
-
-		suite := setupSuite(t, g)
-
-		g.Cleanup(func() {
-			suite.tearDownSuite()
-		})
-
-		return suite
+		err = s.bqHelper.DropDataset(s.bqHelper.datasetName)
+		if err != nil {
+			slog.Error("failed to tear down bigquery", slog.Any("error", err))
+			s.FailNow()
+		}
 	})
 }
 
@@ -145,21 +145,6 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
 		bqSuffix: bqSuffix,
 		pool:     pool,
 		bqHelper: bq,
-	}
-}
-
-// Implement TearDownAllSuite interface to tear down the test suite
-func (s PeerFlowE2ETestSuiteBQ) tearDownSuite() {
-	err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
-	if err != nil {
-		slog.Error("failed to tear down postgres", slog.Any("error", err))
-		s.FailNow()
-	}
-
-	err = s.bqHelper.DropDataset(s.bqHelper.datasetName)
-	if err != nil {
-		slog.Error("failed to tear down bigquery", slog.Any("error", err))
-		s.FailNow()
 	}
 }
 
