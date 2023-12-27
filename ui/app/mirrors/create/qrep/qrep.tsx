@@ -285,7 +285,7 @@ export default function QRepConfigForm({
                       defaultValue={
                         setting.label === 'Destination Table Name'
                           ? mirrorConfig.destinationTableIdentifier
-                          : setting.default
+                          : (setting.default as string)
                       }
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                         handleChange(e.target.value, setting)
