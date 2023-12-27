@@ -9,17 +9,19 @@ import (
 	"github.com/ysmood/got"
 )
 
-func GotSuite[T interface{ TearDownSuite() }](setup func(t *testing.T, g got.G) T) func(t *testing.T) T {
-	return func(t *testing.T) T {
+func GotSuite[T any](t *testing.T, setup func(t *testing.T, g got.G) T, teardown func(T)) {
+	t.Helper()
+
+	got.Each(t, func(t *testing.T) T {
 		t.Helper()
 		g := got.New(t)
 		g.Parallel()
 		suite := setup(t, g)
 		g.Cleanup(func() {
-			suite.TearDownSuite()
+			teardown(suite)
 		})
 		return suite
-	}
+	})
 }
 
 // ReadFileToBytes reads a file to a byte array.

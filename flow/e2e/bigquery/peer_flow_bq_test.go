@@ -31,7 +31,19 @@ type PeerFlowE2ETestSuiteBQ struct {
 }
 
 func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
-	got.Each(t, e2eshared.GotSuite(setupSuite))
+	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteBQ) {
+		err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
+		if err != nil {
+			slog.Error("failed to tear down postgres", slog.Any("error", err))
+			s.FailNow()
+		}
+
+		err = s.bqHelper.DropDataset(s.bqHelper.datasetName)
+		if err != nil {
+			slog.Error("failed to tear down bigquery", slog.Any("error", err))
+			s.FailNow()
+		}
+	})
 }
 
 func (s PeerFlowE2ETestSuiteBQ) attachSchemaSuffix(tableName string) string {
@@ -133,20 +145,6 @@ func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
 		bqSuffix: bqSuffix,
 		pool:     pool,
 		bqHelper: bq,
-	}
-}
-
-func (s PeerFlowE2ETestSuiteBQ) TearDownSuite() {
-	err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
-	if err != nil {
-		slog.Error("failed to tear down postgres", slog.Any("error", err))
-		s.FailNow()
-	}
-
-	err = s.bqHelper.DropDataset(s.bqHelper.datasetName)
-	if err != nil {
-		slog.Error("failed to tear down bigquery", slog.Any("error", err))
-		s.FailNow()
 	}
 }
 

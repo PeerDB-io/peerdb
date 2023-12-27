@@ -59,13 +59,6 @@ func setupSchemaDeltaSuite(
 	}
 }
 
-func (suite SnowflakeSchemaDeltaTestSuite) TearDownSuite() {
-	err := suite.sfTestHelper.Cleanup()
-	suite.failTestError(err)
-	err = suite.connector.Close()
-	suite.failTestError(err)
-}
-
 func (suite SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	tableName := fmt.Sprintf("%s.SIMPLE_ADD_COLUMN", schemaDeltaTestSchemaName)
 	err := suite.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
@@ -223,5 +216,8 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 }
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
-	got.Each(t, e2eshared.GotSuite(setupSchemaDeltaSuite))
+	e2eshared.GotSuite(t, setupSchemaDeltaSuite, func(suite SnowflakeSchemaDeltaTestSuite) {
+		suite.failTestError(suite.sfTestHelper.Cleanup())
+		suite.failTestError(suite.connector.Close())
+	})
 }
