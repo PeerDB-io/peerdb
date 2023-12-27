@@ -31,9 +31,9 @@ type PeerFlowE2ETestSuiteBQ struct {
 
 func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
 	got.Each(t, func(t *testing.T) PeerFlowE2ETestSuiteBQ {
-		g := got.New(t)
+		t.Helper()
 
-		// Concurrently run each test
+		g := got.New(t)
 		g.Parallel()
 
 		suite := setupSuite(t, g)
@@ -100,6 +100,8 @@ func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDel
 
 // setupBigQuery sets up the bigquery connection.
 func setupBigQuery(t *testing.T) *BigQueryTestHelper {
+	t.Helper()
+
 	bqHelper, err := NewBigQueryTestHelper()
 	if err != nil {
 		slog.Error("Error in test", slog.Any("error", err))
@@ -117,6 +119,8 @@ func setupBigQuery(t *testing.T) *BigQueryTestHelper {
 
 // Implement SetupAllSuite interface to setup the test suite
 func setupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteBQ {
+	t.Helper()
+
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -161,7 +165,7 @@ func (s PeerFlowE2ETestSuiteBQ) tearDownSuite() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	// TODO (kaushikiska): ensure flow name can only be alpha numeric and underscores.
 	limits := peerflow.CDCFlowLimits{
@@ -183,7 +187,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_no_data")
 	dstTableName := "test_no_data"
@@ -227,7 +231,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_char_coltype")
 	dstTableName := "test_char_coltype"
@@ -274,7 +278,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 // correctly synced to the destination table after sync flow completes.
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_bq")
 	dstTableName := "test_simple_flow_bq"
@@ -341,7 +345,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_1")
 	dstTableName := "test_toast_bq_1"
@@ -409,7 +413,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_2")
 	dstTableName := "test_toast_bq_2"
@@ -473,7 +477,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_3")
 	dstTableName := "test_toast_bq_3"
@@ -547,7 +551,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_4")
 	dstTableName := "test_toast_bq_4"
@@ -614,7 +618,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_5")
 	dstTableName := "test_toast_bq_5"
@@ -681,7 +685,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_types_bq")
 	dstTableName := "test_types_bq"
@@ -760,7 +764,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
 	dstTable1Name := "test1_bq"
@@ -822,7 +826,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 // TODO: not checking schema exactly, add later
 func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
 	dstTableName := "test_simple_schema_changes"
@@ -922,7 +926,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
 	dstTableName := "test_simple_cpkey"
@@ -995,7 +999,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
 	dstTableName := "test_cpkey_toast1"
@@ -1072,7 +1076,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
 	dstTableName := "test_cpkey_toast2"
@@ -1145,7 +1149,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
 	dstTableName := "test_peerdb_cols_dst"
@@ -1208,7 +1212,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
 	dstTable1Name := "test1_bq"
@@ -1276,7 +1280,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
@@ -1364,7 +1368,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
@@ -1448,7 +1452,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
 	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
@@ -1536,7 +1540,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_softdel_iad")
 	dstTableName := "test_softdel_iad"

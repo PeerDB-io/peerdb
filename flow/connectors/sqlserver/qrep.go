@@ -41,7 +41,6 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	}
 
 	// Query to get the total number of rows in the table
-	//nolint:gosec
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
 	var minVal interface{} = nil
 	var totalRows pgtype.Int8
@@ -91,7 +90,6 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	var rows *sqlx.Rows
 	if minVal != nil {
 		// Query to get partitions using window functions
-		//nolint:gosec
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
 					FROM (
@@ -112,7 +110,6 @@ func (c *SQLServerConnector) GetQRepPartitions(
 		}
 		rows, err = c.db.NamedQuery(partitionsQuery, params)
 	} else {
-		//nolint:gosec
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
 					FROM (

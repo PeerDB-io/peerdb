@@ -19,7 +19,6 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-//nolint:stylecheck
 const (
 	mirrorJobsTableIdentifier = "peerdb_mirror_jobs"
 	createMirrorJobsTableSQL  = `CREATE TABLE IF NOT EXISTS %s.%s(mirror_job_name TEXT PRIMARY KEY,
