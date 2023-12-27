@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import useTZStore from '@/app/globalstate/time';
 import Logout from '@/components/Logout';
 import { BrandLogo } from '@/lib/BrandLogo';
@@ -8,11 +9,33 @@ import { Label } from '@/lib/Label';
 import { RowWithSelect } from '@/lib/Layout';
 import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import Link from 'next/link';
+import { UPeerDBVersion } from '@/app/dto/VersionDTO';
+import { ProgressCircle } from '@/lib/ProgressCircle';
+
+function ShowVersion(props: { version: UPeerDBVersion | null }) {
+  return props.version ? (
+    <Label variant='footnote'>
+      Version {props.version.version}
+    </Label>
+  ) : (
+    <Label variant='footnote'>
+      Version <ProgressCircle variant='intermediate_progress_circle' />
+    </Label>
+  );
+}
 
 export default function SidebarComponent(props: { logout?: boolean }) {
   const timezones = ['UTC', 'Local', 'Relative'];
   const setZone = useTZStore((state) => state.setZone);
   const zone = useTZStore((state) => state.timezone);
+
+  const [version, setVersion] = useState<UPeerDBVersion | null>(null);
+  useMemo(async () => {
+    const res = await fetch('/api/version');
+    const json = await res.json();
+    setVersion(json.version);
+  }, []);
+
   return (
     <Sidebar
       topTitle={
@@ -63,7 +86,7 @@ export default function SidebarComponent(props: { logout?: boolean }) {
           {props.logout && <Logout />}
         </>
       }
-      bottomLabel={<Label variant='footnote'>App. v0.7.0</Label>}
+      bottomLabel={<ShowVersion version={version} />}
     >
       <SidebarItem
         as={Link}
