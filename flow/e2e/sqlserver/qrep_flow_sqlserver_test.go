@@ -20,7 +20,6 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PeerFlowE2ETestSuiteSQLServer struct {
@@ -32,11 +31,24 @@ type PeerFlowE2ETestSuiteSQLServer struct {
 }
 
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
-	got.Each(t, e2eshared.GotSuite(setupSuite))
+	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
+		err := e2e.TearDownPostgres(s.pool, s.suffix)
+		if err != nil {
+			require.Fail(s.t, "failed to drop Postgres schema", err)
+		}
+
+		if s.sqlsHelper != nil {
+			err = s.sqlsHelper.CleanUp()
+			if err != nil {
+				require.Fail(s.t, "failed to clean up sqlserver", err)
+			}
+		}
+	})
 }
 
-// setup sql server connection
 func setupSQLServer(t *testing.T) *SQLServerHelper {
+	t.Helper()
+
 	env := os.Getenv("ENABLE_SQLSERVER_TESTS")
 	if env != "true" {
 		return nil
@@ -48,6 +60,8 @@ func setupSQLServer(t *testing.T) *SQLServerHelper {
 }
 
 func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
+	t.Helper()
+
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -66,20 +80,6 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 		pool:       pool,
 		sqlsHelper: setupSQLServer(t),
 		suffix:     suffix,
-	}
-}
-
-func (s PeerFlowE2ETestSuiteSQLServer) TearDownSuite() {
-	err := e2e.TearDownPostgres(s.pool, s.suffix)
-	if err != nil {
-		require.Fail(s.t, "failed to drop Postgres schema", err)
-	}
-
-	if s.sqlsHelper != nil {
-		err = s.sqlsHelper.CleanUp()
-		if err != nil {
-			require.Fail(s.t, "failed to clean up sqlserver", err)
-		}
 	}
 }
 

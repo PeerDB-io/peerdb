@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PostgresReplicationSnapshotTestSuite struct {
@@ -24,6 +23,8 @@ type PostgresReplicationSnapshotTestSuite struct {
 }
 
 func setupSuite(t *testing.T) PostgresReplicationSnapshotTestSuite {
+	t.Helper()
+
 	connector, err := NewPostgresConnector(context.Background(), &protos.PostgresConfig{
 		Host:     "localhost",
 		Port:     7132,
@@ -71,52 +72,6 @@ func setupSuite(t *testing.T) PostgresReplicationSnapshotTestSuite {
 	}
 }
 
-func (suite PostgresReplicationSnapshotTestSuite) TearDownSuite() {
-	teardownTx, err := suite.connector.pool.Begin(context.Background())
-	require.NoError(suite.t, err)
-	defer func() {
-		err := teardownTx.Rollback(context.Background())
-		if err != pgx.ErrTxClosed {
-			require.NoError(suite.t, err)
-		}
-	}()
-
-	_, err = teardownTx.Exec(context.Background(),
-		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", suite.schema))
-	require.NoError(suite.t, err)
-
-	// Fetch all the publications
-	rows, err := teardownTx.Query(context.Background(),
-		"SELECT pubname FROM pg_publication WHERE pubname LIKE $1", fmt.Sprintf("%%%s", "test_simple_slot_creation"))
-	require.NoError(suite.t, err)
-
-	// Iterate over the publications and drop them
-	for rows.Next() {
-		var pubname pgtype.Text
-		err := rows.Scan(&pubname)
-		require.NoError(suite.t, err)
-
-		// Drop the publication in a new transaction
-		_, err = suite.connector.pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubname.String))
-		require.NoError(suite.t, err)
-	}
-
-	_, err = teardownTx.Exec(context.Background(),
-		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
-		fmt.Sprintf("%%%s", "test_simple_slot_creation"))
-	require.NoError(suite.t, err)
-
-	err = teardownTx.Commit(context.Background())
-	require.NoError(suite.t, err)
-
-	require.True(suite.t, suite.connector.ConnectionActive() == nil)
-
-	err = suite.connector.Close()
-	require.NoError(suite.t, err)
-
-	require.False(suite.t, suite.connector.ConnectionActive() == nil)
-}
-
 func (suite PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
 	tables := map[string]string{
 		suite.schema + ".test_1": "test_1_dst",
@@ -149,5 +104,49 @@ func (suite PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
 }
 
 func TestPostgresReplTestSuite(t *testing.T) {
-	got.Each(t, e2eshared.GotSuite(setupSuite))
+	e2eshared.GotSuite(t, setupSuite, func(suite PostgresReplicationSnapshotTestSuite) {
+		teardownTx, err := suite.connector.pool.Begin(context.Background())
+		require.NoError(suite.t, err)
+		defer func() {
+			err := teardownTx.Rollback(context.Background())
+			if err != pgx.ErrTxClosed {
+				require.NoError(suite.t, err)
+			}
+		}()
+
+		_, err = teardownTx.Exec(context.Background(),
+			fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", suite.schema))
+		require.NoError(suite.t, err)
+
+		// Fetch all the publications
+		rows, err := teardownTx.Query(context.Background(),
+			"SELECT pubname FROM pg_publication WHERE pubname LIKE $1", fmt.Sprintf("%%%s", "test_simple_slot_creation"))
+		require.NoError(suite.t, err)
+
+		// Iterate over the publications and drop them
+		for rows.Next() {
+			var pubname pgtype.Text
+			err := rows.Scan(&pubname)
+			require.NoError(suite.t, err)
+
+			// Drop the publication in a new transaction
+			_, err = suite.connector.pool.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION %s", pubname.String))
+			require.NoError(suite.t, err)
+		}
+
+		_, err = teardownTx.Exec(context.Background(),
+			"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
+			fmt.Sprintf("%%%s", "test_simple_slot_creation"))
+		require.NoError(suite.t, err)
+
+		err = teardownTx.Commit(context.Background())
+		require.NoError(suite.t, err)
+
+		require.True(suite.t, suite.connector.ConnectionActive() == nil)
+
+		err = suite.connector.Close()
+		require.NoError(suite.t, err)
+
+		require.False(suite.t, suite.connector.ConnectionActive() == nil)
+	})
 }

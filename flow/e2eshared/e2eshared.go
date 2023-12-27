@@ -9,15 +9,14 @@ import (
 	"github.com/ysmood/got"
 )
 
-func GotSuite[T any](t *testing.T, setup func(t *testing.T, g got.G) T, teardown func(T)) {
+func GotSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
 	t.Helper()
 
 	got.Each(t, func(t *testing.T) T {
 		t.Helper()
-		g := got.New(t)
-		g.Parallel()
-		suite := setup(t, g)
-		g.Cleanup(func() {
+		t.Parallel()
+		suite := setup(t)
+		t.Cleanup(func() {
 			teardown(suite)
 		})
 		return suite

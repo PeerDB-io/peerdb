@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PeerFlowE2ETestSuiteS3 struct {
@@ -26,7 +25,19 @@ type PeerFlowE2ETestSuiteS3 struct {
 }
 
 func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
-	got.Each(t, e2eshared.GotSuite(setupSuite))
+	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteS3) {
+		err := e2e.TearDownPostgres(s.pool, s.suffix)
+		if err != nil {
+			require.Fail(s.t, "failed to drop Postgres schema", err)
+		}
+
+		if s.s3Helper != nil {
+			err = s.s3Helper.CleanUp()
+			if err != nil {
+				require.Fail(s.t, "failed to clean up s3", err)
+			}
+		}
+	})
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
@@ -41,6 +52,8 @@ func setupS3(mode string) (*S3TestHelper, error) {
 }
 
 func setupSuite(t *testing.T) PeerFlowE2ETestSuiteS3 {
+	t.Helper()
+
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -64,20 +77,6 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteS3 {
 		pool:     pool,
 		s3Helper: helper,
 		suffix:   suffix,
-	}
-}
-
-func (s PeerFlowE2ETestSuiteS3) TearDownSuite() {
-	err := e2e.TearDownPostgres(s.pool, s.suffix)
-	if err != nil {
-		require.Fail(s.t, "failed to drop Postgres schema", err)
-	}
-
-	if s.s3Helper != nil {
-		err = s.s3Helper.CleanUp()
-		if err != nil {
-			require.Fail(s.t, "failed to clean up s3", err)
-		}
 	}
 }
 

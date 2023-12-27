@@ -104,11 +104,6 @@ func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 	return true
 }
 
-func isUniqueError(err error) bool {
-	var pgerr *pgconn.PgError
-	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
-}
-
 func (p *PostgresMetadataStore) SetupMetadata() error {
 	// start a transaction
 	tx, err := p.pool.Begin(p.ctx)

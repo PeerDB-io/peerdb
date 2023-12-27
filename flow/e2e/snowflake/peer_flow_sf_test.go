@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ysmood/got"
-
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -33,18 +31,18 @@ type PeerFlowE2ETestSuiteSF struct {
 }
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
-	e2eshared.GotSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSF) {
+	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteSF) {
 		err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
 		if err != nil {
 			slog.Error("failed to tear down Postgres", slog.Any("error", err))
-			s.FailNow()
+			s.t.FailNow()
 		}
 
 		if s.sfHelper != nil {
 			err = s.sfHelper.Cleanup()
 			if err != nil {
 				slog.Error("failed to tear down Snowflake", slog.Any("error", err))
-				s.FailNow()
+				s.t.FailNow()
 			}
 		}
 
@@ -52,7 +50,7 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 
 		if err != nil {
 			slog.Error("failed to close Snowflake connector", slog.Any("error", err))
-			s.FailNow()
+			s.t.FailNow()
 		}
 	})
 }
@@ -449,7 +447,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 
 		if err != nil {
 			slog.Error("Error executing transaction", slog.Any("error", err))
-			s.t.FailNow()
 		}
 
 		wg.Done()

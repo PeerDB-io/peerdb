@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PostgresSchemaDeltaTestSuite struct {
@@ -22,6 +21,8 @@ type PostgresSchemaDeltaTestSuite struct {
 const schemaDeltaTestSchemaName = "pgschema_delta_test"
 
 func setupSchemaDeltaSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
+	t.Helper()
+
 	connector, err := NewPostgresConnector(context.Background(), &protos.PostgresConfig{
 		Host:     "localhost",
 		Port:     7132,
@@ -50,27 +51,6 @@ func setupSchemaDeltaSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 		t:         t,
 		connector: connector,
 	}
-}
-
-func (suite PostgresSchemaDeltaTestSuite) TearDownSuite() {
-	teardownTx, err := suite.connector.pool.Begin(context.Background())
-	require.NoError(suite.t, err)
-	defer func() {
-		err := teardownTx.Rollback(context.Background())
-		if err != pgx.ErrTxClosed {
-			require.NoError(suite.t, err)
-		}
-	}()
-	_, err = teardownTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
-		schemaDeltaTestSchemaName))
-	require.NoError(suite.t, err)
-	err = teardownTx.Commit(context.Background())
-	require.NoError(suite.t, err)
-
-	require.True(suite.t, suite.connector.ConnectionActive() == nil)
-	err = suite.connector.Close()
-	require.NoError(suite.t, err)
-	require.False(suite.t, suite.connector.ConnectionActive() == nil)
 }
 
 func (suite PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
@@ -244,5 +224,24 @@ func (suite PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 }
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
-	got.Each(t, e2eshared.GotSuite(setupSchemaDeltaSuite))
+	e2eshared.GotSuite(t, setupSchemaDeltaSuite, func(suite PostgresSchemaDeltaTestSuite) {
+		teardownTx, err := suite.connector.pool.Begin(context.Background())
+		require.NoError(suite.t, err)
+		defer func() {
+			err := teardownTx.Rollback(context.Background())
+			if err != pgx.ErrTxClosed {
+				require.NoError(suite.t, err)
+			}
+		}()
+		_, err = teardownTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
+			schemaDeltaTestSchemaName))
+		require.NoError(suite.t, err)
+		err = teardownTx.Commit(context.Background())
+		require.NoError(suite.t, err)
+
+		require.True(suite.t, suite.connector.ConnectionActive() == nil)
+		err = suite.connector.Close()
+		require.NoError(suite.t, err)
+		require.False(suite.t, suite.connector.ConnectionActive() == nil)
+	})
 }

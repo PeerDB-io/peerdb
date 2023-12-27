@@ -11,7 +11,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 const schemaDeltaTestSchemaName = "PUBLIC"
@@ -206,7 +205,7 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
 	e2eshared.GotSuite(t, setupSchemaDeltaSuite, func(suite SnowflakeSchemaDeltaTestSuite) {
-		suite.failTestError(suite.sfTestHelper.Cleanup())
-		suite.failTestError(suite.connector.Close())
+		require.NoError(suite.t, suite.sfTestHelper.Cleanup())
+		require.NoError(suite.t, suite.connector.Close())
 	})
 }

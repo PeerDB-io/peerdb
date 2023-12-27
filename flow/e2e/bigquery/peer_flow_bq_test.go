@@ -18,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PeerFlowE2ETestSuiteBQ struct {
@@ -34,13 +33,13 @@ func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
 		err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
 		if err != nil {
 			slog.Error("failed to tear down postgres", slog.Any("error", err))
-			s.FailNow()
+			s.t.FailNow()
 		}
 
 		err = s.bqHelper.DropDataset(s.bqHelper.datasetName)
 		if err != nil {
 			slog.Error("failed to tear down bigquery", slog.Any("error", err))
-			s.FailNow()
+			s.t.FailNow()
 		}
 	})
 }
@@ -148,7 +147,7 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(env, s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	// TODO (kaushikiska): ensure flow name can only be alpha numeric and underscores.
 	limits := peerflow.CDCFlowLimits{
@@ -1194,7 +1193,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
@@ -1252,8 +1251,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 	count2, err := s.bqHelper.countRowsWithDataset(secondDataset, dstTable2Name)
 	require.NoError(s.t, err)
 
-	s.Equal(1, count1)
-	s.Equal(1, count2)
+	require.Equal(s.t, 1, count1)
+	require.Equal(s.t, 1, count2)
 
 	err = s.bqHelper.DropDataset(secondDataset)
 	require.NoError(s.t, err)
@@ -1262,7 +1261,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel")
@@ -1332,7 +1331,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1346,11 +1345,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 		s.bqHelper.datasetName, dstTableName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	s.Eq(1, numNewRows)
+	require.Equal(s.t, int64(1), numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
@@ -1418,7 +1417,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1430,11 +1429,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 		s.bqHelper.datasetName, dstTableName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	s.Eq(1, numNewRows)
+	require.Equal(s.t, int64(1), numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
@@ -1506,7 +1505,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1518,11 +1517,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		s.bqHelper.datasetName, dstTableName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	s.Eq(1, numNewRows)
+	require.Equal(s.t, int64(1), numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_softdel_iad")
@@ -1582,7 +1581,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1594,5 +1593,5 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		s.bqHelper.datasetName, dstTableName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	s.Eq(0, numNewRows)
+	require.Equal(s.t, numNewRows, int64(0))
 }

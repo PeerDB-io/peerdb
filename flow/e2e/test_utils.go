@@ -379,7 +379,7 @@ func (iw tlogWriter) Write(p []byte) (n int, err error) {
 }
 
 func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnvironment {
-	testSuite := &testsuite.WorkflowTestSuite{}
+	t.Helper()
 
 	logger := slog.New(logger.NewHandler(
 		slog.NewJSONHandler(
@@ -388,6 +388,7 @@ func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnv
 		)))
 	tLogger := NewTStructuredLogger(*logger)
 
+	testSuite := &testsuite.WorkflowTestSuite{}
 	testSuite.SetLogger(tLogger)
 	return testSuite.NewTestWorkflowEnvironment()
 }

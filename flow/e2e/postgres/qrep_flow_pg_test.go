@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PeerFlowE2ETestSuitePG struct {
@@ -29,10 +28,17 @@ type PeerFlowE2ETestSuitePG struct {
 }
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
-	got.Each(t, e2eshared.GotSuite(setupSuite))
+	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuitePG) {
+		err := e2e.TearDownPostgres(s.pool, s.suffix)
+		if err != nil {
+			s.t.Fatal("failed to drop Postgres schema", err)
+		}
+	})
 }
 
 func setupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
+	t.Helper()
+
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -63,13 +69,6 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 		peer:      peer,
 		connector: connector,
 		suffix:    suffix,
-	}
-}
-
-func (s PeerFlowE2ETestSuitePG) TearDownSuite() {
-	err := e2e.TearDownPostgres(s.pool, s.suffix)
-	if err != nil {
-		s.t.Fatal("failed to drop Postgres schema", err)
 	}
 }
 
