@@ -11,7 +11,7 @@ import (
 )
 
 type SnapshotActivity struct {
-	SnapshotConnections map[string]*SlotSnapshotSignal
+	SnapshotConnections map[string]SlotSnapshotSignal
 }
 
 // closes the slot signal
@@ -60,7 +60,7 @@ func (a *SnapshotActivity) SetupReplication(
 	}()
 
 	slog.InfoContext(ctx, "waiting for slot to be created...")
-	var slotInfo *connpostgres.SlotCreationResult
+	var slotInfo connpostgres.SlotCreationResult
 	select {
 	case slotInfo = <-slotSignal.SlotCreated:
 		slog.InfoContext(ctx, fmt.Sprintf("slot '%s' created", slotInfo.SlotName))
@@ -73,10 +73,10 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	if a.SnapshotConnections == nil {
-		a.SnapshotConnections = make(map[string]*SlotSnapshotSignal)
+		a.SnapshotConnections = make(map[string]SlotSnapshotSignal)
 	}
 
-	a.SnapshotConnections[config.FlowJobName] = &SlotSnapshotSignal{
+	a.SnapshotConnections[config.FlowJobName] = SlotSnapshotSignal{
 		signal:       slotSignal,
 		snapshotName: slotInfo.SnapshotName,
 		connector:    conn,
