@@ -677,7 +677,10 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	}
 
 	clustering := &bigquery.Clustering{
-		Fields: []string{"_peerdb_destination_table_name"},
+		Fields: []string{
+			"_peerdb_destination_table_name",
+			"_peerdb_timestamp",
+		},
 	}
 
 	metadata := &bigquery.TableMetadata{
