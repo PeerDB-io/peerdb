@@ -24,7 +24,8 @@ type QRepAvroSyncMethod struct {
 }
 
 func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string,
-	flowJobName string) *QRepAvroSyncMethod {
+	flowJobName string,
+) *QRepAvroSyncMethod {
 	return &QRepAvroSyncMethod{
 		connector:   connector,
 		gcsBucket:   gcsBucket,
@@ -73,11 +74,12 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	)
 
 	// execute the statements in a transaction
-	stmts := []string{}
-	stmts = append(stmts, "BEGIN TRANSACTION;")
-	stmts = append(stmts, insertStmt)
-	stmts = append(stmts, updateMetadataStmt)
-	stmts = append(stmts, "COMMIT TRANSACTION;")
+	stmts := []string{
+		"BEGIN TRANSACTION;",
+		insertStmt,
+		updateMetadataStmt,
+		"COMMIT TRANSACTION;",
+	}
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
@@ -133,13 +135,10 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	bqClient := s.connector.client
 	datasetID := s.connector.datasetID
 	// Start a transaction
-	stmts := []string{"BEGIN TRANSACTION;"}
 
 	// Insert the records from the staging table into the destination table
 	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT * FROM `%s.%s`;",
 		datasetID, dstTableName, datasetID, stagingTable)
-
-	stmts = append(stmts, insertStmt)
 
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
 	if err != nil {
@@ -149,8 +148,13 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		"flowName": flowJobName,
 	}).Infof("Performing transaction inside QRep sync function for partition ID %s",
 		partition.PartitionId)
-	stmts = append(stmts, insertMetadataStmt)
-	stmts = append(stmts, "COMMIT TRANSACTION;")
+
+	stmts := []string{
+		"BEGIN TRANSACTION;",
+		insertStmt,
+		insertMetadataStmt,
+		"COMMIT TRANSACTION;",
+	}
 	// Execute the statements in a transaction
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
@@ -187,7 +191,8 @@ type AvroSchema struct {
 }
 
 func DefineAvroSchema(dstTableName string,
-	dstTableMetadata *bigquery.TableMetadata) (*model.QRecordAvroSchemaDefinition, error) {
+	dstTableMetadata *bigquery.TableMetadata,
+) (*model.QRecordAvroSchemaDefinition, error) {
 	avroFields := []AvroField{}
 	nullableFields := make(map[string]struct{})
 

@@ -8,7 +8,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	util "github.com/PeerDB-io/peer-flow/utils"
 )
 
 type mergeStmtGenerator struct {
@@ -28,24 +27,6 @@ type mergeStmtGenerator struct {
 	UnchangedToastColumns []string
 }
 
-// GenerateMergeStmt generates a merge statements.
-func (m *mergeStmtGenerator) generateMergeStmts() []string {
-	// return an empty array for now
-	flattenedCTE := m.generateFlattenedCTE()
-	deDupedCTE := m.generateDeDupedCTE()
-	tempTable := fmt.Sprintf("_peerdb_de_duplicated_data_%s", util.RandomString(5))
-	// create temp table stmt
-	createTempTableStmt := fmt.Sprintf(
-		"CREATE TEMP TABLE %s AS (%s, %s);",
-		tempTable, flattenedCTE, deDupedCTE)
-
-	mergeStmt := m.generateMergeStmt(tempTable)
-
-	dropTempTableStmt := fmt.Sprintf("DROP TABLE %s;", tempTable)
-
-	return []string{createTempTableStmt, mergeStmt, dropTempTableStmt}
-}
-
 // generateFlattenedCTE generates a flattened CTE.
 func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
@@ -61,7 +42,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 
 		switch qvalue.QValueKind(colType) {
 		case qvalue.QValueKindJSON:
-			//if the type is JSON, then just extract JSON
+			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				colName, bqType, colName)
 		// expecting data in BASE64 format
@@ -124,7 +105,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt(tempTable string) string {
+func (m *mergeStmtGenerator) generateMergeStmt() string {
 	// comma separated list of column names
 	backtickColNames := make([]string, 0)
 	pureColNames := make([]string, 0)
@@ -146,14 +127,15 @@ func (m *mergeStmtGenerator) generateMergeStmt(tempTable string) string {
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	return fmt.Sprintf(`
-	MERGE %s.%s _peerdb_target USING %s _peerdb_deduped
+	MERGE %s.%s _peerdb_target USING (%s,%s) _peerdb_deduped
 	ON %s
 		WHEN NOT MATCHED and (_peerdb_deduped._peerdb_record_type != 2) THEN
 			INSERT (%s) VALUES (%s)
 		%s
 		WHEN MATCHED AND (_peerdb_deduped._peerdb_record_type = 2) THEN
 	DELETE;
-	`, m.Dataset, m.NormalizedTable, tempTable, pkeySelectSQL, csep, csep, updateStringToastCols)
+	`, m.Dataset, m.NormalizedTable, m.generateFlattenedCTE(), m.generateDeDupedCTE(),
+		pkeySelectSQL, csep, csep, updateStringToastCols)
 }
 
 /*
