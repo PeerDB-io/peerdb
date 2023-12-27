@@ -291,7 +291,10 @@ func CDCFlowWorkflowWithConfig(
 		c.Receive(ctx, &batchSize)
 		w.logger.Info("received batch size signal: ", batchSize)
 		syncFlowOptions.BatchSize = batchSize
+		cfg.MaxBatchSize = uint32(batchSize)
+		limits.MaxBatchSize = int(batchSize)
 	})
+
 	batchSizeSelector.AddDefault(func() {
 		w.logger.Info("no batch size signal received, batch size remains: ",
 			syncFlowOptions.BatchSize)
