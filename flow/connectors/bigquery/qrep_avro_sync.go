@@ -37,7 +37,7 @@ func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string,
 func (s *QRepAvroSyncMethod) SyncRecords(
 	rawTableName string,
 	flowJobName string,
-	lastCP int64,
+	records *model.CDCRecordStream,
 	dstTableMetadata *bigquery.TableMetadata,
 	syncBatchID int64,
 	stream *model.QRecordStream,
@@ -67,6 +67,11 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	datasetID := s.connector.datasetID
 	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT * FROM `%s.%s`;",
 		datasetID, rawTableName, datasetID, stagingTable)
+
+	lastCP, err := records.GetLastCheckpoint()
+	if err != nil {
+		return -1, fmt.Errorf("failed to get last checkpoint: %v", err)
+	}
 	updateMetadataStmt, err := s.connector.getUpdateMetadataStmt(flowJobName, lastCP, syncBatchID)
 	if err != nil {
 		return -1, fmt.Errorf("failed to update metadata: %v", err)
@@ -421,7 +426,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	if err := status.Err(); err != nil {
 		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %w", err)
 	}
-	slog.Info(fmt.Sprintf("Pushed into %s", avroFile.FilePath))
+	slog.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath))
 
 	err = s.connector.waitForTableReady(stagingTable)
 	if err != nil {
