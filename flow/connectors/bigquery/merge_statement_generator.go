@@ -80,7 +80,6 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	flattenedProjs = append(
 		flattenedProjs,
 		"_peerdb_timestamp",
-		"_peerdb_timestamp_nanos",
 		"_peerdb_record_type",
 		"_peerdb_unchanged_toast_columns",
 	)
@@ -99,7 +98,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 		SELECT _peerdb_ranked.*
 			FROM (
 				SELECT RANK() OVER (
-					PARTITION BY %s ORDER BY _peerdb_timestamp_nanos DESC
+					PARTITION BY %s ORDER BY _peerdb_timestamp DESC
 				) as _peerdb_rank, * FROM _peerdb_flattened
 			) _peerdb_ranked
 			WHERE _peerdb_rank = 1
