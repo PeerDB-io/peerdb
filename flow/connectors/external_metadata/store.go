@@ -2,6 +2,7 @@ package connmetadata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -9,6 +10,8 @@ import (
 	cc "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,6 +19,11 @@ import (
 const (
 	lastSyncStateTableName = "last_sync_state"
 )
+
+func isUniqueError(err error) bool {
+	var pgerr *pgconn.PgError
+	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
+}
 
 type PostgresMetadataStore struct {
 	ctx        context.Context
@@ -106,7 +114,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 
 	// create the schema
 	_, err = tx.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
-	if err != nil {
+	if err != nil && !isUniqueError(err) {
 		p.logger.Error("failed to create schema", slog.Any("error", err))
 		return err
 	}
@@ -120,7 +128,7 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 			sync_batch_id BIGINT NOT NULL
 		)
 	`)
-	if err != nil {
+	if err != nil && !isUniqueError(err) {
 		p.logger.Error("failed to create last sync state table", slog.Any("error", err))
 		return err
 	}
@@ -146,7 +154,6 @@ func (p *PostgresMetadataStore) FetchLastOffset(jobName string) (int64, error) {
 	var offset pgtype.Int8
 	err := rows.Scan(&offset)
 	if err != nil {
-		// if the job doesn't exist, return 0
 		if err.Error() == "no rows in result set" {
 			return 0, nil
 		}
@@ -198,7 +205,8 @@ func (p *PostgresMetadataStore) UpdateLastOffset(jobName string, offset int64) e
 		INSERT INTO `+p.schemaName+`.`+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
-		DO UPDATE SET last_offset = $2, updated_at = NOW()
+		DO UPDATE SET last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+			updated_at = NOW()
 	`, jobName, offset, 0)
 
 	if err != nil {

@@ -6,9 +6,9 @@ use std::{
 use anyhow::Context;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use jsonwebtoken::{encode as jwt_encode, Algorithm, EncodingKey, Header};
-use pkcs1::EncodeRsaPrivateKey;
-use pkcs8::{DecodePrivateKey, EncodePublicKey};
-use rsa::{RsaPrivateKey, RsaPublicKey};
+use rsa::pkcs1::EncodeRsaPrivateKey;
+use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+use rsa::RsaPrivateKey;
 use secrecy::{Secret, SecretString};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -91,7 +91,7 @@ impl SnowflakeAuth {
 
     #[tracing::instrument(name = "peer_sflake::gen_public_key_fp", skip_all)]
     fn gen_public_key_fp(private_key: &RsaPrivateKey) -> anyhow::Result<String> {
-        let public_key = EncodePublicKey::to_public_key_der(&RsaPublicKey::from(private_key))?;
+        let public_key = private_key.to_public_key().to_public_key_der()?;
         let res = format!(
             "SHA256:{}",
             BASE64_STANDARD.encode(Sha256::new_with_prefix(public_key.as_bytes()).finalize())
@@ -101,9 +101,8 @@ impl SnowflakeAuth {
 
     #[tracing::instrument(name = "peer_sflake::auth_refresh_jwt", skip_all)]
     fn refresh_jwt(&mut self) -> anyhow::Result<()> {
-        let private_key_jwt: EncodingKey = EncodingKey::from_rsa_der(
-            EncodeRsaPrivateKey::to_pkcs1_der(&self.private_key)?.as_bytes(),
-        );
+        let private_key_jwt: EncodingKey =
+            EncodingKey::from_rsa_der(self.private_key.to_pkcs1_der()?.as_bytes());
         self.last_refreshed = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         info!(
             "Refreshing SnowFlake JWT for account: {} and user: {} at time {}",

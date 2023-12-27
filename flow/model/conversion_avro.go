@@ -71,7 +71,7 @@ func GetAvroSchemaDefinition(
 	dstTableName string,
 	qRecordSchema *QRecordSchema,
 ) (*QRecordAvroSchemaDefinition, error) {
-	avroFields := []QRecordAvroField{}
+	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
 	nullableFields := make(map[string]struct{})
 
 	for _, qField := range qRecordSchema.Fields {
@@ -80,16 +80,14 @@ func GetAvroSchemaDefinition(
 			return nil, err
 		}
 
-		consolidatedType := avroType.AvroLogicalSchema
-
 		if qField.Nullable {
-			consolidatedType = []interface{}{"null", consolidatedType}
+			avroType = []interface{}{"null", avroType}
 			nullableFields[qField.Name] = struct{}{}
 		}
 
 		avroFields = append(avroFields, QRecordAvroField{
 			Name: qField.Name,
-			Type: consolidatedType,
+			Type: avroType,
 		})
 	}
 

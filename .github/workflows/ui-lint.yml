@@ -2,11 +2,10 @@ name: Lint UI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+    paths: [ui/**]
 
 permissions:
   checks: write

@@ -34,7 +34,7 @@ type PostgresConnector struct {
 }
 
 // NewPostgresConnector creates a new instance of PostgresConnector.
-func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
+func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig, initializeReplPool bool) (*PostgresConnector, error) {
 	connectionString := utils.GetPGConnectionString(pgConfig)
 
 	// create a separate connection pool for non-replication queries as replication connections cannot
@@ -62,21 +62,23 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 		return nil, fmt.Errorf("failed to get custom type map: %w", err)
 	}
 
-	// ensure that replication is set to database
-	replConnConfig, err := pgxpool.ParseConfig(connectionString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
-	}
+	// only initialize for CDCPullConnector to reduce number of idle connections
+	var replPool *SSHWrappedPostgresPool
+	if initializeReplPool {
+		// ensure that replication is set to database
+		replConnConfig, err := pgxpool.ParseConfig(connectionString)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse connection string: %w", err)
+		}
 
-	replConnConfig.ConnConfig.RuntimeParams["replication"] = "database"
-	replConnConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
-	replConnConfig.MaxConns = 1
+		replConnConfig.ConnConfig.RuntimeParams["replication"] = "database"
+		replConnConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
+		replConnConfig.MaxConns = 1
 
-	// TODO: replPool not initializing might be intentional, if we only want to use QRep mirrors
-	// and the user doesn't have the REPLICATION permission
-	replPool, err := NewSSHWrappedPostgresPool(ctx, replConnConfig, pgConfig.SshConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+		replPool, err = NewSSHWrappedPostgresPool(ctx, replConnConfig, pgConfig.SshConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create replication connection pool: %w", err)
+		}
 	}
 
 	metadataSchema := "_peerdb_internal"
@@ -185,11 +187,22 @@ func (c *PostgresConnector) GetLastOffset(jobName string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
+
 	if result.Int64 == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
-
 	return result.Int64, nil
+}
+
+// SetLastOffset updates the last synced offset for a job.
+func (c *PostgresConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	_, err := c.pool.
+		Exec(c.ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
+	if err != nil {
+		return fmt.Errorf("error setting last offset for job %s: %w", jobName, err)
+	}
+
+	return nil
 }
 
 // PullRecords pulls records from the source.
@@ -236,6 +249,9 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 		Publication:            publicationName,
 		TableNameMapping:       req.TableNameMapping,
 		RelationMessageMapping: req.RelationMessageMapping,
+		CatalogPool:            catalogPool,
+		FlowJobName:            req.FlowJobName,
+		SetLastOffset:          req.SetLastOffset,
 	}, c.customTypesMapping)
 	if err != nil {
 		return fmt.Errorf("failed to create cdc source: %w", err)
@@ -365,7 +381,8 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			len(records), syncedRecordsCount)
 	}
 
-	c.logger.Info(fmt.Sprintf("synced %d records to Postgres table %s via COPY", syncedRecordsCount, rawTableIdentifier))
+	c.logger.Info(fmt.Sprintf("synced %d records to Postgres table %s via COPY",
+		syncedRecordsCount, rawTableIdentifier))
 
 	lastCP, err := req.Records.GetLastCheckpoint()
 	if err != nil {
@@ -406,7 +423,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		return nil, err
 	}
 	// normalize has caught up with sync or no SyncFlow has run, chill until more records are loaded.
-	if syncBatchID == normalizeBatchID || !jobMetadataExists {
+	if normalizeBatchID >= syncBatchID || !jobMetadataExists {
 		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
 			syncBatchID, normalizeBatchID))
 		return &model.NormalizeResponse{
@@ -439,8 +456,13 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	mergeStatementsBatch := &pgx.Batch{}
 	totalRowsAffected := 0
 	for destinationTableName, unchangedToastCols := range unchangedToastColsMap {
+		peerdbCols := protos.PeerDBColumns{
+			SoftDeleteColName: req.SoftDeleteColName,
+			SyncedAtColName:   req.SyncedAtColName,
+			SoftDelete:        req.SoftDelete,
+		}
 		normalizeStatements := c.generateNormalizeStatements(destinationTableName, unchangedToastCols,
-			rawTableIdentifier, supportsMerge)
+			rawTableIdentifier, supportsMerge, &peerdbCols)
 		for _, normalizeStatement := range normalizeStatements {
 			mergeStatementsBatch.Queue(normalizeStatement, normalizeBatchID, syncBatchID, destinationTableName).Exec(
 				func(ct pgconn.CommandTag) error {
@@ -550,12 +572,12 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+	replicaIdentityType, replErr := c.getReplicaIdentityType(schemaTable)
 	if replErr != nil {
 		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 	}
 
-	pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+	pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
 	if err != nil {
 		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 	}
@@ -573,7 +595,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		TableIdentifier:       tableName,
 		Columns:               make(map[string]string),
 		PrimaryKeyColumns:     pKeyCols,
-		IsReplicaIdentityFull: isFullReplica,
+		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 	}
 
 	for _, fieldDescription := range rows.FieldDescriptions() {
@@ -631,7 +653,7 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 		// convert the column names and types to Postgres types
 		normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(
-			parsedNormalizedTable.String(), tableSchema)
+			parsedNormalizedTable.String(), tableSchema, req.SoftDeleteColName, req.SyncedAtColName)
 		_, err = createNormalizedTablesTx.Exec(c.ctx, normalizedTableCreateSQL)
 		if err != nil {
 			return nil, fmt.Errorf("error while creating normalized table: %w", err)
@@ -723,18 +745,18 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 			return nil, err
 		}
 
-		isFullReplica, replErr := c.isTableFullReplica(schemaTable)
+		replicaIdentity, replErr := c.getReplicaIdentityType(schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
 		}
 
-		pKeyCols, err := c.getPrimaryKeyColumns(schemaTable)
+		pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentity, schemaTable)
 		if err != nil {
 			return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
 		}
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
-		if len(pKeyCols) == 0 && !isFullReplica {
+		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
@@ -860,18 +882,20 @@ func (c *PostgresConnector) SyncFlowCleanup(jobName string) error {
 	return nil
 }
 
-func (c *PostgresConnector) SendWALHeartbeat() error {
-	command := `
-	BEGIN;
-	DROP aggregate IF EXISTS PEERDB_EPHEMERAL_HEARTBEAT(float4);
-	CREATE AGGREGATE PEERDB_EPHEMERAL_HEARTBEAT(float4) (SFUNC = float4pl, STYPE = float4);
-	DROP aggregate PEERDB_EPHEMERAL_HEARTBEAT(float4);
-	END;
-	`
-	_, err := c.pool.Exec(c.ctx, command)
+// GetLastOffset returns the last synced offset for a job.
+func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error) {
+	row := c.pool.
+		QueryRow(c.ctx, getNumConnectionsForUser, c.config.User)
+
+	// COUNT() returns BIGINT
+	var result pgtype.Int8
+	err := row.Scan(&result)
 	if err != nil {
-		return fmt.Errorf("error bumping wal position: %w", err)
+		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
 
-	return nil
+	return &protos.GetOpenConnectionsForUserResult{
+		UserName:               c.config.User,
+		CurrentOpenConnections: result.Int64,
+	}, nil
 }

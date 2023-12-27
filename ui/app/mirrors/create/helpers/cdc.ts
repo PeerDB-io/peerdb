@@ -103,4 +103,15 @@ export const cdcSettings: MirrorSetting[] = [
     default: 'SQL',
     type: 'switch',
   },
+  {
+    label: 'Initial Copy Only',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        initialCopyOnly: (value as boolean) || false,
+      })),
+    tips: 'If set, PeerDB will only perform initial load and will not perform CDC sync.',
+    type: 'switch',
+    advanced: true,
+  },
 ];

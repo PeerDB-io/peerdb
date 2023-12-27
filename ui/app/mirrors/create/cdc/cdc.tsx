@@ -66,12 +66,6 @@ export default function CDCConfigForm({
   if (mirrorConfig.source != undefined && mirrorConfig.destination != undefined)
     return (
       <>
-        <TableMapping
-          sourcePeerName={mirrorConfig.source?.name}
-          rows={rows}
-          setRows={setRows}
-          peerType={mirrorConfig.destination?.type}
-        />
         {normalSettings.map((setting, id) => {
           return (
             paramDisplayCondition(setting) && (
@@ -112,6 +106,13 @@ export default function CDCConfigForm({
               />
             );
           })}
+
+        <TableMapping
+          sourcePeerName={mirrorConfig.source?.name}
+          rows={rows}
+          setRows={setRows}
+          peerType={mirrorConfig.destination?.type}
+        />
       </>
     );
 }

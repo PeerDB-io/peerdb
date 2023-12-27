@@ -195,7 +195,7 @@ func (s *SnowflakeAvroSyncMethod) addMissingColumns(
 			s.connector.logger.Info(fmt.Sprintf("altering destination table %s with command `%s`",
 				dstTableName, alterTableCmd), partitionLog)
 
-			if _, err := tx.Exec(alterTableCmd); err != nil {
+			if _, err := tx.ExecContext(s.connector.ctx, alterTableCmd); err != nil {
 				return fmt.Errorf("failed to alter destination table: %w", err)
 			}
 		}
@@ -288,7 +288,7 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage 
 		shutdown <- struct{}{}
 	}()
 
-	if _, err := s.connector.database.Exec(putCmd); err != nil {
+	if _, err := s.connector.database.ExecContext(s.connector.ctx, putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
 	}
 
@@ -298,16 +298,21 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage 
 
 func (c *SnowflakeConnector) GetCopyTransformation(
 	dstTableName string,
+	syncedAtCol string,
 ) (*CopyInfo, error) {
 	colInfo, colsErr := c.getColsFromTable(dstTableName)
 	if colsErr != nil {
 		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
 	}
 
-	var transformations []string
-	var columnOrder []string
+	transformations := make([]string, 0, len(colInfo.ColumnMap))
+	columnOrder := make([]string, 0, len(colInfo.ColumnMap))
 	for colName, colType := range colInfo.ColumnMap {
 		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
+		if colName == syncedAtCol {
+			transformations = append(transformations, fmt.Sprintf("CURRENT_TIMESTAMP AS \"%s\"", colName))
+			continue
+		}
 		switch colType {
 		case "GEOGRAPHY":
 			transformations = append(transformations,
@@ -352,7 +357,7 @@ func CopyStageToDestination(
 		}
 	}
 
-	copyTransformation, err := connector.GetCopyTransformation(dstTableName)
+	copyTransformation, err := connector.GetCopyTransformation(dstTableName, config.SyncedAtColName)
 	if err != nil {
 		return fmt.Errorf("failed to get copy transformation: %w", err)
 	}
@@ -388,7 +393,7 @@ func (s *SnowflakeAvroSyncMethod) insertMetadata(
 		return fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
 
-	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
+	if _, err := s.connector.database.ExecContext(s.connector.ctx, insertMetadataStmt); err != nil {
 		s.connector.logger.Error("failed to execute metadata insert statement "+insertMetadataStmt,
 			slog.Any("error", err), partitionLog)
 		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
@@ -427,7 +432,7 @@ func (s *SnowflakeAvroWriteHandler) HandleAppendMode(
 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
 		s.dstTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
 	s.connector.logger.Info("running copy command: " + copyCmd)
-	_, err := s.connector.database.Exec(copyCmd)
+	_, err := s.connector.database.ExecContext(s.connector.ctx, copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
@@ -511,7 +516,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	//nolint:gosec
 	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
 		tempTableName, s.dstTableName)
-	if _, err := s.connector.database.Exec(createTempTableCmd); err != nil {
+	if _, err := s.connector.database.ExecContext(s.connector.ctx, createTempTableCmd); err != nil {
 		return fmt.Errorf("failed to create temp table: %w", err)
 	}
 	s.connector.logger.Info("created temp table " + tempTableName)
@@ -519,7 +524,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
 		tempTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
-	_, err = s.connector.database.Exec(copyCmd)
+	_, err = s.connector.database.ExecContext(s.connector.ctx, copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
@@ -531,7 +536,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	}
 
 	startTime := time.Now()
-	rows, err := s.connector.database.Exec(mergeCmd)
+	rows, err := s.connector.database.ExecContext(s.connector.ctx, mergeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
 	}

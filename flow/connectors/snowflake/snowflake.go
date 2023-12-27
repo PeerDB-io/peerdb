@@ -36,13 +36,13 @@ const (
 		_PEERDB_TIMESTAMP INT NOT NULL,_PEERDB_DESTINATION_TABLE_NAME STRING NOT NULL,_PEERDB_DATA STRING NOT NULL,
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
-	createNormalizedTableSQL = "CREATE TABLE IF NOT EXISTS %s(%s)"
-	toVariantColumnName      = "VAR_COLS"
-	mergeStatementSQL        = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (SELECT _PEERDB_UID,
-		_PEERDB_TIMESTAMP,
-		TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
-		_PEERDB_UNCHANGED_TOAST_COLUMNS FROM
-		 _PEERDB_INTERNAL.%s WHERE _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND
+	rawTableMultiValueInsertSQL = "INSERT INTO %s.%s VALUES%s"
+	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
+	toVariantColumnName         = "VAR_COLS"
+	mergeStatementSQL           = `MERGE INTO %s TARGET USING (WITH VARIANT_CONVERTED AS (
+		SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,TO_VARIANT(PARSE_JSON(_PEERDB_DATA)) %s,_PEERDB_RECORD_TYPE,
+		 _PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,_PEERDB_UNCHANGED_TOAST_COLUMNS
+		FROM _PEERDB_INTERNAL.%s WHERE _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND
 		 _PEERDB_DESTINATION_TABLE_NAME = ? ), FLATTENED AS
 		 (SELECT _PEERDB_UID,_PEERDB_TIMESTAMP,_PEERDB_RECORD_TYPE,_PEERDB_MATCH_DATA,_PEERDB_BATCH_ID,
 			_PEERDB_UNCHANGED_TOAST_COLUMNS,%s
@@ -65,24 +65,21 @@ const (
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
-	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET OFFSET=?, SYNC_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
+	updateMetadataForSyncRecordsSQL = `UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?), SYNC_BATCH_ID=?
+	 WHERE MIRROR_JOB_NAME=?`
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET NORMALIZE_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
-	checkIfJobMetadataExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
-	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	checkSchemaExistsSQL        = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
+	checkIfJobMetadataExistsSQL     = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	getLastOffsetSQL                = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	setLastOffsetSQL                = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
+	getLastSyncBatchID_SQL          = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	getLastSyncNormalizeBatchID_SQL = "SELECT SYNC_BATCH_ID, NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	dropTableIfExistsSQL            = "DROP TABLE IF EXISTS %s.%s"
+	deleteJobMetadataSQL            = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	checkSchemaExistsSQL            = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 )
-
-type tableNameComponents struct {
-	schemaIdentifier string
-	tableIdentifier  string
-}
 
 type SnowflakeConnector struct {
 	ctx                context.Context
@@ -243,12 +240,11 @@ func (c *SnowflakeConnector) GetTableSchema(
 }
 
 func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
-	tableNameComponents, err := parseTableName(tableName)
+	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
-	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, tableNameComponents.schemaIdentifier,
-		tableNameComponents.tableIdentifier)
+	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, schemaTable.Schema, schemaTable.Table)
 	if err != nil {
 		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
 	}
@@ -300,7 +296,7 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	}()
 
 	if !rows.Next() {
-		c.logger.Warn("No row found ,returning nil")
+		c.logger.Warn("No row found, returning 0")
 		return 0, nil
 	}
 	var result pgtype.Int8
@@ -310,8 +306,18 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 	}
 	if result.Int64 == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
+		return 0, nil
 	}
 	return result.Int64, nil
+}
+
+func (c *SnowflakeConnector) SetLastOffset(jobName string, lastOffset int64) error {
+	_, err := c.database.ExecContext(c.ctx, fmt.Sprintf(setLastOffsetSQL,
+		c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
+	if err != nil {
+		return fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
+	}
+	return nil
 }
 
 func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
@@ -333,23 +339,27 @@ func (c *SnowflakeConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	return result.Int64, nil
 }
 
-func (c *SnowflakeConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
-	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
+func (c *SnowflakeConnector) GetLastSyncAndNormalizeBatchID(jobName string) (model.SyncAndNormalizeBatchID, error) {
+	rows, err := c.database.QueryContext(c.ctx, fmt.Sprintf(getLastSyncNormalizeBatchID_SQL, c.metadataSchema,
 		mirrorJobsTableIdentifier), jobName)
 	if err != nil {
-		return 0, fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
+		return model.SyncAndNormalizeBatchID{},
+			fmt.Errorf("error querying Snowflake peer for last normalizeBatchId: %w", err)
 	}
 
-	var result pgtype.Int8
+	var syncResult, normResult pgtype.Int8
 	if !rows.Next() {
 		c.logger.Warn("No row found, returning 0")
-		return 0, nil
+		return model.SyncAndNormalizeBatchID{}, nil
 	}
-	err = rows.Scan(&result)
+	err = rows.Scan(&syncResult, &normResult)
 	if err != nil {
-		return 0, fmt.Errorf("error while reading result row: %w", err)
+		return model.SyncAndNormalizeBatchID{}, fmt.Errorf("error while reading result row: %w", err)
 	}
-	return result.Int64, nil
+	return model.SyncAndNormalizeBatchID{
+		SyncBatchID:      syncResult.Int64,
+		NormalizeBatchID: normResult.Int64,
+	}, nil
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
@@ -407,12 +417,11 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier, tableSchema := range req.TableNameSchemaMapping {
-		normalizedTableNameComponents, err := parseTableName(tableIdentifier)
+		normalizedSchemaTable, err := utils.ParseSchemaTable(tableIdentifier)
 		if err != nil {
 			return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 		}
-		tableAlreadyExists, err := c.checkIfTableExists(normalizedTableNameComponents.schemaIdentifier,
-			normalizedTableNameComponents.tableIdentifier)
+		tableAlreadyExists, err := c.checkIfTableExists(normalizedSchemaTable.Schema, normalizedSchemaTable.Table)
 		if err != nil {
 			return nil, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
 		}
@@ -468,8 +477,9 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 					addedColumn.ColumnType, err)
 			}
-			_, err = tableSchemaModifyTx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-				schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
+			_, err = tableSchemaModifyTx.ExecContext(c.ctx,
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
+					schemaDelta.DstTableName, strings.ToUpper(addedColumn.ColumnName), sfColtype))
 			if err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.ColumnName,
 					schemaDelta.DstTableName, err)
@@ -577,20 +587,16 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 
 // NormalizeRecords normalizes raw table to destination table.
 func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
-	normalizeBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
+	batchIDs, err := c.GetLastSyncAndNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 	// normalize has caught up with sync, chill until more records are loaded.
-	if syncBatchID == normalizeBatchID {
+	if batchIDs.NormalizeBatchID >= batchIDs.SyncBatchID {
 		return &model.NormalizeResponse{
 			Done:         false,
-			StartBatchID: normalizeBatchID,
-			EndBatchID:   syncBatchID,
+			StartBatchID: batchIDs.NormalizeBatchID,
+			EndBatchID:   batchIDs.SyncBatchID,
 		}, nil
 	}
 
@@ -604,12 +610,16 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 			Done: false,
 		}, nil
 	}
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(req.FlowJobName, syncBatchID, normalizeBatchID)
+	destinationTableNames, err := c.getDistinctTableNamesInBatch(
+		req.FlowJobName,
+		batchIDs.SyncBatchID,
+		batchIDs.NormalizeBatchID,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, syncBatchID, normalizeBatchID)
+	tableNametoUnchangedToastCols, err := c.getTableNametoUnchangedCols(req.FlowJobName, batchIDs.SyncBatchID, batchIDs.NormalizeBatchID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't tablename to unchanged cols mapping: %w", err)
 	}
@@ -627,7 +637,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 				tableName,
 				tableNametoUnchangedToastCols[tableName],
 				getRawTableIdentifier(req.FlowJobName),
-				syncBatchID, normalizeBatchID,
+				batchIDs.SyncBatchID, batchIDs.NormalizeBatchID,
 				req)
 			if err != nil {
 				c.logger.Error("[merge] error while normalizing records", slog.Any("error", err))
@@ -644,15 +654,15 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 	}
 
 	// updating metadata with new normalizeBatchID
-	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID)
+	err = c.updateNormalizeMetadata(req.FlowJobName, batchIDs.SyncBatchID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: normalizeBatchID + 1,
-		EndBatchID:   syncBatchID,
+		StartBatchID: batchIDs.NormalizeBatchID + 1,
+		EndBatchID:   batchIDs.SyncBatchID,
 	}, nil
 }
 
@@ -750,7 +760,7 @@ func generateCreateTableSQLForNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns))
+	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
 	for columnName, genericColumnType := range sourceTableSchema.Columns {
 		columnNameUpper := strings.ToUpper(columnName)
 		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
@@ -811,7 +821,8 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 
 	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
-		sfType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
+		qvKind := qvalue.QValueKind(genericColumnType)
+		sfType, err := qValueKindToSnowflakeType(qvKind)
 		if err != nil {
 			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 				genericColumnType, err)
@@ -836,8 +847,14 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		// 		"Microseconds*1000) "+
 		// 		"AS %s,", toVariantColumnName, columnName, columnName))
 		default:
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
-				toVariantColumnName, columnName, sfType, targetColumnName))
+			if qvKind == qvalue.QValueKindNumeric {
+				flattenedCastsSQLArray = append(flattenedCastsSQLArray,
+					fmt.Sprintf("TRY_CAST((%s:\"%s\")::text AS %s) AS %s,",
+						toVariantColumnName, columnName, sfType, targetColumnName))
+			} else {
+				flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("CAST(%s:\"%s\" AS %s) AS %s,",
+					toVariantColumnName, columnName, sfType, targetColumnName))
+			}
 		}
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")
@@ -846,17 +863,21 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	for _, columnName := range columnNames {
 		quotedUpperColNames = append(quotedUpperColNames, fmt.Sprintf(`"%s"`, strings.ToUpper(columnName)))
 	}
+	// append synced_at column
+	quotedUpperColNames = append(quotedUpperColNames,
+		fmt.Sprintf(`"%s"`, strings.ToUpper(normalizeReq.SyncedAtColName)),
+	)
 
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
 
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
 		quotedUpperColumnName := fmt.Sprintf(`"%s"`, strings.ToUpper(columnName))
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s,", quotedUpperColumnName))
+		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("SOURCE.%s", quotedUpperColumnName))
 	}
-
-	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ""), ",")
-
+	// fill in synced_at column
+	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
+	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
 	updateStatementsforToastCols := c.generateUpdateStatements(normalizeReq.SyncedAtColName,
 		normalizeReq.SoftDeleteColName, normalizeReq.SoftDelete,
 		columnNames, unchangedToastColumns)
@@ -865,10 +886,9 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
 	// the current merge statement doesn't do that, so we add another case to insert the DeleteRecord
 	if normalizeReq.SoftDelete {
-		softDeleteInsertColumnsSQL := strings.TrimSuffix(strings.Join(append(quotedUpperColNames,
-			normalizeReq.SoftDeleteColName), ","), ",")
-		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), "")
-
+		softDeleteInsertColumnsSQL := strings.Join(append(quotedUpperColNames,
+			normalizeReq.SoftDeleteColName), ",")
+		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
 			fmt.Sprintf("WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN INSERT (%s) VALUES(%s)",
 				softDeleteInsertColumnsSQL, softDeleteInsertValuesSQL))
@@ -911,16 +931,6 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 		destinationTableIdentifier, endTime.Sub(startTime)/time.Second))
 
 	return result.RowsAffected()
-}
-
-// parseTableName parses a table name into schema and table name.
-func parseTableName(tableName string) (*tableNameComponents, error) {
-	schemaIdentifier, tableIdentifier, hasDot := strings.Cut(tableName, ".")
-	if !hasDot || strings.ContainsRune(tableIdentifier, '.') {
-		return nil, fmt.Errorf("invalid table name: %s", tableName)
-	}
-
-	return &tableNameComponents{schemaIdentifier, tableIdentifier}, nil
 }
 
 func (c *SnowflakeConnector) jobMetadataExists(jobName string) (bool, error) {
@@ -1049,6 +1059,10 @@ func (c *SnowflakeConnector) generateUpdateStatements(
 		(SOURCE._PEERDB_RECORD_TYPE != 2) AND _PEERDB_UNCHANGED_TOAST_COLUMNS='%s'
 		THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
+
+		// generates update statements for the case where updates and deletes happen in the same branch
+		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
+		// and then set soft-delete to true.
 		if softDelete && (softDeleteCol != "") {
 			tmpArray = append(tmpArray[:len(tmpArray)-1], fmt.Sprintf(`"%s" = TRUE`, softDeleteCol))
 			ssep := strings.Join(tmpArray, ", ")

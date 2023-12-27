@@ -5,10 +5,9 @@ import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
-import { Badge } from '@/lib/Badge';
-import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
+import { MirrorError } from '../../mirror-status';
 import MirrorValues from './configValues';
 import TablePairs from './tablePairs';
 
@@ -33,11 +32,8 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
               </Label>
             </div>
             <div>
-              <Label variant='body'>
-                <Badge variant='positive' key={1}>
-                  <Icon name='play_circle' />
-                  Active
-                </Badge>
+              <Label>
+                <MirrorError flowName={mirrorConfig?.flowJobName || ''} />
               </Label>
             </div>
           </div>

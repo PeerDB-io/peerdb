@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
 	"github.com/grafana/pyroscope-go"
@@ -99,7 +100,10 @@ func WorkerMain(opts *WorkerOptions) error {
 			return fmt.Errorf("unable to process certificate and key: %w", err)
 		}
 		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{Certificates: certs},
+			TLS: &tls.Config{
+				Certificates: certs,
+				MinVersion:   tls.VersionTLS13,
+			},
 		}
 		clientOptions.ConnectionOptions = connOptions
 	}
@@ -131,8 +135,15 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterWorkflow(peerflow.XminFlowWorkflow)
 	w.RegisterWorkflow(peerflow.DropFlowWorkflow)
 	w.RegisterWorkflow(peerflow.HeartbeatFlowWorkflow)
+
+	alerter, err := alerting.NewAlerter(conn)
+	if err != nil {
+		return fmt.Errorf("unable to create alerter: %w", err)
+	}
+
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
+		Alerter:     alerter,
 	})
 
 	err = w.Run(worker.InterruptCh())

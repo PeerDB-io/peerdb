@@ -273,7 +273,7 @@ func (s *SetupFlowExecution) executeSetupFlow(
 func SetupFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
 ) (*protos.FlowConnectionConfigs, error) {
-	tblNameMapping := make(map[string]string)
+	tblNameMapping := make(map[string]string, len(config.TableMappings))
 	for _, v := range config.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
 	}

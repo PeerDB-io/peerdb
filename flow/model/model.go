@@ -50,13 +50,15 @@ type PullRecordsRequest struct {
 	RelationMessageMapping RelationMessageMapping
 	// record batch for pushing changes into
 	RecordStream *CDCRecordStream
+	// last offset may be forwarded while processing records
+	SetLastOffset func(int64) error
 }
 
 type Record interface {
 	// GetCheckPointID returns the ID of the record.
 	GetCheckPointID() int64
 	// get table name
-	GetTableName() string
+	GetDestinationTableName() string
 	// get columns and values for the record
 	GetItems() *RecordItems
 }
@@ -242,7 +244,7 @@ func (r *InsertRecord) GetCheckPointID() int64 {
 	return r.CheckPointID
 }
 
-func (r *InsertRecord) GetTableName() string {
+func (r *InsertRecord) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
 
@@ -271,7 +273,7 @@ func (r *UpdateRecord) GetCheckPointID() int64 {
 }
 
 // Implement Record interface for UpdateRecord.
-func (r *UpdateRecord) GetTableName() string {
+func (r *UpdateRecord) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
 
@@ -297,7 +299,7 @@ func (r *DeleteRecord) GetCheckPointID() int64 {
 	return r.CheckPointID
 }
 
-func (r *DeleteRecord) GetTableName() string {
+func (r *DeleteRecord) GetDestinationTableName() string {
 	return r.DestinationTableName
 }
 
@@ -327,7 +329,7 @@ type CDCRecordStream struct {
 }
 
 func NewCDCRecordStream() *CDCRecordStream {
-	channelBuffer := peerdbenv.GetPeerDBCDCChannelBufferSize()
+	channelBuffer := peerdbenv.PeerDBCDCChannelBufferSize()
 	return &CDCRecordStream{
 		records: make(chan Record, channelBuffer),
 		// TODO (kaushik): more than 1024 schema deltas can cause problems!
@@ -414,6 +416,11 @@ func (r *CDCRecordStream) GetRecords() chan Record {
 	return r.records
 }
 
+type SyncAndNormalizeBatchID struct {
+	SyncBatchID      int64
+	NormalizeBatchID int64
+}
+
 type SyncRecordsRequest struct {
 	Records *CDCRecordStream
 	// FlowJobName is the name of the flow job.
@@ -468,8 +475,8 @@ func (r *RelationRecord) GetCheckPointID() int64 {
 	return r.CheckPointID
 }
 
-func (r *RelationRecord) GetTableName() string {
-	return r.TableSchemaDelta.SrcTableName
+func (r *RelationRecord) GetDestinationTableName() string {
+	return r.TableSchemaDelta.DstTableName
 }
 
 func (r *RelationRecord) GetItems() *RecordItems {

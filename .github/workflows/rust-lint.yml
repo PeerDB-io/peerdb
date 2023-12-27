@@ -2,8 +2,8 @@ name: clippy-action
 
 on:
   pull_request:
-    branches:
-      - "main"
+    branches: [main]
+    paths: [nexus/**]
 
 jobs:
   clippy:

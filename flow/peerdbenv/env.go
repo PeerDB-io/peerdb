@@ -46,6 +46,23 @@ func getEnvUint32(name string, defaultValue uint32) uint32 {
 	return uint32(i)
 }
 
+// getEnvBool returns the value of the environment variable with the given name
+// or defaultValue if the environment variable is not set or is not a valid
+// boolean value.
+func getEnvBool(name string, defaultValue bool) bool {
+	val, ok := getEnv(name)
+	if !ok {
+		return defaultValue
+	}
+
+	b, err := strconv.ParseBool(val)
+	if err != nil {
+		return defaultValue
+	}
+
+	return b
+}
+
 // GetEnvString returns the value of the environment variable with the given name
 // or defaultValue if the environment variable is not set.
 func getEnvString(name string, defaultValue string) string {

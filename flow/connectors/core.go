@@ -43,11 +43,11 @@ type CDCPullConnector interface {
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(jobName string) error
 
-	// SendWALHeartbeat allows for activity to progress restart_lsn on postgres.
-	SendWALHeartbeat() error
-
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
 	GetSlotInfo(slotName string) ([]*protos.SlotInfo, error)
+
+	// GetOpenConnectionsForUser returns the number of open connections for the user configured in the peer.
+	GetOpenConnectionsForUser() (*protos.GetOpenConnectionsForUserResult, error)
 }
 
 type CDCSyncConnector interface {
@@ -61,6 +61,9 @@ type CDCSyncConnector interface {
 
 	// GetLastOffset gets the last offset from the metadata table on the destination
 	GetLastOffset(jobName string) (int64, error)
+
+	// SetLastOffset updates the last offset on the metadata table on the destination
+	SetLastOffset(jobName string, lastOffset int64) error
 
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(jobName string) (int64, error)
@@ -134,7 +137,7 @@ func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConne
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), true)
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
@@ -144,7 +147,7 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -166,7 +169,7 @@ func GetCDCNormalizeConnector(ctx context.Context,
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -180,7 +183,7 @@ func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullCon
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_SqlserverConfig:
 		return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	default:
@@ -192,7 +195,7 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig())
+		return connpostgres.NewPostgresConnector(ctx, config.GetPostgresConfig(), false)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, config.GetBigqueryConfig())
 	case *protos.Peer_SnowflakeConfig:
@@ -213,7 +216,10 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 		if pgConfig == nil {
 			return nil, fmt.Errorf("missing postgres config for %s peer %s", peer.Type.String(), peer.Name)
 		}
-		return connpostgres.NewPostgresConnector(ctx, pgConfig)
+		// we can't decide if a PG peer should have replication permissions on it because we don't know
+		// what the user wants to do with it, so defaulting to being permissive.
+		// can be revisited in the future or we can use some UI wizardry.
+		return connpostgres.NewPostgresConnector(ctx, pgConfig, false)
 	case protos.DBType_BIGQUERY:
 		bqConfig := peer.GetBigqueryConfig()
 		if bqConfig == nil {

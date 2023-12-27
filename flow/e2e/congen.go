@@ -115,7 +115,7 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 		$$ language sql;
 		CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
 		RETURNS bytea AS $body$
-			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
+			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0'), ''), 'hex')
 			FROM generate_series(1, $1);
 		$body$
 		LANGUAGE 'sql'
@@ -171,6 +171,7 @@ type FlowConnectionGenerationConfig struct {
 	PostgresPort     int
 	Destination      *protos.Peer
 	CdcStagingPath   string
+	SoftDelete       bool
 }
 
 // GenerateSnowflakePeer generates a snowflake peer config for testing.
@@ -201,7 +202,10 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 	ret.Source = GeneratePostgresPeer(c.PostgresPort)
 	ret.Destination = c.Destination
 	ret.CdcStagingPath = c.CdcStagingPath
-	ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
+	ret.SoftDelete = c.SoftDelete
+	if ret.SoftDelete {
+		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
+	}
 	ret.SyncedAtColName = "_PEERDB_SYNCED_AT"
 	return ret, nil
 }

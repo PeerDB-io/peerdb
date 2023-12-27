@@ -84,7 +84,7 @@ func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType
 	LIMIT 0
 	`, tableName)
 
-	rows, err := c.database.Query(queryString)
+	rows, err := c.database.QueryContext(c.ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -249,7 +249,7 @@ func (c *SnowflakeConnector) createExternalStage(stageName string, config *proto
 }
 
 func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	c.logger.Error("Consolidating partitions")
+	c.logger.Info("Consolidating partitions")
 
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
@@ -272,29 +272,25 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 
 // CleanupQRepFlow function for snowflake connector
 func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	c.logger.Error("Cleaning up flow job")
+	c.logger.Info("Cleaning up flow job")
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
 func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnInformation, error) {
 	// parse the table name to get the schema and table name
-	components, err := parseTableName(tableName)
+	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
-
-	// convert tableIdentifier and schemaIdentifier to upper case
-	components.tableIdentifier = strings.ToUpper(components.tableIdentifier)
-	components.schemaIdentifier = strings.ToUpper(components.schemaIdentifier)
 
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
 	SELECT column_name, data_type
 	FROM information_schema.columns
 	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
-	`, components.tableIdentifier, components.schemaIdentifier)
+	`, strings.ToUpper(schemaTable.Table), strings.ToUpper(schemaTable.Schema))
 
-	rows, err := c.database.Query(queryString)
+	rows, err := c.database.QueryContext(c.ctx, queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}

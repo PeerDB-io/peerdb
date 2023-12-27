@@ -21,8 +21,12 @@ linters:
 linters-settings:
   forbidigo:
     tests: false
+  stylecheck:
+    checks:
+      - all
+      - '-ST1003'
   lll:
-    line-length: 120
+    line-length: 144
     tab-width: 4
   revive:
     rules:
