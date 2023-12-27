@@ -678,6 +678,7 @@ func (c *BigQueryConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 
 	clustering := &bigquery.Clustering{
 		Fields: []string{
+			"_peerdb_batch_id",
 			"_peerdb_destination_table_name",
 			"_peerdb_timestamp",
 		},
