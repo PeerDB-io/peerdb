@@ -55,18 +55,9 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	syncChan := workflow.GetSignalChannel(normalizeFlowCtx, "Sync")
 
 	stopLoop := false
-	for !stopLoop {
-		var stopLoopVal bool
-		var anyFalse bool
-		syncChan.Receive(normalizeFlowCtx, &stopLoopVal)
-		stopLoop = stopLoop || stopLoopVal
-		anyFalse = anyFalse || !stopLoopVal
-		for syncChan.ReceiveAsync(&stopLoopVal) {
-			stopLoop = stopLoop || stopLoopVal
-			anyFalse = anyFalse || !stopLoopVal
-		}
-
-		if anyFalse {
+	needSync := true
+	for {
+		if needSync {
 			startNormalizeInput := &protos.StartNormalizeInput{
 				FlowConnectionConfigs: config,
 			}
@@ -78,7 +69,22 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 			}
 			result = append(result, *normalizeResponse)
 		}
-	}
 
-	return result, nil
+		if !stopLoop {
+			var stopLoopVal bool
+			syncChan.Receive(normalizeFlowCtx, &stopLoopVal)
+			stopLoop = stopLoop || stopLoopVal
+			needSync = !stopLoopVal
+			for syncChan.ReceiveAsync(&stopLoopVal) {
+				stopLoop = stopLoop || stopLoopVal
+				needSync = needSync || !stopLoopVal
+			}
+		} else {
+			needSync = false
+		}
+
+		if stopLoop && !needSync {
+			return result, nil
+		}
+	}
 }
