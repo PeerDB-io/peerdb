@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// nolint:unparam
+//nolint:unparam
 func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) {
 	err := e2e.CreateTableForQRep(s.pool, s.pgSuffix, tableName)
 	require.NoError(s.t, err)

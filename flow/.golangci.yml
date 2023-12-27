@@ -9,13 +9,18 @@ linters:
     - exhaustivestruct
     - funlen
     - gocognit
+    - gocyclo
+    - godot
     - godox
     - golint # deprecated in favor of revive
     - gomnd
+    - interfacebloat
+    - nestif
     - nosnakecase
     - paralleltest
     - tagliatelle
     - testpackage
+    - varnamelen
     - wrapcheck
     - wsl
 linters-settings:
