@@ -1,11 +1,11 @@
 'use client';
 import { DropDialog } from '@/components/DropDialog';
+import MirrorLink from '@/components/MirrorLink';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { MirrorError } from './mirror-status';
 
@@ -18,6 +18,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
       }),
     [searchQuery, cdcFlows]
   );
+  const [isLoading, setIsLoading] = useState(false);
 
   return (
     <>
@@ -70,9 +71,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
           {mirrors.map((flow: any) => (
             <TableRow key={flow.id}>
               <TableCell>
-                <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
-                  <div className='cursor-pointer underline'>{flow.name}</div>
-                </Label>
+                <MirrorLink flowName={flow?.name} />
               </TableCell>
               <TableCell>
                 <PeerButton
@@ -167,9 +166,7 @@ export function QRepFlows({
           {mirrors.map((flow: any) => (
             <TableRow key={flow.id}>
               <TableCell>
-                <Label as={Link} href={`/mirrors/edit/${flow.name}`}>
-                  <div className='cursor-pointer underline'>{flow.name}</div>
-                </Label>
+                <MirrorLink flowName={flow?.name} />
               </TableCell>
               <TableCell>
                 <PeerButton

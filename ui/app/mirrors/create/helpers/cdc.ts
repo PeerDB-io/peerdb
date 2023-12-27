@@ -6,10 +6,11 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        doInitialCopy: (value as boolean) || false,
+        doInitialCopy: (value as boolean) || true,
       })),
     tips: 'Specify if you want initial load to happen for your tables.',
     type: 'switch',
+    default: true,
   },
   {
     label: 'Pull Batch Size',

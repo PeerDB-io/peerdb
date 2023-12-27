@@ -15,7 +15,7 @@ export interface MirrorSetting {
   required?: boolean;
   tips?: string;
   helpfulLink?: string;
-  default?: string | number;
+  default?: string | number | boolean;
   advanced?: boolean; // whether it should come under an 'Advanced' section
 }
 
@@ -29,7 +29,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   tableNameSchemaMapping: {},
   metadataPeer: undefined,
   maxBatchSize: 100000,
-  doInitialCopy: false,
+  doInitialCopy: true,
   publicationName: '',
   snapshotNumRowsPerPartition: 500000,
   snapshotMaxParallelWorkers: 1,

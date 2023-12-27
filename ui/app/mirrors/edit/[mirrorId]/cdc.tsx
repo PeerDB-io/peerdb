@@ -1,5 +1,4 @@
 'use client';
-
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import TimeLabel from '@/components/TimeComponent';
 import {
@@ -275,7 +274,13 @@ export function CDCMirror({
   createdAt,
   syncStatusChild,
 }: CDCMirrorStatusProps) {
-  const [selectedTab, setSelectedTab] = useState('');
+  const [selectedTab, setSelectedTab] = useState(-1);
+  const LocalStorageTabKey = 'cdctab';
+
+  const handleTab = (index: number) => {
+    localStorage.setItem(LocalStorageTabKey, index.toString());
+    setSelectedTab(index);
+  };
 
   let snapshot = <></>;
   if (cdc.snapshotStatus) {
@@ -284,12 +289,18 @@ export function CDCMirror({
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      setSelectedTab(localStorage?.getItem('mirrortab') || 'tab1');
+      setSelectedTab(
+        parseInt(localStorage?.getItem(LocalStorageTabKey) || '0')
+      );
     }
   }, []);
 
   return (
-    <TabGroup style={{ marginTop: '1rem' }}>
+    <TabGroup
+      index={selectedTab}
+      onIndexChange={handleTab}
+      style={{ marginTop: '1rem' }}
+    >
       <TabList
         color='neutral'
         style={{ display: 'flex', justifyContent: 'space-around' }}
