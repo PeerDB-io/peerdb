@@ -43,7 +43,9 @@ func ReadFileToBytes(path string) ([]byte, error) {
 	return ret, nil
 }
 
-func RegisterWorkflowsAndActivities(env *testsuite.TestWorkflowEnvironment, t *testing.T) {
+func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+
 	conn, err := utils.GetCatalogConnectionPoolFromEnv()
 	if err != nil {
 		t.Fatalf("unable to create catalog connection pool: %v", err)

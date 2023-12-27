@@ -33,6 +33,8 @@ func setupSchemaDeltaSuite(
 	t *testing.T,
 	g got.G,
 ) SnowflakeSchemaDeltaTestSuite {
+	t.Helper()
+
 	sfTestHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
 		slog.Error("Error in test", slog.Any("error", err))
@@ -221,8 +223,9 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 
 func TestSnowflakeSchemaDeltaTestSuite(t *testing.T) {
 	got.Each(t, func(t *testing.T) SnowflakeSchemaDeltaTestSuite {
-		g := got.New(t)
+		t.Helper()
 
+		g := got.New(t)
 		g.Parallel()
 
 		suite := setupSchemaDeltaSuite(t, g)

@@ -381,7 +381,6 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		if v, ok := val.(*sql.NullString); ok {
 			if v.Valid {
 				numeric := new(big.Rat)
-				//nolint:gosec
 				if _, ok := numeric.SetString(v.String); !ok {
 					return qvalue.QValue{}, fmt.Errorf("failed to parse numeric: %v", v.String)
 				}

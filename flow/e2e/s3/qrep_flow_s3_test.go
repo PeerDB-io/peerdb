@@ -91,7 +91,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.T())
+	e2e.RegisterWorkflowsAndActivities(s.T(), env)
 
 	jobName := "test_complete_flow_s3"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s3Suffix, jobName)
@@ -140,7 +140,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	}
 
 	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(env, s.T())
+	e2e.RegisterWorkflowsAndActivities(s.T(), env)
 
 	jobName := "test_complete_flow_s3_ctid"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s3Suffix, jobName)

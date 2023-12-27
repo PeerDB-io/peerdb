@@ -211,7 +211,9 @@ func TestGetQRepPartitions(t *testing.T) {
 }
 
 // returns the number of rows inserted
-func prepareTestData(test *testing.T, pool *pgxpool.Pool, schema string) int {
+func prepareTestData(t *testing.T, pool *pgxpool.Pool, schema string) int {
+	t.Helper()
+
 	// Define the start and end times
 	startTime := time.Date(2010, time.January, 1, 10, 0, 0, 0, time.UTC)
 	endTime := time.Date(2010, time.January, 30, 10, 0, 0, 0, time.UTC)
@@ -223,12 +225,12 @@ func prepareTestData(test *testing.T, pool *pgxpool.Pool, schema string) int {
 	}
 
 	// Insert the test data
-	for i, t := range times {
+	for i, time := range times {
 		_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s.test (value, "from") VALUES ($1, $2)
-		`, schema), i+1, t)
+		`, schema), i+1, time)
 		if err != nil {
-			test.Fatalf("Failed to insert test data: %v", err)
+			t.Fatalf("Failed to insert test data: %v", err)
 		}
 	}
 
