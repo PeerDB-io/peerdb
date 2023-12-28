@@ -36,7 +36,7 @@ type CheckConnectionResult struct {
 }
 
 type SlotSnapshotSignal struct {
-	signal       *connpostgres.SlotSignal
+	signal       connpostgres.SlotSignal
 	snapshotName string
 	connector    connectors.CDCPullConnector
 }
