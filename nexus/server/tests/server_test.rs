@@ -4,6 +4,7 @@ use std::{
     io::{prelude::*, BufReader, Write},
     path::Path,
     process::Command,
+    sync::atomic::{AtomicU16, Ordering},
     thread,
     time::Duration,
 };
@@ -38,13 +39,20 @@ fn read_queries(filename: impl AsRef<Path>) -> Vec<String> {
 
 struct PeerDBServer {
     server: std::process::Child,
+    port: u16,
 }
 
 impl PeerDBServer {
     fn new() -> Self {
+        static PORT_OFFSET_COUNTER: AtomicU16 = AtomicU16::new(0);
+
+        let port_offset = PORT_OFFSET_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let server_port = 9900 + port_offset;
+        let server_port_str = server_port.to_string();
+        let console_bind = format!("127.0.0.1:{}", 6669 + port_offset);
         let mut server_start = Command::new("cargo");
-        server_start.envs(std::env::vars());
-        server_start.args(["run"]);
+        server_start.envs(std::env::vars().into_iter().chain([("TOKIO_CONSOLE_BIND".into(), console_bind)].iter().cloned()));
+        server_start.args(["run", "--", "--port", &server_port_str]);
         tracing::info!("Starting server...");
 
         let f = File::create("server.log").expect("unable to open server.log");
@@ -55,12 +63,12 @@ impl PeerDBServer {
 
         thread::sleep(Duration::from_millis(5000));
         tracing::info!("peerdb-server Server started");
-        Self { server: child }
+        Self { server: child, port: server_port }
     }
 
     fn connect_dying(&self) -> Client {
-        let connection_string = "host=localhost port=9900 password=peerdb user=peerdb";
-        let mut client_result = Client::connect(connection_string, NoTls);
+        let connection_string = format!("host=localhost port={} password=peerdb user=peerdb", self.port);
+        let mut client_result = Client::connect(&connection_string, NoTls);
 
         let mut client_established = false;
         let max_attempts = 10;
@@ -73,7 +81,7 @@ impl PeerDBServer {
                 Err(_) => {
                     attempts += 1;
                     thread::sleep(Duration::from_millis(2000 * attempts));
-                    client_result = Client::connect(connection_string, NoTls);
+                    client_result = Client::connect(&connection_string, NoTls);
                 }
             }
         }

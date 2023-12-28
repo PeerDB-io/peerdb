@@ -64,7 +64,7 @@ jobs:
         working-directory: ./nexus
 
       - name: cargo test
-        run: cargo test -- --test-threads=1
+        run: cargo test
         working-directory: ./nexus
         env:
           RUST_BACKTRACE: 1
