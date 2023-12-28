@@ -41,13 +41,13 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 			s.FailNow()
 		}
 
-		if s.sfHelper != nil {
-			err = s.sfHelper.Cleanup()
-			if err != nil {
-				slog.Error("failed to tear down Snowflake", slog.Any("error", err))
-				s.FailNow()
-			}
-		}
+		// if s.sfHelper != nil {
+		// 	err = s.sfHelper.Cleanup()
+		// 	if err != nil {
+		// 		slog.Error("failed to tear down Snowflake", slog.Any("error", err))
+		// 		s.FailNow()
+		// 	}
+		// }
 
 		err = s.connector.Close()
 		if err != nil {
@@ -1615,13 +1615,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("testMixedCase")
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_mixed_case")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "testMixedCase")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS e2e_test_%s."%s" (
 			"pulseArmor" SERIAL PRIMARY KEY,
 			"highGold" TEXT NOT NULL,
-			"eVe" TEXT NOT NULL
+			"eVe" TEXT NOT NULL,
+			id SERIAL
 		);
 	`, s.pgSuffix, "testMixedCase"))
 	require.NoError(s.t, err)
@@ -1666,21 +1667,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	count, err := s.sfHelper.CountRows("test_mixed_case")
-	require.NoError(s.t, err)
-	s.Equal(20, count)
-
-	// check the number of rows where _PEERDB_SYNCED_AT is newer than 5 mins ago
-	// it should match the count.
-	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM %s WHERE _PEERDB_SYNCED_AT > CURRENT_TIMESTAMP() - INTERVAL '30 MINUTE'
-	`, dstTableName)
-	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
-	require.NoError(s.t, err)
-	s.Equal(20, numNewRows)
-
-	// TODO: verify that the data is correctly synced to the destination table
-	// on the Snowflake side
+	s.compareTableContentsWithDiffSelectorsSF("testMixedCase", `"pulseArmor","highGold","eVe",id`,
+		`"pulseArmor","highGold","eVe",id`, true)
 
 	env.AssertExpectations(s.t)
 }

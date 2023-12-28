@@ -20,20 +20,29 @@ func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) 
 }
 
 func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName, selector string) {
-	s.compareTableContentsWithDiffSelectorsSF(tableName, selector, selector)
+	s.compareTableContentsWithDiffSelectorsSF(tableName, selector, selector, false)
 }
 
-func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableName, pgSelector, sfSelector string) {
+func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableName, pgSelector, sfSelector string,
+	tableCaseSensitive bool,
+) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", pgSelector, s.pgSuffix, tableName),
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, pgSelector, s.pgSuffix, tableName),
 	)
 	require.NoError(s.t, err)
 
 	// read rows from destination table
-	qualifiedTableName := fmt.Sprintf("%s.%s.%s", s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
+
+	var qualifiedTableName string
+	if tableCaseSensitive {
+		qualifiedTableName = fmt.Sprintf(`%s.%s."%s"`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
+	} else {
+		qualifiedTableName = fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
+	}
+
 	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
 
@@ -79,7 +88,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorStringsSF()
-	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
 
 	env.AssertExpectations(s.t)
 }
@@ -124,7 +133,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorStringsSF()
-	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
 
 	env.AssertExpectations(s.t)
 }
@@ -166,7 +175,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorStringsSF()
-	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
 
 	env.AssertExpectations(s.t)
 }
@@ -212,7 +221,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorStringsSF()
-	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
 
 	env.AssertExpectations(s.t)
 }
@@ -258,7 +267,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	require.NoError(s.t, err)
 
 	sel := e2e.GetOwnersSelectorStringsSF()
-	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
+	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
 
 	env.AssertExpectations(s.t)
 }
