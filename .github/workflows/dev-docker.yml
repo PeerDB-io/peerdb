@@ -10,6 +10,7 @@ jobs:
   docker-build:
     strategy:
       matrix:
+        # ubuntu-latest leverages larger GH runner pool & completes in ~30s instead of ~3m
         runner: [ubuntu-latest]
     runs-on: ${{ matrix.runner }}
     permissions:
