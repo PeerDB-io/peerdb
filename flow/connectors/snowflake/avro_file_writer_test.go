@@ -145,7 +145,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(context.Background(),
@@ -173,7 +173,7 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(context.Background(),
@@ -201,7 +201,7 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(context.Background(),
@@ -228,7 +228,7 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(context.Background(),
@@ -256,7 +256,7 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	avroSchema, err := model.GetAvroSchemaDefinition("not_applicable", schema)
 	require.NoError(t, err)
 
-	fmt.Printf("[test] avroSchema: %v\n", avroSchema)
+	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(context.Background(),

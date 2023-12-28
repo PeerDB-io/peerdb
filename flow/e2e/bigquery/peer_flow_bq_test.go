@@ -306,7 +306,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 		`, srcTableName), testKey, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		s.t.Log("Inserted 10 rows into the source table")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -380,7 +380,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 			END;
 		`, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -442,7 +442,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 			END;
 		`, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 		done <- struct{}{}
 	}()
 
@@ -518,7 +518,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName,
 			srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -585,7 +585,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 			END;
 		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -652,7 +652,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 			END;
 		`, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -739,7 +739,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44",
 	})
 	if err != nil {
-		fmt.Println("error  %w", err)
+		s.t.Log(err)
 	}
 	// Make sure that there are no nulls
 	s.True(noNulls)
@@ -788,7 +788,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		INSERT INTO %s (c1,c2) VALUES (-1,'dummy_-1');
 		`, srcTable1Name, srcTable2Name))
 		require.NoError(s.t, err)
-		fmt.Println("Executed an insert on two tables")
+		s.t.Log("Executed an insert on two tables")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -848,7 +848,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
 		require.NoError(s.t, err)
-		fmt.Println("Inserted initial row in the source table")
+		s.t.Log("Inserted initial row in the source table")
 
 		// verify we got our first row.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
@@ -858,11 +858,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Altered source table, added column c2")
+		s.t.Log("Altered source table, added column c2")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c2) VALUES ($1,$2)`, srcTableName), 2, 2)
 		require.NoError(s.t, err)
-		fmt.Println("Inserted row with added c2 in the source table")
+		s.t.Log("Inserted row with added c2 in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
@@ -872,11 +872,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Altered source table, dropped column c2 and added column c3")
+		s.t.Log("Altered source table, dropped column c2 and added column c3")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c3) VALUES ($1,$2)`, srcTableName), 3, 3)
 		require.NoError(s.t, err)
-		fmt.Println("Inserted row with added c3 in the source table")
+		s.t.Log("Inserted row with added c3 in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
@@ -886,11 +886,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c3`, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Altered source table, dropped column c3")
+		s.t.Log("Altered source table, dropped column c3")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 4)
 		require.NoError(s.t, err)
-		fmt.Println("Inserted row after dropping all columns in the source table")
+		s.t.Log("Inserted row after dropping all columns in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
@@ -955,7 +955,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 		`, srcTableName), i, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		s.t.Log("Inserted 10 rows into the source table")
 
 		// verify we got our 10 rows
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
@@ -1032,7 +1032,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 		`, srcTableName), i, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		s.t.Log("Inserted 10 rows into the source table")
 
 		_, err = rowsTx.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
@@ -1107,7 +1107,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 		`, srcTableName), i, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		s.t.Log("Inserted 10 rows into the source table")
 
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		_, err = s.pool.Exec(context.Background(),
@@ -1240,7 +1240,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 		INSERT INTO %s (c1,c2) VALUES (-1,'dummy_-1');
 		`, srcTable1Name, srcTable2Name))
 		require.NoError(s.t, err)
-		fmt.Println("Executed an insert on two tables")
+		s.t.Log("Executed an insert on two tables")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)

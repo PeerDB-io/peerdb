@@ -81,9 +81,9 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	fmt.Println("JobName: ", flowJobName)
+	s.T().Logf("JobName: %s", flowJobName)
 	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	fmt.Println("Files in Test_Complete_Simple_Flow_S3: ", len(files))
+	s.T().Logf("Files in Test_Complete_Simple_Flow_S3: %d", len(files))
 	require.NoError(s.T(), err)
 
 	require.Equal(s.T(), 4, len(files))
@@ -138,7 +138,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 		`, srcTableName), testKey, testValue)
 			s.NoError(err)
 		}
-		fmt.Println("Inserted 20 rows into the source table")
+		s.T().Log("Inserted 20 rows into the source table")
 		s.NoError(err)
 	}()
 
@@ -154,9 +154,9 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	fmt.Println("JobName: ", flowJobName)
+	s.T().Logf("JobName: %s", flowJobName)
 	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	fmt.Println("Files in Test_Complete_Simple_Flow_GCS: ", len(files))
+	s.T().Logf("Files in Test_Complete_Simple_Flow_GCS: %d", len(files))
 	require.NoError(s.T(), err)
 
 	require.Equal(s.T(), 4, len(files))

@@ -43,13 +43,12 @@ func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableNam
 		qualifiedTableName = fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
 	}
 
-	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
-	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
-
+  sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
+	s.t.Logf("running query on snowflake: %s\n", sfSelQuery)
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
 	require.NoError(s.t, err)
 
-	require.True(s.t, pgRows.Equals(sfRows), "rows from source and destination tables are not equal")
+	e2e.RequireEqualRecordBatchs(s.t, pgRows, sfRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
