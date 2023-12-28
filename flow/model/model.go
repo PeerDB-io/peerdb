@@ -457,6 +457,11 @@ type SyncResponse struct {
 	RelationMessageMapping RelationMessageMapping
 }
 
+type NormalizeFlowResponse struct {
+	Results []NormalizeResponse
+	Errors  []string
+}
+
 type NormalizeResponse struct {
 	// Flag to depict if normalization is done
 	Done         bool

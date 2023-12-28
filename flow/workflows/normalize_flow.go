@@ -1,7 +1,6 @@
 package peerflow
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -31,7 +30,7 @@ func NewNormalizeFlowExecution(ctx workflow.Context, state *NormalizeFlowState) 
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-) ([]model.NormalizeResponse, error) {
+) model.NormalizeFlowResponse {
 	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
 		CDCFlowName: config.FlowJobName,
 		Progress:    []string{},
@@ -43,7 +42,7 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
-) ([]model.NormalizeResponse, error) {
+) model.NormalizeFlowResponse {
 	s.logger.Info("executing normalize flow - ", s.CDCFlowName)
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -51,7 +50,8 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 		HeartbeatTimeout:    5 * time.Minute,
 	})
 
-	result := make([]model.NormalizeResponse, 0)
+	results := make([]model.NormalizeResponse, 0, 4)
+	errors := make([]string, 0)
 	syncChan := workflow.GetSignalChannel(normalizeFlowCtx, "Sync")
 
 	stopLoop := false
@@ -65,9 +65,10 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 
 			var normalizeResponse model.NormalizeResponse
 			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
-				return result, fmt.Errorf("failed to flow: %w", err)
+				errors = append(errors, err.Error())
+			} else {
+				results = append(results, normalizeResponse)
 			}
-			result = append(result, normalizeResponse)
 		}
 
 		if !stopLoop {
@@ -90,5 +91,8 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 		}
 	}
 
-	return result, nil
+	return model.NormalizeFlowResponse{
+		Results: results,
+		Errors:  errors,
+	}
 }

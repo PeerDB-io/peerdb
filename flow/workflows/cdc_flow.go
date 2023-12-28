@@ -341,12 +341,13 @@ func CDCFlowWorkflowWithConfig(
 
 	finishNormalize := func() {
 		childNormalizeFlowFuture.SignalChildWorkflow(ctx, "Sync", true)
-		var childNormalizeFlowRes []model.NormalizeResponse
+		var childNormalizeFlowRes *model.NormalizeFlowResponse
 		if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
 			w.logger.Error("failed to execute normalize flow: ", err)
 			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
 		} else {
-			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes...)
+			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, childNormalizeFlowRes.Errors...)
+			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes.Results...)
 		}
 	}
 
