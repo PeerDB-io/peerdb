@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,8 +34,8 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 		t.Fatalf("unable to create catalog connection pool: %v", err)
 	}
 
-	// set a 300 second timeout for the workflow to execute a few runs.
-	env.SetTestTimeout(300 * time.Second)
+	env.SetTestTimeout(time.Minute)
+	env.SetWorkflowRunTimeout(4 * time.Minute)
 
 	env.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
@@ -315,6 +316,18 @@ func RunXminFlowWorkflow(env *testsuite.TestWorkflowEnvironment, config *protos.
 	state.LastPartition.PartitionId = uuid.New().String()
 	time.Sleep(5 * time.Second)
 	env.ExecuteWorkflow(peerflow.XminFlowWorkflow, config, state)
+}
+
+// Execute fn in parallel with ExecuteWorkflow, returns when both complete
+func GoWorkflow(fn func(), env *testsuite.TestWorkflowEnvironment, workflowFn interface{}, args ...interface{}) {
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		fn()
+		wg.Done()
+	}()
+	env.ExecuteWorkflow(workflowFn, args...)
+	wg.Wait()
 }
 
 func GetOwnersSchema() *model.QRecordSchema {

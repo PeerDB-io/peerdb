@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -140,9 +139,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert 20 rows into the source table
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 20 rows into the source table
 		for i := 0; i < 20; i++ {
@@ -154,9 +151,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 			require.NoError(s.t, err)
 		}
 		s.t.Log("Inserted 20 rows into the source table")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -218,9 +213,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert 20 rows into the source table
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 20 rows into the source table
 		for i := 0; i < 20; i++ {
@@ -232,9 +225,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 			require.NoError(s.t, err)
 		}
 		s.t.Log("Inserted 20 rows into the source table")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -281,9 +272,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert 10 rows into the source table
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 4 invalid shapes and 6 valid shapes into the source table
 		for i := 0; i < 4; i++ {
@@ -308,9 +297,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 			require.NoError(s.t, err)
 		}
 		s.t.Log("Inserted 6 valid geography rows and 10 total rows into source")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -367,9 +354,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/*
 			Executing a transaction which
@@ -387,9 +372,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 		`, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
 		s.t.Log("Executed a transaction touching toast columns")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -435,10 +418,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 		MaxBatchSize:     100,
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* transaction updating no rows */
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -452,11 +432,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 			slog.Error("Error executing transaction", slog.Any("error", err))
 			s.FailNow()
 		}
-
-		wg.Done()
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -467,8 +443,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 
 	s.compareTableContentsSF("test_toast_sf_2", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
-
-	wg.Wait()
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
@@ -503,9 +477,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -529,9 +501,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 			srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
 		s.t.Log("Executed a transaction touching toast columns")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -575,9 +545,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// complex transaction with random DMLs on a table with toast columns
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -595,9 +563,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
 		s.t.Log("Executed a transaction touching toast columns")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -642,9 +608,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/*
 			transaction updating a single row
@@ -661,9 +625,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		`, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
 		s.t.Log("Executed a transaction touching toast columns")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -709,9 +671,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* test inserting various types*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -729,9 +689,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		'POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))';
 		`, srcTableName))
 		require.NoError(s.t, err)
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -785,9 +743,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and execute a transaction touching toast columns
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		/* inserting across multiple tables*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -795,9 +751,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 		INSERT INTO %s (c1,c2) VALUES (-1,'dummy_-1');
 		`, srcTable1Name, srcTable2Name))
 		require.NoError(s.t, err)
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -844,9 +798,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert and mutate schema repeatedly.
-	go func() {
+	e2e.GoWorkflow(func() {
 		// insert first row.
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -960,9 +912,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		require.NoError(s.t, err)
 		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1007,9 +957,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert, update and delete rows in the table.
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
@@ -1030,9 +978,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		require.NoError(s.t, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		require.NoError(s.t, err)
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1081,9 +1027,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert, update and delete rows in the table.
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		rowsTx, err := s.pool.Begin(context.Background())
 		require.NoError(s.t, err)
@@ -1106,9 +1050,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 
 		err = rowsTx.Commit(context.Background())
 		require.NoError(s.t, err)
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1157,9 +1099,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert, update and delete rows in the table.
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
 		// insert 10 rows into the source table
@@ -1178,9 +1118,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		require.NoError(s.t, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		require.NoError(s.t, err)
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -1238,9 +1176,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert, update and delete rows in the table.
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
 		// insert 10 rows into the source table
@@ -1259,9 +1195,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		require.NoError(s.t, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		require.NoError(s.t, err)
-	}()
+	}, env, peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
@@ -1321,12 +1256,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 		MaxBatchSize:     100,
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert, update and delete rows in the table.
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1344,16 +1274,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		require.NoError(s.t, err)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 
-		wg.Done()
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
-
-	wg.Wait()
 
 	// verify our updates and delete happened
 	s.compareTableContentsSF("test_softdel", "id,c1,c2,t")
@@ -1408,9 +1333,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert, update and delete rows in the table.
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
 		insertTx, err := s.pool.Begin(context.Background())
@@ -1431,9 +1354,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		require.NoError(s.t, err)
 
 		require.NoError(s.t, insertTx.Commit(context.Background()))
-	}()
+	}, env, peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
@@ -1491,9 +1413,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert, update and delete rows in the table.
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1518,9 +1438,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		require.NoError(s.t, err)
 
 		require.NoError(s.t, insertTx.Commit(context.Background()))
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
@@ -1577,9 +1495,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert and delete rows in the table.
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1593,9 +1509,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
 		require.NoError(s.t, err)
-	}()
+	}, env, peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
@@ -1642,9 +1557,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 		MaxBatchSize:     100,
 	}
 
-	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
-	// and then insert 20 rows into the source table
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 20 rows into the source table
 		for i := 0; i < 20; i++ {
@@ -1655,10 +1568,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 		`, s.pgSuffix, "testMixedCase"), testKey, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 20 rows into the source table")
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+		s.t.Log("Inserted 20 rows into the source table")
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())

@@ -54,7 +54,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		MaxBatchSize:     5,
 	}
 
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		s.NoError(err)
 		// insert 20 rows
@@ -67,9 +67,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 			s.NoError(err)
 		}
 		s.NoError(err)
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
@@ -126,7 +124,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 		MaxBatchSize:     5,
 	}
 
-	go func() {
+	e2e.GoWorkflow(func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		s.NoError(err)
 		// insert 20 rows
@@ -140,9 +138,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 		}
 		s.T().Log("Inserted 20 rows into the source table")
 		s.NoError(err)
-	}()
-
-	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	}, env, peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
 	s.True(env.IsWorkflowCompleted())
