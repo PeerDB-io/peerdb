@@ -167,9 +167,8 @@ func (a *FlowableActivity) GetTableSchema(
 func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
-	flowName string,
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	conn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -178,7 +177,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	setupNormalizedTablesOutput, err := conn.SetupNormalizedTables(config)
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
+		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return nil, fmt.Errorf("failed to setup normalized tables: %w", err)
 	}
 

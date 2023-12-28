@@ -342,6 +342,7 @@ export interface SetupNormalizedTableBatchInput {
   /** migration related columns */
   softDeleteColName: string;
   syncedAtColName: string;
+  flowName: string;
 }
 
 export interface SetupNormalizedTableBatchInput_TableNameSchemaMappingEntry {
@@ -4485,7 +4486,13 @@ export const SetupNormalizedTableInput = {
 };
 
 function createBaseSetupNormalizedTableBatchInput(): SetupNormalizedTableBatchInput {
-  return { peerConnectionConfig: undefined, tableNameSchemaMapping: {}, softDeleteColName: "", syncedAtColName: "" };
+  return {
+    peerConnectionConfig: undefined,
+    tableNameSchemaMapping: {},
+    softDeleteColName: "",
+    syncedAtColName: "",
+    flowName: "",
+  };
 }
 
 export const SetupNormalizedTableBatchInput = {
@@ -4504,6 +4511,9 @@ export const SetupNormalizedTableBatchInput = {
     }
     if (message.syncedAtColName !== "") {
       writer.uint32(42).string(message.syncedAtColName);
+    }
+    if (message.flowName !== "") {
+      writer.uint32(50).string(message.flowName);
     }
     return writer;
   },
@@ -4546,6 +4556,13 @@ export const SetupNormalizedTableBatchInput = {
 
           message.syncedAtColName = reader.string();
           continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.flowName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4566,6 +4583,7 @@ export const SetupNormalizedTableBatchInput = {
         : {},
       softDeleteColName: isSet(object.softDeleteColName) ? String(object.softDeleteColName) : "",
       syncedAtColName: isSet(object.syncedAtColName) ? String(object.syncedAtColName) : "",
+      flowName: isSet(object.flowName) ? String(object.flowName) : "",
     };
   },
 
@@ -4588,6 +4606,9 @@ export const SetupNormalizedTableBatchInput = {
     }
     if (message.syncedAtColName !== "") {
       obj.syncedAtColName = message.syncedAtColName;
+    }
+    if (message.flowName !== "") {
+      obj.flowName = message.flowName;
     }
     return obj;
   },
@@ -4612,6 +4633,7 @@ export const SetupNormalizedTableBatchInput = {
     }, {});
     message.softDeleteColName = object.softDeleteColName ?? "";
     message.syncedAtColName = object.syncedAtColName ?? "";
+    message.flowName = object.flowName ?? "";
     return message;
   },
 };

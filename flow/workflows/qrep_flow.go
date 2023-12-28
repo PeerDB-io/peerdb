@@ -127,9 +127,10 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 				q.config.DestinationTableIdentifier: tblSchemaOutput.TableNameSchemaMapping[q.config.WatermarkTable],
 			},
 			SyncedAtColName: q.config.SyncedAtColName,
+			FlowName:        q.config.FlowJobName,
 		}
 
-		future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig, q.config.FlowJobName)
+		future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
 		var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
 		if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
 			q.logger.Error("failed to create watermark table: ", err)

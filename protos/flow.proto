@@ -223,6 +223,7 @@ message SetupNormalizedTableBatchInput {
   // migration related columns
   string soft_delete_col_name = 4;
   string synced_at_col_name = 5;
+  string flow_name = 6;
 }
 
 message SetupNormalizedTableOutput {

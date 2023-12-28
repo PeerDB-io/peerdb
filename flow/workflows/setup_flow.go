@@ -234,9 +234,10 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		TableNameSchemaMapping: normalizedTableMapping,
 		SoftDeleteColName:      flowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
+		FlowName:               flowConnectionConfigs.FlowJobName,
 	}
 
-	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig, flowConnectionConfigs.FlowJobName)
+	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
 	var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
 	if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
 		s.logger.Error("failed to create normalized tables: ", err)

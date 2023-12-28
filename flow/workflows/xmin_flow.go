@@ -80,9 +80,10 @@ func (q *XminFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 			TableNameSchemaMapping: map[string]*protos.TableSchema{
 				q.config.DestinationTableIdentifier: tblSchemaOutput.TableNameSchemaMapping[q.config.WatermarkTable],
 			},
+			FlowName: q.config.FlowJobName,
 		}
 
-		future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig, q.config.FlowJobName)
+		future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
 		var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
 		if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
 			q.logger.Error("failed to create watermark table: ", err)
