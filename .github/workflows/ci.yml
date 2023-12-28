@@ -10,7 +10,7 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [ubicloud-standard-8-ubuntu-2204-arm]
+        runner: [ubicloud-standard-2-ubuntu-2204-arm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -54,6 +54,10 @@ jobs:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
           dir: "nexus/server/tests/assets/"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: nexus
 
       - name: cargo check
         run: cargo check
