@@ -842,6 +842,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		MaxBatchSize:     100,
 	}
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
 	go func() {
@@ -987,6 +990,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		require.NoError(s.t, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
+
+		wg.Done()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -998,6 +1003,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
+	wg.Wait()
 	env.AssertExpectations(s.t)
 }
 

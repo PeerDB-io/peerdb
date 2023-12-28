@@ -923,6 +923,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		MaxBatchSize:     100,
 	}
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
 	go func() {
@@ -978,6 +981,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
 		s.compareTableContentsBQ("test_simple_schema_changes", "id,c1")
+
+		wg.Done()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -989,6 +994,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
+	wg.Wait()
 	env.AssertExpectations(s.t)
 }
 
