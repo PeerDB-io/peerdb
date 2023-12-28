@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
@@ -360,14 +361,15 @@ func GetOwnersSchema() *model.QRecordSchema {
 	}
 }
 
-func GetOwnersSelectorString() string {
+func GetOwnersSelectorStringsSF() [2]string {
 	schema := GetOwnersSchema()
-	fields := make([]string, 0, len(schema.Fields))
+	pgFields := make([]string, 0, len(schema.Fields))
+	sfFields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
-		// append quoted field name
-		fields = append(fields, fmt.Sprintf(`"%s"`, field.Name))
+		pgFields = append(pgFields, fmt.Sprintf(`"%s"`, field.Name))
+		sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
 	}
-	return strings.Join(fields, ",")
+	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
 }
 
 func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {

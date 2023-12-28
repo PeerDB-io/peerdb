@@ -77,12 +77,17 @@ func (c *SnowflakeConnector) createMetadataInsertStatement(
 }
 
 func (c *SnowflakeConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
+	schematable, err := utils.ParseSchemaTable(tableName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse table '%s'", tableName)
+	}
+
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
 	SELECT *
 	FROM %s
 	LIMIT 0
-	`, tableName)
+	`, snowflakeSchemaTableNormalize(schematable))
 
 	rows, err := c.database.QueryContext(c.ctx, queryString)
 	if err != nil {
@@ -296,10 +301,10 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnIn
 	}
 	defer rows.Close()
 
+	var colName pgtype.Text
+	var colType pgtype.Text
 	columnMap := map[string]string{}
 	for rows.Next() {
-		var colName pgtype.Text
-		var colType pgtype.Text
 		if err := rows.Scan(&colName, &colType); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
