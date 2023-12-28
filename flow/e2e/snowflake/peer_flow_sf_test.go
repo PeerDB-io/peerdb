@@ -41,13 +41,13 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 			s.FailNow()
 		}
 
-		// if s.sfHelper != nil {
-		// 	err = s.sfHelper.Cleanup()
-		// 	if err != nil {
-		// 		slog.Error("failed to tear down Snowflake", slog.Any("error", err))
-		// 		s.FailNow()
-		// 	}
-		// }
+		if s.sfHelper != nil {
+			err = s.sfHelper.Cleanup()
+			if err != nil {
+				slog.Error("failed to tear down Snowflake", slog.Any("error", err))
+				s.FailNow()
+			}
+		}
 
 		err = s.connector.Close()
 		if err != nil {
