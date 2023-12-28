@@ -138,6 +138,7 @@ func (a *FlowableActivity) CreateRawTable(
 
 	res, err := dstConn.CreateRawTable(config)
 	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, err
 	}
 	err = monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName)
@@ -918,6 +919,7 @@ func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *pr
 		}
 		return bqConn.CreateTablesFromExisting(req)
 	}
+	a.Alerter.LogFlowError(ctx, req.FlowJobName, err)
 	return nil, fmt.Errorf("create tables from existing is only supported on snowflake and bigquery")
 }
 
