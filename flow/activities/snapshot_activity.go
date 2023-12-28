@@ -8,6 +8,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
@@ -34,6 +35,7 @@ func (a *SnapshotActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
 ) (*protos.SetupReplicationOutput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dbType := config.PeerConnectionConfig.Type
 	if dbType != protos.DBType_POSTGRES {
 		slog.InfoContext(ctx, fmt.Sprintf("setup replication is no-op for %s", dbType))

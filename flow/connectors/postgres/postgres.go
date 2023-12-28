@@ -557,6 +557,7 @@ func (c *PostgresConnector) GetTableSchema(
 		}
 		res[tableName] = tableSchema
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		c.logger.Info(fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
 	return &protos.GetTableSchemaBatchOutput{

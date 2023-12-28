@@ -63,7 +63,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	})
 
 	// first check the source peer connection
-	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Source)
+	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Source, config.FlowJobName)
 	var srcConnStatus activities.CheckConnectionResult
 	if err := srcConnStatusFuture.Get(ctx, &srcConnStatus); err != nil {
 		return fmt.Errorf("failed to check source peer connection: %w", err)
@@ -80,7 +80,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	// then setup the destination peer metadata tables
 	if destConnStatus.NeedsSetupMetadataTables {
-		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Destination)
+		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Destination, config.FlowJobName)
 		if err := fDst.Get(ctx, nil); err != nil {
 			return fmt.Errorf("failed to setup destination peer metadata tables: %w", err)
 		}
@@ -181,7 +181,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		TableIdentifiers:     sourceTables,
 	}
 
-	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
+	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput, s.CDCFlowName)
 
 	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
 	if err := future.Get(ctx, &tblSchemaOutput); err != nil {
@@ -227,7 +227,7 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		SyncedAtColName:        flowConnectionConfigs.SyncedAtColName,
 	}
 
-	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig)
+	future = workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig, flowConnectionConfigs.FlowJobName)
 	var createNormalizedTablesOutput *protos.SetupNormalizedTableBatchOutput
 	if err := future.Get(ctx, &createNormalizedTablesOutput); err != nil {
 		s.logger.Error("failed to create normalized tables: ", err)

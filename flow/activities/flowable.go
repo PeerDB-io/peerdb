@@ -50,7 +50,9 @@ type FlowableActivity struct {
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
 	config *protos.Peer,
+	flowName string,
 ) (*CheckConnectionResult, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -65,14 +67,14 @@ func (a *FlowableActivity) CheckConnection(
 }
 
 // SetupMetadataTables implements SetupMetadataTables.
-func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.Peer) error {
+func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.Peer, flowName string) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	if err := dstConn.SetupMetadataTables(); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
@@ -86,6 +88,7 @@ func (a *FlowableActivity) GetLastSyncedID(
 	ctx context.Context,
 	config *protos.GetLastSyncedIDInput,
 ) (*protos.LastSyncState, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -105,6 +108,7 @@ func (a *FlowableActivity) EnsurePullability(
 	ctx context.Context,
 	config *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -125,6 +129,7 @@ func (a *FlowableActivity) CreateRawTable(
 	ctx context.Context,
 	config *protos.CreateRawTableInput,
 ) (*protos.CreateRawTableOutput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -147,7 +152,9 @@ func (a *FlowableActivity) CreateRawTable(
 func (a *FlowableActivity) GetTableSchema(
 	ctx context.Context,
 	config *protos.GetTableSchemaBatchInput,
+	flowName string,
 ) (*protos.GetTableSchemaBatchOutput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -161,7 +168,9 @@ func (a *FlowableActivity) GetTableSchema(
 func (a *FlowableActivity) CreateNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
+	flowName string,
 ) (*protos.SetupNormalizedTableBatchOutput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	conn, err := connectors.GetCDCSyncConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -170,7 +179,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	setupNormalizedTablesOutput, err := conn.SetupNormalizedTables(config)
 	if err != nil {
-		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, fmt.Errorf("failed to setup normalized tables: %w", err)
 	}
@@ -181,7 +189,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 func (a *FlowableActivity) StartFlow(ctx context.Context,
 	input *protos.StartFlowInput,
 ) (*model.SyncResponse, error) {
-	slog.InfoContext(ctx, "starting flow...")
+	ctx = context.WithValue(ctx, shared.FlowNameKey, input.FlowConnectionConfigs.FlowJobName)
 	activity.RecordHeartbeat(ctx, "starting flow...")
 	conn := input.FlowConnectionConfigs
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
@@ -364,7 +372,7 @@ func (a *FlowableActivity) StartNormalize(
 	input *protos.StartNormalizeInput,
 ) (*model.NormalizeResponse, error) {
 	conn := input.FlowConnectionConfigs
-
+	ctx = context.WithValue(ctx, shared.FlowNameKey, conn.FlowJobName)
 	dstConn, err := connectors.GetCDCNormalizeConnector(ctx, conn.Destination)
 	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
 		dstConn, err := connectors.GetCDCSyncConnector(ctx, conn.Destination)
@@ -476,6 +484,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	last *protos.QRepPartition,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
@@ -519,6 +528,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	if err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
@@ -549,6 +559,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now())
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -702,6 +713,7 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 }
 
 func (a *FlowableActivity) DropFlow(ctx context.Context, config *protos.ShutdownRequest) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, err := connectors.GetCDCPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return fmt.Errorf("failed to get source connector: %w", err)
@@ -759,7 +771,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	if !peerdbenv.PeerDBEnableWALHeartbeat() {
-		slog.InfoContext(ctx, "wal heartbeat is disabled")
+		slog.Info("wal heartbeat is disabled")
 		return nil
 	}
 
@@ -770,7 +782,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.InfoContext(ctx, "context is done, exiting wal heartbeat send loop")
+			slog.Info("context is done, exiting wal heartbeat send loop")
 			return nil
 		case <-ticker.C:
 			pgPeers, err := a.getPostgresPeerConfigs(ctx)
@@ -817,6 +829,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
 ) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
 		return nil
 	}
@@ -856,6 +869,7 @@ func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (
 	*protos.RenameTablesOutput, error,
 ) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -884,6 +898,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 func (a *FlowableActivity) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
 	*protos.CreateTablesFromExistingOutput, error,
 ) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, err := connectors.GetCDCSyncConnector(ctx, req.Peer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
@@ -912,6 +927,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) (int64, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	startTime := time.Now()
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {

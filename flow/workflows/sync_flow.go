@@ -2,12 +2,10 @@ package peerflow
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 )
@@ -69,8 +67,6 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		HeartbeatTimeout:    30 * time.Second,
 	})
 
-	startFlowCtx = workflow.WithValue(startFlowCtx, shared.FlowNameKey, s.CDCFlowName)
-
 	// execute StartFlow on the peers to start the flow
 	startFlowInput := &protos.StartFlowInput{
 		FlowConnectionConfigs:  config,
@@ -113,7 +109,5 @@ func SyncFlowWorkflow(ctx workflow.Context,
 		CDCFlowName: config.FlowJobName,
 		Progress:    []string{},
 	})
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-	slog.Info("Context obtained flow name in syncflowworkflow: " + flowName)
 	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
 }
