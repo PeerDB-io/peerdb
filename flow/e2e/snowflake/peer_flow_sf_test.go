@@ -35,21 +35,21 @@ type PeerFlowE2ETestSuiteSF struct {
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 	e2eshared.GotSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSF) {
-		// err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
-		// if err != nil {
-		// 	slog.Error("failed to tear down Postgres", slog.Any("error", err))
-		// 	s.FailNow()
-		// }
+		err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
+		if err != nil {
+			slog.Error("failed to tear down Postgres", slog.Any("error", err))
+			s.FailNow()
+		}
 
 		if s.sfHelper != nil {
-			err := s.sfHelper.Cleanup()
+			err = s.sfHelper.Cleanup()
 			if err != nil {
 				slog.Error("failed to tear down Snowflake", slog.Any("error", err))
 				s.FailNow()
 			}
 		}
 
-		err := s.connector.Close()
+		err = s.connector.Close()
 		if err != nil {
 			slog.Error("failed to close Snowflake connector", slog.Any("error", err))
 			s.FailNow()
