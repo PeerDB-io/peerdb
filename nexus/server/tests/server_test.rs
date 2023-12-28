@@ -51,7 +51,13 @@ impl PeerDBServer {
         let server_port_str = server_port.to_string();
         let console_bind = format!("127.0.0.1:{}", 6669 + port_offset);
         let mut server_start = Command::new("cargo");
-        server_start.envs(std::env::vars().into_iter().chain([("TOKIO_CONSOLE_BIND".into(), console_bind)].iter().cloned()));
+        server_start.envs(
+            std::env::vars().into_iter().chain(
+                [("TOKIO_CONSOLE_BIND".into(), console_bind)]
+                    .iter()
+                    .cloned(),
+            ),
+        );
         server_start.args(["run", "--", "--port", &server_port_str]);
         tracing::info!("Starting server...");
 
@@ -63,11 +69,17 @@ impl PeerDBServer {
 
         thread::sleep(Duration::from_millis(5000));
         tracing::info!("peerdb-server Server started");
-        Self { server: child, port: server_port }
+        Self {
+            server: child,
+            port: server_port,
+        }
     }
 
     fn connect_dying(&self) -> Client {
-        let connection_string = format!("host=localhost port={} password=peerdb user=peerdb", self.port);
+        let connection_string = format!(
+            "host=localhost port={} password=peerdb user=peerdb",
+            self.port
+        );
         let mut client_result = Client::connect(&connection_string, NoTls);
 
         let mut client_established = false;
