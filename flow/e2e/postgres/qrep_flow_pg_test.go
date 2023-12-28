@@ -107,12 +107,14 @@ func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQu
 func (s *PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	query := fmt.Sprintf("SELECT %s FROM %s EXCEPT SELECT %s FROM %s", selector, srcSchemaQualified,
 		selector, dstSchemaQualified)
-	rows, _ := s.pool.Query(context.Background(), query)
-	rowsPresent := false
-
+	rows, err := s.pool.Query(context.Background(), query)
+	if err != nil {
+		return err
+	}
 	defer rows.Close()
+
+	errors := make([]string, 0)
 	for rows.Next() {
-		rowsPresent = true
 		values, err := rows.Values()
 		if err != nil {
 			return err
@@ -120,17 +122,18 @@ func (s *PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQuali
 
 		columns := rows.FieldDescriptions()
 
+		errmsg := make([]string, 0, len(values))
 		for i, value := range values {
-			fmt.Printf("%s: %v\n", columns[i].Name, value)
+			errmsg = append(errmsg, fmt.Sprintf("%s: %v", columns[i].Name, value))
 		}
-		fmt.Println("---")
+		errors = append(errors, strings.Join(errmsg, "\n"))
 	}
 
 	if rows.Err() != nil {
 		return rows.Err()
 	}
-	if rowsPresent {
-		return fmt.Errorf("comparison failed: rows are not equal")
+	if len(errors) > 0 {
+		return fmt.Errorf("comparison failed: rows are not equal\n%s", strings.Join(errors, "\n---\n"))
 	}
 	return nil
 }

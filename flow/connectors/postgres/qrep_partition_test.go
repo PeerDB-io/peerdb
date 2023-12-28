@@ -104,9 +104,6 @@ func TestGetQRepPartitions(t *testing.T) {
 	// from 2010 Jan 1 10:00 AM UTC to 2010 Jan 30 10:00 AM UTC
 	numRows := prepareTestData(t, pool.Pool, schemaName)
 
-	secondsInADay := uint32(24 * time.Hour / time.Second)
-	fmt.Printf("secondsInADay: %d\n", secondsInADay)
-
 	// Define the test cases
 	testCases := []*testCase{
 		newTestCaseForNumRows(

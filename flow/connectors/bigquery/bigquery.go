@@ -471,7 +471,6 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(flowJobName string, sync
 			break
 		}
 		if err != nil {
-			fmt.Printf("Error while iterating through results: %v\n", err)
 			return nil, err
 		}
 		resultMap[row.Tablename] = row.UnchangedToastColumns
