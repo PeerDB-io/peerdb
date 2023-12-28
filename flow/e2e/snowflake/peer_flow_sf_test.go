@@ -399,7 +399,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_1", `id,t1,t2,k`, false)
+	s.compareTableContentsSF("test_toast_sf_1", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
 }
 
@@ -466,7 +466,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_2", `id,t1,t2,k`, false)
+	s.compareTableContentsSF("test_toast_sf_2", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
 
 	wg.Wait()
@@ -541,7 +541,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_3", `id,t1,t2,k`, false)
+	s.compareTableContentsSF("test_toast_sf_3", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
 }
 
@@ -607,7 +607,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_4", `id,t1,k`, false)
+	s.compareTableContentsSF("test_toast_sf_4", `id,t1,k`)
 	env.AssertExpectations(s.t)
 }
 
@@ -673,7 +673,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_5", `id,t1,t2,k`, false)
+	s.compareTableContentsSF("test_toast_sf_5", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
 }
 
@@ -871,7 +871,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		require.NoError(s.t, err)
 		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		s.compareTableContentsSF("test_simple_schema_changes", "id,c1", false)
+		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
 
 		// alter source table, add column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -900,7 +900,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		require.NoError(s.t, err)
 		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c2", false)
+		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c2")
 
 		// alter source table, add column c3, drop column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -930,7 +930,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		require.NoError(s.t, err)
 		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c3", false)
+		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c3")
 
 		// alter source table, drop column c3 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -960,7 +960,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		require.NoError(s.t, err)
 		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		s.compareTableContentsSF("test_simple_schema_changes", "id,c1", false)
+		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1024,7 +1024,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 
 		// verify we got our 10 rows
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
-		s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t", false)
+		s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t")
 
 		_, err := s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
@@ -1043,7 +1043,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t")
 
 	env.AssertExpectations(s.t)
 }
@@ -1119,7 +1119,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_cpkey_toast1", "id,c1,c2,t,t2", false)
+	s.compareTableContentsSF("test_cpkey_toast1", "id,c1,c2,t,t2")
 
 	env.AssertExpectations(s.t)
 }
@@ -1191,7 +1191,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_cpkey_toast2", "id,c1,c2,t,t2", false)
+	s.compareTableContentsSF("test_cpkey_toast2", "id,c1,c2,t,t2")
 
 	env.AssertExpectations(s.t)
 }
@@ -1357,7 +1357,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	wg.Wait()
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_softdel", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_softdel", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
@@ -1440,7 +1440,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_softdel_iud", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_softdel_iud", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
@@ -1527,7 +1527,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_softdel_ud", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_softdel_ud", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
@@ -1602,7 +1602,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_softdel_iad", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_softdel_iad", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)

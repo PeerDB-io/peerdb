@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 func QuoteIdentifier(identifier string) string {
@@ -27,4 +28,24 @@ func ParseSchemaTable(tableName string) (*SchemaTable, error) {
 	}
 
 	return &SchemaTable{schema, table}, nil
+}
+
+// I think these only work with ASCII?
+func IsUpper(s string) bool {
+	for _, r := range s {
+		if !unicode.IsUpper(r) && unicode.IsLetter(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// I think these only work with ASCII?
+func IsLower(s string) bool {
+	for _, r := range s {
+		if !unicode.IsLower(r) && unicode.IsLetter(r) {
+			return false
+		}
+	}
+	return true
 }
