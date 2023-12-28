@@ -231,7 +231,6 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 	}
 
 	replCtx := ctx
-	replCtx = workflow.WithValue(replCtx, shared.FlowNameKey, config.FlowJobName)
 	if config.DoInitialCopy {
 		sessionOpts := &workflow.SessionOptions{
 			CreationTimeout:  5 * time.Minute,

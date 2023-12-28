@@ -205,7 +205,7 @@ func (c *PostgresConnector) tableExists(schemaTable *utils.SchemaTable) (bool, e
 }
 
 // checkSlotAndPublication checks if the replication slot and publication exist.
-func (c *PostgresConnector) checkSlotAndPublication(slot string, publication string) (*SlotCheckResult, error) {
+func (c *PostgresConnector) checkSlotAndPublication(slot string, publication string) (SlotCheckResult, error) {
 	slotExists := false
 	publicationExists := false
 
@@ -217,7 +217,7 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 	if err != nil {
 		// check if the error is a "no rows" error
 		if err != pgx.ErrNoRows {
-			return nil, fmt.Errorf("error checking for replication slot - %s: %w", slot, err)
+			return SlotCheckResult{}, fmt.Errorf("error checking for replication slot - %s: %w", slot, err)
 		}
 	} else {
 		slotExists = true
@@ -231,13 +231,13 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 	if err != nil {
 		// check if the error is a "no rows" error
 		if err != pgx.ErrNoRows {
-			return nil, fmt.Errorf("error checking for publication - %s: %w", publication, err)
+			return SlotCheckResult{}, fmt.Errorf("error checking for publication - %s: %w", publication, err)
 		}
 	} else {
 		publicationExists = true
 	}
 
-	return &SlotCheckResult{
+	return SlotCheckResult{
 		SlotExists:        slotExists,
 		PublicationExists: publicationExists,
 	}, nil
@@ -289,8 +289,8 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
-	signal *SlotSignal,
-	s *SlotCheckResult,
+	signal SlotSignal,
+	s SlotCheckResult,
 	slot string,
 	publication string,
 	tableNameMapping map[string]model.NameAndExclude,
@@ -346,33 +346,27 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
-		if signal != nil {
-			slotDetails := &SlotCreationResult{
-				SlotName:     res.SlotName,
-				SnapshotName: res.SnapshotName,
-				Err:          nil,
-			}
-			signal.SlotCreated <- slotDetails
-			c.logger.Info("Waiting for clone to complete")
-			<-signal.CloneComplete
-			c.logger.Info("Clone complete")
+		slotDetails := SlotCreationResult{
+			SlotName:     res.SlotName,
+			SnapshotName: res.SnapshotName,
+			Err:          nil,
 		}
+		signal.SlotCreated <- slotDetails
+		c.logger.Info("Waiting for clone to complete")
+		<-signal.CloneComplete
+		c.logger.Info("Clone complete")
 	} else {
 		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
-		if signal != nil {
-			var e error
-			if doInitialCopy {
-				e = errors.New("slot already exists")
-			} else {
-				e = nil
-			}
-			slotDetails := &SlotCreationResult{
-				SlotName:     slot,
-				SnapshotName: "",
-				Err:          e,
-			}
-			signal.SlotCreated <- slotDetails
+		var e error
+		if doInitialCopy {
+			e = errors.New("slot already exists")
 		}
+		slotDetails := SlotCreationResult{
+			SlotName:     slot,
+			SnapshotName: "",
+			Err:          e,
+		}
+		signal.SlotCreated <- slotDetails
 	}
 
 	return nil

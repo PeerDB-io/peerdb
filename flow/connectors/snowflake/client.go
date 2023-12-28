@@ -3,6 +3,7 @@ package connsnowflake
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -83,4 +84,19 @@ func (c *SnowflakeConnector) getTableCounts(tables []string) (int64, error) {
 		totalRecords += count.Int64
 	}
 	return totalRecords, nil
+}
+
+func SnowflakeIdentifierNormalize(identifier string) string {
+	// https://www.alberton.info/dbms_identifiers_and_case_sensitivity.html
+	// Snowflake follows the SQL standard, but Postgres does the opposite.
+	// Ergo, we suffer.
+	if utils.IsLower(identifier) {
+		return fmt.Sprintf(`"%s"`, strings.ToUpper(identifier))
+	}
+	return fmt.Sprintf(`"%s"`, identifier)
+}
+
+func snowflakeSchemaTableNormalize(schemaTable *utils.SchemaTable) string {
+	return fmt.Sprintf(`%s.%s`, SnowflakeIdentifierNormalize(schemaTable.Schema),
+		SnowflakeIdentifierNormalize(schemaTable.Table))
 }

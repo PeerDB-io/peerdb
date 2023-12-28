@@ -29,6 +29,11 @@ message TableMapping {
   repeated string exclude = 4;
 }
 
+message SetupInput {
+  peerdb_peers.Peer peer = 1;
+  string flow_name = 2;
+}
+
 message FlowConnectionConfigs {
   peerdb_peers.Peer source = 1;
   peerdb_peers.Peer destination = 2;
@@ -198,6 +203,7 @@ message TableSchema {
 message GetTableSchemaBatchInput {
   peerdb_peers.Peer peer_connection_config = 1;
   repeated string table_identifiers = 2;
+  string flow_name = 3;
 }
 
 message GetTableSchemaBatchOutput {
@@ -217,6 +223,7 @@ message SetupNormalizedTableBatchInput {
   // migration related columns
   string soft_delete_col_name = 4;
   string synced_at_col_name = 5;
+  string flow_name = 6;
 }
 
 message SetupNormalizedTableOutput {

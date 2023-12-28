@@ -58,7 +58,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		&datasetTable{
 			dataset: s.connector.datasetID,
 			table:   stagingTable,
-		}, stream)
+		}, stream, flowJobName)
 	if err != nil {
 		return -1, fmt.Errorf("failed to push to avro stage: %v", err)
 	}
@@ -140,7 +140,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 			strings.ReplaceAll(partition.PartitionId, "-", "_")),
 	}
 	numRecords, err := s.writeToStage(partition.PartitionId, flowJobName, avroSchema,
-		stagingDatasetTable, stream)
+		stagingDatasetTable, stream, flowJobName)
 	if err != nil {
 		return -1, fmt.Errorf("failed to push to avro stage: %v", err)
 	}
@@ -340,6 +340,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	stagingTable *datasetTable,
 	stream *model.QRecordStream,
+	flowName string,
 ) (int, error) {
 	shutdown := utils.HeartbeatRoutine(s.connector.ctx, time.Minute,
 		func() string {
@@ -355,6 +356,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema,
 		avro.CompressNone, qvalue.QDWHTypeBigQuery)
 	idLog := slog.Group("write-metadata",
+		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),
 	)
 	if s.gcsBucket != "" {
@@ -426,7 +428,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	if err := status.Err(); err != nil {
 		return 0, fmt.Errorf("failed to load Avro file into BigQuery table: %w", err)
 	}
-	slog.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath))
+	slog.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath), idLog)
 
 	err = s.connector.waitForTableReady(stagingTable)
 	if err != nil {
