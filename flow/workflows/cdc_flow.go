@@ -156,7 +156,6 @@ func CDCFlowWorkflowWithConfig(
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 
-	ctx = workflow.WithValue(ctx, "flowName", cfg.FlowJobName)
 	w := NewCDCFlowWorkflowExecution(ctx)
 
 	if limits.TotalSyncFlows == 0 {
@@ -402,6 +401,7 @@ func CDCFlowWorkflowWithConfig(
 				&protos.GetTableSchemaBatchInput{
 					PeerConnectionConfig: cfg.Source,
 					TableIdentifiers:     modifiedSrcTables,
+					FlowName:             cfg.FlowJobName,
 				})
 
 			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput

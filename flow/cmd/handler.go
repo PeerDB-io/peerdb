@@ -322,7 +322,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 	req *protos.ShutdownRequest,
 ) (*protos.ShutdownResponse, error) {
 	logs := slog.Group("shutdown-log",
-		slog.String("flowName", req.FlowJobName),
+		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("workflowId", req.WorkflowId),
 	)
 	err := h.temporalClient.SignalWorkflow(
@@ -417,7 +417,7 @@ func (h *FlowRequestHandler) ShutdownFlow(
 		delErr := h.removeFlowEntryInCatalog(req.FlowJobName)
 		if delErr != nil {
 			slog.Error("unable to remove flow job entry",
-				slog.String("flowName", req.FlowJobName),
+				slog.String(string(shared.FlowNameKey), req.FlowJobName),
 				slog.Any("error", err),
 				slog.String("workflowId", req.WorkflowId))
 			return &protos.ShutdownResponse{

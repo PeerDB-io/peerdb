@@ -79,7 +79,7 @@ func (c *cdcRecordsStore) Set(key model.TableWithPkey, rec model.Record) error {
 		if c.pebbleDB == nil {
 			slog.Info(fmt.Sprintf("more than %d primary keys read, spilling to disk",
 				c.numRecordsSwitchThreshold),
-				slog.String("flowName", c.flowJobName))
+				slog.String(string(shared.FlowNameKey), c.flowJobName))
 			err := c.initPebbleDB()
 			if err != nil {
 				return err

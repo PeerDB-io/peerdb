@@ -8,10 +8,13 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 )
 
 type SnapshotActivity struct {
 	SnapshotConnections map[string]SlotSnapshotSignal
+	Alerter             *alerting.Alerter
 }
 
 // closes the slot signal
@@ -32,6 +35,7 @@ func (a *SnapshotActivity) SetupReplication(
 	ctx context.Context,
 	config *protos.SetupReplicationInput,
 ) (*protos.SetupReplicationOutput, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dbType := config.PeerConnectionConfig.Type
 	if dbType != protos.DBType_POSTGRES {
 		slog.InfoContext(ctx, fmt.Sprintf("setup replication is no-op for %s", dbType))
@@ -65,10 +69,12 @@ func (a *SnapshotActivity) SetupReplication(
 	case slotInfo = <-slotSignal.SlotCreated:
 		slog.InfoContext(ctx, fmt.Sprintf("slot '%s' created", slotInfo.SlotName))
 	case err := <-replicationErr:
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to setup replication: %w", err)
 	}
 
 	if slotInfo.Err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, slotInfo.Err)
 		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
 	}
 
