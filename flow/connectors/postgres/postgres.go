@@ -775,11 +775,11 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 }
 
 // SetupReplication sets up replication for the source connector.
-func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.SetupReplicationInput) error {
+func (c *PostgresConnector) SetupReplication(req *protos.SetupReplicationInput) (*protos.SetupReplicationOutput, error) {
 	// ensure that the flowjob name is [a-z0-9_] only
 	reg := regexp.MustCompile(`^[a-z0-9_]+$`)
 	if !reg.MatchString(req.FlowJobName) {
-		return fmt.Errorf("invalid flow job name: `%s`, it should be [a-z0-9_]+", req.FlowJobName)
+		return nil, fmt.Errorf("invalid flow job name: `%s`, it should be [a-z0-9_]+", req.FlowJobName)
 	}
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
@@ -797,7 +797,7 @@ func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.Setu
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(slotName, publicationName)
 	if err != nil {
-		return fmt.Errorf("error checking for replication slot and publication: %w", err)
+		return nil, fmt.Errorf("error checking for replication slot and publication: %w", err)
 	}
 
 	tableNameMapping := make(map[string]model.NameAndExclude)
@@ -808,13 +808,16 @@ func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.Setu
 		}
 	}
 	// Create the replication slot and publication
-	err = c.createSlotAndPublication(signal, exists,
-		slotName, publicationName, tableNameMapping, req.DoInitialCopy)
+	err = c.createSlotAndPublication(
+		exists, slotName, publicationName, tableNameMapping, req.DoInitialCopy)
 	if err != nil {
-		return fmt.Errorf("error creating replication slot and publication: %w", err)
+		return nil, fmt.Errorf("error creating replication slot and publication: %w", err)
 	}
 
-	return nil
+	return &protos.SetupReplicationOutput{
+		SlotName:        slotName,
+		PublicationName: publicationName,
+	}, nil
 }
 
 func (c *PostgresConnector) PullFlowCleanup(jobName string) error {

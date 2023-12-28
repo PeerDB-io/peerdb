@@ -108,15 +108,6 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow-snapshot-worker:
-    container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:latest-dev
-    environment:
-      <<: [*catalog-config, *flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
   flow-worker1:
     container_name: flow-worker1
     image: ghcr.io/peerdb-io/flow-worker:latest-dev

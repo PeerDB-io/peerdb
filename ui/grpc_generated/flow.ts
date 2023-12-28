@@ -285,6 +285,7 @@ export interface SetupReplicationInput_TableNameMappingEntry {
 export interface SetupReplicationOutput {
   slotName: string;
   snapshotName: string;
+  publicationName: string;
 }
 
 export interface CreateRawTableInput {
@@ -3606,7 +3607,7 @@ export const SetupReplicationInput_TableNameMappingEntry = {
 };
 
 function createBaseSetupReplicationOutput(): SetupReplicationOutput {
-  return { slotName: "", snapshotName: "" };
+  return { slotName: "", snapshotName: "", publicationName: "" };
 }
 
 export const SetupReplicationOutput = {
@@ -3616,6 +3617,9 @@ export const SetupReplicationOutput = {
     }
     if (message.snapshotName !== "") {
       writer.uint32(18).string(message.snapshotName);
+    }
+    if (message.publicationName !== "") {
+      writer.uint32(26).string(message.publicationName);
     }
     return writer;
   },
@@ -3641,6 +3645,13 @@ export const SetupReplicationOutput = {
 
           message.snapshotName = reader.string();
           continue;
+        case 3:
+          if (tag !== 26) {
+            break;
+          }
+
+          message.publicationName = reader.string();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3654,6 +3665,7 @@ export const SetupReplicationOutput = {
     return {
       slotName: isSet(object.slotName) ? String(object.slotName) : "",
       snapshotName: isSet(object.snapshotName) ? String(object.snapshotName) : "",
+      publicationName: isSet(object.publicationName) ? String(object.publicationName) : "",
     };
   },
 
@@ -3665,6 +3677,9 @@ export const SetupReplicationOutput = {
     if (message.snapshotName !== "") {
       obj.snapshotName = message.snapshotName;
     }
+    if (message.publicationName !== "") {
+      obj.publicationName = message.publicationName;
+    }
     return obj;
   },
 
@@ -3675,6 +3690,7 @@ export const SetupReplicationOutput = {
     const message = createBaseSetupReplicationOutput();
     message.slotName = object.slotName ?? "";
     message.snapshotName = object.snapshotName ?? "";
+    message.publicationName = object.publicationName ?? "";
     return message;
   },
 };

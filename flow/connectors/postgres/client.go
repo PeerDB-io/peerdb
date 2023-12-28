@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -289,8 +288,7 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
-	signal SlotSignal,
-	s SlotCheckResult,
+	checkRes SlotCheckResult,
 	slot string,
 	publication string,
 	tableNameMapping map[string]model.NameAndExclude,
@@ -310,7 +308,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	}
 	tableNameString := strings.Join(srcTableNames, ", ")
 
-	if !s.PublicationExists {
+	if !checkRes.PublicationExists {
 		// Create the publication to help filter changes only for the given tables
 		stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s", publication, tableNameString)
 		_, err := c.pool.Exec(c.ctx, stmt)
@@ -321,7 +319,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	}
 
 	// create slot only after we succeeded in creating publication.
-	if !s.SlotExists {
+	if !checkRes.SlotExists {
 		conn, err := c.replPool.Acquire(c.ctx)
 		if err != nil {
 			return fmt.Errorf("[slot] error acquiring connection: %w", err)
@@ -340,33 +338,15 @@ func (c *PostgresConnector) createSlotAndPublication(
 			Temporary: false,
 			Mode:      pglogrepl.LogicalReplication,
 		}
-		res, err := pglogrepl.CreateReplicationSlot(c.ctx, conn.Conn().PgConn(), slot, "pgoutput", opts)
+
+		_, err = pglogrepl.CreateReplicationSlot(c.ctx, conn.Conn().PgConn(), slot, "pgoutput", opts)
 		if err != nil {
 			return fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
 
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
-		slotDetails := SlotCreationResult{
-			SlotName:     res.SlotName,
-			SnapshotName: res.SnapshotName,
-			Err:          nil,
-		}
-		signal.SlotCreated <- slotDetails
-		c.logger.Info("Waiting for clone to complete")
-		<-signal.CloneComplete
-		c.logger.Info("Clone complete")
 	} else {
 		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
-		var e error
-		if doInitialCopy {
-			e = errors.New("slot already exists")
-		}
-		slotDetails := SlotCreationResult{
-			SlotName:     slot,
-			SnapshotName: "",
-			Err:          e,
-		}
-		signal.SlotCreated <- slotDetails
 	}
 
 	return nil

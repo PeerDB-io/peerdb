@@ -52,7 +52,9 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 		CatalogPool: conn,
 		Alerter:     alerter,
 	})
-	env.RegisterActivity(&activities.SnapshotActivity{})
+	env.RegisterActivity(&activities.SnapshotActivity{
+		Alerter: alerter,
+	})
 }
 
 func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,

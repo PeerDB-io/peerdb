@@ -24,7 +24,6 @@ type SnapshotFlowExecution struct {
 	logger log.Logger
 }
 
-// ensurePullability ensures that the source peer is pullable.
 func (s *SnapshotFlowExecution) setupReplication(
 	ctx workflow.Context,
 ) (*protos.SetupReplicationOutput, error) {
@@ -63,25 +62,6 @@ func (s *SnapshotFlowExecution) setupReplication(
 	return res, nil
 }
 
-func (s *SnapshotFlowExecution) closeSlotKeepAlive(
-	ctx workflow.Context,
-) error {
-	flowName := s.config.FlowJobName
-	s.logger.Info("closing slot keep alive for peer flow - ", flowName)
-
-	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
-	})
-
-	if err := workflow.ExecuteActivity(ctx, snapshot.CloseSlotKeepAlive, flowName).Get(ctx, nil); err != nil {
-		return fmt.Errorf("failed to close slot keep alive for peer flow: %w", err)
-	}
-
-	s.logger.Info("closed slot keep alive for peer flow - ", flowName)
-
-	return nil
-}
-
 func (s *SnapshotFlowExecution) cloneTable(
 	boundSelector *concurrency.BoundSelector,
 	childCtx workflow.Context,
@@ -111,11 +91,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	slog.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
 
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return queueErr
-	}
-
+	taskQueue := shared.GetPeerFlowTaskQueueName()
 	childCtx = workflow.WithChildOptions(childCtx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
@@ -230,24 +206,8 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		logger: logger,
 	}
 
-	replCtx := ctx
-	if config.DoInitialCopy {
-		sessionOpts := &workflow.SessionOptions{
-			CreationTimeout:  5 * time.Minute,
-			ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
-			HeartbeatTimeout: time.Hour * 24 * 365 * 100, // 100 years
-		}
-
-		sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)
-		if err != nil {
-			return fmt.Errorf("failed to create session: %w", err)
-		}
-		defer workflow.CompleteSession(sessionCtx)
-
-		replCtx = sessionCtx
-	}
-
-	slotInfo, err := se.setupReplication(replCtx)
+	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	slotInfo, err := se.setupReplication(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
@@ -267,10 +227,6 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		se.cloneTables(ctx, slotInfo, numTablesInParallel)
 	} else {
 		logger.Info("skipping initial copy as 'doInitialCopy' is false")
-	}
-
-	if err := se.closeSlotKeepAlive(replCtx); err != nil {
-		return fmt.Errorf("failed to close slot keep alive: %w", err)
 	}
 
 	return nil

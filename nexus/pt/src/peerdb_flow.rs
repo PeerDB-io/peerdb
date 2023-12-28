@@ -284,6 +284,8 @@ pub struct SetupReplicationOutput {
     pub slot_name: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub snapshot_name: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub publication_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

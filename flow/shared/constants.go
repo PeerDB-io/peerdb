@@ -8,7 +8,6 @@ import (
 
 const (
 	peerFlowTaskQueue      = "peer-flow-task-queue"
-	snapshotFlowTaskQueue  = "snapshot-flow-task-queue"
 	CDCFlowSignalName      = "peer-flow-signal"
 	CDCBatchSizeSignalName = "cdc-batch-size-signal"
 )
@@ -30,24 +29,10 @@ const (
 	DeploymentUIDKey ContextKey = "deploymentUid"
 )
 
-type TaskQueueID int64
-
-const (
-	PeerFlowTaskQueueID     TaskQueueID = iota
-	SnapshotFlowTaskQueueID TaskQueueID = iota
-)
-
 const FetchAndChannelSize = 256 * 1024
 
-func GetPeerFlowTaskQueueName(taskQueueID TaskQueueID) (string, error) {
-	switch taskQueueID {
-	case PeerFlowTaskQueueID:
-		return prependUIDToTaskQueueName(peerFlowTaskQueue), nil
-	case SnapshotFlowTaskQueueID:
-		return prependUIDToTaskQueueName(snapshotFlowTaskQueue), nil
-	default:
-		return "", fmt.Errorf("unknown task queue id %d", taskQueueID)
-	}
+func GetPeerFlowTaskQueueName() string {
+	return prependUIDToTaskQueueName(peerFlowTaskQueue)
 }
 
 func prependUIDToTaskQueueName(taskQueueName string) string {

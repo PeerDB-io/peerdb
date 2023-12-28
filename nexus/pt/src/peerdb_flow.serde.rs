@@ -5688,12 +5688,18 @@ impl serde::Serialize for SetupReplicationOutput {
         if !self.snapshot_name.is_empty() {
             len += 1;
         }
+        if !self.publication_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.SetupReplicationOutput", len)?;
         if !self.slot_name.is_empty() {
             struct_ser.serialize_field("slotName", &self.slot_name)?;
         }
         if !self.snapshot_name.is_empty() {
             struct_ser.serialize_field("snapshotName", &self.snapshot_name)?;
+        }
+        if !self.publication_name.is_empty() {
+            struct_ser.serialize_field("publicationName", &self.publication_name)?;
         }
         struct_ser.end()
     }
@@ -5709,12 +5715,15 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationOutput {
             "slotName",
             "snapshot_name",
             "snapshotName",
+            "publication_name",
+            "publicationName",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             SlotName,
             SnapshotName,
+            PublicationName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5739,6 +5748,7 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationOutput {
                         match value {
                             "slotName" | "slot_name" => Ok(GeneratedField::SlotName),
                             "snapshotName" | "snapshot_name" => Ok(GeneratedField::SnapshotName),
+                            "publicationName" | "publication_name" => Ok(GeneratedField::PublicationName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5760,6 +5770,7 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationOutput {
             {
                 let mut slot_name__ = None;
                 let mut snapshot_name__ = None;
+                let mut publication_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::SlotName => {
@@ -5774,6 +5785,12 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationOutput {
                             }
                             snapshot_name__ = Some(map.next_value()?);
                         }
+                        GeneratedField::PublicationName => {
+                            if publication_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("publicationName"));
+                            }
+                            publication_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -5782,6 +5799,7 @@ impl<'de> serde::Deserialize<'de> for SetupReplicationOutput {
                 Ok(SetupReplicationOutput {
                     slot_name: slot_name__.unwrap_or_default(),
                     snapshot_name: snapshot_name__.unwrap_or_default(),
+                    publication_name: publication_name__.unwrap_or_default(),
                 })
             }
         }

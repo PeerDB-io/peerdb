@@ -120,10 +120,7 @@ func WorkerMain(opts *WorkerOptions) error {
 	slog.Info("Created temporal client")
 	defer c.Close()
 
-	taskQueue, queueErr := shared.GetPeerFlowTaskQueueName(shared.PeerFlowTaskQueueID)
-	if queueErr != nil {
-		return queueErr
-	}
+	taskQueue := shared.GetPeerFlowTaskQueueName()
 
 	w := worker.New(c, taskQueue, worker.Options{})
 	w.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
@@ -144,6 +141,9 @@ func WorkerMain(opts *WorkerOptions) error {
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
 		Alerter:     alerter,
+	})
+	w.RegisterActivity(&activities.SnapshotActivity{
+		Alerter: alerter,
 	})
 
 	err = w.Run(worker.InterruptCh())

@@ -15,7 +15,6 @@ group "default" {
     "peerdb",
     "flow-worker",
     "flow-api",
-    "flow-snapshot-worker",
     "peerdb-ui"
   ]
 }
@@ -34,20 +33,6 @@ target "flow-api" {
   tags = [
     "${REGISTRY}/flow-api:${TAG}",
     "${REGISTRY}/flow-api:${SHA_SHORT}",
-  ]
-}
-
-target "flow-snapshot-worker" {
-  context    = "."
-  dockerfile = "stacks/flow.Dockerfile"
-  target     = "flow-snapshot-worker"
-  platforms = [
-    "linux/amd64",
-    "linux/arm64",
-  ]
-  tags = [
-    "${REGISTRY}/flow-snapshot-worker:${TAG}",
-    "${REGISTRY}/flow-snapshot-worker:${SHA_SHORT}",
   ]
 }
 

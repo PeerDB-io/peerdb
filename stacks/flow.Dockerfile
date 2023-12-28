@@ -43,9 +43,3 @@ ENTRYPOINT [\
   "./peer-flow",\
   "worker"\
   ]
-
-FROM flow-base AS flow-snapshot-worker
-ENTRYPOINT [\
-  "./peer-flow",\
-  "snapshot-worker"\
-  ]

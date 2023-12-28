@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -116,21 +115,8 @@ func (suite *PostgresReplicationSnapshotTestSuite) TestSimpleSlotCreation() {
 		TableNameMapping: tables,
 	}
 
-	signal := NewSlotSignal()
-
-	// Moved to a go routine
-	go func() {
-		err := suite.connector.SetupReplication(signal, setupReplicationInput)
-		require.NoError(suite.T(), err)
-	}()
-
-	slog.Info("waiting for slot creation to complete", flowLog)
-	slotInfo := <-signal.SlotCreated
-	slog.Info(fmt.Sprintf("slot creation complete: %v", slotInfo), flowLog)
-
-	slog.Info("signaling clone complete after waiting for 2 seconds", flowLog)
-	time.Sleep(2 * time.Second)
-	signal.CloneComplete <- struct{}{}
+	_, err := suite.connector.SetupReplication(setupReplicationInput)
+	require.NoError(suite.T(), err)
 
 	slog.Info("successfully setup replication", flowLog)
 }

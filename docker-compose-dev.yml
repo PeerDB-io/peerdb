@@ -126,18 +126,6 @@ services:
       temporal-admin-tools:
         condition: service_healthy
 
-  flow-snapshot-worker:
-    container_name: flow-snapshot-worker
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-snapshot-worker
-    environment:
-      <<: [*catalog-config, *flow-worker-env]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
   flow-worker1:
     container_name: flow-worker1
     build:
