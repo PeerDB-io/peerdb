@@ -683,7 +683,7 @@ func (c *PostgresConnector) generateMergeStatement(
 		}
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, columnName) {
 			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
-			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
+			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf(`src."%s"=dst."%s"`,
 				columnName, columnName))
 		}
 	}
