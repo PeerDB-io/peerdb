@@ -63,14 +63,22 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	})
 
 	// first check the source peer connection
-	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Source, config.FlowJobName)
+	srcConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, &protos.SetupInput{
+		Peer:     config.Source,
+		FlowName: config.FlowJobName,
+	})
 	var srcConnStatus activities.CheckConnectionResult
 	if err := srcConnStatusFuture.Get(ctx, &srcConnStatus); err != nil {
 		return fmt.Errorf("failed to check source peer connection: %w", err)
 	}
 
+	dstSetupInput := &protos.SetupInput{
+		Peer:     config.Destination,
+		FlowName: config.FlowJobName,
+	}
+
 	// then check the destination peer connection
-	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, config.Destination)
+	destConnStatusFuture := workflow.ExecuteActivity(ctx, flowable.CheckConnection, dstSetupInput)
 	var destConnStatus activities.CheckConnectionResult
 	if err := destConnStatusFuture.Get(ctx, &destConnStatus); err != nil {
 		return fmt.Errorf("failed to check destination peer connection: %w", err)
@@ -80,7 +88,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 
 	// then setup the destination peer metadata tables
 	if destConnStatus.NeedsSetupMetadataTables {
-		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, config.Destination, config.FlowJobName)
+		fDst := workflow.ExecuteActivity(ctx, flowable.SetupMetadataTables, dstSetupInput)
 		if err := fDst.Get(ctx, nil); err != nil {
 			return fmt.Errorf("failed to setup destination peer metadata tables: %w", err)
 		}
@@ -179,9 +187,10 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
 		PeerConnectionConfig: flowConnectionConfigs.Source,
 		TableIdentifiers:     sourceTables,
+		FlowName:             s.CDCFlowName,
 	}
 
-	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput, s.CDCFlowName)
+	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
 
 	var tblSchemaOutput *protos.GetTableSchemaBatchOutput
 	if err := future.Get(ctx, &tblSchemaOutput); err != nil {

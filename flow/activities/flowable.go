@@ -49,11 +49,10 @@ type FlowableActivity struct {
 // CheckConnection implements CheckConnection.
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
-	config *protos.Peer,
-	flowName string,
+	config *protos.SetupInput,
 ) (*CheckConnectionResult, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config)
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
+	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
@@ -67,16 +66,16 @@ func (a *FlowableActivity) CheckConnection(
 }
 
 // SetupMetadataTables implements SetupMetadataTables.
-func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.Peer, flowName string) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
-	dstConn, err := connectors.GetCDCSyncConnector(ctx, config)
+func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.SetupInput) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
+	dstConn, err := connectors.GetCDCSyncConnector(ctx, config.Peer)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
 	}
 	defer connectors.CloseConnector(dstConn)
 
 	if err := dstConn.SetupMetadataTables(); err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
+		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 
@@ -153,9 +152,8 @@ func (a *FlowableActivity) CreateRawTable(
 func (a *FlowableActivity) GetTableSchema(
 	ctx context.Context,
 	config *protos.GetTableSchemaBatchInput,
-	flowName string,
 ) (*protos.GetTableSchemaBatchOutput, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	srcConn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)

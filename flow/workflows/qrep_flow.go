@@ -109,9 +109,10 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 		tableSchemaInput := &protos.GetTableSchemaBatchInput{
 			PeerConnectionConfig: q.config.SourcePeer,
 			TableIdentifiers:     []string{q.config.WatermarkTable},
+			FlowName:             q.config.FlowJobName,
 		}
 
-		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput, q.config.FlowJobName)
+		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
 
 		var tblSchemaOutput *protos.GetTableSchemaBatchOutput
 		if err := future.Get(ctx, &tblSchemaOutput); err != nil {

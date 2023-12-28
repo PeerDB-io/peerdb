@@ -1954,12 +1954,18 @@ impl serde::Serialize for GetTableSchemaBatchInput {
         if !self.table_identifiers.is_empty() {
             len += 1;
         }
+        if !self.flow_name.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetTableSchemaBatchInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
         }
         if !self.table_identifiers.is_empty() {
             struct_ser.serialize_field("tableIdentifiers", &self.table_identifiers)?;
+        }
+        if !self.flow_name.is_empty() {
+            struct_ser.serialize_field("flowName", &self.flow_name)?;
         }
         struct_ser.end()
     }
@@ -1975,12 +1981,15 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
             "peerConnectionConfig",
             "table_identifiers",
             "tableIdentifiers",
+            "flow_name",
+            "flowName",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             PeerConnectionConfig,
             TableIdentifiers,
+            FlowName,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2005,6 +2014,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                         match value {
                             "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
                             "tableIdentifiers" | "table_identifiers" => Ok(GeneratedField::TableIdentifiers),
+                            "flowName" | "flow_name" => Ok(GeneratedField::FlowName),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2026,6 +2036,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
             {
                 let mut peer_connection_config__ = None;
                 let mut table_identifiers__ = None;
+                let mut flow_name__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -2040,6 +2051,12 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                             }
                             table_identifiers__ = Some(map.next_value()?);
                         }
+                        GeneratedField::FlowName => {
+                            if flow_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowName"));
+                            }
+                            flow_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2048,6 +2065,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                 Ok(GetTableSchemaBatchInput {
                     peer_connection_config: peer_connection_config__,
                     table_identifiers: table_identifiers__.unwrap_or_default(),
+                    flow_name: flow_name__.unwrap_or_default(),
                 })
             }
         }
@@ -4821,6 +4839,119 @@ impl<'de> serde::Deserialize<'de> for ReplayTableSchemaDeltaInput {
             }
         }
         deserializer.deserialize_struct("peerdb_flow.ReplayTableSchemaDeltaInput", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SetupInput {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.peer.is_some() {
+            len += 1;
+        }
+        if !self.flow_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("peerdb_flow.SetupInput", len)?;
+        if let Some(v) = self.peer.as_ref() {
+            struct_ser.serialize_field("peer", v)?;
+        }
+        if !self.flow_name.is_empty() {
+            struct_ser.serialize_field("flowName", &self.flow_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SetupInput {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "peer",
+            "flow_name",
+            "flowName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Peer,
+            FlowName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "peer" => Ok(GeneratedField::Peer),
+                            "flowName" | "flow_name" => Ok(GeneratedField::FlowName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SetupInput;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct peerdb_flow.SetupInput")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<SetupInput, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut peer__ = None;
+                let mut flow_name__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Peer => {
+                            if peer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("peer"));
+                            }
+                            peer__ = map.next_value()?;
+                        }
+                        GeneratedField::FlowName => {
+                            if flow_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("flowName"));
+                            }
+                            flow_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SetupInput {
+                    peer: peer__,
+                    flow_name: flow_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("peerdb_flow.SetupInput", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for SetupNormalizedTableBatchInput {

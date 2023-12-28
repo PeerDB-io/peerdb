@@ -401,7 +401,8 @@ func CDCFlowWorkflowWithConfig(
 				&protos.GetTableSchemaBatchInput{
 					PeerConnectionConfig: cfg.Source,
 					TableIdentifiers:     modifiedSrcTables,
-				}, cfg.FlowJobName)
+					FlowName:             cfg.FlowJobName,
+				})
 
 			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
 			if err := getModifiedSchemaFuture.Get(ctx, &getModifiedSchemaRes); err != nil {

@@ -41,6 +41,14 @@ pub struct TableMapping {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SetupInput {
+    #[prost(message, optional, tag="1")]
+    pub peer: ::core::option::Option<super::peerdb_peers::Peer>,
+    #[prost(string, tag="2")]
+    pub flow_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlowConnectionConfigs {
     #[prost(message, optional, tag="1")]
     pub source: ::core::option::Option<super::peerdb_peers::Peer>,
@@ -314,6 +322,8 @@ pub struct GetTableSchemaBatchInput {
     pub peer_connection_config: ::core::option::Option<super::peerdb_peers::Peer>,
     #[prost(string, repeated, tag="2")]
     pub table_identifiers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag="3")]
+    pub flow_name: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
