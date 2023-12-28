@@ -29,7 +29,7 @@ type CDCFlowLimits struct {
 	// Maximum number of rows in a sync flow batch.
 	MaxBatchSize int
 	// Rows synced after which we can say a test is done.
-	ExitAfterRecords int
+	ExitAfterRecords int64
 }
 
 type CDCFlowWorkflowState struct {
@@ -317,7 +317,7 @@ func CDCFlowWorkflowWithConfig(
 	})
 
 	currentSyncFlowNum := 0
-	totalRecordsSynced := 0
+	totalRecordsSynced := int64(0)
 
 	normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
 	if err != nil {
@@ -386,7 +386,7 @@ func CDCFlowWorkflowWithConfig(
 		currentSyncFlowNum++
 
 		// check if total records synced have been completed
-		if totalRecordsSynced == limits.ExitAfterRecords {
+		if totalRecordsSynced >= limits.ExitAfterRecords {
 			w.logger.Warn("All the records have been synced successfully, so ending the flow")
 			break
 		}
@@ -424,7 +424,7 @@ func CDCFlowWorkflowWithConfig(
 			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			if childSyncFlowRes != nil {
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
-				totalRecordsSynced += int(childSyncFlowRes.NumRecordsSynced)
+				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
 			}
 		}
 
