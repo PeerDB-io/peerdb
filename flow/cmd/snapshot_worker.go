@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 
 	"go.temporal.io/sdk/client"
@@ -54,8 +56,19 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) error {
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 	})
+
+	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	if err != nil {
+		return fmt.Errorf("unable to create catalog connection pool: %w", err)
+	}
+
+	alerter, err := alerting.NewAlerter(conn)
+	if err != nil {
+		return fmt.Errorf("unable to create alerter: %w", err)
+	}
+
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
-	w.RegisterActivity(&activities.SnapshotActivity{})
+	w.RegisterActivity(&activities.SnapshotActivity{Alerter: alerter})
 
 	err = w.Run(worker.InterruptCh())
 	if err != nil {

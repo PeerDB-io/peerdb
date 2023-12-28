@@ -50,7 +50,7 @@ type CDCFlowWorkflowState struct {
 	NormalizeFlowErrors []string
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
-	RelationMessageMapping *model.RelationMessageMapping
+	RelationMessageMapping model.RelationMessageMapping
 }
 
 // returns a new empty PeerFlowState
@@ -64,7 +64,7 @@ func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
 		// WORKAROUND: empty maps are protobufed into nil maps for reasons beyond me
-		RelationMessageMapping: &model.RelationMessageMapping{
+		RelationMessageMapping: model.RelationMessageMapping{
 			0: &protos.RelationMessage{
 				RelationId:   0,
 				RelationName: "protobuf_workaround",
@@ -156,7 +156,6 @@ func CDCFlowWorkflowWithConfig(
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 
-	ctx = workflow.WithValue(ctx, "flowName", cfg.FlowJobName)
 	w := NewCDCFlowWorkflowExecution(ctx)
 
 	if limits.TotalSyncFlows == 0 {
@@ -358,7 +357,7 @@ func CDCFlowWorkflowWithConfig(
 			SearchAttributes: mirrorNameSearch,
 		}
 		syncCtx := workflow.WithChildOptions(ctx, childSyncFlowOpts)
-		syncFlowOptions.RelationMessageMapping = *state.RelationMessageMapping
+		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
 		childSyncFlowFuture := workflow.ExecuteChildWorkflow(
 			syncCtx,
 			SyncFlowWorkflow,
@@ -402,6 +401,7 @@ func CDCFlowWorkflowWithConfig(
 				&protos.GetTableSchemaBatchInput{
 					PeerConnectionConfig: cfg.Source,
 					TableIdentifiers:     modifiedSrcTables,
+					FlowName:             cfg.FlowJobName,
 				})
 
 			var getModifiedSchemaRes *protos.GetTableSchemaBatchOutput
