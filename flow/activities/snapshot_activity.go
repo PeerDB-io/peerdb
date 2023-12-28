@@ -13,7 +13,7 @@ import (
 )
 
 type SnapshotActivity struct {
-	SnapshotConnections map[string]*SlotSnapshotSignal
+	SnapshotConnections map[string]SlotSnapshotSignal
 	Alerter             *alerting.Alerter
 }
 
