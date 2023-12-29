@@ -271,7 +271,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		err = errGroup.Wait()
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, flowName, err)
-			return nil, fmt.Errorf("failed to pull records: %w", err)
+			return nil, fmt.Errorf("failed in pull records when: %w", err)
 		}
 		slog.InfoContext(ctx, "no records to push")
 		syncResponse := &model.SyncResponse{}
@@ -615,7 +615,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		recordBatch, err := srcConn.PullQRepRecords(config, partition)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to pull records: %w", err)
+			return fmt.Errorf("failed to pull qrep records: %w", err)
 		}
 		numRecords := int64(recordBatch.NumRecords)
 		slog.InfoContext(ctx, fmt.Sprintf("pulled %d records\n", len(recordBatch.Records)))
@@ -955,7 +955,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 		numRecords, currentSnapshotXmin, pullErr = pgConn.PullXminRecordStream(config, partition, stream)
 		if pullErr != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			slog.InfoContext(ctx, fmt.Sprintf("failed to pull records: %v", err))
+			slog.InfoContext(ctx, fmt.Sprintf("[xmin] failed to pull records: %v", err))
 			return err
 		}
 
