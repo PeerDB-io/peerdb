@@ -33,7 +33,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   publicationName: '',
   snapshotNumRowsPerPartition: 500000,
   snapshotMaxParallelWorkers: 1,
-  snapshotNumTablesInParallel: 1,
+  snapshotNumTablesInParallel: 4,
   snapshotSyncMode: 0,
   cdcSyncMode: 0,
   snapshotStagingPath: '',

@@ -1,7 +1,7 @@
 'use client';
-import useTZStore from '@/app/globalstate/time';
 import { Label } from '@/lib/Label';
 import moment from 'moment-timezone';
+import { useLocalStorage } from 'usehooks-ts';
 
 const TimeLabel = ({
   timeVal,
@@ -10,7 +10,7 @@ const TimeLabel = ({
   timeVal: Date | string;
   fontSize?: number;
 }) => {
-  const timezone = useTZStore((state) => state.timezone);
+  const [timezone] = useLocalStorage('timezone-ui', 'UTC'); // ['UTC', 'Local', 'Relative']
   const formattedTimestamp = (zone: string) => {
     switch (zone) {
       case 'Local':
