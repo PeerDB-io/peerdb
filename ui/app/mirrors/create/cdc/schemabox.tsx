@@ -7,6 +7,7 @@ import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
+import _ from 'lodash';
 import {
   Dispatch,
   SetStateAction,
@@ -43,9 +44,6 @@ const SchemaBox = ({
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [tableQuery, setTableQuery] = useState<string>('');
-  const [schemaLoadedSet, setSchemaLoadedSet] = useState<Set<string>>(
-    new Set()
-  );
 
   const [handlingAll, setHandlingAll] = useState(false);
 
@@ -136,14 +134,11 @@ const SchemaBox = ({
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
-      if (!schemaLoadedSet.has(schemaName)) {
-        setTablesLoading(true);
-        setSchemaLoadedSet((loaded) => new Set(loaded).add(schemaName));
-        fetchTables(sourcePeer, schemaName, peerType).then((tableRows) => {
-          setRows((value) => [...value, ...tableRows]);
-          setTablesLoading(false);
-        });
-      }
+      setTablesLoading(true);
+      fetchTables(sourcePeer, schemaName, peerType).then((tableRows) => {
+        setRows((value) => _.uniqWith([...value, ...tableRows], _.isEqual));
+        setTablesLoading(false);
+      });
     } else {
       setExpandedSchemas((curr) =>
         curr.filter((expandedSchema) => expandedSchema != schemaName)
