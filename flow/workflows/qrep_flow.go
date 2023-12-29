@@ -107,9 +107,10 @@ func (q *QRepFlowExecution) SetupWatermarkTableOnDestination(ctx workflow.Contex
 		})
 
 		tableSchemaInput := &protos.GetTableSchemaBatchInput{
-			PeerConnectionConfig: q.config.SourcePeer,
-			TableIdentifiers:     []string{q.config.WatermarkTable},
-			FlowName:             q.config.FlowJobName,
+			PeerConnectionConfig:    q.config.SourcePeer,
+			TableIdentifiers:        []string{q.config.WatermarkTable},
+			FlowName:                q.config.FlowJobName,
+			SkipPkeyAndReplicaCheck: true,
 		}
 
 		future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
