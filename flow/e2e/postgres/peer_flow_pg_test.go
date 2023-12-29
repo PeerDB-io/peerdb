@@ -146,11 +146,9 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		// verify we got our first row.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		expectedTableSchema := &protos.TableSchema{
-			TableIdentifier: dstTableName,
-			Columns: map[string]string{
-				"id": string(qvalue.QValueKindInt64),
-				"c1": string(qvalue.QValueKindInt64),
-			},
+			TableIdentifier:   dstTableName,
+			ColumnNames:       []string{"id", "c1"},
+			ColumnTypes:       []string{string(qvalue.QValueKindInt64), string(qvalue.QValueKindInt64)},
 			PrimaryKeyColumns: []string{"id"},
 		}
 		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -175,10 +173,11 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: dstTableName,
-			Columns: map[string]string{
-				"id": string(qvalue.QValueKindInt64),
-				"c1": string(qvalue.QValueKindInt64),
-				"c2": string(qvalue.QValueKindInt64),
+			ColumnNames:     []string{"id", "c1", "c2"},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
 			},
 			PrimaryKeyColumns: []string{"id"},
 		}
@@ -204,11 +203,12 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: dstTableName,
-			Columns: map[string]string{
-				"id": string(qvalue.QValueKindInt64),
-				"c1": string(qvalue.QValueKindInt64),
-				"c2": string(qvalue.QValueKindInt64),
-				"c3": string(qvalue.QValueKindInt64),
+			ColumnNames:     []string{"id", "c1", "c2", "c3"},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
 			},
 			PrimaryKeyColumns: []string{"id"},
 		}
@@ -234,11 +234,12 @@ func (s *PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: dstTableName,
-			Columns: map[string]string{
-				"id": string(qvalue.QValueKindInt64),
-				"c1": string(qvalue.QValueKindInt64),
-				"c2": string(qvalue.QValueKindInt64),
-				"c3": string(qvalue.QValueKindInt64),
+			ColumnNames:     []string{"id", "c1", "c2", "c3"},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
 			},
 			PrimaryKeyColumns: []string{"id"},
 		}

@@ -21,7 +21,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
-	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -60,7 +59,7 @@ const (
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
 	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-	 WHERE TABLE_SCHEMA=? AND TABLE_NAME=?`
+	 WHERE TABLE_SCHEMA=? AND TABLE_NAME=? ORDER BY ORDINAL_POSITION`
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
@@ -258,12 +257,9 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 		}
 	}()
 
-	res := &protos.TableSchema{
-		TableIdentifier: tableName,
-		Columns:         make(map[string]string),
-	}
-
 	var columnName, columnType pgtype.Text
+	columnNames := make([]string, 0, 8)
+	columnTypes := make([]string, 0, 8)
 	for rows.Next() {
 		err = rows.Scan(&columnName, &columnType)
 		if err != nil {
@@ -275,10 +271,15 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 			genericColType = qvalue.QValueKindString
 		}
 
-		res.Columns[columnName.String] = string(genericColType)
+		columnNames = append(columnNames, columnName.String)
+		columnTypes = append(columnTypes, string(genericColType))
 	}
 
-	return res, nil
+	return &protos.TableSchema{
+		TableIdentifier: tableName,
+		ColumnNames:     columnNames,
+		ColumnTypes:     columnTypes,
+	}, nil
 }
 
 func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
@@ -765,17 +766,17 @@ func generateCreateTableSQLForNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
-	for columnName, genericColumnType := range sourceTableSchema.Columns {
+	createTableSQLArray := make([]string, 0, utils.TableSchemaColumns(sourceTableSchema)+2)
+	utils.IterColumns(sourceTableSchema, func(columnName, genericColumnType string) {
 		normalizedColName := SnowflakeIdentifierNormalize(columnName)
 		sfColType, err := qValueKindToSnowflakeType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
 				slog.Any("error", err))
-			continue
+			return
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf(`%s %s,`, normalizedColName, sfColType))
-	}
+	})
 
 	// add a _peerdb_is_deleted column to the normalized table
 	// this is boolean default false, and is used to mark records as deleted
@@ -826,15 +827,14 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 	if err != nil {
 		return 0, fmt.Errorf("unable to parse destination table '%s'", parsedDstTable)
 	}
-	columnNames := maps.Keys(normalizedTableSchema.Columns)
+	columnNames := utils.TableSchemaColumnNames(normalizedTableSchema)
 
-	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
-	for columnName, genericColumnType := range normalizedTableSchema.Columns {
+	flattenedCastsSQLArray := make([]string, 0, utils.TableSchemaColumns(normalizedTableSchema))
+	err = utils.IterColumnsError(normalizedTableSchema, func(columnName, genericColumnType string) error {
 		qvKind := qvalue.QValueKind(genericColumnType)
 		sfType, err := qValueKindToSnowflakeType(qvKind)
 		if err != nil {
-			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
-				genericColumnType, err)
+			return fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}
 
 		targetColumnName := SnowflakeIdentifierNormalize(columnName)
@@ -865,6 +865,10 @@ func (c *SnowflakeConnector) generateAndExecuteMergeStatement(
 					toVariantColumnName, columnName, sfType, targetColumnName))
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ""), ",")
 
@@ -1133,7 +1137,7 @@ func (c *SnowflakeConnector) RenameTables(req *protos.RenameTablesInput) (*proto
 		for _, renameRequest := range req.RenameTableOptions {
 			src := renameRequest.CurrentName
 			dst := renameRequest.NewName
-			allCols := strings.Join(maps.Keys(renameRequest.TableSchema.Columns), ",")
+			allCols := strings.Join(utils.TableSchemaColumnNames(renameRequest.TableSchema), ",")
 			pkeyCols := strings.Join(renameRequest.TableSchema.PrimaryKeyColumns, ",")
 
 			c.logger.Info(fmt.Sprintf("handling soft-deletes for table '%s'...", dst))

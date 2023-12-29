@@ -586,14 +586,10 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 	defer rows.Close()
 
-	res := &protos.TableSchema{
-		TableIdentifier:       tableName,
-		Columns:               make(map[string]string),
-		PrimaryKeyColumns:     pKeyCols,
-		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
-	}
-
-	for _, fieldDescription := range rows.FieldDescriptions() {
+	fields := rows.FieldDescriptions()
+	columnNames := make([]string, 0, len(fields))
+	columnTypes := make([]string, 0, len(fields))
+	for _, fieldDescription := range fields {
 		genericColType := postgresOIDToQValueKind(fieldDescription.DataTypeOID)
 		if genericColType == qvalue.QValueKindInvalid {
 			typeName, ok := c.customTypesMapping[fieldDescription.DataTypeOID]
@@ -604,14 +600,22 @@ func (c *PostgresConnector) getTableSchemaForTable(
 			}
 		}
 
-		res.Columns[fieldDescription.Name] = string(genericColType)
+		columnNames = append(columnNames, fieldDescription.Name)
+		columnTypes = append(columnTypes, string(genericColType))
 	}
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
 
-	return res, nil
+	return &protos.TableSchema{
+		TableIdentifier:       tableName,
+		Columns:               nil,
+		PrimaryKeyColumns:     pKeyCols,
+		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
+		ColumnNames:           columnNames,
+		ColumnTypes:           columnTypes,
+	}, nil
 }
 
 // SetupNormalizedTable sets up a normalized table, implementing the Connector interface.

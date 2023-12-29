@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/jackc/pgx/v5/pgtype"
-	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -259,14 +258,13 @@ func (c *SnowflakeConnector) ConsolidateQRepPartitions(config *protos.QRepConfig
 	destTable := config.DestinationTableIdentifier
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
-	colInfo, err := c.getColsFromTable(destTable)
+	colNames, _, err := c.getColsFromTable(destTable)
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to get columns from table %s", destTable), slog.Any("error", err))
 		return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
 	}
 
-	allCols := colInfo.Columns
-	err = CopyStageToDestination(c, config, destTable, stageName, allCols)
+	err = CopyStageToDestination(c, config, destTable, stageName, colNames)
 	if err != nil {
 		c.logger.Error("failed to copy stage to destination", slog.Any("error", err))
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
@@ -281,11 +279,11 @@ func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
-func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnInformation, error) {
+func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []string, error) {
 	// parse the table name to get the schema and table name
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse table name: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
 	//nolint:gosec
@@ -293,28 +291,27 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) (*model.ColumnIn
 	SELECT column_name, data_type
 	FROM information_schema.columns
 	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
+	ORDER BY ordinal_position
 	`, strings.ToUpper(schemaTable.Table), strings.ToUpper(schemaTable.Schema))
 
 	rows, err := c.database.QueryContext(c.ctx, queryString)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 	defer rows.Close()
 
-	var colName pgtype.Text
-	var colType pgtype.Text
-	columnMap := map[string]string{}
+	var colName, colType pgtype.Text
+	colNames := make([]string, 0, 8)
+	colTypes := make([]string, 0, 8)
 	for rows.Next() {
 		if err := rows.Scan(&colName, &colType); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+			return nil, nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		columnMap[colName.String] = colType.String
+		colNames = append(colNames, colName.String)
+		colTypes = append(colTypes, colType.String)
 	}
 
-	return &model.ColumnInformation{
-		ColumnMap: columnMap,
-		Columns:   maps.Keys(columnMap),
-	}, nil
+	return colNames, colTypes, nil
 }
 
 // dropStage drops the stage for the given job.

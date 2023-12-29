@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -80,10 +81,8 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	suite.failTestError(err)
 	suite.Equal(&protos.TableSchema{
 		TableIdentifier: tableName,
-		Columns: map[string]string{
-			"ID": string(qvalue.QValueKindString),
-			"HI": string(qvalue.QValueKindJSON),
-		},
+		ColumnNames:     []string{"ID", "HI"},
+		ColumnTypes:     []string{string(qvalue.QValueKindString), string(qvalue.QValueKindJSON)},
 	}, output.TableNameSchemaMapping[tableName])
 }
 
@@ -95,29 +94,30 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
 		// goal is to test all types we're currently mapping to, not all QValue types
-		Columns: map[string]string{
-			"ID":  string(qvalue.QValueKindString),
-			"C1":  string(qvalue.QValueKindBoolean),
-			"C2":  string(qvalue.QValueKindBytes),
-			"C3":  string(qvalue.QValueKindDate),
-			"C4":  string(qvalue.QValueKindFloat64),
-			"C5":  string(qvalue.QValueKindJSON),
-			"C6":  string(qvalue.QValueKindNumeric),
-			"C7":  string(qvalue.QValueKindString),
-			"C8":  string(qvalue.QValueKindTime),
-			"C9":  string(qvalue.QValueKindTimestamp),
-			"C10": string(qvalue.QValueKindTimestampTZ),
+		ColumnNames: []string{"ID", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"},
+		ColumnTypes: []string{
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindBoolean),
+			string(qvalue.QValueKindBytes),
+			string(qvalue.QValueKindDate),
+			string(qvalue.QValueKindFloat64),
+			string(qvalue.QValueKindJSON),
+			string(qvalue.QValueKindNumeric),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindTime),
+			string(qvalue.QValueKindTimestamp),
+			string(qvalue.QValueKindTimestampTZ),
 		},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for columnName, columnType := range expectedTableSchema.Columns {
+	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
 		if columnName != "ID" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
 				ColumnType: columnType,
 			})
 		}
-	}
+	})
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -141,27 +141,38 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
 		// strings.ToUpper also does Unicode uppercasing :)
-		Columns: map[string]string{
-			"ID":     string(qvalue.QValueKindString),
-			"C1":     string(qvalue.QValueKindString),
-			"C 1":    string(qvalue.QValueKindString),
-			"RIGHT":  string(qvalue.QValueKindString),
-			"SELECT": string(qvalue.QValueKindString),
-			"XMIN":   string(qvalue.QValueKindString),
-			"CARIÑO": string(qvalue.QValueKindString),
-			"±ªÞ³§":  string(qvalue.QValueKindString),
-			"カラム":    string(qvalue.QValueKindString),
+		ColumnNames: []string{
+			"ID",
+			"C1",
+			"C 1",
+			"RIGHT",
+			"SELECT",
+			"XMIN",
+			"CARIÑO",
+			"±ªÞ³§",
+			"カラム",
+		},
+		ColumnTypes: []string{
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
 		},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for columnName, columnType := range expectedTableSchema.Columns {
+	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
 		if columnName != "ID" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
 				ColumnType: columnType,
 			})
 		}
-	}
+	})
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -184,22 +195,23 @@ func (suite SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		Columns: map[string]string{
-			" ":   string(qvalue.QValueKindString),
-			"  ":  string(qvalue.QValueKindString),
-			"   ": string(qvalue.QValueKindTime),
-			"	":   string(qvalue.QValueKindDate),
+		ColumnNames:     []string{" ", "  ", "   ", "\t"},
+		ColumnTypes: []string{
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindTime),
+			string(qvalue.QValueKindDate),
 		},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for columnName, columnType := range expectedTableSchema.Columns {
+	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
 		if columnName != " " {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
 				ColumnType: columnType,
 			})
 		}
-	}
+	})
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,

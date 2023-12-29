@@ -33,8 +33,8 @@ type mergeStmtGenerator struct {
 func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
 	// statement.
-	flattenedProjs := make([]string, 0)
-	for colName, colType := range m.normalizedTableSchema.Columns {
+	flattenedProjs := make([]string, 0, utils.TableSchemaColumns(m.normalizedTableSchema)+3)
+	utils.IterColumns(m.normalizedTableSchema, func(colName, colType string) {
 		bqType := qValueKindToBigQueryType(colType)
 		// CAST doesn't work for FLOAT, so rewrite it to FLOAT64.
 		if bqType == bigquery.FloatFieldType {
@@ -76,7 +76,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 				colName, bqType, colName)
 		}
 		flattenedProjs = append(flattenedProjs, castStmt)
-	}
+	})
 	flattenedProjs = append(
 		flattenedProjs,
 		"_peerdb_timestamp",
@@ -111,12 +111,13 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 // generateMergeStmt generates a merge statement.
 func (m *mergeStmtGenerator) generateMergeStmt() string {
 	// comma separated list of column names
-	backtickColNames := make([]string, 0, len(m.normalizedTableSchema.Columns))
-	pureColNames := make([]string, 0, len(m.normalizedTableSchema.Columns))
-	for colName := range m.normalizedTableSchema.Columns {
+	columnCount := utils.TableSchemaColumns(m.normalizedTableSchema)
+	backtickColNames := make([]string, 0, columnCount)
+	pureColNames := make([]string, 0, columnCount)
+	utils.IterColumns(m.normalizedTableSchema, func(colName, _ string) {
 		backtickColNames = append(backtickColNames, fmt.Sprintf("`%s`", colName))
 		pureColNames = append(pureColNames, colName)
-	}
+	})
 	csep := strings.Join(backtickColNames, ", ")
 	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
 	insertValuesSQL := csep + ",CURRENT_TIMESTAMP"

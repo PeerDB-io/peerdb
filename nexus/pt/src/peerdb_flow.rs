@@ -308,12 +308,17 @@ pub struct CreateRawTableOutput {
 pub struct TableSchema {
     #[prost(string, tag="1")]
     pub table_identifier: ::prost::alloc::string::String,
+    /// DEPRECATED: eliminate when breaking changes are allowed.
     #[prost(map="string, string", tag="2")]
     pub columns: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(string, repeated, tag="3")]
     pub primary_key_columns: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(bool, tag="4")]
     pub is_replica_identity_full: bool,
+    #[prost(string, repeated, tag="5")]
+    pub column_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="6")]
+    pub column_types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

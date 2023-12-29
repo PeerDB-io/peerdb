@@ -73,19 +73,18 @@ func (s *SnowflakeAvroSyncMethod) SyncRecords(
 	}
 	s.connector.logger.Info(fmt.Sprintf("Created stage %s", stage))
 
-	colInfo, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
+	colNames, _, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
 	if err != nil {
 		return 0, err
 	}
 
-	allCols := colInfo.Columns
 	err = s.putFileToStage(avroFile, stage)
 	if err != nil {
 		return 0, err
 	}
 	s.connector.logger.Info("pushed avro file to stage", tableLog)
 
-	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, allCols)
+	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, colNames)
 	if err != nil {
 		return 0, err
 	}
@@ -300,14 +299,15 @@ func (c *SnowflakeConnector) GetCopyTransformation(
 	dstTableName string,
 	syncedAtCol string,
 ) (*CopyInfo, error) {
-	colInfo, colsErr := c.getColsFromTable(dstTableName)
+	colNames, colTypes, colsErr := c.getColsFromTable(dstTableName)
 	if colsErr != nil {
 		return nil, fmt.Errorf("failed to get columns from destination table: %w", colsErr)
 	}
 
-	transformations := make([]string, 0, len(colInfo.ColumnMap))
-	columnOrder := make([]string, 0, len(colInfo.ColumnMap))
-	for avroColName, colType := range colInfo.ColumnMap {
+	transformations := make([]string, 0, len(colNames))
+	columnOrder := make([]string, 0, len(colNames))
+	for idx, avroColName := range colNames {
+		colType := colTypes[idx]
 		normalizedColName := SnowflakeIdentifierNormalize(avroColName)
 		columnOrder = append(columnOrder, normalizedColName)
 		if avroColName == syncedAtCol {

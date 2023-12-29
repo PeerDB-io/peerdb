@@ -305,9 +305,12 @@ export interface CreateRawTableOutput {
 
 export interface TableSchema {
   tableIdentifier: string;
+  /** DEPRECATED: eliminate when breaking changes are allowed. */
   columns: { [key: string]: string };
   primaryKeyColumns: string[];
   isReplicaIdentityFull: boolean;
+  columnNames: string[];
+  columnTypes: string[];
 }
 
 export interface TableSchema_ColumnsEntry {
@@ -3941,7 +3944,14 @@ export const CreateRawTableOutput = {
 };
 
 function createBaseTableSchema(): TableSchema {
-  return { tableIdentifier: "", columns: {}, primaryKeyColumns: [], isReplicaIdentityFull: false };
+  return {
+    tableIdentifier: "",
+    columns: {},
+    primaryKeyColumns: [],
+    isReplicaIdentityFull: false,
+    columnNames: [],
+    columnTypes: [],
+  };
 }
 
 export const TableSchema = {
@@ -3957,6 +3967,12 @@ export const TableSchema = {
     }
     if (message.isReplicaIdentityFull === true) {
       writer.uint32(32).bool(message.isReplicaIdentityFull);
+    }
+    for (const v of message.columnNames) {
+      writer.uint32(42).string(v!);
+    }
+    for (const v of message.columnTypes) {
+      writer.uint32(50).string(v!);
     }
     return writer;
   },
@@ -3999,6 +4015,20 @@ export const TableSchema = {
 
           message.isReplicaIdentityFull = reader.bool();
           continue;
+        case 5:
+          if (tag !== 42) {
+            break;
+          }
+
+          message.columnNames.push(reader.string());
+          continue;
+        case 6:
+          if (tag !== 50) {
+            break;
+          }
+
+          message.columnTypes.push(reader.string());
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4021,6 +4051,8 @@ export const TableSchema = {
         ? object.primaryKeyColumns.map((e: any) => String(e))
         : [],
       isReplicaIdentityFull: isSet(object.isReplicaIdentityFull) ? Boolean(object.isReplicaIdentityFull) : false,
+      columnNames: Array.isArray(object?.columnNames) ? object.columnNames.map((e: any) => String(e)) : [],
+      columnTypes: Array.isArray(object?.columnTypes) ? object.columnTypes.map((e: any) => String(e)) : [],
     };
   },
 
@@ -4044,6 +4076,12 @@ export const TableSchema = {
     if (message.isReplicaIdentityFull === true) {
       obj.isReplicaIdentityFull = message.isReplicaIdentityFull;
     }
+    if (message.columnNames?.length) {
+      obj.columnNames = message.columnNames;
+    }
+    if (message.columnTypes?.length) {
+      obj.columnTypes = message.columnTypes;
+    }
     return obj;
   },
 
@@ -4061,6 +4099,8 @@ export const TableSchema = {
     }, {});
     message.primaryKeyColumns = object.primaryKeyColumns?.map((e) => e) || [];
     message.isReplicaIdentityFull = object.isReplicaIdentityFull ?? false;
+    message.columnNames = object.columnNames?.map((e) => e) || [];
+    message.columnTypes = object.columnTypes?.map((e) => e) || [];
     return message;
   },
 };

@@ -391,11 +391,11 @@ func generateCreateTableSQLForNormalizedTable(
 	softDeleteColName string,
 	syncedAtColName string,
 ) string {
-	createTableSQLArray := make([]string, 0, len(sourceTableSchema.Columns)+2)
-	for columnName, genericColumnType := range sourceTableSchema.Columns {
+	createTableSQLArray := make([]string, 0, utils.TableSchemaColumns(sourceTableSchema)+2)
+	utils.IterColumns(sourceTableSchema, func(columnName, genericColumnType string) {
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("\"%s\" %s,", columnName,
 			qValueKindToPostgresType(genericColumnType)))
-	}
+	})
 
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
@@ -591,10 +591,11 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 	rawTableIdentifier string, peerdbCols *protos.PeerDBColumns,
 ) []string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
-	columnNames := make([]string, 0, len(normalizedTableSchema.Columns))
-	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
+	columnCount := utils.TableSchemaColumns(normalizedTableSchema)
+	columnNames := make([]string, 0, columnCount)
+	flattenedCastsSQLArray := make([]string, 0, columnCount)
 	primaryKeyColumnCasts := make(map[string]string)
-	for columnName, genericColumnType := range normalizedTableSchema.Columns {
+	utils.IterColumns(normalizedTableSchema, func(columnName, genericColumnType string) {
 		columnNames = append(columnNames, fmt.Sprintf("\"%s\"", columnName))
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if qvalue.QValueKind(genericColumnType).IsArray() {
@@ -608,15 +609,15 @@ func (c *PostgresConnector) generateFallbackStatements(destinationTableIdentifie
 		if slices.Contains(normalizedTableSchema.PrimaryKeyColumns, columnName) {
 			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
 		}
-	}
+	})
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
 	parsedDstTable, _ := utils.ParseSchemaTable(destinationTableIdentifier)
 
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(columnNames, ","), ",")
-	updateColumnsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
-	for columnName := range normalizedTableSchema.Columns {
+	updateColumnsSQLArray := make([]string, 0, utils.TableSchemaColumns(normalizedTableSchema))
+	utils.IterColumns(normalizedTableSchema, func(columnName, _ string) {
 		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`"%s"=EXCLUDED."%s"`, columnName, columnName))
-	}
+	})
 	updateColumnsSQL := strings.TrimSuffix(strings.Join(updateColumnsSQLArray, ","), ",")
 	deleteWhereClauseArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
@@ -655,17 +656,17 @@ func (c *PostgresConnector) generateMergeStatement(
 	peerdbCols *protos.PeerDBColumns,
 ) string {
 	normalizedTableSchema := c.tableSchemaMapping[destinationTableIdentifier]
-	columnNames := maps.Keys(normalizedTableSchema.Columns)
+	columnNames := utils.TableSchemaColumnNames(normalizedTableSchema)
 	for i, columnName := range columnNames {
 		columnNames[i] = fmt.Sprintf("\"%s\"", columnName)
 	}
 
-	flattenedCastsSQLArray := make([]string, 0, len(normalizedTableSchema.Columns))
+	flattenedCastsSQLArray := make([]string, 0, utils.TableSchemaColumns(normalizedTableSchema))
 	parsedDstTable, _ := utils.ParseSchemaTable(destinationTableIdentifier)
 
 	primaryKeyColumnCasts := make(map[string]string)
 	primaryKeySelectSQLArray := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
-	for columnName, genericColumnType := range normalizedTableSchema.Columns {
+	utils.IterColumns(normalizedTableSchema, func(columnName, genericColumnType string) {
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if qvalue.QValueKind(genericColumnType).IsArray() {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
@@ -680,7 +681,7 @@ func (c *PostgresConnector) generateMergeStatement(
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
 				columnName, columnName))
 		}
-	}
+	})
 	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
 	insertValuesSQLArray := make([]string, 0, len(columnNames))
 	for _, columnName := range columnNames {
