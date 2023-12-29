@@ -10,7 +10,7 @@ const TimeLabel = ({
   timeVal: Date | string;
   fontSize?: number;
 }) => {
-  const [timezone] = useLocalStorage('timezone-ui', 'UTC'); // ['UTC', 'Local', 'Relative'
+  const [timezone] = useLocalStorage('timezone-ui', 'UTC'); // ['UTC', 'Local', 'Relative']
   const formattedTimestamp = (zone: string) => {
     switch (zone) {
       case 'Local':
