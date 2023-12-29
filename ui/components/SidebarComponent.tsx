@@ -1,7 +1,6 @@
 'use client';
 
 import { UVersionResponse } from '@/app/dto/VersionDTO';
-import useTZStore from '@/app/globalstate/time';
 import Logout from '@/components/Logout';
 import { BrandLogo } from '@/lib/BrandLogo';
 import { Icon } from '@/lib/Icon';
@@ -10,7 +9,7 @@ import { RowWithSelect } from '@/lib/Layout';
 import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import Link from 'next/link';
 import useSWR from 'swr';
-
+import { useLocalStorage } from 'usehooks-ts';
 const centerFlexStyle = {
   display: 'flex',
   justifyContent: 'center',
@@ -21,8 +20,7 @@ const centerFlexStyle = {
 const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
 export default function SidebarComponent(props: { logout?: boolean }) {
   const timezones = ['UTC', 'Local', 'Relative'];
-  const setZone = useTZStore((state) => state.setZone);
-  const zone = useTZStore((state) => state.timezone);
+  const [zone, setZone] = useLocalStorage('timezone-ui', '');
 
   const {
     data: version,
@@ -56,7 +54,7 @@ export default function SidebarComponent(props: { logout?: boolean }) {
                       backgroundColor: 'transparent',
                       boxShadow: '0px 2px 4px rgba(0,0,0,0.1)',
                     }}
-                    defaultValue={zone}
+                    value={zone}
                     id='timeselect'
                     onChange={(e) => setZone(e.target.value)}
                   >
