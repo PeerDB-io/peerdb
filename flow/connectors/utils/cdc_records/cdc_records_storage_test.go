@@ -12,6 +12,7 @@ import (
 )
 
 func getTimeForTesting(t *testing.T) time.Time {
+	t.Helper()
 	tv, err := time.Parse(time.RFC3339, "2021-08-01T08:02:00Z")
 	require.NoError(t, err)
 
@@ -25,6 +26,7 @@ func getTimeForTesting(t *testing.T) time.Time {
 }
 
 func getRatForTesting(t *testing.T) *big.Rat {
+	t.Helper()
 	return big.NewRat(123456789, 987654321)
 }
 
