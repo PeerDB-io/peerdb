@@ -7,7 +7,6 @@ import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
-import _ from 'lodash';
 import {
   Dispatch,
   SetStateAction,
@@ -131,14 +130,24 @@ const SchemaBox = ({
     setHandlingAll(false);
   };
 
+  const rowsDoNotHaveSchemaTables = (schema: string) => {
+    return !rows.some((row) => row.schema === schema);
+  };
+
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
-      setTablesLoading(true);
-      fetchTables(sourcePeer, schemaName, peerType).then((tableRows) => {
-        setRows((value) => _.uniqWith([...value, ...tableRows], _.isEqual));
-        setTablesLoading(false);
-      });
+
+      if (rowsDoNotHaveSchemaTables(schemaName)) {
+        setTablesLoading(true);
+        fetchTables(sourcePeer, schemaName, peerType).then((newRows) => {
+          setRows((oldRows) => [
+            ...oldRows.filter((oldRow) => oldRow.schema !== schema),
+            ...newRows,
+          ]);
+          setTablesLoading(false);
+        });
+      }
     } else {
       setExpandedSchemas((curr) =>
         curr.filter((expandedSchema) => expandedSchema != schemaName)
