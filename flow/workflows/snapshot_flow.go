@@ -192,7 +192,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	ctx workflow.Context,
 	slotInfo *protos.SetupReplicationOutput,
 	maxParallelClones int,
-) {
+) error {
 	slog.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
 		slotInfo.SlotName, slotInfo.SnapshotName))
 
@@ -216,10 +216,11 @@ func (s *SnapshotFlowExecution) cloneTables(
 
 	if err := boundSelector.Wait(); err != nil {
 		s.logger.Error("failed to clone some tables", "error", err)
-		return
+		return err
 	}
 
 	s.logger.Info("finished cloning tables")
+	return nil
 }
 
 func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
@@ -230,24 +231,48 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		logger: logger,
 	}
 
-	replCtx := ctx
-	if config.DoInitialCopy {
-		sessionOpts := &workflow.SessionOptions{
-			CreationTimeout:  5 * time.Minute,
-			ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
-			HeartbeatTimeout: time.Hour * 24 * 365 * 100, // 100 years
-		}
-
-		sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)
-		if err != nil {
-			return fmt.Errorf("failed to create session: %w", err)
-		}
-		defer workflow.CompleteSession(sessionCtx)
-
-		replCtx = sessionCtx
+	numTablesInParallel := int(config.SnapshotNumTablesInParallel)
+	if numTablesInParallel <= 0 {
+		numTablesInParallel = 1
 	}
 
-	slotInfo, err := se.setupReplication(replCtx)
+	replCtx := ctx
+
+	if !config.DoInitialCopy {
+		_, err := se.setupReplication(replCtx)
+		if err != nil {
+			return fmt.Errorf("failed to setup replication: %w", err)
+		}
+
+		if err := se.closeSlotKeepAlive(replCtx); err != nil {
+			return fmt.Errorf("failed to close slot keep alive: %w", err)
+		}
+
+		return nil
+	}
+
+	if config.InitialCopyOnly {
+		slotInfo := &protos.SetupReplicationOutput{
+			SlotName:     "peerdb_initial_copy_only",
+			SnapshotName: "", // empty snapshot name indicates that we should not use a snapshot
+		}
+		se.cloneTables(ctx, slotInfo, int(config.SnapshotNumTablesInParallel))
+		return nil
+	}
+
+	sessionOpts := &workflow.SessionOptions{
+		CreationTimeout:  5 * time.Minute,
+		ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
+		HeartbeatTimeout: time.Hour * 24 * 365 * 100, // 100 years
+	}
+
+	sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)
+	if err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+	defer workflow.CompleteSession(sessionCtx)
+
+	slotInfo, err := se.setupReplication(sessionCtx)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
@@ -257,19 +282,10 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		return nil
 	}
 
-	if config.DoInitialCopy {
-		numTablesInParallel := int(config.SnapshotNumTablesInParallel)
-		if numTablesInParallel <= 0 {
-			numTablesInParallel = 1
-		}
+	logger.Info("cloning tables in parallel: ", numTablesInParallel)
+	se.cloneTables(ctx, slotInfo, numTablesInParallel)
 
-		logger.Info("cloning tables in parallel: ", numTablesInParallel)
-		se.cloneTables(ctx, slotInfo, numTablesInParallel)
-	} else {
-		logger.Info("skipping initial copy as 'doInitialCopy' is false")
-	}
-
-	if err := se.closeSlotKeepAlive(replCtx); err != nil {
+	if err := se.closeSlotKeepAlive(sessionCtx); err != nil {
 		return fmt.Errorf("failed to close slot keep alive: %w", err)
 	}
 

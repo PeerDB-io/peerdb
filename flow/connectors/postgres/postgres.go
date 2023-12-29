@@ -731,7 +731,8 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 }
 
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
-func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
+func (c *PostgresConnector) EnsurePullability(
+	req *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	tableIdentifierMapping := make(map[string]*protos.TableIdentifier)
 	for _, tableName := range req.SourceTableIdentifiers {

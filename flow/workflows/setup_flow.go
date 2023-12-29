@@ -260,14 +260,18 @@ func (s *SetupFlowExecution) executeSetupFlow(
 		return nil, fmt.Errorf("failed to check connections and setup metadata tables: %w", err)
 	}
 
-	// then ensure pullability
-	if err := s.ensurePullability(ctx, config); err != nil {
-		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
-	}
+	// for initial copy only flows, we don't need to ensure pullability or create the raw table
+	// as we don't need the primary key requirement.
+	if !config.InitialCopyOnly {
+		// then ensure pullability
+		if err := s.ensurePullability(ctx, config); err != nil {
+			return nil, fmt.Errorf("failed to ensure pullability: %w", err)
+		}
 
-	// then create the raw table
-	if err := s.createRawTable(ctx, config); err != nil {
-		return nil, fmt.Errorf("failed to create raw table: %w", err)
+		// then create the raw table
+		if err := s.createRawTable(ctx, config); err != nil {
+			return nil, fmt.Errorf("failed to create raw table: %w", err)
+		}
 	}
 
 	// then fetch the table schema and setup the normalized tables
