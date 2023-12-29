@@ -55,7 +55,7 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	gob.Register(&model.InsertRecord{})
 	gob.Register(&model.UpdateRecord{})
 	gob.Register(&model.DeleteRecord{})
-	gob.Register(&time.Time{})
+	gob.Register(time.Time{})
 	gob.Register(&big.Rat{})
 
 	var err error
