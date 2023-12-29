@@ -521,7 +521,7 @@ impl Catalog {
             return Ok(None);
         }
 
-        let first_row = rows.get(0).unwrap();
+        let first_row = rows.first().unwrap();
         let workflow_id: Option<String> = first_row.get(0);
         let Some(workflow_id) = workflow_id else {
             return Err(anyhow!(
