@@ -10,22 +10,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func (s *PeerFlowE2ETestSuiteS3) attachSchemaSuffix(tableName string) string {
-	return fmt.Sprintf("e2e_test_%s.%s", s3Suffix, tableName)
+func (s PeerFlowE2ETestSuiteS3) attachSchemaSuffix(tableName string) string {
+	return fmt.Sprintf("e2e_test_%s.%s", s.suffix, tableName)
 }
 
-func (s *PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
-	return fmt.Sprintf("%s_%s", input, s3Suffix)
+func (s PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
+	return fmt.Sprintf("%s_%s", input, s.suffix)
 }
 
-func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.T(), env)
+func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
-	setupErr := s.setupS3("s3")
+	helper, setupErr := setupS3("s3")
 	if setupErr != nil {
-		s.Fail("failed to setup S3", setupErr)
+		require.Fail(s.t, "failed to setup S3", setupErr)
 	}
+	s.s3Helper = helper
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_s3")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_s3", "test_simple_flow_s3")
@@ -37,7 +38,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 			value TEXT NOT NULL
 		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowJobName,
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
@@ -46,7 +47,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows:   4,
@@ -56,48 +57,49 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		// insert 20 rows
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s (key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
-			s.NoError(err)
+			_, err = s.pool.Exec(context.Background(),
+				fmt.Sprintf("INSERT INTO %s (key, value) VALUES ($1, $2)", srcTableName), testKey, testValue)
+			require.NoError(s.t, err)
 		}
-		s.NoError(err)
+		require.NoError(s.t, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Error(s.t, err)
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	s.T().Logf("JobName: %s", flowJobName)
+  s.t.Logf("JobName: %s", flowJobName)
 	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	s.T().Logf("Files in Test_Complete_Simple_Flow_S3: %d", len(files))
-	require.NoError(s.T(), err)
+	s.t.Logf("Files in Test_Complete_Simple_Flow_S3: %d", len(files))
+	require.NoError(s.t, err)
 
-	require.Equal(s.T(), 4, len(files))
+	require.Equal(s.t, 4, len(files))
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.T(), env)
-	setupErr := s.setupS3("gcs")
+func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	helper, setupErr := setupS3("gcs")
 	if setupErr != nil {
-		s.Fail("failed to setup S3", setupErr)
+		require.Fail(s.t, "failed to setup S3", setupErr)
 	}
+	s.s3Helper = helper
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_gcs_interop")
 	dstTableName := fmt.Sprintf("%s.%s", "peerdb_test_gcs_interop", "test_simple_flow_gcs_interop")
@@ -109,7 +111,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 			value TEXT NOT NULL
 		);
 	`, srcTableName))
-	s.NoError(err)
+	require.NoError(s.t, err)
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      flowJobName,
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
@@ -118,7 +120,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 	}
 
 	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows:   4,
@@ -128,38 +130,37 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_GCS_Interop() {
 
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		s.NoError(err)
+		require.NoError(s.t, err)
 		// insert 20 rows
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
-			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s (key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
-			s.NoError(err)
+			_, err = s.pool.Exec(context.Background(),
+				fmt.Sprintf("INSERT INTO %s (key, value) VALUES ($1, $2)", srcTableName), testKey, testValue)
+			require.NoError(s.t, err)
 		}
-		s.T().Log("Inserted 20 rows into the source table")
-		s.NoError(err)
+		s.t.Log("Inserted 20 rows into the source table")
+		require.NoError(s.t, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
-	s.Error(err)
-	s.Contains(err.Error(), "continue as new")
+	require.Error(s.t, err)
+	require.Contains(s.t, err.Error(), "continue as new")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	s.T().Logf("JobName: %s", flowJobName)
+	s.t.Logf("JobName: %s", flowJobName)
 	files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-	s.T().Logf("Files in Test_Complete_Simple_Flow_GCS: %d", len(files))
-	require.NoError(s.T(), err)
+	s.t.Logf("Files in Test_Complete_Simple_Flow_GCS: %d", len(files))
+	require.NoError(s.t, err)
 
-	require.Equal(s.T(), 4, len(files))
+	require.Equal(s.t, 4, len(files))
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }

@@ -52,7 +52,7 @@ func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableNam
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -81,7 +81,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -93,7 +93,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -126,7 +126,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -138,7 +138,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -168,7 +168,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -180,7 +180,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -214,7 +214,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	e2e.RunXminFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -226,7 +226,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -260,7 +260,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -272,7 +272,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment()
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -305,7 +305,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)

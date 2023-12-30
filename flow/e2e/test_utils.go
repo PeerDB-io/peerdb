@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -371,16 +370,26 @@ func GetOwnersSelectorStringsSF() [2]string {
 	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
 }
 
-func NewTemporalTestWorkflowEnvironment() *testsuite.TestWorkflowEnvironment {
-	testSuite := &testsuite.WorkflowTestSuite{}
+type tlogWriter struct {
+	t *testing.T
+}
+
+func (iw tlogWriter) Write(p []byte) (n int, err error) {
+	iw.t.Log(string(p))
+	return len(p), nil
+}
+
+func NewTemporalTestWorkflowEnvironment(t *testing.T) *testsuite.TestWorkflowEnvironment {
+	t.Helper()
 
 	logger := slog.New(logger.NewHandler(
 		slog.NewJSONHandler(
-			os.Stdout,
+			tlogWriter{t},
 			&slog.HandlerOptions{Level: slog.LevelWarn},
 		)))
 	tLogger := NewTStructuredLogger(*logger)
 
+	testSuite := &testsuite.WorkflowTestSuite{}
 	testSuite.SetLogger(tLogger)
 	return testSuite.NewTestWorkflowEnvironment()
 }

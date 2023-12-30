@@ -4,53 +4,56 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
-	"go.temporal.io/sdk/testsuite"
 )
 
-const s3Suffix = "s3"
-
 type PeerFlowE2ETestSuiteS3 struct {
-	suite.Suite
-	testsuite.WorkflowTestSuite
+	t *testing.T
 
 	pool     *pgxpool.Pool
 	s3Helper *S3TestHelper
+	suffix   string
 }
 
 func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
-	suite.Run(t, new(PeerFlowE2ETestSuiteS3))
+	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteS3) {
+		err := e2e.TearDownPostgres(s.pool, s.suffix)
+		if err != nil {
+			require.Fail(s.t, "failed to drop Postgres schema", err)
+		}
+
+		if s.s3Helper != nil {
+			err = s.s3Helper.CleanUp()
+			if err != nil {
+				require.Fail(s.t, "failed to clean up s3", err)
+			}
+		}
+	})
 }
 
-func (s *PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.pool, s3Suffix, tableName)
-	s.NoError(err)
-	err = e2e.PopulateSourceTable(s.pool, s3Suffix, tableName, rowCount)
-	s.NoError(err)
+func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
+	err := e2e.CreateTableForQRep(s.pool, s.suffix, tableName)
+	require.NoError(s.t, err)
+	err = e2e.PopulateSourceTable(s.pool, s.suffix, tableName, rowCount)
+	require.NoError(s.t, err)
 }
 
-func (s *PeerFlowE2ETestSuiteS3) setupS3(mode string) error {
-	switchToGCS := false
-	if mode == "gcs" {
-		switchToGCS = true
-	}
-	helper, err := NewS3TestHelper(switchToGCS)
-	if err != nil {
-		return err
-	}
-
-	s.s3Helper = helper
-	return nil
+func setupS3(mode string) (*S3TestHelper, error) {
+	return NewS3TestHelper(mode == "gcs")
 }
 
-func (s *PeerFlowE2ETestSuiteS3) SetupSuite() {
+func setupSuite(t *testing.T) PeerFlowE2ETestSuiteS3 {
+	t.Helper()
+
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -58,43 +61,35 @@ func (s *PeerFlowE2ETestSuiteS3) SetupSuite() {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	pool, err := e2e.SetupPostgres(s3Suffix)
+	suffix := "s3_" + strings.ToLower(shared.RandomString(8))
+	pool, err := e2e.SetupPostgres(suffix)
 	if err != nil || pool == nil {
-		s.Fail("failed to setup postgres", err)
+		require.Fail(t, "failed to setup postgres", err)
 	}
-	s.pool = pool
 
-	err = s.setupS3("s3")
+	helper, err := setupS3("s3")
 	if err != nil {
-		s.Fail("failed to setup S3", err)
+		require.Fail(t, "failed to setup S3", err)
+	}
+
+	return PeerFlowE2ETestSuiteS3{
+		t:        t,
+		pool:     pool,
+		s3Helper: helper,
+		suffix:   suffix,
 	}
 }
 
-// Implement TearDownAllSuite interface to tear down the test suite
-func (s *PeerFlowE2ETestSuiteS3) TearDownSuite() {
-	err := e2e.TearDownPostgres(s.pool, s3Suffix)
-	if err != nil {
-		s.Fail("failed to drop Postgres schema", err)
-	}
-
-	if s.s3Helper != nil {
-		err = s.s3Helper.CleanUp()
-		if err != nil {
-			s.Fail("failed to clean up s3", err)
-		}
-	}
-}
-
-func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
+func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	if s.s3Helper == nil {
-		s.T().Skip("Skipping S3 test")
+		s.t.Skip("Skipping S3 test")
 	}
 
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.T(), env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	jobName := "test_complete_flow_s3"
-	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s3Suffix, jobName)
+	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, jobName)
 
 	s.setupSourceTable(jobName, 10)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
@@ -109,16 +104,16 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		false,
 		"",
 	)
-	s.NoError(err)
+	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	// Verify destination has 1 file
 	// make context with timeout
@@ -127,23 +122,23 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 
 	files, err := s.s3Helper.ListAllFiles(ctx, jobName)
 
-	require.NoError(s.T(), err)
+	require.NoError(s.t, err)
 
-	require.Equal(s.T(), 1, len(files))
+	require.Equal(s.t, 1, len(files))
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
 
-func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
+func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	if s.s3Helper == nil {
-		s.T().Skip("Skipping S3 test")
+		s.t.Skip("Skipping S3 test")
 	}
 
-	env := s.NewTestWorkflowEnvironment()
-	e2e.RegisterWorkflowsAndActivities(s.T(), env)
+	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	jobName := "test_complete_flow_s3_ctid"
-	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s3Suffix, jobName)
+	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, jobName)
 
 	s.setupSourceTable(jobName, 20000)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", schemaQualifiedName)
@@ -157,7 +152,7 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		false,
 		"",
 	)
-	s.NoError(err)
+	require.NoError(s.t, err)
 	qrepConfig.StagingPath = s.s3Helper.s3Config.Url
 	qrepConfig.NumRowsPerPartition = 2000
 	qrepConfig.InitialCopyOnly = true
@@ -166,10 +161,10 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
-	s.NoError(err)
+	require.NoError(s.t, err)
 
 	// Verify destination has 1 file
 	// make context with timeout
@@ -178,9 +173,9 @@ func (s *PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	files, err := s.s3Helper.ListAllFiles(ctx, jobName)
 
-	require.NoError(s.T(), err)
+	require.NoError(s.t, err)
 
-	require.Equal(s.T(), 10, len(files))
+	require.Equal(s.t, 10, len(files))
 
-	env.AssertExpectations(s.T())
+	env.AssertExpectations(s.t)
 }
