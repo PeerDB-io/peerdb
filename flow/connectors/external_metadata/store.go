@@ -97,22 +97,15 @@ func (p *PostgresMetadataStore) NeedsSetupMetadata() bool {
 }
 
 func (p *PostgresMetadataStore) SetupMetadata() error {
-	// start a transaction
-	tx, err := p.pool.Begin(p.ctx)
-	if err != nil {
-		p.logger.Error("failed to start transaction", slog.Any("error", err))
-		return err
-	}
-
 	// create the schema
-	_, err = tx.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
+	_, err := p.pool.Exec(p.ctx, "CREATE SCHEMA IF NOT EXISTS "+p.schemaName)
 	if err != nil && !utils.IsUniqueError(err) {
 		p.logger.Error("failed to create schema", slog.Any("error", err))
 		return err
 	}
 
 	// create the last sync state table
-	_, err = tx.Exec(p.ctx, `
+	_, err = p.pool.Exec(p.ctx, `
 		CREATE TABLE IF NOT EXISTS `+p.schemaName+`.`+lastSyncStateTableName+` (
 			job_name TEXT PRIMARY KEY NOT NULL,
 			last_offset BIGINT NOT NULL,
@@ -126,14 +119,6 @@ func (p *PostgresMetadataStore) SetupMetadata() error {
 	}
 
 	p.logger.Info(fmt.Sprintf("created external metadata table %s.%s", p.schemaName, lastSyncStateTableName))
-
-	// commit the transaction
-	err = tx.Commit(p.ctx)
-	if err != nil {
-		p.logger.Error("failed to commit transaction", slog.Any("error", err))
-		return err
-	}
-
 	return nil
 }
 

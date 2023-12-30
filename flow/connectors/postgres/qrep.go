@@ -477,18 +477,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 
 // SetupQRepMetadataTables function for postgres connector
 func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	createQRepMetadataTableTx, err := c.pool.Begin(c.ctx)
-	if err != nil {
-		return fmt.Errorf("error starting transaction for creating qrep metadata table: %w", err)
-	}
-	defer func() {
-		deferErr := createQRepMetadataTableTx.Rollback(c.ctx)
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for creating qrep metadata table", slog.Any("error", err))
-		}
-	}()
-
-	err = c.createMetadataSchema(createQRepMetadataTableTx)
+	err := c.createMetadataSchema()
 	if err != nil {
 		return fmt.Errorf("error creating metadata schema: %w", err)
 	}
@@ -502,24 +491,19 @@ func (c *PostgresConnector) SetupQRepMetadataTables(config *protos.QRepConfig) e
 		syncFinishTime TIMESTAMP DEFAULT NOW()
 	)`, metadataTableIdentifier.Sanitize())
 	// execute create table query
-	_, err = createQRepMetadataTableTx.Exec(c.ctx, createQRepMetadataTableSQL)
-	if err != nil {
+	_, err = c.pool.Exec(c.ctx, createQRepMetadataTableSQL)
+	if err != nil && !utils.IsUniqueError(err) {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
 	c.logger.Info("Setup metadata table.")
 
 	if config.WriteMode != nil &&
 		config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = createQRepMetadataTableTx.Exec(c.ctx,
+		_, err = c.pool.Exec(c.ctx,
 			fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
 		if err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
-	}
-
-	err = createQRepMetadataTableTx.Commit(c.ctx)
-	if err != nil {
-		return fmt.Errorf("error committing transaction for creating qrep metadata table: %w", err)
 	}
 
 	return nil
