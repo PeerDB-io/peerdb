@@ -2,13 +2,21 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func IsUniqueError(err error) bool {
+	var pgerr *pgconn.PgError
+	return errors.As(err, &pgerr) && pgerr.Code == pgerrcode.UniqueViolation
+}
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig) string {
 	passwordEscaped := url.QueryEscape(pgConfig.Password)

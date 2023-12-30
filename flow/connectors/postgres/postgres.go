@@ -158,7 +158,7 @@ func (c *PostgresConnector) SetupMetadataTables() error {
 	}
 	_, err = createMetadataTablesTx.Exec(c.ctx, fmt.Sprintf(createMirrorJobsTableSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil {
+	if err != nil && !utils.IsUniqueError(err) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 
