@@ -47,7 +47,7 @@ func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsStr
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -71,7 +71,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -82,7 +82,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -105,7 +105,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)

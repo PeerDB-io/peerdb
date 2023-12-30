@@ -19,9 +19,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
+	"github.com/ysmood/got"
 )
 
 type PeerFlowE2ETestSuiteSQLServer struct {
+	got.G
 	t *testing.T
 
 	pool       *pgxpool.Pool
@@ -129,7 +131,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		s.t.Skip("Skipping SQL Server test")
 	}
 
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	numRows := 10
@@ -164,7 +166,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 
 	err := env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -175,5 +177,5 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	err = s.pool.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 
-	require.Equal(s.t, numRows, int(numRowsInDest.Int64))
+	s.Equal(numRows, int(numRowsInDest.Int64))
 }

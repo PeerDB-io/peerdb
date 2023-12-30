@@ -9,36 +9,31 @@ import (
 
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	"go.temporal.io/sdk/testsuite"
 )
 
+const postgresSuffix = "postgres"
+
 type PeerFlowE2ETestSuitePG struct {
-	t *testing.T
+	suite.Suite
+	testsuite.WorkflowTestSuite
 
 	pool      *pgxpool.Pool
 	peer      *protos.Peer
 	connector *connpostgres.PostgresConnector
-	suffix    string
 }
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
-	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuitePG) {
-		err := e2e.TearDownPostgres(s.pool, s.suffix)
-		if err != nil {
-			s.t.Fatal("failed to drop Postgres schema", err)
-		}
-	})
+	suite.Run(t, new(PeerFlowE2ETestSuitePG))
 }
 
-func setupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
-	t.Helper()
-
+// Implement SetupAllSuite interface to setup the test suite
+func (s *PeerFlowE2ETestSuitePG) SetupSuite() {
 	err := godotenv.Load()
 	if err != nil {
 		// it's okay if the .env file is not present
@@ -46,15 +41,14 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	suffix := "pgtest_" + strings.ToLower(shared.RandomString(8))
-
-	pool, err := e2e.SetupPostgres(suffix)
+	pool, err := e2e.SetupPostgres(postgresSuffix)
 	if err != nil || pool == nil {
-		t.Fatal("failed to setup postgres", err)
+		s.Fail("failed to setup postgres", err)
 	}
-	peer := generatePGPeer(e2e.GetTestPostgresConf())
+	s.pool = pool
+	s.peer = generatePGPeer(e2e.GetTestPostgresConf())
 
-	connector, err := connpostgres.NewPostgresConnector(context.Background(),
+	s.connector, err = connpostgres.NewPostgresConnector(context.Background(),
 		&protos.PostgresConfig{
 			Host:     "localhost",
 			Port:     7132,
@@ -62,24 +56,25 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 			Password: "postgres",
 			Database: "postgres",
 		}, false)
-	require.NoError(t, err)
-	return PeerFlowE2ETestSuitePG{
-		t:         t,
-		pool:      pool,
-		peer:      peer,
-		connector: connector,
-		suffix:    suffix,
+	s.NoError(err)
+}
+
+// Implement TearDownAllSuite interface to tear down the test suite
+func (s *PeerFlowE2ETestSuitePG) TearDownSuite() {
+	err := e2e.TearDownPostgres(s.pool, postgresSuffix)
+	if err != nil {
+		s.Fail("failed to drop Postgres schema", err)
 	}
 }
 
-func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.pool, s.suffix, tableName)
-	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.pool, s.suffix, tableName, rowCount)
-	require.NoError(s.t, err)
+func (s *PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
+	err := e2e.CreateTableForQRep(s.pool, postgresSuffix, tableName)
+	s.NoError(err)
+	err = e2e.PopulateSourceTable(s.pool, postgresSuffix, tableName, rowCount)
+	s.NoError(err)
 }
 
-func (s PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified, selector string) error {
+func (s *PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	// Execute the two EXCEPT queries
 	for {
 		err := s.compareQuery(srcSchemaQualified, dstSchemaQualified, selector)
@@ -109,7 +104,7 @@ func (s PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQua
 	return nil
 }
 
-func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualified, selector string) error {
+func (s *PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	query := fmt.Sprintf("SELECT %s FROM %s EXCEPT SELECT %s FROM %s", selector, srcSchemaQualified,
 		selector, dstSchemaQualified)
 	rows, err := s.pool.Query(context.Background(), query)
@@ -143,7 +138,7 @@ func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualif
 	return nil
 }
 
-func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
+func (s *PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 	query := fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s`, dstSchemaQualified)
 
 	rows, _ := s.pool.Query(context.Background(), query)
@@ -164,9 +159,9 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 	return rows.Err()
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+func (s *PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.T(), env)
 
 	numRows := 10
 
@@ -175,14 +170,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	dstTable := "test_qrep_flow_avro_pg_2"
 
-	err := e2e.CreateTableForQRep(s.pool, s.suffix, dstTable)
-	require.NoError(s.t, err)
+	err := e2e.CreateTableForQRep(s.pool, postgresSuffix, dstTable)
+	s.NoError(err)
 
-	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
-	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
+	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, dstTable)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		s.suffix, srcTable)
+		postgresSuffix, srcTable)
 
 	postgresPeer := e2e.GeneratePostgresPeer(e2e.PostgresPort)
 
@@ -196,27 +191,27 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 		true,
 		"",
 	)
-	require.NoError(s.t, err)
+	s.NoError(err)
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	s.NoError(err)
 
 	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
 	if err != nil {
-		require.FailNow(s.t, err.Error())
+		s.FailNow(err.Error())
 	}
 
-	env.AssertExpectations(s.t)
+	env.AssertExpectations(s.T())
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
-	e2e.RegisterWorkflowsAndActivities(s.t, env)
+func (s *PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
+	env := s.NewTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.T(), env)
 
 	numRows := 10
 
@@ -225,11 +220,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_P
 
 	dstTable := "test_qrep_columns_pg_2"
 
-	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
-	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
+	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", postgresSuffix, dstTable)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		s.suffix, srcTable)
+		postgresSuffix, srcTable)
 
 	postgresPeer := e2e.GeneratePostgresPeer(e2e.PostgresPort)
 
@@ -243,20 +238,20 @@ func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_P
 		true,
 		"_PEERDB_SYNCED_AT",
 	)
-	require.NoError(s.t, err)
+	s.NoError(err)
 
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
-	require.NoError(s.t, err)
+	s.NoError(err)
 
 	err = s.checkSyncedAt(dstSchemaQualified)
 	if err != nil {
-		require.FailNow(s.t, err.Error())
+		s.FailNow(err.Error())
 	}
 
-	env.AssertExpectations(s.t)
+	env.AssertExpectations(s.T())
 }
