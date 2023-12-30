@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ysmood/got"
+
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -22,6 +24,7 @@ import (
 )
 
 type PeerFlowE2ETestSuiteSF struct {
+	got.G
 	t *testing.T
 
 	pgSuffix  string
@@ -31,25 +34,25 @@ type PeerFlowE2ETestSuiteSF struct {
 }
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
-	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteSF) {
+	e2eshared.GotSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSF) {
 		err := e2e.TearDownPostgres(s.pool, s.pgSuffix)
 		if err != nil {
 			slog.Error("failed to tear down Postgres", slog.Any("error", err))
-			s.t.FailNow()
+			s.FailNow()
 		}
 
 		if s.sfHelper != nil {
 			err = s.sfHelper.Cleanup()
 			if err != nil {
 				slog.Error("failed to tear down Snowflake", slog.Any("error", err))
-				s.t.FailNow()
+				s.FailNow()
 			}
 		}
 
 		err = s.connector.Close()
 		if err != nil {
 			slog.Error("failed to close Snowflake connector", slog.Any("error", err))
-			s.t.FailNow()
+			s.FailNow()
 		}
 	})
 }
@@ -62,7 +65,7 @@ func (s PeerFlowE2ETestSuiteSF) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, s.pgSuffix)
 }
 
-func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
+func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSF {
 	t.Helper()
 
 	err := godotenv.Load()
@@ -72,20 +75,20 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 		slog.Info("Unable to load .env file, using default values from env")
 	}
 
-	suffix := strings.ToLower(shared.RandomString(8))
+	suffix := shared.RandomString(8)
 	tsSuffix := time.Now().Format("20060102150405")
 	pgSuffix := fmt.Sprintf("sf_%s_%s", strings.ToLower(suffix), tsSuffix)
 
 	pool, err := e2e.SetupPostgres(pgSuffix)
 	if err != nil || pool == nil {
 		slog.Error("failed to setup Postgres", slog.Any("error", err))
-		t.FailNow()
+		g.FailNow()
 	}
 
 	sfHelper, err := NewSnowflakeTestHelper()
 	if err != nil {
 		slog.Error("failed to setup Snowflake", slog.Any("error", err))
-		t.FailNow()
+		g.FailNow()
 	}
 
 	connector, err := connsnowflake.NewSnowflakeConnector(
@@ -95,6 +98,7 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	require.NoError(t, err)
 
 	suite := PeerFlowE2ETestSuiteSF{
+		G:         g,
 		t:         t,
 		pgSuffix:  pgSuffix,
 		pool:      pool,
@@ -106,7 +110,7 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_sf")
@@ -155,7 +159,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -163,7 +167,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 
 	count, err := s.sfHelper.CountRows("test_simple_flow_sf")
 	require.NoError(s.t, err)
-	require.Equal(s.t, 20, count)
+	s.Equal(20, count)
 
 	// check the number of rows where _PEERDB_SYNCED_AT is newer than 5 mins ago
 	// it should match the count.
@@ -172,7 +176,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	require.Equal(s.t, 20, numNewRows)
+	s.Equal(20, numNewRows)
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the Snowflake side
@@ -181,7 +185,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_replica_identity_no_pkey")
@@ -233,7 +237,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -241,13 +245,13 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 
 	count, err := s.sfHelper.CountRows("test_replica_identity_no_pkey")
 	require.NoError(s.t, err)
-	require.Equal(s.t, 20, count)
+	s.Equal(20, count)
 
 	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_invalid_geo_sf_avro_cdc")
@@ -309,7 +313,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -319,11 +323,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	// They should have been filtered out as null on destination
 	lineCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "line")
 	require.NoError(s.t, err)
-	require.Equal(s.t, 6, lineCount)
+	s.Equal(6, lineCount)
 
 	polyCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "poly")
 	require.NoError(s.t, err)
-	require.Equal(s.t, 6, polyCount)
+	s.Equal(6, polyCount)
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
@@ -332,7 +336,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_1")
@@ -388,7 +392,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -399,7 +403,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_2")
@@ -446,6 +450,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 
 		if err != nil {
 			slog.Error("Error executing transaction", slog.Any("error", err))
+			s.FailNow()
 		}
 
 		wg.Done()
@@ -454,7 +459,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -467,7 +472,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_3")
@@ -529,7 +534,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -540,7 +545,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_4")
@@ -595,7 +600,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -606,7 +611,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_sf_5")
@@ -661,7 +666,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -672,7 +677,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_types_sf")
@@ -729,7 +734,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -745,13 +750,13 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		s.t.Log(err)
 	}
 	// Make sure that there are no nulls
-	require.Equal(s.t, noNulls, true)
+	s.Equal(noNulls, true)
 
 	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTable1Name := s.attachSchemaSuffix("test1_sf")
@@ -795,7 +800,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	count1, err := s.sfHelper.CountRows("test1_sf")
@@ -803,14 +808,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 	count2, err := s.sfHelper.CountRows("test2_sf")
 	require.NoError(s.t, err)
 
-	require.Equal(s.t, 1, count1)
-	require.Equal(s.t, 1, count2)
+	s.Equal(1, count1)
+	s.Equal(1, count2)
 
 	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_schema_changes")
@@ -864,7 +869,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
 
 		// alter source table, add column c2 and insert another row.
@@ -893,7 +898,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c2")
 
 		// alter source table, add column c3, drop column c2 and insert another row.
@@ -923,7 +928,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c3")
 
 		// alter source table, drop column c3 and insert another row.
@@ -953,14 +958,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -970,7 +975,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_cpkey")
@@ -1030,7 +1035,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1043,7 +1048,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
@@ -1106,7 +1111,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1119,7 +1124,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
@@ -1178,7 +1183,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -1191,7 +1196,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_exclude_sf")
@@ -1257,7 +1262,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1269,12 +1274,12 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	for _, field := range sfRows.Schema.Fields {
 		require.NotEqual(s.t, field.Name, "c2")
 	}
-	require.Equal(s.t, 5, len(sfRows.Schema.Fields))
-	require.Equal(s.t, 10, len(sfRows.Records))
+	s.Equal(5, len(sfRows.Schema.Fields))
+	s.Equal(10, len(sfRows.Records))
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel")
@@ -1344,7 +1349,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1361,7 +1366,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
@@ -1429,7 +1434,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1440,11 +1445,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	require.Equal(s.t, 1, numNewRows)
+	s.Equal(1, numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
@@ -1516,7 +1521,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1527,11 +1532,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	require.Equal(s.t, 1, numNewRows)
+	s.Equal(1, numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
-	env := e2e.NewTemporalTestWorkflowEnvironment(s.t)
+	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	srcTableName := s.attachSchemaSuffix("test_softdel_iad")
@@ -1591,7 +1596,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	require.True(s.t, env.IsWorkflowCompleted())
+	s.True(env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")
 
@@ -1602,7 +1607,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
-	require.Equal(s.t, 0, numNewRows)
+	s.Equal(0, numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
