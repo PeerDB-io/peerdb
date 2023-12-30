@@ -41,7 +41,9 @@ impl<'a> Migration<'a> {
             return Err(anyhow!("migration filename must contain __"));
         };
         let Ok(version) = f[..__idx].parse() else {
-            return Err(anyhow!("migration filename must have number between V & __"));
+            return Err(anyhow!(
+                "migration filename must have number between V & __"
+            ));
         };
         let name = &f[__idx + 2..];
         Ok(Self {
@@ -128,8 +130,8 @@ impl Catalog {
             .map(Migration::new)
             .collect::<anyhow::Result<Vec<_>>>()?;
         migrations.sort();
-        let tx = self.pg.transaction().await?;
-        let create = tx
+        let create = self
+            .pg
             .query(
                 "create table if not exists refinery_schema_history(\
                 version int4 primary key, name text, applied_on text, checksum text)",
@@ -142,6 +144,7 @@ impl Catalog {
             }
         }
 
+        let tx = self.pg.transaction().await?;
         tx.execute(
             "lock table refinery_schema_history in share update exclusive mode",
             &[],
