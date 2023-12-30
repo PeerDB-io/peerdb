@@ -43,9 +43,6 @@ const SchemaBox = ({
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [expandedSchemas, setExpandedSchemas] = useState<string[]>([]);
   const [tableQuery, setTableQuery] = useState<string>('');
-  const [schemaLoadedSet, setSchemaLoadedSet] = useState<Set<string>>(
-    new Set()
-  );
 
   const [handlingAll, setHandlingAll] = useState(false);
 
@@ -133,14 +130,21 @@ const SchemaBox = ({
     setHandlingAll(false);
   };
 
+  const rowsDoNotHaveSchemaTables = (schema: string) => {
+    return !rows.some((row) => row.schema === schema);
+  };
+
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
-      if (!schemaLoadedSet.has(schemaName)) {
+
+      if (rowsDoNotHaveSchemaTables(schemaName)) {
         setTablesLoading(true);
-        setSchemaLoadedSet((loaded) => new Set(loaded).add(schemaName));
-        fetchTables(sourcePeer, schemaName, peerType).then((tableRows) => {
-          setRows((value) => [...value, ...tableRows]);
+        fetchTables(sourcePeer, schemaName, peerType).then((newRows) => {
+          setRows((oldRows) => [
+            ...oldRows.filter((oldRow) => oldRow.schema !== schema),
+            ...newRows,
+          ]);
           setTablesLoading(false);
         });
       }

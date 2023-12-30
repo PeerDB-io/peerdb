@@ -47,7 +47,6 @@ func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
 		}
 
 		err = s.connector.Close()
-
 		if err != nil {
 			slog.Error("failed to close Snowflake connector", slog.Any("error", err))
 			s.t.FailNow()
@@ -150,7 +149,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 		`, srcTableName), testKey, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 20 rows into the source table")
+		s.t.Log("Inserted 20 rows into the source table")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -228,7 +227,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 		`, srcTableName), i, testKey, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 20 rows into the source table")
+		s.t.Log("Inserted 20 rows into the source table")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -294,7 +293,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 			)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 4 invalid geography rows into the source table")
+		s.t.Log("Inserted 4 invalid geography rows into the source table")
 		for i := 4; i < 10; i++ {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (line,poly) VALUES ($1,$2)
@@ -304,7 +303,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 					"00f03f000000000000000000000000000000000000000000000000")
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 6 valid geography rows and 10 total rows into source")
+		s.t.Log("Inserted 6 valid geography rows and 10 total rows into source")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -383,7 +382,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 			END;
 		`, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -395,7 +394,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_1", `id,t1,t2,k`, false)
+	s.compareTableContentsSF("test_toast_sf_1", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
 }
 
@@ -461,7 +460,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_2", `id,t1,t2,k`, false)
+	s.compareTableContentsSF("test_toast_sf_2", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
 
 	wg.Wait()
@@ -524,7 +523,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName,
 			srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -536,7 +535,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_3", `id,t1,t2,k`, false)
+	s.compareTableContentsSF("test_toast_sf_3", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
 }
 
@@ -590,7 +589,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 			END;
 		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -602,7 +601,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_4", `id,t1,k`, false)
+	s.compareTableContentsSF("test_toast_sf_4", `id,t1,k`)
 	env.AssertExpectations(s.t)
 }
 
@@ -656,7 +655,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 			END;
 		`, srcTableName, srcTableName, srcTableName, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Executed a transaction touching toast columns")
+		s.t.Log("Executed a transaction touching toast columns")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -668,7 +667,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	s.compareTableContentsSF("test_toast_sf_5", `id,t1,t2,k`, false)
+	s.compareTableContentsSF("test_toast_sf_5", `id,t1,t2,k`)
 	env.AssertExpectations(s.t)
 }
 
@@ -743,7 +742,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46",
 	})
 	if err != nil {
-		fmt.Println("error  %w", err)
+		s.t.Log(err)
 	}
 	// Make sure that there are no nulls
 	require.Equal(s.t, noNulls, true)
@@ -848,7 +847,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
 		require.NoError(s.t, err)
-		fmt.Println("Inserted initial row in the source table")
+		s.t.Log("Inserted initial row in the source table")
 
 		// verify we got our first row.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
@@ -866,17 +865,17 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		require.NoError(s.t, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		s.compareTableContentsSF("test_simple_schema_changes", "id,c1", false)
+		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
 
 		// alter source table, add column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Altered source table, added column c2")
+		s.t.Log("Altered source table, added column c2")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c2) VALUES ($1,$2)`, srcTableName), 2, 2)
 		require.NoError(s.t, err)
-		fmt.Println("Inserted row with added c2 in the source table")
+		s.t.Log("Inserted row with added c2 in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
@@ -895,17 +894,17 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		require.NoError(s.t, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c2", false)
+		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c2")
 
 		// alter source table, add column c3, drop column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Altered source table, dropped column c2 and added column c3")
+		s.t.Log("Altered source table, dropped column c2 and added column c3")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c3) VALUES ($1,$2)`, srcTableName), 3, 3)
 		require.NoError(s.t, err)
-		fmt.Println("Inserted row with added c3 in the source table")
+		s.t.Log("Inserted row with added c3 in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
@@ -925,17 +924,17 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		require.NoError(s.t, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c3", false)
+		s.compareTableContentsSF("test_simple_schema_changes", "id,c1,c3")
 
 		// alter source table, drop column c3 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c3`, srcTableName))
 		require.NoError(s.t, err)
-		fmt.Println("Altered source table, dropped column c3")
+		s.t.Log("Altered source table, dropped column c3")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 4)
 		require.NoError(s.t, err)
-		fmt.Println("Inserted row after dropping all columns in the source table")
+		s.t.Log("Inserted row after dropping all columns in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
@@ -955,7 +954,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		require.NoError(s.t, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		s.compareTableContentsSF("test_simple_schema_changes", "id,c1", false)
+		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1015,11 +1014,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		`, srcTableName), i, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		s.t.Log("Inserted 10 rows into the source table")
 
 		// verify we got our 10 rows
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
-		s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t", false)
+		s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t")
 
 		_, err := s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
@@ -1038,7 +1037,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_simple_cpkey", "id,c1,c2,t")
 
 	env.AssertExpectations(s.t)
 }
@@ -1092,7 +1091,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 		`, srcTableName), i, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		s.t.Log("Inserted 10 rows into the source table")
 
 		_, err = rowsTx.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
@@ -1114,7 +1113,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_cpkey_toast1", "id,c1,c2,t,t2", false)
+	s.compareTableContentsSF("test_cpkey_toast1", "id,c1,c2,t,t2")
 
 	env.AssertExpectations(s.t)
 }
@@ -1166,7 +1165,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		`, srcTableName), i, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		s.t.Log("Inserted 10 rows into the source table")
 
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		_, err = s.pool.Exec(context.Background(),
@@ -1186,7 +1185,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_cpkey_toast2", "id,c1,c2,t,t2", false)
+	s.compareTableContentsSF("test_cpkey_toast2", "id,c1,c2,t,t2")
 
 	env.AssertExpectations(s.t)
 }
@@ -1247,7 +1246,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		`, srcTableName), i, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 10 rows into the source table")
+		s.t.Log("Inserted 10 rows into the source table")
 
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		_, err = s.pool.Exec(context.Background(),
@@ -1352,7 +1351,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	wg.Wait()
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_softdel", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_softdel", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
@@ -1435,7 +1434,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_IUD_Same_Batch() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_softdel_iud", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_softdel_iud", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
@@ -1522,7 +1521,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_softdel_ud", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_softdel_ud", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
@@ -1597,11 +1596,74 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	// verify our updates and delete happened
-	s.compareTableContentsSF("test_softdel_iad", "id,c1,c2,t", false)
+	s.compareTableContentsSF("test_softdel_iad", "id,c1,c2,t")
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM %s WHERE _PEERDB_IS_DELETED = TRUE`, dstTableName)
 	numNewRows, err := s.sfHelper.RunIntQuery(newerSyncedAtQuery)
 	require.NoError(s.t, err)
 	require.Equal(s.t, 0, numNewRows)
+}
+
+func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	srcTableName := s.attachSchemaSuffix("testMixedCase")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "testMixedCase")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS e2e_test_%s."%s" (
+			"pulseArmor" SERIAL PRIMARY KEY,
+			"highGold" TEXT NOT NULL,
+			"eVe" TEXT NOT NULL,
+			id SERIAL
+		);
+	`, s.pgSuffix, "testMixedCase"))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_mixed_case"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.sfHelper.Peer,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	require.NoError(s.t, err)
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 20,
+		MaxBatchSize:     100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert 20 rows into the source table
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		// insert 20 rows into the source table
+		for i := 0; i < 20; i++ {
+			testKey := fmt.Sprintf("test_key_%d", i)
+			testValue := fmt.Sprintf("test_value_%d", i)
+			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO e2e_test_%s."%s"("highGold","eVe") VALUES ($1, $2)
+		`, s.pgSuffix, "testMixedCase"), testKey, testValue)
+			require.NoError(s.t, err)
+		}
+		fmt.Println("Inserted 20 rows into the source table")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	s.compareTableContentsWithDiffSelectorsSF("testMixedCase", `"pulseArmor","highGold","eVe",id`,
+		`"pulseArmor","highGold","eVe",id`, true)
+
+	env.AssertExpectations(s.t)
 }

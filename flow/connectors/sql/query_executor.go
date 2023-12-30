@@ -114,7 +114,6 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 	}
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", schemaName, tableName, strings.Join(fields, ", "))
-	fmt.Printf("creating table %s.%s with command %s\n", schemaName, tableName, command)
 
 	_, err := g.db.ExecContext(g.ctx, command)
 	if err != nil {

@@ -6,6 +6,7 @@ linters:
     - dogsled
     - durationcheck
     - errcheck
+    - forbidigo
     - gofumpt
     - gosec
     - gosimple

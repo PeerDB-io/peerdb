@@ -2,7 +2,7 @@
 import { DBType } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
 import { BarLoader } from 'react-spinners/';
 import { TableMapRow } from '../../../dto/MirrorsDTO';
 import { fetchSchemas } from '../handlers';
@@ -27,6 +27,12 @@ const TableMapping = ({
   const [tableColumns, setTableColumns] = useState<
     { tableName: string; columns: string[] }[]
   >([]);
+  const searchedSchemas = useMemo(() => {
+    return allSchemas?.filter((schema) => {
+      return schema.toLowerCase().includes(schemaQuery.toLowerCase());
+    });
+  }, [allSchemas, schemaQuery]);
+
   useEffect(() => {
     fetchSchemas(sourcePeerName).then((res) => setAllSchemas(res));
   }, [sourcePeerName]);
@@ -56,23 +62,19 @@ const TableMapping = ({
         </div>
       </div>
       <div style={{ maxHeight: '70vh', overflow: 'scroll' }}>
-        {allSchemas ? (
-          allSchemas
-            ?.filter((schema) => {
-              return schema.toLowerCase().includes(schemaQuery.toLowerCase());
-            })
-            .map((schema) => (
-              <SchemaBox
-                key={schema}
-                schema={schema}
-                sourcePeer={sourcePeerName}
-                rows={rows}
-                setRows={setRows}
-                tableColumns={tableColumns}
-                setTableColumns={setTableColumns}
-                peerType={peerType}
-              />
-            ))
+        {searchedSchemas ? (
+          searchedSchemas.map((schema) => (
+            <SchemaBox
+              key={schema}
+              schema={schema}
+              sourcePeer={sourcePeerName}
+              rows={rows}
+              setRows={setRows}
+              tableColumns={tableColumns}
+              setTableColumns={setTableColumns}
+              peerType={peerType}
+            />
+          ))
         ) : (
           <div style={loaderContainer}>
             <BarLoader color='#36d7b7' width='40%' />

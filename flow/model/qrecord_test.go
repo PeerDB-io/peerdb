@@ -1,9 +1,11 @@
-package model
+package model_test
 
 import (
 	"math/big"
 	"testing"
 
+	"github.com/PeerDB-io/peer-flow/e2eshared"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -15,17 +17,17 @@ func TestEquals(t *testing.T) {
 
 	tests := []struct {
 		name string
-		q1   QRecord
-		q2   QRecord
+		q1   model.QRecord
+		q2   model.QRecord
 		want bool
 	}{
 		{
 			name: "Equal - Same UUID",
-			q1: QRecord{
+			q1: model.QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal1}},
 			},
-			q2: QRecord{
+			q2: model.QRecord{
 				NumEntries: 1,
 				Entries: []qvalue.QValue{
 					{Kind: qvalue.QValueKindString, Value: uuidVal1.String()},
@@ -35,11 +37,11 @@ func TestEquals(t *testing.T) {
 		},
 		{
 			name: "Not Equal - Different UUID",
-			q1: QRecord{
+			q1: model.QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal1}},
 			},
-			q2: QRecord{
+			q2: model.QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindUUID, Value: uuidVal2}},
 			},
@@ -47,13 +49,13 @@ func TestEquals(t *testing.T) {
 		},
 		{
 			name: "Equal - Same numeric",
-			q1: QRecord{
+			q1: model.QRecord{
 				NumEntries: 1,
 				Entries: []qvalue.QValue{
 					{Kind: qvalue.QValueKindNumeric, Value: big.NewRat(10, 2)},
 				},
 			},
-			q2: QRecord{
+			q2: model.QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindString, Value: "5"}},
 			},
@@ -61,13 +63,13 @@ func TestEquals(t *testing.T) {
 		},
 		{
 			name: "Not Equal - Different numeric",
-			q1: QRecord{
+			q1: model.QRecord{
 				NumEntries: 1,
 				Entries: []qvalue.QValue{
 					{Kind: qvalue.QValueKindNumeric, Value: big.NewRat(10, 2)},
 				},
 			},
-			q2: QRecord{
+			q2: model.QRecord{
 				NumEntries: 1,
 				Entries:    []qvalue.QValue{{Kind: qvalue.QValueKindNumeric, Value: "4.99"}},
 			},
@@ -77,7 +79,7 @@ func TestEquals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.q1.equals(tt.q2), tt.want)
+			assert.Equal(t, e2eshared.CheckQRecordEquality(t, tt.q1, tt.q2), tt.want)
 		})
 	}
 }

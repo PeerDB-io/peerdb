@@ -302,30 +302,36 @@ func (c *SnowflakeConnector) GetCopyTransformation(
 ) (*CopyInfo, error) {
 	colInfo, colsErr := c.getColsFromTable(dstTableName)
 	if colsErr != nil {
-		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
+		return nil, fmt.Errorf("failed to get columns from destination table: %w", colsErr)
 	}
 
 	transformations := make([]string, 0, len(colInfo.ColumnMap))
 	columnOrder := make([]string, 0, len(colInfo.ColumnMap))
-	for colName, colType := range colInfo.ColumnMap {
-		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
-		if colName == syncedAtCol {
-			transformations = append(transformations, fmt.Sprintf("CURRENT_TIMESTAMP AS \"%s\"", colName))
+	for avroColName, colType := range colInfo.ColumnMap {
+		normalizedColName := SnowflakeIdentifierNormalize(avroColName)
+		columnOrder = append(columnOrder, normalizedColName)
+		if avroColName == syncedAtCol {
+			transformations = append(transformations, fmt.Sprintf("CURRENT_TIMESTAMP AS %s", normalizedColName))
 			continue
 		}
+
+		if utils.IsUpper(avroColName) {
+			avroColName = strings.ToLower(avroColName)
+		}
+		// Avro files are written with lowercase in mind, so don't normalize it like everything else
 		switch colType {
 		case "GEOGRAPHY":
 			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
+				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string, true) AS %s", avroColName, normalizedColName))
 		case "GEOMETRY":
 			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
+				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string, true) AS %s", avroColName, normalizedColName))
 		case "NUMBER":
 			transformations = append(transformations,
-				fmt.Sprintf("$1:\"%s\" AS \"%s\"", strings.ToLower(colName), colName))
+				fmt.Sprintf("$1:\"%s\" AS %s", avroColName, normalizedColName))
 		default:
 			transformations = append(transformations,
-				fmt.Sprintf("($1:\"%s\")::%s AS \"%s\"", strings.ToLower(colName), colType, colName))
+				fmt.Sprintf("($1:\"%s\")::%s AS %s", avroColName, colType, normalizedColName))
 		}
 	}
 	transformationSQL := strings.Join(transformations, ",")
@@ -361,14 +367,12 @@ func CopyStageToDestination(
 	if err != nil {
 		return fmt.Errorf("failed to get copy transformation: %w", err)
 	}
-	switch appendMode {
-	case true:
+	if appendMode {
 		err := writeHandler.HandleAppendMode(copyTransformation)
 		if err != nil {
 			return fmt.Errorf("failed to handle append mode: %w", err)
 		}
-
-	case false:
+	} else {
 		upsertKeyCols := config.WriteMode.UpsertKeyColumns
 		err := writeHandler.HandleUpsertMode(allCols, upsertKeyCols, config.WatermarkColumn,
 			config.FlowJobName, copyTransformation)
@@ -428,9 +432,11 @@ func NewSnowflakeAvroWriteHandler(
 func (s *SnowflakeAvroWriteHandler) HandleAppendMode(
 	copyInfo *CopyInfo,
 ) error {
+	parsedDstTable, _ := utils.ParseSchemaTable(s.dstTableName)
 	//nolint:gosec
 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
-		s.dstTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
+		snowflakeSchemaTableNormalize(parsedDstTable), copyInfo.columnsSQL,
+		copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
 	s.connector.logger.Info("running copy command: " + copyCmd)
 	_, err := s.connector.database.ExecContext(s.connector.ctx, copyCmd)
 	if err != nil {
@@ -441,13 +447,12 @@ func (s *SnowflakeAvroWriteHandler) HandleAppendMode(
 	return nil
 }
 
-func GenerateMergeCommand(
+func generateUpsertMergeCommand(
 	allCols []string,
 	upsertKeyCols []string,
-	watermarkCol string,
 	tempTableName string,
 	dstTable string,
-) (string, error) {
+) string {
 	// all cols are acquired from snowflake schema, so let us try to make upsert key cols match the case
 	// and also the watermark col, then the quoting should be fine
 	caseMatchedCols := map[string]string{}
@@ -495,7 +500,7 @@ func GenerateMergeCommand(
 		`, dstTable, selectCmd, upsertKeyClause,
 		updateSetClause, insertColumnsClause, insertValuesClause)
 
-	return mergeCmd, nil
+	return mergeCmd
 }
 
 // HandleUpsertMode handles the upsert mode
@@ -530,10 +535,7 @@ func (s *SnowflakeAvroWriteHandler) HandleUpsertMode(
 	}
 	s.connector.logger.Info("copied file from stage " + s.stage + " to temp table " + tempTableName)
 
-	mergeCmd, err := GenerateMergeCommand(allCols, upsertKeyCols, watermarkCol, tempTableName, s.dstTableName)
-	if err != nil {
-		return fmt.Errorf("failed to generate merge command: %w", err)
-	}
+	mergeCmd := generateUpsertMergeCommand(allCols, upsertKeyCols, tempTableName, s.dstTableName)
 
 	startTime := time.Now()
 	rows, err := s.connector.database.ExecContext(s.connector.ctx, mergeCmd)

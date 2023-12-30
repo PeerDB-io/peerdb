@@ -109,6 +109,5 @@ func SyncFlowWorkflow(ctx workflow.Context,
 		CDCFlowName: config.FlowJobName,
 		Progress:    []string{},
 	})
-
 	return s.executeSyncFlow(ctx, config, options, options.RelationMessageMapping)
 }

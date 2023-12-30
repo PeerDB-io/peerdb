@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/PeerDB-io/peer-flow/model"
+
 	"github.com/ysmood/got"
 )
 
@@ -40,4 +42,24 @@ func ReadFileToBytes(path string) ([]byte, error) {
 	}
 
 	return ret, nil
+}
+
+// checks if two QRecords are identical
+func CheckQRecordEquality(t *testing.T, q model.QRecord, other model.QRecord) bool {
+	t.Helper()
+
+	if q.NumEntries != other.NumEntries {
+		t.Logf("unequal entry count: %d != %d\n", q.NumEntries, other.NumEntries)
+		return false
+	}
+
+	for i, entry := range q.Entries {
+		otherEntry := other.Entries[i]
+		if !entry.Equals(otherEntry) {
+			t.Logf("entry %d: %v != %v\n", i, entry, otherEntry)
+			return false
+		}
+	}
+
+	return true
 }

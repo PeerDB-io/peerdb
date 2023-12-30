@@ -55,7 +55,7 @@ func (c *cdcRecordsStore) initPebbleDB() error {
 	gob.Register(&model.InsertRecord{})
 	gob.Register(&model.UpdateRecord{})
 	gob.Register(&model.DeleteRecord{})
-	gob.Register(&time.Time{})
+	gob.Register(time.Time{})
 	gob.Register(&big.Rat{})
 
 	var err error
@@ -79,7 +79,7 @@ func (c *cdcRecordsStore) Set(key model.TableWithPkey, rec model.Record) error {
 		if c.pebbleDB == nil {
 			slog.Info(fmt.Sprintf("more than %d primary keys read, spilling to disk",
 				c.numRecordsSwitchThreshold),
-				slog.String("flowName", c.flowJobName))
+				slog.String(string(shared.FlowNameKey), c.flowJobName))
 			err := c.initPebbleDB()
 			if err != nil {
 				return err

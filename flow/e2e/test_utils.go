@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
@@ -103,7 +105,6 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 
 			if len(state.NormalizeFlowStatuses) >= minCount {
-				fmt.Println("query indicates setup is complete")
 				break
 			}
 		} else {
@@ -171,7 +172,6 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		return err
 	}
 
-	fmt.Printf("created table on postgres: e2e_test_%s.%s\n", suffix, tableName)
 	return nil
 }
 
@@ -359,14 +359,15 @@ func GetOwnersSchema() *model.QRecordSchema {
 	}
 }
 
-func GetOwnersSelectorString() string {
+func GetOwnersSelectorStringsSF() [2]string {
 	schema := GetOwnersSchema()
-	fields := make([]string, 0, len(schema.Fields))
+	pgFields := make([]string, 0, len(schema.Fields))
+	sfFields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
-		// append quoted field name
-		fields = append(fields, fmt.Sprintf(`"%s"`, field.Name))
+		pgFields = append(pgFields, fmt.Sprintf(`"%s"`, field.Name))
+		sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
 	}
-	return strings.Join(fields, ",")
+	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
 }
 
 type tlogWriter struct {
@@ -424,4 +425,42 @@ func (l *TStructuredLogger) Warn(msg string, keyvals ...interface{}) {
 
 func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
 	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
+}
+
+// Equals checks if two QRecordBatches are identical.
+func RequireEqualRecordBatchs(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) bool {
+	t.Helper()
+
+	if other == nil {
+		t.Log("other is nil")
+		return q == nil
+	}
+
+	// First check simple attributes
+	if q.NumRecords != other.NumRecords {
+		// print num records
+		t.Logf("q.NumRecords: %d", q.NumRecords)
+		t.Logf("other.NumRecords: %d", other.NumRecords)
+		return false
+	}
+
+	// Compare column names
+	if !q.Schema.EqualNames(other.Schema) {
+		t.Log("Column names are not equal")
+		t.Logf("Schema 1: %v", q.Schema.GetColumnNames())
+		t.Logf("Schema 2: %v", other.Schema.GetColumnNames())
+		return false
+	}
+
+	// Compare records
+	for i, record := range q.Records {
+		if !e2eshared.CheckQRecordEquality(t, record, other.Records[i]) {
+			t.Logf("Record %d is not equal", i)
+			t.Logf("Record 1: %v", record)
+			t.Logf("Record 2: %v", other.Records[i])
+			return false
+		}
+	}
+
+	return true
 }

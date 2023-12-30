@@ -557,6 +557,7 @@ func (c *PostgresConnector) GetTableSchema(
 		}
 		res[tableName] = tableSchema
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("fetched schema for table %s", tableName))
+		c.logger.Info(fmt.Sprintf("fetched schema for table %s", tableName))
 	}
 
 	return &protos.GetTableSchemaBatchOutput{
@@ -774,7 +775,7 @@ func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatch
 }
 
 // SetupReplication sets up replication for the source connector.
-func (c *PostgresConnector) SetupReplication(signal *SlotSignal, req *protos.SetupReplicationInput) error {
+func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.SetupReplicationInput) error {
 	// ensure that the flowjob name is [a-z0-9_] only
 	reg := regexp.MustCompile(`^[a-z0-9_]+$`)
 	if !reg.MatchString(req.FlowJobName) {

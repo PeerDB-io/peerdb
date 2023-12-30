@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -23,6 +24,8 @@ import (
 	"github.com/lib/pq/oid"
 	"go.temporal.io/sdk/activity"
 )
+
+const maxRetriesForWalSegmentRemoved = 5
 
 type PostgresCDCSource struct {
 	ctx                    context.Context
@@ -44,6 +47,8 @@ type PostgresCDCSource struct {
 	// for storing chema delta audit logs to catalog
 	catalogPool *pgxpool.Pool
 	flowJobName string
+
+	walSegmentRemovedRegex *regexp.Regexp
 }
 
 type PostgresCDCConfig struct {
@@ -59,12 +64,21 @@ type PostgresCDCConfig struct {
 	SetLastOffset          func(int64) error
 }
 
+type startReplicationOpts struct {
+	conn            *pgconn.PgConn
+	startLSN        pglogrepl.LSN
+	replicationOpts pglogrepl.StartReplicationOptions
+}
+
 // Create a new PostgresCDCSource
 func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32]string) (*PostgresCDCSource, error) {
 	childToParentRelIDMap, err := getChildToParentRelIDMap(cdcConfig.AppContext, cdcConfig.Connection)
 	if err != nil {
 		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
+
+	pattern := "requested WAL segment .* has already been removed.*"
+	regex := regexp.MustCompile(pattern)
 
 	flowName, _ := cdcConfig.AppContext.Value(shared.FlowNameKey).(string)
 	return &PostgresCDCSource{
@@ -83,6 +97,7 @@ func NewPostgresCDCSource(cdcConfig *PostgresCDCConfig, customTypeMap map[uint32
 		logger:                    *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 		catalogPool:               cdcConfig.CatalogPool,
 		flowJobName:               cdcConfig.FlowJobName,
+		walSegmentRemovedRegex:    regex,
 	}, nil
 }
 
@@ -120,20 +135,10 @@ func getChildToParentRelIDMap(ctx context.Context, pool *pgxpool.Pool) (map[uint
 
 // PullRecords pulls records from the cdc stream
 func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
-	// setup options
-	pluginArguments := []string{
-		"proto_version '1'",
+	replicationOpts, err := p.replicationOptions()
+	if err != nil {
+		return fmt.Errorf("error getting replication options: %w", err)
 	}
-
-	if p.publication != "" {
-		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
-		pluginArguments = append(pluginArguments, pubOpt)
-	} else {
-		return fmt.Errorf("publication name is not set")
-	}
-
-	replicationOpts := pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}
-	replicationSlot := p.slot
 
 	// create replication connection
 	replicationConn, err := p.replPool.Acquire(p.ctx)
@@ -146,13 +151,6 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 	pgConn := replicationConn.Conn().PgConn()
 	p.logger.Info("created replication connection")
 
-	sysident, err := pglogrepl.IdentifySystem(p.ctx, pgConn)
-	if err != nil {
-		return fmt.Errorf("IdentifySystem failed: %w", err)
-	}
-	p.logger.Debug(fmt.Sprintf("SystemID: %s, Timeline: %d, XLogPos: %d, DBName: %s",
-		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName))
-
 	// start replication
 	var clientXLogPos, startLSN pglogrepl.LSN
 	if req.LastOffset > 0 {
@@ -161,13 +159,46 @@ func (p *PostgresCDCSource) PullRecords(req *model.PullRecordsRequest) error {
 		startLSN = clientXLogPos + 1
 	}
 
-	err = pglogrepl.StartReplication(p.ctx, pgConn, replicationSlot, startLSN, replicationOpts)
-	if err != nil {
-		return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
+	opts := startReplicationOpts{
+		conn:            pgConn,
+		startLSN:        startLSN,
+		replicationOpts: *replicationOpts,
 	}
+
+	err = p.startReplication(opts)
+	if err != nil {
+		return fmt.Errorf("error starting replication: %w", err)
+	}
+
 	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, startLSN))
 
 	return p.consumeStream(pgConn, req, clientXLogPos, req.RecordStream)
+}
+
+func (p *PostgresCDCSource) startReplication(opts startReplicationOpts) error {
+	err := pglogrepl.StartReplication(p.ctx, opts.conn, p.slot, opts.startLSN, opts.replicationOpts)
+	if err != nil {
+		p.logger.Error("error starting replication", slog.Any("error", err))
+		return fmt.Errorf("error starting replication at startLsn - %d: %w", opts.startLSN, err)
+	}
+
+	p.logger.Info(fmt.Sprintf("started replication on slot %s at startLSN: %d", p.slot, opts.startLSN))
+	return nil
+}
+
+func (p *PostgresCDCSource) replicationOptions() (*pglogrepl.StartReplicationOptions, error) {
+	pluginArguments := []string{
+		"proto_version '1'",
+	}
+
+	if p.publication != "" {
+		pubOpt := fmt.Sprintf("publication_names '%s'", p.publication)
+		pluginArguments = append(pluginArguments, pubOpt)
+	} else {
+		return nil, fmt.Errorf("publication name is not set")
+	}
+
+	return &pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments}, nil
 }
 
 // start consuming the cdc stream
@@ -204,7 +235,7 @@ func (p *PostgresCDCSource) consumeStream(
 		if cdcRecordsStorage.IsEmpty() {
 			records.SignalAsEmpty()
 		}
-		records.RelationMessageMapping <- &p.relationMessageMapping
+		records.RelationMessageMapping <- p.relationMessageMapping
 		p.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len()))
 		err := cdcRecordsStorage.Close()
 		if err != nil {
@@ -250,6 +281,7 @@ func (p *PostgresCDCSource) consumeStream(
 
 	pkmRequiresResponse := false
 	waitingForCommit := false
+	retryAttemptForWALSegmentRemoved := 0
 
 	for {
 		if pkmRequiresResponse {
@@ -324,6 +356,20 @@ func (p *PostgresCDCSource) consumeStream(
 		}
 
 		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
+			if errMsg.Severity == "ERROR" && errMsg.Code == "XX000" {
+				if p.walSegmentRemovedRegex.MatchString(errMsg.Message) {
+					retryAttemptForWALSegmentRemoved++
+					if retryAttemptForWALSegmentRemoved > maxRetriesForWalSegmentRemoved {
+						return fmt.Errorf("max retries for WAL segment removed exceeded: %+v", errMsg)
+					} else {
+						p.logger.Warn(fmt.Sprintf(
+							"WAL segment removed, restarting replication retrying in 30 seconds..."),
+							slog.Any("error", errMsg), slog.Int("retryAttempt", retryAttemptForWALSegmentRemoved))
+						time.Sleep(30 * time.Second)
+						continue
+					}
+				}
+			}
 			return fmt.Errorf("received Postgres WAL error: %+v", errMsg)
 		}
 

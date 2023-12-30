@@ -18,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,35 +30,18 @@ type PeerFlowE2ETestSuiteSQLServer struct {
 }
 
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
-	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
+	e2eshared.GotSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
 		err := e2e.TearDownPostgres(s.pool, s.suffix)
-		if err != nil {
-			require.Fail(s.t, "failed to drop Postgres schema", err)
-		}
+		require.NoError(s.t, err)
 
 		if s.sqlsHelper != nil {
 			err = s.sqlsHelper.CleanUp()
-			if err != nil {
-				require.Fail(s.t, "failed to clean up sqlserver", err)
-			}
+			require.NoError(s.t, err)
 		}
 	})
 }
 
-func setupSQLServer(t *testing.T) *SQLServerHelper {
-	t.Helper()
-
-	env := os.Getenv("ENABLE_SQLSERVER_TESTS")
-	if env != "true" {
-		return nil
-	}
-
-	sqlsHelper, err := NewSQLServerHelper("test_sqlserver_peer")
-	require.NoError(t, err)
-	return sqlsHelper
-}
-
-func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
+func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSQLServer {
 	t.Helper()
 
 	err := godotenv.Load()
@@ -71,14 +53,24 @@ func setupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 
 	suffix := "sqls_" + strings.ToLower(shared.RandomString(8))
 	pool, err := e2e.SetupPostgres(suffix)
-	if err != nil || pool == nil {
-		require.Fail(t, "failed to setup postgres", err)
+	if err != nil {
+		require.NoError(t, err)
+	}
+
+	var sqlsHelper *SQLServerHelper
+	env := os.Getenv("ENABLE_SQLSERVER_TESTS")
+	if env != "true" {
+		sqlsHelper = nil
+	} else {
+		sqlsHelper, err = NewSQLServerHelper("test_sqlserver_peer")
+		require.NoError(t, err)
 	}
 
 	return PeerFlowE2ETestSuiteSQLServer{
+		G:          g,
 		t:          t,
 		pool:       pool,
-		sqlsHelper: setupSQLServer(t),
+		sqlsHelper: sqlsHelper,
 		suffix:     suffix,
 	}
 }

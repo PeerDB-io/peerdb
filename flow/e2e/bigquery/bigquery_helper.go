@@ -100,7 +100,6 @@ func (b *BigQueryTestHelper) datasetExists(datasetName string) (bool, error) {
 	if err != nil {
 		// if err message contains `notFound` then dataset does not exist.
 		if strings.Contains(err.Error(), "notFound") {
-			fmt.Printf("dataset %s does not exist\n", b.Config.DatasetId)
 			return false, nil
 		}
 
@@ -134,7 +133,6 @@ func (b *BigQueryTestHelper) RecreateDataset() error {
 		return fmt.Errorf("failed to create dataset: %w", err)
 	}
 
-	fmt.Printf("created dataset %s successfully\n", b.datasetName)
 	return nil
 }
 
@@ -305,7 +303,6 @@ func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, erro
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
 	it, err := b.client.Query(query).Read(context.Background())
 	if err != nil {
-		fmt.Printf("failed to run command: %v\n", err)
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
 
@@ -317,7 +314,6 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 			break
 		}
 		if err != nil {
-			fmt.Printf("failed to iterate over query results: %v\n", err)
 			return nil, fmt.Errorf("failed to iterate over query results: %w", err)
 		}
 
@@ -446,7 +442,6 @@ func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecord
 	}
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.datasetName, tableName, strings.Join(fields, ", "))
-	fmt.Printf("creating table %s with command %s\n", tableName, command)
 
 	err := b.RunCommand(command)
 	if err != nil {

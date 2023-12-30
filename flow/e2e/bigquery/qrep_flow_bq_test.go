@@ -23,7 +23,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupBQDestinationTable(dstTable string) {
 	// fail if table creation fails
 	require.NoError(s.t, err)
 
-	fmt.Printf("created table on bigquery: %s.%s. %v\n", s.bqHelper.Config.DatasetId, dstTable, err)
+	s.t.Logf("created table on bigquery: %s.%s. %v", s.bqHelper.Config.DatasetId, dstTable, err)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsString string) {
@@ -39,11 +39,11 @@ func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsStr
 	// read rows from destination table
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
-	fmt.Printf("running query on bigquery: %s\n", bqSelQuery)
+	s.t.Logf("running query on bigquery: %s", bqSelQuery)
 	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
 	require.NoError(s.t, err)
 
-	require.True(s.t, pgRows.Equals(bqRows))
+	e2e.RequireEqualRecordBatchs(s.t, pgRows, bqRows)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
