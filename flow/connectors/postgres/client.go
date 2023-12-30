@@ -374,7 +374,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 
 func (c *PostgresConnector) createMetadataSchema(createSchemaTx pgx.Tx) error {
 	_, err := createSchemaTx.Exec(c.ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
-	if err != nil {
+	if err != nil && !utils.IsUniqueError(err) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
 	return nil
