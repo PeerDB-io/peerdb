@@ -551,7 +551,7 @@ func (c *PostgresConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(tableName)
+		tableSchema, err := c.getTableSchemaForTable(tableName, req.SkipPkeyAndReplicaCheck)
 		if err != nil {
 			return nil, err
 		}
@@ -567,20 +567,27 @@ func (c *PostgresConnector) GetTableSchema(
 
 func (c *PostgresConnector) getTableSchemaForTable(
 	tableName string,
+	skipPkeyAndReplicaCheck bool,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, err
 	}
 
-	replicaIdentityType, replErr := c.getReplicaIdentityType(schemaTable)
-	if replErr != nil {
-		return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
-	}
+	var pKeyCols []string
+	var replicaIdentityType ReplicaIdentityType
+	if !skipPkeyAndReplicaCheck {
+		var replErr error
+		replicaIdentityType, replErr = c.getReplicaIdentityType(schemaTable)
+		if replErr != nil {
+			return nil, fmt.Errorf("[getTableSchema]:error getting replica identity for table %s: %w", schemaTable, replErr)
+		}
 
-	pKeyCols, err := c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
-	if err != nil {
-		return nil, fmt.Errorf("error getting primary key column for table %s: %w", schemaTable, err)
+		var err error
+		pKeyCols, err = c.getPrimaryKeyColumns(replicaIdentityType, schemaTable)
+		if err != nil {
+			return nil, fmt.Errorf("[getTableSchema]:error getting primary key column for table %s: %w", schemaTable, err)
+		}
 	}
 
 	// Get the column names and types
@@ -731,7 +738,8 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 }
 
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
-func (c *PostgresConnector) EnsurePullability(req *protos.EnsurePullabilityBatchInput,
+func (c *PostgresConnector) EnsurePullability(
+	req *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	tableIdentifierMapping := make(map[string]*protos.TableIdentifier)
 	for _, tableName := range req.SourceTableIdentifiers {

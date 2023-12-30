@@ -319,6 +319,7 @@ export interface GetTableSchemaBatchInput {
   peerConnectionConfig: Peer | undefined;
   tableIdentifiers: string[];
   flowName: string;
+  skipPkeyAndReplicaCheck: boolean;
 }
 
 export interface GetTableSchemaBatchOutput {
@@ -4136,7 +4137,7 @@ export const TableSchema_ColumnsEntry = {
 };
 
 function createBaseGetTableSchemaBatchInput(): GetTableSchemaBatchInput {
-  return { peerConnectionConfig: undefined, tableIdentifiers: [], flowName: "" };
+  return { peerConnectionConfig: undefined, tableIdentifiers: [], flowName: "", skipPkeyAndReplicaCheck: false };
 }
 
 export const GetTableSchemaBatchInput = {
@@ -4149,6 +4150,9 @@ export const GetTableSchemaBatchInput = {
     }
     if (message.flowName !== "") {
       writer.uint32(26).string(message.flowName);
+    }
+    if (message.skipPkeyAndReplicaCheck === true) {
+      writer.uint32(32).bool(message.skipPkeyAndReplicaCheck);
     }
     return writer;
   },
@@ -4181,6 +4185,13 @@ export const GetTableSchemaBatchInput = {
 
           message.flowName = reader.string();
           continue;
+        case 4:
+          if (tag !== 32) {
+            break;
+          }
+
+          message.skipPkeyAndReplicaCheck = reader.bool();
+          continue;
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4197,6 +4208,7 @@ export const GetTableSchemaBatchInput = {
         ? object.tableIdentifiers.map((e: any) => String(e))
         : [],
       flowName: isSet(object.flowName) ? String(object.flowName) : "",
+      skipPkeyAndReplicaCheck: isSet(object.skipPkeyAndReplicaCheck) ? Boolean(object.skipPkeyAndReplicaCheck) : false,
     };
   },
 
@@ -4211,6 +4223,9 @@ export const GetTableSchemaBatchInput = {
     if (message.flowName !== "") {
       obj.flowName = message.flowName;
     }
+    if (message.skipPkeyAndReplicaCheck === true) {
+      obj.skipPkeyAndReplicaCheck = message.skipPkeyAndReplicaCheck;
+    }
     return obj;
   },
 
@@ -4224,6 +4239,7 @@ export const GetTableSchemaBatchInput = {
       : undefined;
     message.tableIdentifiers = object.tableIdentifiers?.map((e) => e) || [];
     message.flowName = object.flowName ?? "";
+    message.skipPkeyAndReplicaCheck = object.skipPkeyAndReplicaCheck ?? false;
     return message;
   },
 };

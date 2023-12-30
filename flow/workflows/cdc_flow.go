@@ -272,6 +272,7 @@ func CDCFlowWorkflowWithConfig(
 
 		state.SnapshotComplete = true
 		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
+
 		// if initial_copy_only is opted for, we end the flow here.
 		if cfg.InitialCopyOnly {
 			return nil, nil

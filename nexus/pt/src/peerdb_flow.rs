@@ -324,6 +324,8 @@ pub struct GetTableSchemaBatchInput {
     pub table_identifiers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, tag="3")]
     pub flow_name: ::prost::alloc::string::String,
+    #[prost(bool, tag="4")]
+    pub skip_pkey_and_replica_check: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

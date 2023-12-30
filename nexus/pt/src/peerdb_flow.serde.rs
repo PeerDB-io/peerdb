@@ -1957,6 +1957,9 @@ impl serde::Serialize for GetTableSchemaBatchInput {
         if !self.flow_name.is_empty() {
             len += 1;
         }
+        if self.skip_pkey_and_replica_check {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.GetTableSchemaBatchInput", len)?;
         if let Some(v) = self.peer_connection_config.as_ref() {
             struct_ser.serialize_field("peerConnectionConfig", v)?;
@@ -1966,6 +1969,9 @@ impl serde::Serialize for GetTableSchemaBatchInput {
         }
         if !self.flow_name.is_empty() {
             struct_ser.serialize_field("flowName", &self.flow_name)?;
+        }
+        if self.skip_pkey_and_replica_check {
+            struct_ser.serialize_field("skipPkeyAndReplicaCheck", &self.skip_pkey_and_replica_check)?;
         }
         struct_ser.end()
     }
@@ -1983,6 +1989,8 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
             "tableIdentifiers",
             "flow_name",
             "flowName",
+            "skip_pkey_and_replica_check",
+            "skipPkeyAndReplicaCheck",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1990,6 +1998,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
             PeerConnectionConfig,
             TableIdentifiers,
             FlowName,
+            SkipPkeyAndReplicaCheck,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2015,6 +2024,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                             "peerConnectionConfig" | "peer_connection_config" => Ok(GeneratedField::PeerConnectionConfig),
                             "tableIdentifiers" | "table_identifiers" => Ok(GeneratedField::TableIdentifiers),
                             "flowName" | "flow_name" => Ok(GeneratedField::FlowName),
+                            "skipPkeyAndReplicaCheck" | "skip_pkey_and_replica_check" => Ok(GeneratedField::SkipPkeyAndReplicaCheck),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2037,6 +2047,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                 let mut peer_connection_config__ = None;
                 let mut table_identifiers__ = None;
                 let mut flow_name__ = None;
+                let mut skip_pkey_and_replica_check__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::PeerConnectionConfig => {
@@ -2057,6 +2068,12 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                             }
                             flow_name__ = Some(map.next_value()?);
                         }
+                        GeneratedField::SkipPkeyAndReplicaCheck => {
+                            if skip_pkey_and_replica_check__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("skipPkeyAndReplicaCheck"));
+                            }
+                            skip_pkey_and_replica_check__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -2066,6 +2083,7 @@ impl<'de> serde::Deserialize<'de> for GetTableSchemaBatchInput {
                     peer_connection_config: peer_connection_config__,
                     table_identifiers: table_identifiers__.unwrap_or_default(),
                     flow_name: flow_name__.unwrap_or_default(),
+                    skip_pkey_and_replica_check: skip_pkey_and_replica_check__.unwrap_or_default(),
                 })
             }
         }
