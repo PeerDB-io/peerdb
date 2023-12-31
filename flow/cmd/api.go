@@ -29,8 +29,8 @@ import (
 
 type APIServerParams struct {
 	ctx               context.Context
-	Port              uint
-	GatewayPort       uint
+	Port              uint16
+	GatewayPort       uint16
 	TemporalHostPort  string
 	TemporalNamespace string
 	TemporalCert      string
