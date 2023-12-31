@@ -9,7 +9,7 @@ import (
 	"syscall"
 
 	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 	_ "go.uber.org/automaxprocs"
 )
 
@@ -29,56 +29,56 @@ func main() {
 	temporalHostPortFlag := &cli.StringFlag{
 		Name:    "temporal-host-port",
 		Value:   "localhost:7233",
-		EnvVars: []string{"TEMPORAL_HOST_PORT"},
+		Sources: cli.EnvVars("TEMPORAL_HOST_PORT"),
 	}
 
 	temporalCertFlag := cli.StringFlag{
 		Name:    "temporal-cert",
 		Value:   "", // default: no cert needed
-		EnvVars: []string{"TEMPORAL_CLIENT_CERT"},
+		Sources: cli.EnvVars("TEMPORAL_CLIENT_CERT"),
 	}
 
 	temporalKeyFlag := cli.StringFlag{
 		Name:    "temporal-key",
 		Value:   "", // default: no key needed
-		EnvVars: []string{"TEMPORAL_CLIENT_KEY"},
+		Sources: cli.EnvVars("TEMPORAL_CLIENT_KEY"),
 	}
 
 	profilingFlag := &cli.BoolFlag{
 		Name:    "enable-profiling",
 		Value:   false, // Default is off
 		Usage:   "Enable profiling for the application",
-		EnvVars: []string{"ENABLE_PROFILING"},
+		Sources: cli.EnvVars("ENABLE_PROFILING"),
 	}
 
 	pyroscopeServerFlag := &cli.StringFlag{
 		Name:    "pyroscope-server-address",
 		Value:   "http://pyroscope:4040",
 		Usage:   "HTTP server address for pyroscope",
-		EnvVars: []string{"PYROSCOPE_SERVER_ADDRESS"},
+		Sources: cli.EnvVars("PYROSCOPE_SERVER_ADDRESS"),
 	}
 
 	temporalNamespaceFlag := &cli.StringFlag{
 		Name:    "temporal-namespace",
 		Value:   "default",
 		Usage:   "Temporal namespace to use for workflow orchestration",
-		EnvVars: []string{"PEERDB_TEMPORAL_NAMESPACE"},
+		Sources: cli.EnvVars("PEERDB_TEMPORAL_NAMESPACE"),
 	}
 
-	app := &cli.App{
+	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Commands: []*cli.Command{
 			{
 				Name: "worker",
-				Action: func(ctx *cli.Context) error {
-					temporalHostPort := ctx.String("temporal-host-port")
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					temporalHostPort := cmd.String("temporal-host-port")
 					return WorkerMain(&WorkerOptions{
 						TemporalHostPort:  temporalHostPort,
-						EnableProfiling:   ctx.Bool("enable-profiling"),
-						PyroscopeServer:   ctx.String("pyroscope-server-address"),
-						TemporalNamespace: ctx.String("temporal-namespace"),
-						TemporalCert:      ctx.String("temporal-cert"),
-						TemporalKey:       ctx.String("temporal-key"),
+						EnableProfiling:   cmd.Bool("enable-profiling"),
+						PyroscopeServer:   cmd.String("pyroscope-server-address"),
+						TemporalNamespace: cmd.String("temporal-namespace"),
+						TemporalCert:      cmd.String("temporal-cert"),
+						TemporalKey:       cmd.String("temporal-key"),
 					})
 				},
 				Flags: []cli.Flag{
@@ -92,13 +92,13 @@ func main() {
 			},
 			{
 				Name: "snapshot-worker",
-				Action: func(ctx *cli.Context) error {
-					temporalHostPort := ctx.String("temporal-host-port")
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					temporalHostPort := cmd.String("temporal-host-port")
 					return SnapshotWorkerMain(&SnapshotWorkerOptions{
 						TemporalHostPort:  temporalHostPort,
-						TemporalNamespace: ctx.String("temporal-namespace"),
-						TemporalCert:      ctx.String("temporal-cert"),
-						TemporalKey:       ctx.String("temporal-key"),
+						TemporalNamespace: cmd.String("temporal-namespace"),
+						TemporalCert:      cmd.String("temporal-cert"),
+						TemporalKey:       cmd.String("temporal-key"),
 					})
 				},
 				Flags: []cli.Flag{
@@ -126,24 +126,24 @@ func main() {
 					&temporalCertFlag,
 					&temporalKeyFlag,
 				},
-				Action: func(ctx *cli.Context) error {
-					temporalHostPort := ctx.String("temporal-host-port")
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					temporalHostPort := cmd.String("temporal-host-port")
 
 					return APIMain(&APIServerParams{
 						ctx:               appCtx,
-						Port:              ctx.Uint("port"),
+						Port:              uint16(cmd.Uint("port")),
 						TemporalHostPort:  temporalHostPort,
-						GatewayPort:       ctx.Uint("gateway-port"),
-						TemporalNamespace: ctx.String("temporal-namespace"),
-						TemporalCert:      ctx.String("temporal-cert"),
-						TemporalKey:       ctx.String("temporal-key"),
+						GatewayPort:       uint16(cmd.Uint("gateway-port")),
+						TemporalNamespace: cmd.String("temporal-namespace"),
+						TemporalCert:      cmd.String("temporal-cert"),
+						TemporalKey:       cmd.String("temporal-key"),
 					})
 				},
 			},
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	if err := app.Run(context.Background(), os.Args); err != nil {
 		log.Fatalf("error running app: %v", err)
 	}
 }
