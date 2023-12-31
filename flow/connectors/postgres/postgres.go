@@ -141,31 +141,17 @@ func (c *PostgresConnector) NeedsSetupMetadataTables() bool {
 
 // SetupMetadataTables sets up the metadata tables.
 func (c *PostgresConnector) SetupMetadataTables() error {
-	createMetadataTablesTx, err := c.pool.Begin(c.ctx)
-	if err != nil {
-		return fmt.Errorf("error starting transaction for creating metadata tables: %w", err)
-	}
-	defer func() {
-		deferErr := createMetadataTablesTx.Rollback(c.ctx)
-		if deferErr != pgx.ErrTxClosed && deferErr != nil {
-			c.logger.Error("error rolling back transaction for creating metadata tables", slog.Any("error", err))
-		}
-	}()
-
-	err = c.createMetadataSchema(createMetadataTablesTx)
+	err := c.createMetadataSchema()
 	if err != nil {
 		return err
 	}
-	_, err = createMetadataTablesTx.Exec(c.ctx, fmt.Sprintf(createMirrorJobsTableSQL,
+
+	_, err = c.pool.Exec(c.ctx, fmt.Sprintf(createMirrorJobsTableSQL,
 		c.metadataSchema, mirrorJobsTableIdentifier))
 	if err != nil && !utils.IsUniqueError(err) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 
-	err = createMetadataTablesTx.Commit(c.ctx)
-	if err != nil {
-		return fmt.Errorf("error committing transaction for creating metadata tables: %w", err)
-	}
 	return nil
 }
 
@@ -507,6 +493,11 @@ type SlotCheckResult struct {
 func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 
+	err := c.createMetadataSchema()
+	if err != nil {
+		return nil, fmt.Errorf("error creating internal schema: %w", err)
+	}
+
 	createRawTableTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error starting transaction for creating raw table: %w", err)
@@ -518,10 +509,6 @@ func (c *PostgresConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 		}
 	}()
 
-	err = c.createMetadataSchema(createRawTableTx)
-	if err != nil {
-		return nil, fmt.Errorf("error creating internal schema: %w", err)
-	}
 	_, err = createRawTableTx.Exec(c.ctx, fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier))
 	if err != nil {
 		return nil, fmt.Errorf("error creating raw table: %w", err)
