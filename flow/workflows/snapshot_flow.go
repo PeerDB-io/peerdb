@@ -16,7 +16,6 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
-	"golang.org/x/exp/maps"
 )
 
 type SnapshotFlowExecution struct {
@@ -141,11 +140,11 @@ func (s *SnapshotFlowExecution) cloneTable(
 	if len(mapping.Exclude) != 0 {
 		for _, v := range s.config.TableNameSchemaMapping {
 			if v.TableIdentifier == srcName {
-				cols := maps.Keys(v.Columns)
-				for i, col := range cols {
-					cols[i] = fmt.Sprintf(`"%s"`, col)
+				colNames := utils.TableSchemaColumnNames(v)
+				for i, colName := range colNames {
+					colNames[i] = fmt.Sprintf(`"%s"`, colName)
 				}
-				from = strings.Join(cols, ",")
+				from = strings.Join(colNames, ",")
 				break
 			}
 		}

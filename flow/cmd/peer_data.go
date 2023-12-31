@@ -178,7 +178,8 @@ func (h *FlowRequestHandler) GetColumns(
 			cols.column_name = pk.column_name
 		WHERE
 			cols.table_schema = $3
-			AND cols.table_name = $4;
+			AND cols.table_name = $4
+		ORDER BY cols.ordinal_position;
 	`, req.SchemaName, req.TableName, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err

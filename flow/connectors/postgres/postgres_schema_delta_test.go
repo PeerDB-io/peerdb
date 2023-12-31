@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/jackc/pgx/v5"
@@ -94,11 +95,9 @@ func (suite *PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	})
 	suite.failTestError(err)
 	suite.Equal(&protos.TableSchema{
-		TableIdentifier: tableName,
-		Columns: map[string]string{
-			"id": string(qvalue.QValueKindInt32),
-			"hi": string(qvalue.QValueKindInt64),
-		},
+		TableIdentifier:   tableName,
+		ColumnNames:       []string{"id", "hi"},
+		ColumnTypes:       []string{string(qvalue.QValueKindInt32), string(qvalue.QValueKindInt64)},
 		PrimaryKeyColumns: []string{"id"},
 	}, output.TableNameSchemaMapping[tableName])
 }
@@ -112,36 +111,40 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
 		// goal is to test all types we're currently mapping to, not all QValue types
-		Columns: map[string]string{
-			"id":  string(qvalue.QValueKindInt32),
-			"c1":  string(qvalue.QValueKindBit),
-			"c2":  string(qvalue.QValueKindBoolean),
-			"c3":  string(qvalue.QValueKindBytes),
-			"c4":  string(qvalue.QValueKindDate),
-			"c5":  string(qvalue.QValueKindFloat32),
-			"c6":  string(qvalue.QValueKindFloat64),
-			"c7":  string(qvalue.QValueKindInt16),
-			"c8":  string(qvalue.QValueKindInt32),
-			"c9":  string(qvalue.QValueKindInt64),
-			"c10": string(qvalue.QValueKindJSON),
-			"c11": string(qvalue.QValueKindNumeric),
-			"c12": string(qvalue.QValueKindString),
-			"c13": string(qvalue.QValueKindTime),
-			"c14": string(qvalue.QValueKindTimestamp),
-			"c15": string(qvalue.QValueKindTimestampTZ),
-			"c16": string(qvalue.QValueKindUUID),
+		ColumnNames: []string{
+			"id", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9",
+			"c10", "c11", "c12", "c13", "c14", "c15", "c16",
+		},
+		ColumnTypes: []string{
+			string(qvalue.QValueKindInt32),
+			string(qvalue.QValueKindBit),
+			string(qvalue.QValueKindBoolean),
+			string(qvalue.QValueKindBytes),
+			string(qvalue.QValueKindDate),
+			string(qvalue.QValueKindFloat32),
+			string(qvalue.QValueKindFloat64),
+			string(qvalue.QValueKindInt16),
+			string(qvalue.QValueKindInt32),
+			string(qvalue.QValueKindInt64),
+			string(qvalue.QValueKindJSON),
+			string(qvalue.QValueKindNumeric),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindTime),
+			string(qvalue.QValueKindTimestamp),
+			string(qvalue.QValueKindTimestampTZ),
+			string(qvalue.QValueKindUUID),
 		},
 		PrimaryKeyColumns: []string{"id"},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for columnName, columnType := range expectedTableSchema.Columns {
+	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
 		if columnName != "id" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
 				ColumnType: columnType,
 			})
 		}
-	}
+	})
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -165,29 +168,33 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		Columns: map[string]string{
-			"id":     string(qvalue.QValueKindInt32),
-			"c1":     string(qvalue.QValueKindString),
-			"C1":     string(qvalue.QValueKindString),
-			"C 1":    string(qvalue.QValueKindString),
-			"right":  string(qvalue.QValueKindString),
-			"select": string(qvalue.QValueKindString),
-			"XMIN":   string(qvalue.QValueKindString),
-			"Cariño": string(qvalue.QValueKindString),
-			"±ªþ³§":  string(qvalue.QValueKindString),
-			"カラム":    string(qvalue.QValueKindString),
+		ColumnNames: []string{
+			"id", "c1", "C1", "C 1", "right",
+			"select", "XMIN", "Cariño", "±ªþ³§", "カラム",
+		},
+		ColumnTypes: []string{
+			string(qvalue.QValueKindInt32),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindString),
 		},
 		PrimaryKeyColumns: []string{"id"},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for columnName, columnType := range expectedTableSchema.Columns {
+	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
 		if columnName != "id" {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
 				ColumnType: columnType,
 			})
 		}
-	}
+	})
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
@@ -211,23 +218,24 @@ func (suite *PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 
 	expectedTableSchema := &protos.TableSchema{
 		TableIdentifier: tableName,
-		Columns: map[string]string{
-			" ":   string(qvalue.QValueKindInt32),
-			"  ":  string(qvalue.QValueKindString),
-			"   ": string(qvalue.QValueKindInt64),
-			"	":   string(qvalue.QValueKindDate),
+		ColumnNames:     []string{" ", "  ", "   ", "\t"},
+		ColumnTypes: []string{
+			string(qvalue.QValueKindInt32),
+			string(qvalue.QValueKindString),
+			string(qvalue.QValueKindInt64),
+			string(qvalue.QValueKindDate),
 		},
 		PrimaryKeyColumns: []string{" "},
 	}
 	addedColumns := make([]*protos.DeltaAddedColumn, 0)
-	for columnName, columnType := range expectedTableSchema.Columns {
+	utils.IterColumns(expectedTableSchema, func(columnName, columnType string) {
 		if columnName != " " {
 			addedColumns = append(addedColumns, &protos.DeltaAddedColumn{
 				ColumnName: columnName,
 				ColumnType: columnType,
 			})
 		}
-	}
+	})
 
 	err = suite.connector.ReplayTableSchemaDeltas("schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,

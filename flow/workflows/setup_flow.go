@@ -2,10 +2,12 @@ package peerflow
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"golang.org/x/exp/maps"
 
@@ -211,14 +213,22 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 		for _, mapping := range flowConnectionConfigs.TableMappings {
 			if mapping.SourceTableIdentifier == srcTableName {
 				if len(mapping.Exclude) != 0 {
+					columnCount := utils.TableSchemaColumns(tableSchema)
+					columnNames := make([]string, 0, columnCount)
+					columnTypes := make([]string, 0, columnCount)
+					utils.IterColumns(tableSchema, func(columnName, columnType string) {
+						if !slices.Contains(mapping.Exclude, columnName) {
+							columnNames = append(columnNames, columnName)
+							columnTypes = append(columnTypes, columnType)
+						}
+					})
 					tableSchema = &protos.TableSchema{
 						TableIdentifier:       tableSchema.TableIdentifier,
-						Columns:               maps.Clone(tableSchema.Columns),
+						Columns:               nil,
 						PrimaryKeyColumns:     tableSchema.PrimaryKeyColumns,
 						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
-					}
-					for _, exclude := range mapping.Exclude {
-						delete(tableSchema.Columns, exclude)
+						ColumnNames:           columnNames,
+						ColumnTypes:           columnTypes,
 					}
 				}
 				break

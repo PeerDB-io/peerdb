@@ -794,16 +794,14 @@ func (c *BigQueryConnector) SetupNormalizedTables(
 		}
 
 		// convert the column names and types to bigquery types
-		columns := make([]*bigquery.FieldSchema, len(tableSchema.Columns), len(tableSchema.Columns)+2)
-		idx := 0
-		for colName, genericColType := range tableSchema.Columns {
-			columns[idx] = &bigquery.FieldSchema{
+		columns := make([]*bigquery.FieldSchema, 0, len(tableSchema.Columns)+2)
+		utils.IterColumns(tableSchema, func(colName, genericColType string) {
+			columns = append(columns, &bigquery.FieldSchema{
 				Name:     colName,
 				Type:     qValueKindToBigQueryType(genericColType),
 				Repeated: qvalue.QValueKind(genericColType).IsArray(),
-			}
-			idx++
-		}
+			})
+		})
 
 		if req.SoftDeleteColName != "" {
 			columns = append(columns, &bigquery.FieldSchema{

@@ -195,9 +195,12 @@ message CreateRawTableOutput { string table_identifier = 1; }
 
 message TableSchema {
   string table_identifier = 1;
+  // DEPRECATED: eliminate when breaking changes are allowed.
   map<string, string> columns = 2;
   repeated string primary_key_columns = 3;
   bool is_replica_identity_full = 4;
+  repeated string column_names = 5;
+  repeated string column_types = 6;
 }
 
 message GetTableSchemaBatchInput {

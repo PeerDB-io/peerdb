@@ -6788,6 +6788,12 @@ impl serde::Serialize for TableSchema {
         if self.is_replica_identity_full {
             len += 1;
         }
+        if !self.column_names.is_empty() {
+            len += 1;
+        }
+        if !self.column_types.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("peerdb_flow.TableSchema", len)?;
         if !self.table_identifier.is_empty() {
             struct_ser.serialize_field("tableIdentifier", &self.table_identifier)?;
@@ -6800,6 +6806,12 @@ impl serde::Serialize for TableSchema {
         }
         if self.is_replica_identity_full {
             struct_ser.serialize_field("isReplicaIdentityFull", &self.is_replica_identity_full)?;
+        }
+        if !self.column_names.is_empty() {
+            struct_ser.serialize_field("columnNames", &self.column_names)?;
+        }
+        if !self.column_types.is_empty() {
+            struct_ser.serialize_field("columnTypes", &self.column_types)?;
         }
         struct_ser.end()
     }
@@ -6818,6 +6830,10 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             "primaryKeyColumns",
             "is_replica_identity_full",
             "isReplicaIdentityFull",
+            "column_names",
+            "columnNames",
+            "column_types",
+            "columnTypes",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -6826,6 +6842,8 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
             Columns,
             PrimaryKeyColumns,
             IsReplicaIdentityFull,
+            ColumnNames,
+            ColumnTypes,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -6852,6 +6870,8 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                             "columns" => Ok(GeneratedField::Columns),
                             "primaryKeyColumns" | "primary_key_columns" => Ok(GeneratedField::PrimaryKeyColumns),
                             "isReplicaIdentityFull" | "is_replica_identity_full" => Ok(GeneratedField::IsReplicaIdentityFull),
+                            "columnNames" | "column_names" => Ok(GeneratedField::ColumnNames),
+                            "columnTypes" | "column_types" => Ok(GeneratedField::ColumnTypes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -6875,6 +6895,8 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                 let mut columns__ = None;
                 let mut primary_key_columns__ = None;
                 let mut is_replica_identity_full__ = None;
+                let mut column_names__ = None;
+                let mut column_types__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::TableIdentifier => {
@@ -6903,6 +6925,18 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                             }
                             is_replica_identity_full__ = Some(map.next_value()?);
                         }
+                        GeneratedField::ColumnNames => {
+                            if column_names__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("columnNames"));
+                            }
+                            column_names__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::ColumnTypes => {
+                            if column_types__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("columnTypes"));
+                            }
+                            column_types__ = Some(map.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -6913,6 +6947,8 @@ impl<'de> serde::Deserialize<'de> for TableSchema {
                     columns: columns__.unwrap_or_default(),
                     primary_key_columns: primary_key_columns__.unwrap_or_default(),
                     is_replica_identity_full: is_replica_identity_full__.unwrap_or_default(),
+                    column_names: column_names__.unwrap_or_default(),
+                    column_types: column_types__.unwrap_or_default(),
                 })
             }
         }

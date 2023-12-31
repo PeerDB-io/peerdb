@@ -858,11 +858,17 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		expectedTableSchema := &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
-			Columns: map[string]string{
-				"ID":                 string(qvalue.QValueKindNumeric),
-				"C1":                 string(qvalue.QValueKindNumeric),
-				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
-				"_PEERDB_SYNCED_AT":  string(qvalue.QValueKindTimestamp),
+			ColumnNames: []string{
+				"ID",
+				"C1",
+				"_PEERDB_IS_DELETED",
+				"_PEERDB_SYNCED_AT",
+			},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindBoolean),
+				string(qvalue.QValueKindTimestamp),
 			},
 		}
 		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -886,12 +892,19 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
-			Columns: map[string]string{
-				"ID":                 string(qvalue.QValueKindNumeric),
-				"C1":                 string(qvalue.QValueKindNumeric),
-				"C2":                 string(qvalue.QValueKindNumeric),
-				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
-				"_PEERDB_SYNCED_AT":  string(qvalue.QValueKindTimestamp),
+			ColumnNames: []string{
+				"ID",
+				"C1",
+				"C2",
+				"_PEERDB_IS_DELETED",
+				"_PEERDB_SYNCED_AT",
+			},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindBoolean),
+				string(qvalue.QValueKindTimestamp),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -915,13 +928,21 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
-			Columns: map[string]string{
-				"ID":                 string(qvalue.QValueKindNumeric),
-				"C1":                 string(qvalue.QValueKindNumeric),
-				"C2":                 string(qvalue.QValueKindNumeric),
-				"C3":                 string(qvalue.QValueKindNumeric),
-				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
-				"_PEERDB_SYNCED_AT":  string(qvalue.QValueKindTimestamp),
+			ColumnNames: []string{
+				"ID",
+				"C1",
+				"C2",
+				"C3",
+				"_PEERDB_IS_DELETED",
+				"_PEERDB_SYNCED_AT",
+			},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindBoolean),
+				string(qvalue.QValueKindTimestamp),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -945,13 +966,21 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
 		expectedTableSchema = &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
-			Columns: map[string]string{
-				"ID":                 string(qvalue.QValueKindNumeric),
-				"C1":                 string(qvalue.QValueKindNumeric),
-				"C2":                 string(qvalue.QValueKindNumeric),
-				"C3":                 string(qvalue.QValueKindNumeric),
-				"_PEERDB_IS_DELETED": string(qvalue.QValueKindBoolean),
-				"_PEERDB_SYNCED_AT":  string(qvalue.QValueKindTimestamp),
+			ColumnNames: []string{
+				"ID",
+				"C1",
+				"C2",
+				"C3",
+				"_PEERDB_IS_DELETED",
+				"_PEERDB_SYNCED_AT",
+			},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindBoolean),
+				string(qvalue.QValueKindTimestamp),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -1655,7 +1684,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 		`, s.pgSuffix, "testMixedCase"), testKey, testValue)
 			require.NoError(s.t, err)
 		}
-		fmt.Println("Inserted 20 rows into the source table")
+		s.t.Log("Inserted 20 rows into the source table")
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
