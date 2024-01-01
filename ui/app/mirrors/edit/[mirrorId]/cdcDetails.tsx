@@ -7,7 +7,6 @@ import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
-import { MirrorError } from '../../mirror-status';
 import MirrorValues from './configValues';
 import TablePairs from './tablePairs';
 
@@ -32,9 +31,7 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
               </Label>
             </div>
             <div>
-              <Label>
-                <MirrorError flowName={mirrorConfig?.flowJobName || ''} />
-              </Label>
+              <Label>Active</Label>
             </div>
           </div>
           <div className='basis-1/4 md:basis-1/3'>
