@@ -23,7 +23,7 @@ func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName, selector strin
 	s.compareTableContentsWithDiffSelectorsSF(tableName, selector, selector, false)
 }
 
-func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName string) error {
+func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, value string) error {
 	res, err := s.sfHelper.ExecuteAndProcessQuery(fmt.Sprintf(
 		"SELECT %s:%s FROM %s;",
 		colName, fieldName, tableName))
@@ -32,8 +32,8 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName str
 	}
 
 	jsonVal := res.Records[0].Entries[0].Value
-	if jsonVal == "" {
-		return fmt.Errorf("bad json value in field %s of column %s: %v", fieldName, colName, jsonVal)
+	if jsonVal != value {
+		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
 	}
 	return nil
 }
@@ -103,6 +103,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
+
+	err = s.checkJSONValue(dstSchemaQualified, "f7", "key", "\"value\"")
+	require.NoError(s.t, err)
 
 	env.AssertExpectations(s.t)
 }
@@ -262,7 +265,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
-
 		sfPeer,
 		"",
 		false,
