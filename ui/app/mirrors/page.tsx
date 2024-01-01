@@ -10,10 +10,10 @@ import { Panel } from '@/lib/Panel';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
 import useSWR from 'swr';
+import { fetcher } from '../utils/swr';
 import { CDCFlows, QRepFlows } from './tables';
-export const dynamic = 'force-dynamic';
 
-const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
+export const dynamic = 'force-dynamic';
 
 export default function Mirrors() {
   const {

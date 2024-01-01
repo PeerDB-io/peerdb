@@ -1,6 +1,7 @@
 'use client';
 
 import { UVersionResponse } from '@/app/dto/VersionDTO';
+import { fetcher } from '@/app/utils/swr';
 import Logout from '@/components/Logout';
 import { BrandLogo } from '@/lib/BrandLogo';
 import { Icon } from '@/lib/Icon';
@@ -17,7 +18,7 @@ const centerFlexStyle = {
   width: '100%',
   marginBottom: '0.5rem',
 };
-const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
+
 export default function SidebarComponent(props: { logout?: boolean }) {
   const timezones = ['UTC', 'Local', 'Relative'];
   const [zone, setZone] = useLocalStorage('timezone-ui', '');
@@ -96,6 +97,13 @@ export default function SidebarComponent(props: { logout?: boolean }) {
         leadingIcon={<Icon name='compare_arrows' />}
       >
         Mirrors
+      </SidebarItem>
+      <SidebarItem
+        as={Link}
+        href={'/alert-config'}
+        leadingIcon={<Icon name='notifications' />}
+      >
+        Alert Configuration
       </SidebarItem>
     </Sidebar>
   );

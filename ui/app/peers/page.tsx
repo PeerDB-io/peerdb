@@ -12,8 +12,7 @@ export const dynamic = 'force-dynamic';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 
 import useSWR from 'swr';
-
-const fetcher = (...args: [any]) => fetch(...args).then((res) => res.json());
+import { fetcher } from '../utils/swr';
 
 export default function Peers() {
   const { data: peers, error, isLoading } = useSWR('/api/peers', fetcher);

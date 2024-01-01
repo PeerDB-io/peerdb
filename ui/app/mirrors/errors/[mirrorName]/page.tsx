@@ -1,4 +1,4 @@
-import { AlertErr } from '@/app/dto/MirrorsDTO';
+import { AlertErr } from '@/app/dto/AlertDTO';
 import prisma from '@/app/utils/prisma';
 import TimeLabel from '@/components/TimeComponent';
 import { Label } from '@/lib/Label';
