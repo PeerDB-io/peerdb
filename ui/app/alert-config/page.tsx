@@ -6,13 +6,13 @@ import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Editor from '@monaco-editor/react';
 import { editor } from 'monaco-editor';
+import Image from 'next/image';
 import React, { useState } from 'react';
 import { PulseLoader } from 'react-spinners';
 import useSWR from 'swr';
 import { UAlertConfigResponse } from '../dto/AlertDTO';
 import { fetcher } from '../utils/swr';
 import NewAlertConfig from './new';
-import Image from 'next/image';
 
 const options: editor.IStandaloneEditorConstructionOptions = {
   readOnly: true,
@@ -29,9 +29,7 @@ const ConfigJSONView = ({ config }: { config: string }) => {
 const ServiceIcon = (serviceType: string) => {
   switch (serviceType.toLowerCase()) {
     default:
-      return (
-        <Image src='/images/slack.png' height={80} width={80} alt='alt' />
-      );
+      return <Image src='/images/slack.png' height={80} width={80} alt='alt' />;
   }
 };
 const AlertConfigPage: React.FC = () => {
