@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -51,6 +52,11 @@ type CDCFlowWorkflowState struct {
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
 	RelationMessageMapping model.RelationMessageMapping
+}
+
+type SignalProps struct {
+	BatchSize   int32
+	IdleTimeout int64
 }
 
 // returns a new empty PeerFlowState
@@ -280,22 +286,31 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{
-		BatchSize: int32(limits.MaxBatchSize),
+		BatchSize:          int32(limits.MaxBatchSize),
+		IdleTimeoutSeconds: 0,
 	}
 
-	// add a signal to change the batch size
-	batchSizeSignalChan := workflow.GetSignalChannel(ctx, shared.CDCBatchSizeSignalName)
-	batchSizeSelector := workflow.NewSelector(ctx)
-	batchSizeSelector.AddReceive(batchSizeSignalChan, func(c workflow.ReceiveChannel, more bool) {
-		var batchSize int32
-		c.Receive(ctx, &batchSize)
-		w.logger.Info("received batch size signal: ", batchSize)
-		syncFlowOptions.BatchSize = batchSize
-		cfg.MaxBatchSize = uint32(batchSize)
-		limits.MaxBatchSize = int(batchSize)
+	// add a signal to change CDC properties
+	cdcPropertiesSignalChannel := workflow.GetSignalChannel(ctx, shared.CDCDynamicPropertiesSignalName)
+	cdcPropertiesSelector := workflow.NewSelector(ctx)
+	cdcPropertiesSelector.AddReceive(cdcPropertiesSignalChannel, func(c workflow.ReceiveChannel, more bool) {
+		var cdcSignal SignalProps
+		c.Receive(ctx, &cdcSignal)
+		if cdcSignal.BatchSize > 0 {
+			syncFlowOptions.BatchSize = cdcSignal.BatchSize
+			cfg.MaxBatchSize = uint32(cdcSignal.BatchSize)
+			limits.MaxBatchSize = int(cdcSignal.BatchSize)
+		}
+		if cdcSignal.IdleTimeout > 0 {
+			syncFlowOptions.IdleTimeoutSeconds = cdcSignal.IdleTimeout
+			cfg.IdleTimeoutSeconds = cdcSignal.IdleTimeout
+		}
+
+		slog.Info("CDC Signal received. Parameters on signal reception:", slog.Int("BatchSize", int(cfg.MaxBatchSize)),
+			slog.Int("IdleTimeout", int(cfg.IdleTimeoutSeconds)))
 	})
 
-	batchSizeSelector.AddDefault(func() {
+	cdcPropertiesSelector.AddDefault(func() {
 		w.logger.Info("no batch size signal received, batch size remains: ",
 			syncFlowOptions.BatchSize)
 	})
@@ -443,7 +458,7 @@ func CDCFlowWorkflowWithConfig(
 		} else {
 			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
 		}
-		batchSizeSelector.Select(ctx)
+		cdcPropertiesSelector.Select(ctx)
 	}
 
 	state.TruncateProgress(w.logger)

@@ -30,8 +30,13 @@ func PeerDBEventhubFlushTimeoutSeconds() time.Duration {
 }
 
 // PEERDB_CDC_IDLE_TIMEOUT_SECONDS
-func PeerDBCDCIdleTimeoutSeconds() time.Duration {
-	x := getEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 60)
+func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
+	var x int
+	if providedValue > 0 {
+		x = providedValue
+	} else {
+		x = getEnvInt("PEERDB_CDC_IDLE_TIMEOUT_SECONDS", 60)
+	}
 	return time.Duration(x) * time.Second
 }
 

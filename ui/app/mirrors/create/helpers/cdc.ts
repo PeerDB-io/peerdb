@@ -17,12 +17,24 @@ export const cdcSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
-        maxBatchSize: (value as boolean) || false,
+        maxBatchSize: (value as number) || 100000,
       })),
     tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 100,000 rows.',
     type: 'number',
     default: '100000',
     advanced: true,
+  },
+  {
+    label: 'Idle Timeout (Seconds)',
+    stateHandler: (value, setter) =>
+      setter((curr: CDCConfig) => ({
+        ...curr,
+        idleTimeoutSeconds: (value as number) || 100000,
+      })),
+    tips: 'Time after which a Sync flow ends, if it happens before pull batch size is reached. Defaults to 60 seconds.',
+    helpfulLink: 'https://docs.peerdb.io/metrics/important_cdc_configs',
+    type: 'number',
+    default: '60',
   },
   {
     label: 'Publication Name',
