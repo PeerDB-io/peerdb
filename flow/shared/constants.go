@@ -7,10 +7,10 @@ import (
 )
 
 const (
-	peerFlowTaskQueue      = "peer-flow-task-queue"
-	snapshotFlowTaskQueue  = "snapshot-flow-task-queue"
-	CDCFlowSignalName      = "peer-flow-signal"
-	CDCBatchSizeSignalName = "cdc-batch-size-signal"
+	peerFlowTaskQueue              = "peer-flow-task-queue"
+	snapshotFlowTaskQueue          = "snapshot-flow-task-queue"
+	CDCFlowSignalName              = "peer-flow-signal"
+	CDCDynamicPropertiesSignalName = "cdc-dynamic-properties"
 )
 
 const MirrorNameSearchAttribute = "MirrorName"

@@ -228,12 +228,14 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	flowName := input.FlowConnectionConfigs.FlowJobName
 	errGroup.Go(func() error {
 		return srcConn.PullRecords(a.CatalogPool, &model.PullRecordsRequest{
-			FlowJobName:                 flowName,
-			SrcTableIDNameMapping:       input.FlowConnectionConfigs.SrcTableIdNameMapping,
-			TableNameMapping:            tblNameMapping,
-			LastOffset:                  input.LastSyncState.Checkpoint,
-			MaxBatchSize:                uint32(input.SyncFlowOptions.BatchSize),
-			IdleTimeout:                 peerdbenv.PeerDBCDCIdleTimeoutSeconds(),
+			FlowJobName:           flowName,
+			SrcTableIDNameMapping: input.FlowConnectionConfigs.SrcTableIdNameMapping,
+			TableNameMapping:      tblNameMapping,
+			LastOffset:            input.LastSyncState.Checkpoint,
+			MaxBatchSize:          uint32(input.SyncFlowOptions.BatchSize),
+			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
+				int(input.FlowConnectionConfigs.IdleTimeoutSeconds),
+			),
 			TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
 			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,

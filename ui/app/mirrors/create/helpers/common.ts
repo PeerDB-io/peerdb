@@ -46,6 +46,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   softDeleteColName: '',
   syncedAtColName: '',
   initialCopyOnly: false,
+  idleTimeoutSeconds: 60,
 };
 
 export const blankQRepSetting = {

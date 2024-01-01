@@ -78,6 +78,8 @@ message FlowConnectionConfigs {
   string synced_at_col_name = 25;
 
   bool initial_copy_only = 26;
+
+  int64 idle_timeout_seconds = 27;
 }
 
 message RenameTableOption {
@@ -111,6 +113,7 @@ message CreateTablesFromExistingOutput {
 message SyncFlowOptions {
   int32 batch_size = 1;
   map<uint32, RelationMessage> relation_message_mapping = 2;
+  int64 idle_timeout_seconds = 3;
 }
 
 message NormalizeFlowOptions {
