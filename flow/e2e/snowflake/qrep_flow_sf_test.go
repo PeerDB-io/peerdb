@@ -24,13 +24,16 @@ func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName, selector strin
 }
 
 func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName string) error {
-	res, err := s.sfHelper.ExecuteAndProcessQuery(fmt.Sprintf("SELECT c17:kk FROM %s;", tableName))
+	res, err := s.sfHelper.ExecuteAndProcessQuery(fmt.Sprintf(
+		"SELECT %s:%s FROM %s;",
+		colName, fieldName, tableName))
 	if err != nil {
 		return fmt.Errorf("json value check failed: %v", err)
 	}
 
-	if res.Records[0].Entries[0].Value == "" {
-		return fmt.Errorf("bad json value in field %s of column %s", fieldName, colName)
+	jsonVal := res.Records[0].Entries[0].Value
+	if jsonVal == "" {
+		return fmt.Errorf("bad json value in field %s of column %s: %v", fieldName, colName, jsonVal)
 	}
 	return nil
 }
