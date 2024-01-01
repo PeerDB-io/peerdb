@@ -21,6 +21,12 @@ jobs:
         with:
           submodules: recursive
 
+      - uses: bufbuild/buf-setup-action@v1.28.1
+
+      - name: setup protos
+        run: |
+          ./generate_protos.sh
+
       - name: golangci-lint
         uses: reviewdog/action-golangci-lint@v2
         with:

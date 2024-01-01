@@ -59,6 +59,12 @@ jobs:
         with:
           workspaces: nexus
 
+      - uses: bufbuild/buf-setup-action@v1.28.1
+
+      - name: setup protos
+        run: |
+          ./generate_protos.sh
+
       - name: cargo check
         run: cargo check
         working-directory: ./nexus

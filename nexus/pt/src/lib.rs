@@ -5,10 +5,13 @@ use sqlparser::ast::PeerType;
 
 pub mod flow_model;
 #[rustfmt::skip]
+#[path ="./gen/peerdb_flow.rs"]
 pub mod peerdb_flow;
 #[rustfmt::skip]
+#[path ="./gen/peerdb_peers.rs"]
 pub mod peerdb_peers;
 #[rustfmt::skip]
+#[path ="./gen/peerdb_route.rs"]
 pub mod peerdb_route;
 
 impl From<PeerType> for DbType {
