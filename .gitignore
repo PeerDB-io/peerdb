@@ -14,3 +14,4 @@ go.work.sum
 # generated protobuf files
 ui/grpc_generated
 flow/generated
+nexus/pt/src/gen
