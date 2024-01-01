@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
@@ -52,7 +53,7 @@ func NewS3TestHelper(switchToGCS bool) (*S3TestHelper, error) {
 	if err != nil {
 		return nil, err
 	}
-	prefix := fmt.Sprintf("peerdb_test/%d", time.Now().UnixNano())
+	prefix := fmt.Sprintf("peerdb_test/%d_%s", time.Now().Unix(), shared.RandomString(6))
 	return &S3TestHelper{
 		client,
 		&protos.S3Config{
