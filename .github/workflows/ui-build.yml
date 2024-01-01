@@ -18,6 +18,12 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      - uses: bufbuild/buf-setup-action@v1.28.1
+
+      - name: setup protos
+        run: |
+          ./generate_protos.sh
+  
       - name: Install Node.js dependencies
         working-directory: ui
         run: npm ci
