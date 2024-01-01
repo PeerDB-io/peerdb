@@ -410,7 +410,10 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 
 	case qvalue.QValueKindJSON:
 		vraw := val.(*interface{})
-		vstring := (*vraw).(string)
+		vstring, ok := (*vraw).(string)
+		if !ok {
+			slog.Warn("A parsed JSON value was not a string. Likely a null field value")
+		}
 
 		if strings.HasPrefix(vstring, "[") {
 			// parse the array

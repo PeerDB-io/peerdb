@@ -329,6 +329,10 @@ func (c *SnowflakeConnector) GetCopyTransformation(
 		case "NUMBER":
 			transformations = append(transformations,
 				fmt.Sprintf("$1:\"%s\" AS %s", avroColName, normalizedColName))
+		case "VARIANT":
+			transformations = append(transformations,
+				fmt.Sprintf("PARSE_JSON($1:\"%s\") AS %s", avroColName, normalizedColName))
+
 		default:
 			transformations = append(transformations,
 				fmt.Sprintf("($1:\"%s\")::%s AS %s", avroColName, colType, normalizedColName))

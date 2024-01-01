@@ -749,6 +749,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	if err != nil {
 		s.t.Log(err)
 	}
+
+	// check if JSON on snowflake side is a good JSON
+	err = s.checkJSONValue(dstTableName, "c17", "sai", "1")
+	require.NoError(s.t, err)
+
 	// Make sure that there are no nulls
 	s.Equal(noNulls, true)
 
