@@ -21,12 +21,16 @@ interface dropPeerArgs {
   peerName: string;
 }
 
+interface deleteAlertArgs {
+  id: number | bigint;
+}
+
 export const DropDialog = ({
   mode,
   dropArgs,
 }: {
-  mode: 'PEER' | 'MIRROR';
-  dropArgs: dropMirrorArgs | dropPeerArgs;
+  mode: 'PEER' | 'MIRROR' | 'ALERT';
+  dropArgs: dropMirrorArgs | dropPeerArgs | deleteAlertArgs;
 }) => {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
@@ -77,6 +81,22 @@ export const DropDialog = ({
     }
   };
 
+  const handleDeleteAlert = async (dropArgs: deleteAlertArgs) => {
+    setLoading(true);
+    const deleteRes = await fetch('api/alert-config', {
+      method: 'DELETE',
+      body: JSON.stringify(dropArgs),
+    });
+    const deleteStatus = await deleteRes.text();
+    setLoading(false);
+    if (deleteStatus !== 'success')
+      setMsg(`Unable to delete alert configuration.`);
+    else {
+      setMsg(`Alert configuration deleted successfully.`);
+      window.location.reload();
+    }
+  };
+
   return (
     <Dialog
       noInteract={true}
@@ -89,11 +109,17 @@ export const DropDialog = ({
     >
       <div>
         <Label as='label' variant='action'>
-          Drop {mode === 'MIRROR' ? 'Mirror' : 'Peer'}
+          Delete{' '}
+          {mode === 'MIRROR' ? 'Mirror' : mode === 'PEER' ? 'Peer' : 'Alert'}
         </Label>
         <Divider style={{ margin: 0 }} />
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
-          Are you sure you want to drop {mode === 'MIRROR' ? 'mirror' : 'peer'}{' '}
+          Are you sure you want to delete{' '}
+          {mode === 'MIRROR'
+            ? 'mirror'
+            : mode === 'PEER'
+              ? 'peer'
+              : 'this alert'}{' '}
           <b>
             {mode === 'MIRROR'
               ? (dropArgs as dropMirrorArgs).flowJobName
@@ -111,7 +137,9 @@ export const DropDialog = ({
             onClick={() =>
               mode === 'MIRROR'
                 ? handleDropMirror(dropArgs as dropMirrorArgs)
-                : handleDropPeer(dropArgs as dropPeerArgs)
+                : mode === 'PEER'
+                  ? handleDropPeer(dropArgs as dropPeerArgs)
+                  : handleDeleteAlert(dropArgs as deleteAlertArgs)
             }
             style={{
               marginLeft: '1rem',
@@ -119,7 +147,7 @@ export const DropDialog = ({
               color: 'white',
             }}
           >
-            {loading ? <BarLoader /> : 'Drop'}
+            {loading ? <BarLoader /> : 'Delete'}
           </Button>
         </div>
         {msg && (
