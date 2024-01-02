@@ -19,9 +19,12 @@ func NewScopedEventhub(raw string) (ScopedEventhub, error) {
 		return ScopedEventhub{}, fmt.Errorf("invalid scoped eventhub '%s'", raw)
 	}
 
+	// support eventhub name with hyphens etc.
+	eventhubPart := strings.Trim(parts[1], `"`)
+
 	return ScopedEventhub{
 		PeerName:   parts[0],
-		Eventhub:   parts[1],
+		Eventhub:   eventhubPart,
 		Identifier: parts[2],
 	}, nil
 }
