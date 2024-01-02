@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -162,7 +163,6 @@ func CDCFlowWorkflowWithConfig(
 		return nil, fmt.Errorf("invalid connection configs")
 	}
 
-	ctx = workflow.WithValue(ctx, "flowName", cfg.FlowJobName)
 	w := NewCDCFlowWorkflowExecution(ctx)
 
 	if limits.TotalSyncFlows == 0 {
@@ -344,6 +344,10 @@ func CDCFlowWorkflowWithConfig(
 		var childNormalizeFlowRes *model.NormalizeFlowResponse
 		if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
 			w.logger.Error("failed to execute normalize flow: ", err)
+			var panicErr *temporal.PanicError
+			if errors.As(err, &panicErr) {
+				w.logger.Error("PANIC", panicErr.Error(), panicErr.StackTrace())
+			}
 			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
 		} else {
 			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, childNormalizeFlowRes.Errors...)
