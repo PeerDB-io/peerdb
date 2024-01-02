@@ -155,7 +155,7 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		"f7 jsonb",
 		"f8 smallint",
 	}
-	if strings.Contains(tableName, "sf") {
+	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
 		tblFields = append(tblFields, "geometry_point geometry(point)",
 			"geography_point geography(point)",
 			"geometry_linestring geometry(linestring)",
@@ -197,7 +197,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		id := uuid.New().String()
 		ids = append(ids, id)
 		geoValues := ""
-		if strings.Contains(tableName, "sf") {
+		if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
 			geoValues = `,'POINT(1 2)','POINT(40.7128 -74.0060)',
 			'LINESTRING(0 0, 1 1, 2 2)',
 			'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
@@ -222,7 +222,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	}
 
 	geoColumns := ""
-	if strings.Contains(tableName, "sf") {
+	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
 		geoColumns = ",geometry_point, geography_point," +
 			"geometry_linestring, geography_linestring," +
 			"geometry_polygon, geography_polygon"

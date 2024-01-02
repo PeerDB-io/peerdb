@@ -16,16 +16,6 @@ func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int)
 	require.NoError(s.t, err)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) setupBQDestinationTable(dstTable string) {
-	schema := e2e.GetOwnersSchema()
-	err := s.bqHelper.CreateTable(dstTable, schema)
-
-	// fail if table creation fails
-	require.NoError(s.t, err)
-
-	s.t.Logf("created table on bigquery: %s.%s. %v", s.bqHelper.Config.DatasetId, dstTable, err)
-}
-
 func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsString string) {
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
@@ -52,9 +42,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 
 	numRows := 10
 
-	tblName := "test_qrep_flow_avro"
+	tblName := "test_qrep_flow_avro_bq"
 	s.setupSourceTable(tblName, numRows)
-	s.setupBQDestinationTable(tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.bqSuffix, tblName)
@@ -65,7 +54,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		query,
 		s.bqHelper.Peer,
 		"",
-		false,
+		true,
 		"")
 	require.NoError(s.t, err)
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)

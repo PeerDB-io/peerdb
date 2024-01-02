@@ -747,6 +747,92 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	env.AssertExpectations(s.t)
 }
 
+func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	srcTableName := s.attachSchemaSuffix("test_invalid_geo_bq_avro_cdc")
+	dstTableName := "test_invalid_geo_bq_avro_cdc"
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			line GEOMETRY(LINESTRING) NOT NULL,
+			poly GEOGRAPHY(POLYGON) NOT NULL
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_invalid_geo_bq_avro_cdc"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	require.NoError(s.t, err)
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 10,
+		MaxBatchSize:     100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert 10 rows into the source table
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		// insert 4 invalid shapes and 6 valid shapes into the source table
+		for i := 0; i < 4; i++ {
+			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s (line,poly) VALUES ($1,$2)
+		`, srcTableName), "010200000001000000000000000000F03F0000000000000040",
+				"0103000020e6100000010000000c0000001a8361d35dc64140afdb8d2b1bc3c9bf1b8ed4685fc641405ba64c"+
+					"579dc2c9bf6a6ad95a5fc64140cd82767449c2c9bf9570fbf85ec641408a07944db9c2c9bf729a18a55ec6414021b8b748c7c2c9bfba46de4c"+
+					"5fc64140f2567052abc2c9bf2df9c5925fc641409394e16573c2c9bf2df9c5925fc6414049eceda9afc1c9bfdd1cc1a05fc64140fe43faedebc0"+
+					"c9bf4694f6065fc64140fe43faedebc0c9bfffe7305f5ec641406693d6f2ddc0c9bf1a8361d35dc64140afdb8d2b1bc3c9bf",
+			)
+			require.NoError(s.t, err)
+		}
+		s.t.Log("Inserted 4 invalid geography rows into the source table")
+		for i := 4; i < 10; i++ {
+			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s (line,poly) VALUES ($1,$2)
+		`, srcTableName), "010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
+				"010300000001000000050000000000000000000000000000000000000000000000"+
+					"00000000000000000000f03f000000000000f03f000000000000f03f0000000000"+
+					"00f03f000000000000000000000000000000000000000000000000")
+			require.NoError(s.t, err)
+		}
+		s.t.Log("Inserted 6 valid geography rows and 10 total rows into source")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	s.True(env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	// We inserted 4 invalid shapes in each.
+	// They should have been filtered out as null on destination
+	lineCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "line")
+	require.NoError(s.t, err)
+	s.Equal(6, lineCount)
+
+	polyCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "poly")
+	require.NoError(s.t, err)
+	s.Equal(6, polyCount)
+
+	// TODO: verify that the data is correctly synced to the destination table
+	// on the bigquery side
+
+	env.AssertExpectations(s.t)
+}
+
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
@@ -1251,7 +1337,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 
 	count1, err := s.bqHelper.countRows(dstTable1Name)
 	require.NoError(s.t, err)
-	count2, err := s.bqHelper.countRowsWithDataset(secondDataset, dstTable2Name)
+	count2, err := s.bqHelper.countRowsWithDataset(secondDataset, dstTable2Name, "")
 	require.NoError(s.t, err)
 
 	s.Equal(1, count1)
