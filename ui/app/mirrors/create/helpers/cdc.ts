@@ -113,7 +113,7 @@ export const cdcSettings: MirrorSetting[] = [
         softDelete: (value as boolean) || false,
       })),
     tips: 'Allows you to mark some records as deleted without actual erasure from the database',
-    default: 'SQL',
+    default: false,
     type: 'switch',
   },
   {
