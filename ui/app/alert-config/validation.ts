@@ -5,11 +5,11 @@ export const alertConfigReqSchema = z.object({
     errorMap: (issue, ctx) => ({ message: 'Invalid service type' }),
   }),
   serviceConfig: z.object({
-    authToken: z
+    auth_token: z
       .string({ required_error: 'Auth Token is needed.' })
       .min(1, { message: 'Auth Token cannot be empty' })
       .max(256, { message: 'Auth Token is too long' }),
-    channelIds: z
+    channel_ids: z
       .array(z.string().min(1, { message: 'Channel IDs cannot be empty' }), {
         required_error: 'We need a channel ID',
       })

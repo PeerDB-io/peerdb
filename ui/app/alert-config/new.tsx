@@ -34,8 +34,8 @@ const NewAlertConfig = () => {
     const alertConfigReq: alertConfigType = {
       serviceType: serviceType,
       serviceConfig: {
-        authToken: authToken ?? '',
-        channelIds: channelIdString?.split(',')!,
+        auth_token: authToken ?? '',
+        channel_ids: channelIdString?.split(',')!,
       },
     };
     const alertReqValidity = alertConfigReqSchema.safeParse(alertConfigReq);
