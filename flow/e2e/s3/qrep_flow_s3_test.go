@@ -26,18 +26,24 @@ type PeerFlowE2ETestSuiteS3 struct {
 	suffix   string
 }
 
-func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
-	e2eshared.GotSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteS3) {
-		err := e2e.TearDownPostgres(s.pool, s.suffix)
-		if err != nil {
-			require.Fail(s.t, "failed to drop Postgres schema", err)
-		}
+func tearDownSuite(s PeerFlowE2ETestSuiteS3) {
+	err := e2e.TearDownPostgres(s.pool, s.suffix)
+	if err != nil {
+		require.Fail(s.t, "failed to drop Postgres schema", err)
+	}
 
-		err = s.s3Helper.CleanUp()
-		if err != nil {
-			require.Fail(s.t, "failed to clean up s3", err)
-		}
-	})
+	err = s.s3Helper.CleanUp()
+	if err != nil {
+		require.Fail(s.t, "failed to clean up s3", err)
+	}
+}
+
+func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
+	e2eshared.GotSuite(t, SetupSuiteS3, tearDownSuite)
+}
+
+func TestPeerFlowE2ETestSuiteGCS(t *testing.T) {
+	e2eshared.GotSuite(t, SetupSuiteGCS, tearDownSuite)
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
@@ -47,7 +53,7 @@ func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int)
 	require.NoError(s.t, err)
 }
 
-func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
+func setupSuite(t *testing.T, g got.G, gcs bool) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
 
 	err := godotenv.Load()
@@ -63,7 +69,7 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
 		require.Fail(t, "failed to setup postgres", err)
 	}
 
-	helper, err := NewS3TestHelper(false)
+	helper, err := NewS3TestHelper(gcs)
 	if err != nil {
 		require.Fail(t, "failed to setup S3", err)
 	}
@@ -75,6 +81,16 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
 		s3Helper: helper,
 		suffix:   suffix,
 	}
+}
+
+func SetupSuiteS3(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
+	t.Helper()
+	return setupSuite(t, g, false)
+}
+
+func SetupSuiteGCS(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
+	t.Helper()
+	return setupSuite(t, g, true)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
