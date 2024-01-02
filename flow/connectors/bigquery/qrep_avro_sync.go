@@ -117,7 +117,8 @@ func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol
 			continue
 		}
 		if col.Type == bigquery.GeographyFieldType {
-			transformedColumns = append(transformedColumns, fmt.Sprintf("ST_GEOGFROMTEXT(%s) AS `%s`", col.Name, col.Name))
+			transformedColumns = append(transformedColumns,
+				fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
 		} else {
 			transformedColumns = append(transformedColumns, fmt.Sprintf("`%s`", col.Name))
 		}
