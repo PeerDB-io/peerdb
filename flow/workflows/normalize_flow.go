@@ -32,11 +32,11 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 			}
 			fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
 
-			var normalizeResponse model.NormalizeResponse
+			var normalizeResponse *model.NormalizeResponse
 			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
 				errors = append(errors, err.Error())
 			} else {
-				results = append(results, normalizeResponse)
+				results = append(results, *normalizeResponse)
 			}
 		}
 
