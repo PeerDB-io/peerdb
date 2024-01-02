@@ -840,7 +840,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	require.Equal(s.t, 6, lineCount)
 	require.Equal(s.t, 6, polyCount)
 
-	// check if JSON on snowflake side is a good JSON
+	// check if JSON on bigquery side is a good JSON
 	err = s.checkJSONValue(dstTableName, "c17", "sai", "1")
 	require.NoError(s.t, err)
 
