@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"sync"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -28,7 +27,6 @@ type PostgresConnector struct {
 	config             *protos.PostgresConfig
 	pool               *SSHWrappedPostgresPool
 	replConfig         *pgxpool.Config
-	replMutex          sync.Mutex
 	replPool           *SSHWrappedPostgresPool
 	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
@@ -91,15 +89,12 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	}, nil
 }
 
-// nil returns the connection pool.
+// GetPool returns the connection pool.
 func (c *PostgresConnector) GetPool() *SSHWrappedPostgresPool {
 	return c.pool
 }
 
 func (c *PostgresConnector) GetReplPool(ctx context.Context) (*SSHWrappedPostgresPool, error) {
-	c.replMutex.Lock()
-	defer c.replMutex.Unlock()
-
 	if c.replPool != nil {
 		return c.replPool, nil
 	}
