@@ -303,7 +303,7 @@ func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *
 	q.logger.Info("idling until new rows are detected")
 
 	waitActivityTimeout := 5 * time.Minute
-	if q.config.WaitBetweenBatchesSeconds > 300 {
+	if q.config.WaitBetweenBatchesSeconds >= 300 {
 		timeGap := 60
 		waitActivityTimeout = time.Duration(q.config.WaitBetweenBatchesSeconds+uint32(timeGap)) * time.Second
 	}
