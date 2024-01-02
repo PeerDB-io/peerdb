@@ -156,7 +156,7 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		"f8 smallint",
 	}
 	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
-		tblFields = append(tblFields, "geometry_point geometry(point)",
+		tblFields = append(tblFields, `"geometryPoint" geometry(point)`,
 			"geography_point geography(point)",
 			"geometry_linestring geometry(linestring)",
 			"geography_linestring geography(linestring)",
@@ -223,7 +223,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 
 	geoColumns := ""
 	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
-		geoColumns = ",geometry_point, geography_point," +
+		geoColumns = `,"geometryPoint", geography_point,` +
 			"geometry_linestring, geography_linestring," +
 			"geometry_polygon, geography_polygon"
 	}

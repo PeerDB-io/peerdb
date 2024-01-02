@@ -758,7 +758,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			line GEOMETRY(LINESTRING) NOT NULL,
-			poly GEOGRAPHY(POLYGON) NOT NULL
+			"polyPoly" GEOGRAPHY(POLYGON) NOT NULL
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
@@ -786,7 +786,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 		// insert 4 invalid shapes and 6 valid shapes into the source table
 		for i := 0; i < 4; i++ {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s (line,poly) VALUES ($1,$2)
+			INSERT INTO %s (line,"polyPoly") VALUES ($1,$2)
 		`, srcTableName), "010200000001000000000000000000F03F0000000000000040",
 				"0103000020e6100000010000000c0000001a8361d35dc64140afdb8d2b1bc3c9bf1b8ed4685fc641405ba64c"+
 					"579dc2c9bf6a6ad95a5fc64140cd82767449c2c9bf9570fbf85ec641408a07944db9c2c9bf729a18a55ec6414021b8b748c7c2c9bfba46de4c"+
@@ -798,7 +798,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 		s.t.Log("Inserted 4 invalid geography rows into the source table")
 		for i := 4; i < 10; i++ {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s (line,poly) VALUES ($1,$2)
+			INSERT INTO %s (line,"polyPoly") VALUES ($1,$2)
 		`, srcTableName), "010200000002000000000000000000F03F000000000000004000000000000008400000000000001040",
 				"010300000001000000050000000000000000000000000000000000000000000000"+
 					"00000000000000000000f03f000000000000f03f000000000000f03f0000000000"+
@@ -822,7 +822,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	lineCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "line")
 	require.NoError(s.t, err)
 
-	polyCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "poly")
+	polyCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "`polyPoly`")
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, 6, lineCount)

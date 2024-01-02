@@ -175,7 +175,7 @@ func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, non
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", dataset, tableName)
 	if nonNullCol != "" {
 		command = fmt.Sprintf("SELECT COUNT(CASE WHEN " + nonNullCol +
-			" IS NOT NULL THEN 1 END) AS non_null_count FROM `" + dataset + "`.`" + tableName + "`;")
+			" IS NOT NULL THEN 1 END) AS non_null_count FROM `" + dataset + "." + tableName + "`;")
 	}
 	it, err := b.client.Query(command).Read(context.Background())
 	if err != nil {
