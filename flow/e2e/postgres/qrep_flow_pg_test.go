@@ -17,11 +17,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PeerFlowE2ETestSuitePG struct {
-	got.G
 	t *testing.T
 
 	pool      *pgxpool.Pool
@@ -39,7 +37,7 @@ func TestPeerFlowE2ETestSuitePG(t *testing.T) {
 	})
 }
 
-func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuitePG {
+func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	t.Helper()
 
 	err := godotenv.Load()
@@ -67,7 +65,6 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuitePG {
 	require.NoError(t, err)
 
 	return PeerFlowE2ETestSuitePG{
-		G:         g,
 		t:         t,
 		pool:      pool,
 		peer:      generatePGPeer(e2e.GetTestPostgresConf()),
@@ -248,7 +245,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -293,7 +290,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_P
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
