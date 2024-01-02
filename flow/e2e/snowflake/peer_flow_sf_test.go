@@ -329,9 +329,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	require.NoError(s.t, err)
 	s.Equal(6, polyCount)
 
-	// TODO: verify that the data is correctly synced to the destination table
-	// on the bigquery side
-
 	env.AssertExpectations(s.t)
 }
 
