@@ -66,7 +66,7 @@ export const qrepSettings: MirrorSetting[] = [
         ...curr,
         maxParallelWorkers: parseInt(value as string, 10) || 4,
       })),
-    tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 8.',
+    tips: 'PeerDB spins up parallel threads for each partition. This setting controls the number of partitions to sync in parallel. The default value is 4.',
     default: '4',
     type: 'number',
   },
@@ -131,10 +131,10 @@ export const qrepSettings: MirrorSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr: QRepConfig) => ({
         ...curr,
-        waitBetweenBatchesSeconds: parseInt(value as string, 10) || 5,
+        waitBetweenBatchesSeconds: parseInt(value as string, 10) || 30,
       })),
-    tips: 'Time to wait (in seconds) between getting partitions to process.',
-    default: 5,
+    tips: 'Time to wait (in seconds) between getting partitions to process. The default is 30 seconds',
+    default: 30,
     type: 'number',
   },
   // {

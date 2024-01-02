@@ -58,7 +58,7 @@ export const blankQRepSetting = {
   syncMode: 0,
   batchSizeInt: 0,
   batchDurationSeconds: 0,
-  maxParallelWorkers: 1,
+  maxParallelWorkers: 4,
   waitBetweenBatchesSeconds: 30,
   writeMode: undefined,
   stagingPath: '',
