@@ -13,6 +13,7 @@ import (
 
 func GotSuite[T any](t *testing.T, setup func(t *testing.T, g got.G) T, teardown func(T)) {
 	t.Helper()
+	t.Parallel()
 
 	got.Each(t, func(t *testing.T) T {
 		t.Helper()

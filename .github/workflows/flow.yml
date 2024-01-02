@@ -101,7 +101,7 @@ jobs:
 
       - name: run tests
         run: |
-          gotestsum --format testname -- -p 16 ./... -timeout 1200s
+          gotestsum --format testname -- -p 24 ./... -timeout 1200s
         working-directory: ./flow
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
