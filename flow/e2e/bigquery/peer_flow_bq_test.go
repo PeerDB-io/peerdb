@@ -892,7 +892,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -902,14 +902,12 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	// They should have been filtered out as null on destination
 	lineCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "line")
 	require.NoError(s.t, err)
-	s.Equal(6, lineCount)
 
 	polyCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "poly")
 	require.NoError(s.t, err)
-	s.Equal(6, polyCount)
 
-	// TODO: verify that the data is correctly synced to the destination table
-	// on the bigquery side
+	require.Equal(s.t, 6, lineCount)
+	require.Equal(s.t, 6, polyCount)
 
 	env.AssertExpectations(s.t)
 }
