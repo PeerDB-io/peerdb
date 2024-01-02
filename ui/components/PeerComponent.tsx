@@ -16,7 +16,7 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case 'BIGQUERY':
       return '/svgs/bq.svg';
     case 'CLICKHOUSE':
-      return '/svgs/pg.svg';   
+      return '/svgs/ch.svg';
     case DBType.S3:
     case 'S3':
       return '/svgs/aws.svg';

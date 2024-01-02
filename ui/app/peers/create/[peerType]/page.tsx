@@ -114,8 +114,9 @@ export default function CreateConfig({
           </Button>
           <Button
             style={{ backgroundColor: 'gold' }}
-            onClick={() =>
+            onClick={() =>{
               handleValidate(dbType, config, setFormMessage, setLoading, name)
+            }
             }
           >
             Validate

@@ -29,5 +29,5 @@ export async function GET(request: Request) {
     };
     return newMirror;
   });
-  return new Response(JSON.stringify(stringifyConfig(flows)));
+  return new Response(JSON.stringify((flows)));
 }

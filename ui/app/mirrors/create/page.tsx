@@ -59,6 +59,7 @@ export default function CreateMirrors() {
   const [config, setConfig] = useState<CDCConfig | QRepConfig>(blankCDCSetting);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [rows, setRows] = useState<TableMapRow[]>([]);
+
   const [qrepQuery, setQrepQuery] =
     useState<string>(`-- Here's a sample template:
     SELECT * FROM <table_name> 
@@ -142,8 +143,9 @@ export default function CreateMirrors() {
                       placeholder={`Select the ${
                         peerEnd === 'src' ? 'source' : 'destination'
                       } peer`}
-                      onChange={(val, action) =>
+                      onChange={(val, action) =>{
                         handlePeer(val, peerEnd as 'src' | 'dst', setConfig)
+                      }
                       }
                       options={
                         (peerEnd === 'src'

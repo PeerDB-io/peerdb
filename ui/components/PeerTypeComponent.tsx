@@ -22,6 +22,8 @@ export const DBTypeToGoodText = (ptype: DBType) => {
       return 'SQL Server';
     case DBType.MONGO:
       return 'MongoDB';
+    case DBType.CLICKHOUSE:
+      return "Clickhouse"
     case DBType.UNRECOGNIZED:
       return 'Unrecognised';
   }
