@@ -116,12 +116,14 @@ func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol
 		if col.Name == syncedAtCol || col.Name == softDeleteCol {
 			continue
 		}
-		if col.Type == bigquery.GeographyFieldType {
+		switch col.Type {
+		case bigquery.GeographyFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
-		} else if col.Type == bigquery.JSONFieldType {
-			transformedColumns = append(transformedColumns, fmt.Sprintf("PARSE_JSON(`%s`) AS `%s`", col.Name, col.Name))
-		} else {
+		case bigquery.JSONFieldType:
+			transformedColumns = append(transformedColumns,
+				fmt.Sprintf("PARSE_JSON(`%s`) AS `%s`", col.Name, col.Name))
+		default:
 			transformedColumns = append(transformedColumns, fmt.Sprintf("`%s`", col.Name))
 		}
 	}
