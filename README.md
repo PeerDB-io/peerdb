@@ -73,4 +73,4 @@ We support multiple target connectors to move data from Postgres and a couple of
 
 ## License
 
-PeerDB is licensed under Elastic License 2.0 (ELv2). Please see the LICENSE file for additional information. If you have any licensing questions please email **<founders@peerdb.io>**
+PeerDB is licensed under Elastic License 2.0 (ELv2). Please see the LICENSE file for additional information. If you have any licensing questions please email **<contact@peerdb.io>**
