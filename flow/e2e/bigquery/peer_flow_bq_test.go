@@ -756,6 +756,10 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	// Make sure that there are no nulls
 	require.True(s.t, noNulls)
 
+	// check if JSON on bigquery side is a good JSON
+	err = s.checkJSONValue(dstTableName, "c17", "sai", "1")
+	require.NoError(s.t, err)
+
 	env.AssertExpectations(s.t)
 }
 
@@ -839,10 +843,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 
 	require.Equal(s.t, 6, lineCount)
 	require.Equal(s.t, 6, polyCount)
-
-	// check if JSON on bigquery side is a good JSON
-	err = s.checkJSONValue(dstTableName, "c17", "sai", "1")
-	require.NoError(s.t, err)
 
 	env.AssertExpectations(s.t)
 }
