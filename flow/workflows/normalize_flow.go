@@ -35,7 +35,7 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 			var normalizeResponse *model.NormalizeResponse
 			if err := fStartNormalize.Get(normalizeFlowCtx, &normalizeResponse); err != nil {
 				errors = append(errors, err.Error())
-			} else {
+			} else if normalizeResponse != nil {
 				results = append(results, *normalizeResponse)
 			}
 		}
