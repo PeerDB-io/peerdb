@@ -120,16 +120,24 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 }
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (int, error) {
+	fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 1")
 	schema, err := p.stream.Schema()
 	if err != nil {
 		slog.Error("failed to get schema from stream", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
+	fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 2 %+v", schema)
+
 	colNames := schema.GetColumnNames()
 
+	fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 3 colnames: %+v", colNames)
+
 	var numRows uber_atomic.Uint32
+
 	numRows.Store(0)
+
+	fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 5")
 
 	if p.ctx != nil {
 		shutdown := utils.HeartbeatRoutine(p.ctx, 30*time.Second, func() string {
@@ -141,13 +149,15 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 			shutdown <- struct{}{}
 		}()
 	}
+	fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 6 stream.Records %+v", p.stream.Records)
 
 	for qRecordOrErr := range p.stream.Records {
+		fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 7 %+v", qRecordOrErr)
 		if qRecordOrErr.Err != nil {
 			slog.Error("[avro] failed to get record from stream", slog.Any("error", qRecordOrErr.Err))
 			return 0, fmt.Errorf("[avro] failed to get record from stream: %w", qRecordOrErr.Err)
 		}
-
+		fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 7.1 Record %+v", qRecordOrErr.Record)
 		avroConverter := model.NewQRecordAvroConverter(
 			qRecordOrErr.Record,
 			p.targetDWH,
@@ -156,6 +166,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 		)
 
 		avroMap, err := avroConverter.Convert()
+		fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 7.2 avroMap %+v", avroMap)
+
 		if err != nil {
 			slog.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
@@ -167,6 +179,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
 		}
 
+		fmt.Printf("\n************ avro_writer.go writeRecordsToOCFWriter 7.3")
 		numRows.Inc()
 	}
 
@@ -236,6 +249,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(filePath string) (*AvroFile, er
 	}
 
 	numRecords, err := p.WriteOCF(file)
+	fmt.Printf("********************* avro_writer.go WriteRecordsToAvroFile numRecords %v", numRecords)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}

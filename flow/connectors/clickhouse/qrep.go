@@ -26,22 +26,35 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
+	fmt.Printf("\n*************** in Clickhouse qrep.SyncQRepRecords %+v %+v", config, partition)
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	flowLog := slog.Group("sync_metadata",
 		slog.String(string(shared.PartitionIDKey), partition.PartitionId),
 		slog.String("destinationTable", destTable),
 	)
+
+	fmt.Printf("\n*************** in Clickhouse qrep.SyncQRepRecords 2")
 	tblSchema, err := c.getTableSchema(destTable)
+	fmt.Printf("\n*************** in Clickhouse qrep.SyncQRepRecords 2.5 %v", err)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
-	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
+	fmt.Printf("\n*************** in Clickhouse qrep.SyncQRepRecords 2.7 %v", flowLog)
+	//c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
+	fmt.Printf("\n*************** in Clickhouse qrep.SyncQRepRecords 2.8")
+	fmt.Printf("*********** Called QRep sync function and obtained table schema")
 
+	fmt.Printf("\n*************** in Clickhouse qrep.SyncQRepRecords 3 %v", tblSchema)
+	fmt.Print("\n destination_peer %+v", config.DestinationPeer.Config)
 	done, err := c.isPartitionSynced(partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
 	}
+
+	fmt.Printf("\n*************** in Clickhouse qrep.SyncQRepRecords 4")
+
+	fmt.Printf("*********** Called QRep sync function and obtained table schema")
 
 	if done {
 		c.logger.Info("Partition has already been synced", flowLog)
@@ -49,6 +62,9 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 	}
 
 	avroSync := NewClickhouseAvroSyncMethod(config, c)
+
+	fmt.Printf("\n*************** in Clickhouse qrep.SyncQRepRecords 5 stream: %+v ", stream)
+
 	return avroSync.SyncQRepRecords(config, partition, tblSchema, stream)
 }
 
@@ -69,9 +85,9 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 	insertMetadataStmt := fmt.Sprintf(
 		`INSERT INTO %s.%s
 			(flowJobName, partitionID, syncPartition, syncStartTime, syncFinishTime)
-			VALUES ('%s', '%s', '%s', '%s'::timestamp, CURRENT_TIMESTAMP);`,
-		c.metadataSchema, qRepMetadataTableName, jobName, partition.PartitionId,
-		partitionJSON, startTime.Format(time.RFC3339))
+			VALUES ('%s', '%s', '%s', '%s', NOW());`,
+		"desti", qRepMetadataTableName, jobName, partition.PartitionId,
+		partitionJSON, startTime.Format("2006-01-02 15:04:05.000000")) //c.metadataSchema
 
 	return insertMetadataStmt, nil
 }
@@ -84,67 +100,89 @@ func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnTyp
 	LIMIT 0
 	`, tableName)
 
+	fmt.Printf("\n*************** in Clickhouse qrep.getTableSchema %s", queryString)
+
 	rows, err := c.database.Query(queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 	defer rows.Close()
 
+	fmt.Printf("\n*************** in Clickhouse qrep.getTableSchema 2")
+
 	columnTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get column types: %w", err)
 	}
+
+	fmt.Printf("\n*************** in Clickhouse qrep.getTableSchema 3 %v %+v %+v", len(columnTypes), *columnTypes[0], *&columnTypes[1])
 
 	return columnTypes, nil
 }
 
 func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error) {
 	//nolint:gosec
+	fmt.Printf("\n*************** in Clickhouse qrep.isPartitionSynced 1 %s", partitionID)
 	queryString := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM %s.%s
 		WHERE partitionID = '%s'
-	`, c.metadataSchema, qRepMetadataTableName, partitionID)
+	`, "desti", qRepMetadataTableName, partitionID) //c.metadataSchema
+
+	fmt.Printf("\n*************** in Clickhouse qrep.isPartitionSynced 2 %s", queryString)
 
 	row := c.database.QueryRow(queryString)
 
-	var count pgtype.Int8
+	fmt.Printf("\n*************** in Clickhouse qrep.isPartitionSynced 3 %+v", row)
+
+	var count int
 	if err := row.Scan(&count); err != nil {
+		fmt.Printf("\n**************************** failed to execute query: %v", err)
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	return count.Int64 > 0, nil
+	fmt.Printf("\n************ in Clickhouse qrep.isPartitionSynced 4 %v", count)
+
+	//return count.Int64 > 0, nil
+	return count > 0, nil
 }
 
 func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
+	fmt.Println("***********************SetupQRepMetadataTabless 1")
 	// NOTE that Snowflake does not support transactional DDL
-	createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
-	if err != nil {
-		return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
-	}
+	//createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
+	// if err != nil {
+	// 	return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
+	// }
+	fmt.Println("***********************SetupQRepMetadataTabless 2")
 	// in case we return after error, ensure transaction is rolled back
-	defer func() {
-		deferErr := createMetadataTablesTx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error while rolling back transaction for creating metadata tables",
-				slog.Any("error", deferErr))
-		}
-	}()
-	err = c.createPeerDBInternalSchema(createMetadataTablesTx)
+	// defer func() {
+	// 	deferErr := createMetadataTablesTx.Rollback()
+	// 	if deferErr != sql.ErrTxDone && deferErr != nil {
+	// 		c.logger.Error("error while rolling back transaction for creating metadata tables",
+	// 			slog.Any("error", deferErr))
+	// 	}
+	// }()
+	//err = c.createPeerDBInternalSchema(createMetadataTablesTx)
+	fmt.Println("***********************SetupQRepMetadataTabless 3")
+	// if err != nil {
+	// 	return err
+	// }
+	err := c.createQRepMetadataTable() //(createMetadataTablesTx)
 	if err != nil {
+		fmt.Printf("\n*****************error in creating qrep metadata table: %v\n", err)
 		return err
 	}
-	err = c.createQRepMetadataTable(createMetadataTablesTx)
-	if err != nil {
-		return err
-	}
-
+	fmt.Println("\n***********************SetupQRepMetadataTabless 4")
 	stageName := c.getStageNameForJob(config.FlowJobName)
 
-	err = c.createStage(stageName, config)
-	if err != nil {
-		return err
-	}
+	fmt.Println("\n***********************Created StageName", stageName)
+
+	//not needed for clickhouse
+	// err = c.createStage(stageName, config)
+	// if err != nil {
+	// 	return err
+	// }
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
 		_, err = c.database.Exec(fmt.Sprintf("TRUNCATE TABLE %s", config.DestinationTableIdentifier))
@@ -153,56 +191,70 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig)
 		}
 	}
 
-	err = createMetadataTablesTx.Commit()
-	if err != nil {
-		return fmt.Errorf("unable to commit transaction for creating metadata tables: %w", err)
-	}
+	// err = createMetadataTablesTx.Commit()
+	// if err != nil {
+	// 	return fmt.Errorf("unable to commit transaction for creating metadata tables: %w", err)
+	// }
 
 	return nil
 }
 
-func (c *ClickhouseConnector) createQRepMetadataTable(createMetadataTableTx *sql.Tx) error {
+func (c *ClickhouseConnector) createQRepMetadataTable() error { //createMetadataTableTx *sql.Tx
 	// Define the schema
+	fmt.Printf("\n************* in createQRepMetadataTable")
 	schemaStatement := `
 	CREATE TABLE IF NOT EXISTS %s.%s (
-			flowJobName STRING,
-			partitionID STRING,
-			syncPartition STRING,
-			syncStartTime TIMESTAMP_LTZ,
-			syncFinishTime TIMESTAMP_LTZ
-	);
+		flowJobName String,
+		partitionID String,
+		syncPartition String,
+		syncStartTime DateTime64,
+		syncFinishTime DateTime64
+		) ENGINE = MergeTree()
+		ORDER BY partitionID;
 	`
-	queryString := fmt.Sprintf(schemaStatement, c.metadataSchema, qRepMetadataTableName)
+	queryString := fmt.Sprintf(schemaStatement, "desti", qRepMetadataTableName) //c.metadataSchema,
 
-	_, err := createMetadataTableTx.Exec(queryString)
+	fmt.Printf("\n************* queryString to create table %s", queryString)
+
+	//_, err := createMetadataTableTx.Exec(queryString)
+	_, err := c.database.Exec(queryString)
+	//_, err := c.database.Exec("select * from tasks;")
+
 	if err != nil {
+		fmt.Printf("\n************************ failed to create table %s %v", err.Error(), err)
 		c.logger.Error(fmt.Sprintf("failed to create table %s.%s", c.metadataSchema, qRepMetadataTableName),
 			slog.Any("error", err))
+
 		return fmt.Errorf("failed to create table %s.%s: %w", c.metadataSchema, qRepMetadataTableName, err)
 	}
-
-	c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
+	//c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
+	fmt.Printf("\n************* created table %s", qRepMetadataTableName)
 	return nil
 }
 
 func (c *ClickhouseConnector) createStage(stageName string, config *protos.QRepConfig) error {
+	fmt.Printf("\n***********************createStage1 %s, stageName: %s", stageName, config.StagingPath)
 	var createStageStmt string
 	if strings.HasPrefix(config.StagingPath, "s3://") {
+		fmt.Printf("\n***********************createStage 2")
 		stmt, err := c.createExternalStage(stageName, config)
 		if err != nil {
 			return err
 		}
 		createStageStmt = stmt
 	} else {
+		fmt.Printf("\n***********************createStage 3")
 		stageStatement := `
 			CREATE OR REPLACE STAGE %s
 			FILE_FORMAT = (TYPE = AVRO);
 			`
 		createStageStmt = fmt.Sprintf(stageStatement, stageName)
 	}
-
+	fmt.Printf("\n***********************createStage 4 %s", createStageStmt)
 	// Execute the query
 	_, err := c.database.Exec(createStageStmt)
+
+	fmt.Printf("\n***********************createStage 5 err: %v", err)
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to create stage %s", stageName), slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
@@ -364,5 +416,7 @@ func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 }
 
 func (c *ClickhouseConnector) getStageNameForJob(job string) string {
+	fmt.Println("\n***********************getStageNameForJob %s", job)
+	fmt.Println("\n*********************%s.peerdb_stage_%s", c.metadataSchema, job)
 	return fmt.Sprintf("%s.peerdb_stage_%s", c.metadataSchema, job)
 }

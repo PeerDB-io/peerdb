@@ -122,10 +122,9 @@ func NewClickhouseConnector(ctx context.Context,
 	// if err != nil {
 	// 	return nil, err
 	// }
-
+	fmt.Println("*********************in NewClickhouseConnector")
 	database, err := connect(ctx, clickhouseProtoConfig)
-
-	// snowflakeConfig := gosnowflake.Config{
+	// snowflakeConfig := gosnowfla	ke.Config{
 	// 	Account:          snowflakeProtoConfig.AccountId,
 	// 	User:             snowflakeProtoConfig.Username,
 	// 	Authenticator:    gosnowflake.AuthTypeJwt,
@@ -143,7 +142,7 @@ func NewClickhouseConnector(ctx context.Context,
 
 	// database, err := sql.Open("clickhouse", snowflakeConfigDSN)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
+		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
 	// // checking if connection was actually established, since sql.Open doesn't guarantee that
@@ -168,26 +167,35 @@ func NewClickhouseConnector(ctx context.Context,
 }
 
 func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
-	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s&database=%s",
-		config.Host, config.Port, config.User, config.Password, config.Database)
-	//dsn := "tcp://host.docker.internal:9000?username=clickhouse&password=clickhouse&database=default"
+	fmt.Println("***********************start connect")
+	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s", //&database=%s
+		config.Host, config.Port, config.User, config.Password) //, config.Database
+	//dsn := "tcp://host.docker.internal:9009?username=clickhouse&password=clickhouse" //&database=desti"
 
-	println("connecting...", dsn)
+	fmt.Println("connecting...", dsn)
 
 	conn, err := sql.Open("clickhouse", dsn)
 	if err != nil {
-		println("clickhouse error in connecting %+v\n", err.Error())
+		fmt.Println("clickhouse error in connecting %+v\n", err.Error())
 		return nil, err
 	}
-
-	println("connection opened %+v\n", conn)
 
 	if err := conn.PingContext(ctx); err != nil {
-		println("error in pinging %+v\n", err.Error())
+		fmt.Println("error in pinging %+v\n", err.Error())
 		return nil, err
 	}
 
-	println("successfully connected")
+	fmt.Println("**********************successfully connected 1")
+
+	_, err2 := conn.Exec("select * from tasks")
+	if err2 != nil {
+		fmt.Println("****************err in querying after connecting 1", err2)
+	}
+	if err2 == nil {
+		fmt.Println("*****************select after connecting done 1")
+	}
+
+	fmt.Println("***********************end connect")
 
 	return conn, nil
 }
@@ -612,6 +620,7 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 			rawTableIdentifier),
 	}
 	avroSyncer := NewClickhouseAvroSyncMethod(qrepConfig, c)
+	fmt.Printf("\n*************** in Clickhouse syncRecordsViaAvro 1 %+v", avroSyncer)
 	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
 	if err != nil {
 		return nil, err
@@ -815,7 +824,7 @@ func generateCreateTableSQLForNormalizedTable(
 		columnNameUpper := strings.ToUpper(columnName)
 		sfColType, err := qValueKindToClickhouseType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
-			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
+			slog.Warn(fmt.Sprintf("failed to convert column type %s to clickhouse type", genericColumnType),
 				slog.Any("error", err))
 			continue
 		}
@@ -873,7 +882,7 @@ func (c *ClickhouseConnector) generateAndExecuteMergeStatement(
 	for columnName, genericColumnType := range normalizedTableSchema.Columns {
 		sfType, err := qValueKindToClickhouseType(qvalue.QValueKind(genericColumnType))
 		if err != nil {
-			return 0, fmt.Errorf("failed to convert column type %s to snowflake type: %w",
+			return 0, fmt.Errorf("failed to convert column type %s to clickhouse type: %w",
 				genericColumnType, err)
 		}
 
@@ -1049,10 +1058,10 @@ func (c *ClickhouseConnector) updateNormalizeMetadata(flowJobName string, normal
 }
 
 func (c *ClickhouseConnector) createPeerDBInternalSchema(createSchemaTx *sql.Tx) error {
-	_, err := createSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
-	if err != nil {
-		return fmt.Errorf("error while creating internal schema for PeerDB: %w", err)
-	}
+	//_, err := createSchemaTx.ExecContext(c.ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
+	// if err != nil {
+	// 	return fmt.Errorf("error while creating internal schema for PeerDB: %w", err)
+	// }
 	return nil
 }
 

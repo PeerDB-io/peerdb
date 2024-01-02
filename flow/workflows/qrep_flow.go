@@ -84,6 +84,7 @@ func NewQRepPartitionFlowExecution(ctx workflow.Context,
 
 // SetupMetadataTables creates the metadata tables for query based replication.
 func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
+	fmt.Println("***************setting up metadata tables for qrep flow - ", q.config.FlowJobName)
 	q.logger.Info("setting up metadata tables for qrep flow - ", q.config.FlowJobName)
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -164,6 +165,7 @@ func (q *QRepFlowExecution) GetPartitions(
 func (q *QRepPartitionFlowExecution) ReplicatePartitions(ctx workflow.Context,
 	partitions *protos.QRepPartitionBatch,
 ) error {
+	fmt.Printf("\n******************************* in qrep_flow.go ReplicatePartitions ")
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    5 * time.Minute,
@@ -383,6 +385,8 @@ func QRepFlowWorkflow(
 	//	 4. Wait for all the workflows to complete.
 	//   5. Sleep for a while and repeat the loop.
 
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 1")
+
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := workflow.GetLogger(ctx)
 
@@ -391,6 +395,8 @@ func QRepFlowWorkflow(
 		maxParallelWorkers = int(config.MaxParallelWorkers)
 	}
 
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 2")
+
 	// register a query to get the number of partitions processed
 	err := workflow.SetQueryHandler(ctx, "num-partitions-processed", func() (uint64, error) {
 		return state.NumPartitionsProcessed, nil
@@ -398,6 +404,8 @@ func QRepFlowWorkflow(
 	if err != nil {
 		return fmt.Errorf("failed to register query handler: %w", err)
 	}
+
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 3")
 
 	// get qrep run uuid via side-effect
 	runUUIDSideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
@@ -409,12 +417,16 @@ func QRepFlowWorkflow(
 		return fmt.Errorf("failed to get run uuid: %w", err)
 	}
 
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 4")
+
 	q := NewQRepFlowExecution(ctx, config, runUUID)
 
 	err = q.SetupWatermarkTableOnDestination(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup watermark table: %w", err)
 	}
+
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 4")
 
 	err = q.SetupMetadataTables(ctx)
 	if err != nil {
@@ -427,31 +439,41 @@ func QRepFlowWorkflow(
 		return err
 	}
 
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 5")
+
 	logger.Info("fetching partitions to replicate for peer flow - ", config.FlowJobName)
 	partitions, err := q.GetPartitions(ctx, state.LastPartition)
 	if err != nil {
 		return fmt.Errorf("failed to get partitions: %w", err)
 	}
 
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 6")
+
 	logger.Info("partitions to replicate - ", len(partitions.Partitions))
 	if err = q.processPartitions(ctx, maxParallelWorkers, partitions.Partitions); err != nil {
 		return err
 	}
-
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 7")
 	logger.Info("consolidating partitions for peer flow - ", config.FlowJobName)
 	if err = q.consolidatePartitions(ctx); err != nil {
 		return err
 	}
+
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 8")
 
 	if config.InitialCopyOnly {
 		q.logger.Info("initial copy completed for peer flow - ", config.FlowJobName)
 		return nil
 	}
 
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 9")
+
 	err = q.handleTableRenameForResync(ctx, state)
 	if err != nil {
 		return err
 	}
+
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 10")
 
 	q.logger.Info("partitions processed - ", len(partitions.Partitions))
 	state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
@@ -460,6 +482,8 @@ func QRepFlowWorkflow(
 		state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 	}
 
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 11")
+
 	if !state.DisableWaitForNewRows {
 		// sleep for a while and continue the workflow
 		err = q.waitForNewRows(ctx, state.LastPartition)
@@ -467,6 +491,7 @@ func QRepFlowWorkflow(
 			return err
 		}
 	}
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 12")
 
 	workflow.GetLogger(ctx).Info("Continuing as new workflow",
 		"Last Partition", state.LastPartition,
@@ -489,10 +514,13 @@ func QRepFlowWorkflow(
 			}
 		}
 	}
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 13")
 	if q.activeSignal == shared.ShutdownSignal {
 		q.logger.Info("terminating workflow - ", config.FlowJobName)
 		return nil
 	}
+
+	fmt.Printf("\n******************************* in qrep_flow.go QRepFlowWorkflow 14")
 
 	// Continue the workflow with new state
 	return workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)

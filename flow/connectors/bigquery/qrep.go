@@ -114,8 +114,8 @@ func (c *BigQueryConnector) createMetadataInsertStatement(
 		"INSERT INTO %s._peerdb_query_replication_metadata"+
 			"(flowJobName, partitionID, syncPartition, syncStartTime, syncFinishTime) "+
 			"VALUES ('%s', '%s', JSON '%s', TIMESTAMP('%s'), CURRENT_TIMESTAMP());",
-		c.datasetID, jobName, partition.PartitionId,
-		partitionJSON, startTime.Format(time.RFC3339))
+		"desti", jobName, partition.PartitionId,
+		partitionJSON, startTime.Format(time.RFC3339)) //c.datasetID
 
 	return insertMetadataStmt, nil
 }

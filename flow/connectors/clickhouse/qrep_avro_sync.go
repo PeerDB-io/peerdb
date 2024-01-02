@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
@@ -101,50 +100,89 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 ) (int, error) {
+	fmt.Printf("\n************ in ch.SyncQRepRecords 1")
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 
+	fmt.Printf("\n************ in ch.SyncQRepRecords 2 %+v", stream.Schema)
+
 	schema, err := stream.Schema()
+	fmt.Printf("\n******************************** ************ in ch.SyncQRepRecords 2.1 %+v %+v %+v", schema, err, partitionLog)
 	if err != nil {
+		fmt.Printf("\n******************************** ************ in ch.SyncQRepRecords 2.5 error %v", err)
 		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
-	s.connector.logger.Info("sync function called and schema acquired", partitionLog)
+	//s.connector.logger.Info("sync function called and schema acquired", partitionLog)  commenting this as this is throwing an error
+	fmt.Printf("\n************ in ch.SyncQRepRecords 3")
+	// err = s.addMissingColumns(
+	// 	config.FlowJobName,
+	// 	schema,
+	// 	dstTableSchema,
+	// 	dstTableName,
+	// 	partition,
+	// )
+	// if err != nil {
+	// 	return 0, err
+	// }
 
-	err = s.addMissingColumns(
-		config.FlowJobName,
-		schema,
-		dstTableSchema,
-		dstTableName,
-		partition,
-	)
-	if err != nil {
-		return 0, err
-	}
+	fmt.Printf("\n************ in ch.SyncQRepRecords 4")
 
 	avroSchema, err := s.getAvroSchema(dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
 
+	fmt.Printf("\n************ in ch.SyncQRepRecords 5")
+
 	avroFile, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
-	defer avroFile.Cleanup()
+	//defer avroFile.Cleanup()
 
-	stage := s.connector.getStageNameForJob(config.FlowJobName)
+	fmt.Printf("\n************ in ch.SyncQRepRecords 6 ****%+v", avroFile)
 
-	err = s.putFileToStage(avroFile, stage)
+	avroFileUrl := "https://avro-clickhouse.s3.us-east-2.amazonaws.com" + avroFile.FilePath
+
+	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
+
 	if err != nil {
 		return 0, err
 	}
-	s.connector.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
+
+	query := fmt.Sprintf("INSERT INTO desti.todos SELECT * FROM s3('%s','%s','%s', 'Avro')", avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
+
+	fmt.Printf("*******************in ch.SyncQRepRecords 6.0 query for uploading avro to clickhouse %+v", query)
+	_, err = s.connector.database.Exec(query)
+	if err != nil {
+		fmt.Printf("*******************in ch.SyncQRepRecords 6.1 error in uploading avro to clickhouse %+v", err)
+		return 0, err
+	}
+
+	fmt.Printf("*******************in ch.SyncQRepRecords 6.2 success uploading avro to clickhouse")
+
+	// err = s.UploadAvroFile(avroFile.FilePath)
+	// if err != nil {
+	// 	return 0, err
+	// }
+
+	//stage := s.connector.getStageNameForJob(config.FlowJobName)
+
+	// err = s.putFileToStage(avroFile, stage)
+	// if err != nil {
+	// 	return 0, err
+	// }
+
+	fmt.Printf("\n************ in ch.SyncQRepRecords 7 succefully uploaded avro file")
+	//s.connector.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
 
 	err = s.insertMetadata(partition, config.FlowJobName, startTime)
 	if err != nil {
 		return -1, err
 	}
+
+	fmt.Printf("\n************ in ch.SyncQRepRecords 8")
 
 	activity.RecordHeartbeat(s.connector.ctx, "finished syncing records")
 
@@ -158,10 +196,12 @@ func (s *ClickhouseAvroSyncMethod) addMissingColumns(
 	dstTableName string,
 	partition *protos.QRepPartition,
 ) error {
+	fmt.Printf("\n************ in ch.addMissingColumns 1")
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	// check if avro schema has additional columns compared to destination table
 	// if so, we need to add those columns to the destination table
 	colsToTypes := map[string]qvalue.QValueKind{}
+	fmt.Printf("\n************ in ch.addMissingColumns 2")
 	for _, col := range schema.Fields {
 		hasColumn := false
 		// check ignoring case
@@ -178,13 +218,14 @@ func (s *ClickhouseAvroSyncMethod) addMissingColumns(
 			colsToTypes[col.Name] = col.Type
 		}
 	}
+	fmt.Printf("\n************ in ch.addMissingColumns 3")
 
 	if len(colsToTypes) > 0 {
 		tx, err := s.connector.database.Begin()
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-
+		fmt.Printf("\n************ in ch.addMissingColumns 4")
 		for colName, colType := range colsToTypes {
 			sfColType, err := colType.ToDWHColumnType(qvalue.QDWHTypeClickhouse)
 			if err != nil {
@@ -201,10 +242,13 @@ func (s *ClickhouseAvroSyncMethod) addMissingColumns(
 				return fmt.Errorf("failed to alter destination table: %w", err)
 			}
 		}
+		fmt.Printf("\n************ in ch.addMissingColumns 5")
 
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
+
+		fmt.Printf("\n************ in ch.addMissingColumns 6")
 
 		s.connector.logger.Info("successfully added missing columns to destination table "+
 			dstTableName, partitionLog)
@@ -219,12 +263,15 @@ func (s *ClickhouseAvroSyncMethod) getAvroSchema(
 	dstTableName string,
 	schema *model.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
+	fmt.Printf("\n************ in ch.getAvroSchema 1")
 	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema)
+	fmt.Printf("\n************ in ch.getAvroSchema 2")
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
-
-	s.connector.logger.Info(fmt.Sprintf("Avro schema: %v\n", avroSchema))
+	fmt.Printf("\n************ in ch.getAvroSchema 3")
+	//s.connector.logger.Info(fmt.Sprintf("Avro schema: %v\n", avroSchema))
+	fmt.Printf("\n************ in ch.getAvroSchema 4")
 	return avroSchema, nil
 }
 
@@ -234,43 +281,58 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	partitionID string,
 	flowJobName string,
 ) (*avro.AvroFile, error) {
-	if s.config.StagingPath == "" {
-		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
-			qvalue.QDWHTypeClickhouse)
-		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
-		err := os.MkdirAll(tmpDir, os.ModePerm)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create temp dir: %w", err)
-		}
+	// fmt.Printf("\n************ in qrep_avro_sync.go ch.writeToAvroFile 1 %v", s.config.StagingPath)
+	// if s.config.StagingPath == "" {
+	// 	fmt.Printf("\n************  qrep_avro_sync.go  ch.writeToAvroFile 2")
+	// 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
+	// 		qvalue.QDWHTypeClickhouse)
+	// 	fmt.Printf("\n************  qrep_avro_sync.go  ch.writeToAvroFile 2.01 %+v", ocfWriter)
 
-		localFilePath := fmt.Sprintf("%s/%s.avro.zst", tmpDir, partitionID)
-		s.connector.logger.Info("writing records to local file " + localFilePath)
-		avroFile, err := ocfWriter.WriteRecordsToAvroFile(localFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to write records to Avro file: %w", err)
-		}
+	// 	tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
+	// 	fmt.Printf("\n************  qrep_avro_sync.go  ch.writeToAvroFile 2.1 %v", tmpDir)
+	// 	err := os.MkdirAll(tmpDir, os.ModePerm)
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	// 	}
+	// 	fmt.Printf("\n************  qrep_avro_sync.go  ch.writeToAvroFile 2.2 err %+v", err)
 
-		return avroFile, nil
-	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
-			qvalue.QDWHTypeClickhouse)
-		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse staging path: %w", err)
-		}
+	// 	localFilePath := fmt.Sprintf("%s/%s.avro.zst", tmpDir, partitionID)
+	// 	fmt.Printf("\n************ in ch.writeToAvroFile 2.3 %v", localFilePath)
+	// 	//s.connector.logger.Info("writing records to local file " + localFilePath)
+	// 	fmt.Printf("\n***********  qrep_avro_sync.go  ch.writeToAvroFile 2.4")
+	// 	avroFile, err := ocfWriter.WriteRecordsToAvroFile(localFilePath)
+	// 	fmt.Printf("\n************  qrep_avro_sync.go  ch.writeToAvroFile 2.5 %+v", avroFile)
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("failed to write records to Avro file: %w", err)
+	// 	}
+	// 	fmt.Printf("\n************  qrep_avro_sync.go  ch.writeToAvroFile 2.6 %+v", avroFile)
 
-		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
-		s.connector.logger.Info("OCF: Writing records to S3",
-			slog.String(string(shared.PartitionIDKey), partitionID))
-		avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to write records to S3: %w", err)
-		}
-
-		return avroFile, nil
+	// 	return avroFile, nil
+	// } else if strings.HasPrefix(s.config.StagingPath, "s3://") {
+	fmt.Printf("\n************ in ch.writeToAvroFile 3")
+	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema, avro.CompressZstd,
+		qvalue.QDWHTypeClickhouse)
+	s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse staging path: %w", err)
 	}
 
-	return nil, fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
+	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
+	fmt.Printf("\n************ in ch.writeToAvroFile 3.1 s3AvroFileKey: %v", s3AvroFileKey)
+	// s.connector.logger.Info("OCF: Writing records to S3",
+	// 	slog.String(string(shared.PartitionIDKey), partitionID))
+	//avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{})
+	avroFile, err := ocfWriter.WriteRecordsToS3("avro-clickhouse", s3AvroFileKey, utils.S3PeerCredentials{}) ///utils.S3PeerCredentials{})
+	if err != nil {
+		fmt.Printf("\n************ in ch.writeToAvroFile 3.2 err: %+v", err)
+
+		return nil, fmt.Errorf("failed to write records to S3: %w", err)
+	}
+	fmt.Printf("\n************ in ch.writeToAvroFile 4 uploaded file to s3 avroFile: %+v", avroFile)
+
+	return avroFile, nil
+	//}
+	//return nil, fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
 }
 
 func (s *ClickhouseAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage string) error {
@@ -382,21 +444,29 @@ func (s *ClickhouseAvroSyncMethod) insertMetadata(
 	flowJobName string,
 	startTime time.Time,
 ) error {
+	fmt.Printf("\n************ qrep_avro_sync.go ch.insertMetadata 1 %+v %+v %+v", partition, flowJobName, startTime)
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	insertMetadataStmt, err := s.connector.createMetadataInsertStatement(partition, flowJobName, startTime)
+	fmt.Printf("\n************  qrep_avro_sync.go ch.insertMetadata 2 %+v %+v", insertMetadataStmt, err)
 	if err != nil {
 		s.connector.logger.Error("failed to create metadata insert statement",
 			slog.Any("error", err), partitionLog)
 		return fmt.Errorf("failed to create metadata insert statement: %v", err)
 	}
+	fmt.Printf("\n************  qrep_avro_sync.go ch.insertMetadata 3 s: %+v", *s.connector)
 
 	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
-		s.connector.logger.Error("failed to execute metadata insert statement "+insertMetadataStmt,
-			slog.Any("error", err), partitionLog)
+		fmt.Printf("\n************  qrep_avro_sync.go ch.insertMetadata 4 %+v", err)
+		//s.connector.logger.Error("failed to execute metadata insert statement "+insertMetadataStmt,
+		//slog.Any("error", err), partitionLog)
 		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
 	}
 
-	s.connector.logger.Info("inserted metadata for partition", partitionLog)
+	fmt.Printf("\n************  qrep_avro_sync.go ch.insertMetadata 5 %+v", err)
+
+	//s.connector.logger.Info("inserted metadata for partition", partitionLog)
+
+	fmt.Printf("\n************  qrep_avro_sync.go ch.insertMetadata 6")
 	return nil
 }
 

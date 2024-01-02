@@ -268,6 +268,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	} else {
 		workflowFn = peerflow.QRepFlowWorkflow
 	}
+	fmt.Printf("\n *********** cfg %v", cfg)
 	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
 		slog.Error("unable to start QRepFlow workflow",
@@ -524,12 +525,14 @@ func (h *FlowRequestHandler) ValidatePeer(
 	ctx context.Context,
 	req *protos.ValidatePeerRequest,
 ) (*protos.ValidatePeerResponse, error) {
+	println("vp1")
 	if req.Peer == nil {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer provided",
 		}, nil
 	}
+	println("vp2")
 
 	if len(req.Peer.Name) == 0 {
 		return &protos.ValidatePeerResponse{
@@ -537,6 +540,8 @@ func (h *FlowRequestHandler) ValidatePeer(
 			Message: "no peer name provided",
 		}, nil
 	}
+
+	println("vp3")
 
 	conn, err := connectors.GetConnector(ctx, req.Peer)
 	if err != nil {
@@ -547,6 +552,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 				req.Peer.Type, req.Peer.Name, err),
 		}, nil
 	}
+	println("vp3")
 
 	connErr := conn.ConnectionActive()
 	if connErr != nil {
@@ -556,6 +562,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 				req.Peer.Type, req.Peer.Name, connErr),
 		}, nil
 	}
+	println("vp4")
 
 	return &protos.ValidatePeerResponse{
 		Status: protos.ValidatePeerStatus_VALID,
@@ -568,10 +575,13 @@ func (h *FlowRequestHandler) CreatePeer(
 	ctx context.Context,
 	req *protos.CreatePeerRequest,
 ) (*protos.CreatePeerResponse, error) {
+	println("CreatePeer", req.Peer.Name)
 	status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
+	println("CreatePeer validateErr", validateErr)
 	if validateErr != nil {
 		return nil, validateErr
 	}
+
 	if status.Status != protos.ValidatePeerStatus_VALID {
 		return &protos.CreatePeerResponse{
 			Status:  protos.CreatePeerStatus_FAILED,
@@ -606,12 +616,19 @@ func (h *FlowRequestHandler) CreatePeer(
 		sfConfig := sfConfigObject.SnowflakeConfig
 		encodedConfig, encodingErr = proto.Marshal(sfConfig)
 	case protos.DBType_CLICKHOUSE:
+
 		chConfigObject, ok := config.(*protos.Peer_ClickhouseConfig)
+
 		if !ok {
 			return wrongConfigResponse, nil
 		}
+
 		chConfig := chConfigObject.ClickhouseConfig
 		encodedConfig, encodingErr = proto.Marshal(chConfig)
+		fmt.Printf("config %v", config)
+		fmt.Printf("chConfigObject %v", chConfigObject)
+		fmt.Printf("chConfig %v", chConfig)
+		fmt.Printf("encodedConfig %v", encodedConfig)
 	case protos.DBType_BIGQUERY:
 		bqConfigObject, ok := config.(*protos.Peer_BigqueryConfig)
 		if !ok {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	//protos "github.com/PeerDB-io/peer-flow/generated/protos/peers.pb.go"
+
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 
 	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
@@ -133,6 +135,7 @@ type QRepConsolidateConnector interface {
 }
 
 func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConnector, error) {
+	println("**** in GetCDCPullConnector")
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -143,6 +146,7 @@ func GetCDCPullConnector(ctx context.Context, config *protos.Peer) (CDCPullConne
 }
 
 func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConnector, error) {
+	println("**** in GetCDCSyncConnector")
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -167,6 +171,7 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 func GetCDCNormalizeConnector(ctx context.Context,
 	config *protos.Peer,
 ) (CDCNormalizeConnector, error) {
+	println("in GetCDCNormalizeConnector")
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -181,6 +186,7 @@ func GetCDCNormalizeConnector(ctx context.Context,
 }
 
 func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullConnector, error) {
+	println("********* in GetQRepPullConnector")
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -193,6 +199,14 @@ func GetQRepPullConnector(ctx context.Context, config *protos.Peer) (QRepPullCon
 }
 
 func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncConnector, error) {
+	//jsonStr, err := json.Marshal(config.Config)
+
+	// if err != nil {
+	// 	println("*********** error in stringifying in GetQRepSyncConnector", err)
+	// }
+
+	fmt.Println("************ in GetQRepSyncConnector")
+
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_PostgresConfig:
@@ -204,14 +218,18 @@ func GetQRepSyncConnector(ctx context.Context, config *protos.Peer) (QRepSyncCon
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
 	case *protos.Peer_ClickhouseConfig:
+		fmt.Println("************** in GetQRepSyncConnector: clickhouse matched")
 		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
+		fmt.Println("********************* no match")
+		//println(inner, inner.(type), *protos.Peer_ClickhouseConfig)
 		return nil, ErrUnsupportedFunctionality
 	}
 }
 
 func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 	inner := peer.Type
+	fmt.Println("************************************** peer types", inner, protos.DBType_CLICKHOUSE)
 	switch inner {
 	case protos.DBType_POSTGRES:
 		pgConfig := peer.GetPostgresConfig()
@@ -246,7 +264,9 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 		}
 		return conns3.NewS3Connector(ctx, s3Config)
 	case protos.DBType_CLICKHOUSE:
+		fmt.Println(" case matched CLICKHOUSE")
 		clickhouseConfig := peer.GetClickhouseConfig()
+		fmt.Println("clickhouseConfig", clickhouseConfig)
 		if clickhouseConfig == nil {
 			return nil, fmt.Errorf("missing clickhouse config for %s peer %s", peer.Type.String(), peer.Name)
 		}
@@ -261,6 +281,7 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 func GetQRepConsolidateConnector(ctx context.Context,
 	config *protos.Peer,
 ) (QRepConsolidateConnector, error) {
+	fmt.Println("************* in GetQRepConsolidateConnector")
 	inner := config.Config
 	switch inner.(type) {
 	case *protos.Peer_SnowflakeConfig:
