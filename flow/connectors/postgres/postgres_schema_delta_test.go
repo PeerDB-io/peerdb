@@ -13,17 +13,15 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PostgresSchemaDeltaTestSuite struct {
-	got.G
 	t         *testing.T
 	connector *PostgresConnector
 	schema    string
 }
 
-func SetupSuite(t *testing.T, g got.G) PostgresSchemaDeltaTestSuite {
+func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	t.Helper()
 
 	connector, err := NewPostgresConnector(context.Background(), &protos.PostgresConfig{
@@ -53,7 +51,6 @@ func SetupSuite(t *testing.T, g got.G) PostgresSchemaDeltaTestSuite {
 	require.NoError(t, err)
 
 	return PostgresSchemaDeltaTestSuite{
-		G:         g,
 		t:         t,
 		connector: connector,
 		schema:    schema,
@@ -80,7 +77,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
-	s.Equal(&protos.TableSchema{
+	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier:   tableName,
 		ColumnNames:       []string{"id", "hi"},
 		ColumnTypes:       []string{string(qvalue.QValueKindInt32), string(qvalue.QValueKindInt64)},
@@ -143,7 +140,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
-	s.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
@@ -193,7 +190,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
-	s.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
@@ -234,7 +231,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		TableIdentifiers: []string{tableName},
 	})
 	require.NoError(s.t, err)
-	s.Equal(expectedTableSchema, output.TableNameSchemaMapping[tableName])
+	require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[tableName])
 }
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {

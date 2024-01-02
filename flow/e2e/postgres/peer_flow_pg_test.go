@@ -91,7 +91,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -155,7 +155,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
 		require.NoError(s.t, err)
 
@@ -185,7 +185,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2")
 		require.NoError(s.t, err)
 
@@ -216,7 +216,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c3")
 		require.NoError(s.t, err)
 
@@ -247,7 +247,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		require.NoError(s.t, err)
-		s.Equal(expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
 		require.NoError(s.t, err)
 	}()
@@ -255,7 +255,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -326,7 +326,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -406,7 +406,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -483,7 +483,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	// allow only continue as new error
@@ -549,7 +549,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err = env.GetWorkflowError()
 	// allow only continue as new error

@@ -14,11 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PeerFlowE2ETestSuiteS3 struct {
-	got.G
 	t *testing.T
 
 	pool     *pgxpool.Pool
@@ -53,7 +51,7 @@ func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int)
 	require.NoError(s.t, err)
 }
 
-func setupSuite(t *testing.T, g got.G, gcs bool) PeerFlowE2ETestSuiteS3 {
+func setupSuite(t *testing.T, gcs bool) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
 
 	err := godotenv.Load()
@@ -75,7 +73,6 @@ func setupSuite(t *testing.T, g got.G, gcs bool) PeerFlowE2ETestSuiteS3 {
 	}
 
 	return PeerFlowE2ETestSuiteS3{
-		G:        g,
 		t:        t,
 		pool:     pool,
 		s3Helper: helper,
@@ -83,14 +80,14 @@ func setupSuite(t *testing.T, g got.G, gcs bool) PeerFlowE2ETestSuiteS3 {
 	}
 }
 
-func SetupSuiteS3(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
+func SetupSuiteS3(t *testing.T) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
-	return setupSuite(t, g, false)
+	return setupSuite(t, false)
 }
 
-func SetupSuiteGCS(t *testing.T, g got.G) PeerFlowE2ETestSuiteS3 {
+func SetupSuiteGCS(t *testing.T) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
-	return setupSuite(t, g, true)
+	return setupSuite(t, true)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
@@ -123,7 +120,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	require.NoError(s.t, err)
@@ -174,7 +171,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 
 	require.NoError(s.t, err)

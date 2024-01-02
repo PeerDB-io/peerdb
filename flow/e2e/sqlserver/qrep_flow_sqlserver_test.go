@@ -19,11 +19,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
-	"github.com/ysmood/got"
 )
 
 type PeerFlowE2ETestSuiteSQLServer struct {
-	got.G
 	t *testing.T
 
 	pool       *pgxpool.Pool
@@ -43,7 +41,7 @@ func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
 	})
 }
 
-func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSQLServer {
+func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	t.Helper()
 
 	err := godotenv.Load()
@@ -69,7 +67,6 @@ func SetupSuite(t *testing.T, g got.G) PeerFlowE2ETestSuiteSQLServer {
 	}
 
 	return PeerFlowE2ETestSuiteSQLServer{
-		G:          g,
 		t:          t,
 		pool:       pool,
 		sqlsHelper: sqlsHelper,
@@ -166,7 +163,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	e2e.RunQrepFlowWorkflow(env, qrepConfig)
 
 	// Verify workflow completes without error
-	s.True(env.IsWorkflowCompleted())
+	require.True(s.t, env.IsWorkflowCompleted())
 
 	err := env.GetWorkflowError()
 	require.NoError(s.t, err)
@@ -177,5 +174,5 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 	err = s.pool.QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 
-	s.Equal(numRows, int(numRowsInDest.Int64))
+	require.Equal(s.t, numRows, int(numRowsInDest.Int64))
 }
