@@ -302,11 +302,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 func (q *QRepFlowExecution) waitForNewRows(ctx workflow.Context, lastPartition *protos.QRepPartition) error {
 	q.logger.Info("idling until new rows are detected")
 
-	waitActivityTimeout := 5 * time.Minute
-	if q.config.WaitBetweenBatchesSeconds >= 300 {
-		timeGap := 60
-		waitActivityTimeout = time.Duration(q.config.WaitBetweenBatchesSeconds+uint32(timeGap)) * time.Second
-	}
+	waitActivityTimeout := time.Duration(q.config.WaitBetweenBatchesSeconds+60) * time.Second
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
 		HeartbeatTimeout:    waitActivityTimeout,
