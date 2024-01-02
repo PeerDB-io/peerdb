@@ -168,11 +168,15 @@ func (b *BigQueryTestHelper) RunCommand(command string) error {
 
 // countRows(tableName) returns the number of rows in the given table.
 func (b *BigQueryTestHelper) countRows(tableName string) (int, error) {
-	return b.countRowsWithDataset(b.datasetName, tableName)
+	return b.countRowsWithDataset(b.datasetName, tableName, "")
 }
 
-func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string) (int, error) {
+func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, nonNullCol string) (int, error) {
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", dataset, tableName)
+	if nonNullCol != "" {
+		command = fmt.Sprintf("SELECT COUNT(CASE WHEN " + nonNullCol +
+			" IS NOT NULL THEN 1 END) AS non_null_count FROM `" + dataset + "." + tableName + "`;")
+	}
 	it, err := b.client.Query(command).Read(context.Background())
 	if err != nil {
 		return 0, fmt.Errorf("failed to run command: %w", err)

@@ -46,6 +46,8 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 		return bigquery.IntegerFieldType
 	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64:
 		return bigquery.FloatFieldType
+	case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
+		return bigquery.GeographyFieldType
 	// rest will be strings
 	default:
 		return bigquery.StringFieldType
@@ -76,7 +78,7 @@ func BigQueryTypeToQValueKind(fieldType bigquery.FieldType) (qvalue.QValueKind, 
 	case bigquery.NumericFieldType:
 		return qvalue.QValueKindNumeric, nil
 	case bigquery.GeographyFieldType:
-		return qvalue.QValueKindString, nil
+		return qvalue.QValueKindGeography, nil
 	default:
 		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
 	}

@@ -110,6 +110,22 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	return numRecords, nil
 }
 
+func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol string, softDeleteCol string) []string {
+	transformedColumns := make([]string, 0, len(dstTableMetadata.Schema))
+	for _, col := range dstTableMetadata.Schema {
+		if col.Name == syncedAtCol || col.Name == softDeleteCol {
+			continue
+		}
+		if col.Type == bigquery.GeographyFieldType {
+			transformedColumns = append(transformedColumns,
+				fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
+		} else {
+			transformedColumns = append(transformedColumns, fmt.Sprintf("`%s`", col.Name))
+		}
+	}
+	return transformedColumns
+}
+
 func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	flowJobName string,
 	dstTableName string,
@@ -151,7 +167,9 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	)
 	bqClient := s.connector.client
 
-	selector := "*"
+	transformedColumns := getTransformedColumns(dstTableMetadata, syncedAtCol, softDeleteCol)
+	selector := strings.Join(transformedColumns, ", ")
+
 	if softDeleteCol != "" { // PeerDB column
 		selector += ", FALSE"
 	}
@@ -262,7 +280,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	}
 
 	switch bqField.Type {
-	case bigquery.StringFieldType:
+	case bigquery.StringFieldType, bigquery.GeographyFieldType:
 		return considerRepeated("string", bqField.Repeated), nil
 	case bigquery.BytesFieldType:
 		return "bytes", nil

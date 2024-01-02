@@ -420,7 +420,6 @@ func GeoValidate(hexWkb string) (string, error) {
 	// UnmarshalWKB performs geometry validation along with WKB parsing
 	geometryObject, geoErr := geom.NewGeomFromWKB(wkb)
 	if geoErr != nil {
-		slog.Warn(fmt.Sprintf("Ignoring invalid geometry WKB %s: %v", hexWkb, geoErr))
 		return "", geoErr
 	}
 
