@@ -44,6 +44,21 @@ func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
 	})
 }
 
+func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, value string) error {
+	res, err := s.bqHelper.ExecuteAndProcessQuery(fmt.Sprintf(
+		"SELECT `%s`.%s FROM `%s.%s`;",
+		colName, fieldName, s.bqHelper.datasetName, tableName))
+	if err != nil {
+		return fmt.Errorf("json value check failed: %v", err)
+	}
+
+	jsonVal := res.Records[0].Entries[0].Value
+	if jsonVal != value {
+		return fmt.Errorf("bad json value in field %s of column %s: %v. expected: %v", fieldName, colName, jsonVal, value)
+	}
+	return nil
+}
+
 func (s PeerFlowE2ETestSuiteBQ) attachSchemaSuffix(tableName string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tableName)
 }
@@ -824,6 +839,10 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 
 	require.Equal(s.t, 6, lineCount)
 	require.Equal(s.t, 6, polyCount)
+
+	// check if JSON on snowflake side is a good JSON
+	err = s.checkJSONValue(dstTableName, "c17", "sai", "1")
+	require.NoError(s.t, err)
 
 	env.AssertExpectations(s.t)
 }

@@ -119,6 +119,8 @@ func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol
 		if col.Type == bigquery.GeographyFieldType {
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
+		} else if col.Type == bigquery.JSONFieldType {
+			transformedColumns = append(transformedColumns, fmt.Sprintf("PARSE_JSON(`%s`) AS `%s`", col.Name, col.Name))
 		} else {
 			transformedColumns = append(transformedColumns, fmt.Sprintf("`%s`", col.Name))
 		}
@@ -280,7 +282,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	}
 
 	switch bqField.Type {
-	case bigquery.StringFieldType, bigquery.GeographyFieldType:
+	case bigquery.StringFieldType, bigquery.GeographyFieldType, bigquery.JSONFieldType:
 		return considerRepeated("string", bqField.Repeated), nil
 	case bigquery.BytesFieldType:
 		return "bytes", nil

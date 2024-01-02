@@ -25,7 +25,7 @@ func qValueKindToBigQueryType(colType string) bigquery.FieldType {
 		return bigquery.StringFieldType
 	// json also is stored as string for now
 	case qvalue.QValueKindJSON:
-		return bigquery.StringFieldType
+		return bigquery.JSONFieldType
 	// time related
 	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:
 		return bigquery.TimestampFieldType
@@ -79,6 +79,8 @@ func BigQueryTypeToQValueKind(fieldType bigquery.FieldType) (qvalue.QValueKind, 
 		return qvalue.QValueKindNumeric, nil
 	case bigquery.GeographyFieldType:
 		return qvalue.QValueKindGeography, nil
+	case bigquery.JSONFieldType:
+		return qvalue.QValueKindJSON, nil
 	default:
 		return "", fmt.Errorf("unsupported bigquery field type: %v", fieldType)
 	}
