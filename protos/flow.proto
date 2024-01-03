@@ -419,3 +419,16 @@ enum FlowStatus {
   // neither button should be enabled
   STATUS_TERMINATED = 7;
 }
+
+message CDCFlowStateUpdate {
+}
+
+message QRepFlowStateUpdate  {
+}
+
+message FlowStateUpdate {
+  oneof update {
+    CDCFlowStateUpdate cdc_flow_state_update = 1;
+    QRepFlowStateUpdate qrep_flow_state_update = 2;
+  }
+}
