@@ -188,7 +188,7 @@ message FlowStateChangeRequest {
   peerdb_peers.Peer source_peer = 3;
   peerdb_peers.Peer destination_peer = 4;
   // only can be sent in certain situations
-  peerdb_flow.FlowStateUpdate flow_state_update = 5;
+  optional peerdb_flow.FlowStateUpdate flow_state_update = 5;
 }
 
 message FlowStateChangeResponse {

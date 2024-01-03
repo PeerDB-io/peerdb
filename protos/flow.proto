@@ -423,7 +423,7 @@ enum FlowStatus {
 message CDCFlowStateUpdate {
 }
 
-message QRepFlowStateUpdate  {
+message QRepFlowStateUpdate {
 }
 
 message FlowStateUpdate {
