@@ -12,7 +12,7 @@ prost = "0.12"
 peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 pt = { path = "../pt" }
-refinery = { version = "0.8", features = ["tokio-postgres"] }
+include_dir = { version = "0.7", default-features = false }
 tokio = { version = "1.13.0", features = ["full"] }
 tokio-postgres = { version = "0.7.6", features = [
   "with-chrono-0_4",
@@ -21,4 +21,5 @@ tokio-postgres = { version = "0.7.6", features = [
 ] }
 tracing = "0.1.29"
 serde_json = "1.0"
+siphasher = "1.0"
 postgres-connection = { path = "../postgres-connection" }
