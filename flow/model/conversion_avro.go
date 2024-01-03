@@ -71,10 +71,8 @@ func GetAvroSchemaDefinition(
 	dstTableName string,
 	qRecordSchema *QRecordSchema,
 ) (*QRecordAvroSchemaDefinition, error) {
-	fmt.Printf("\n************ in conversion_avro.go GetAvroSchemaDefinition 1")
 	avroFields := []QRecordAvroField{}
 	nullableFields := make(map[string]struct{})
-	fmt.Printf("\n************ in conversion_avro.go GetAvroSchemaDefinition 2")
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, qField.Nullable)
 		if err != nil {
@@ -93,20 +91,16 @@ func GetAvroSchemaDefinition(
 			Type: consolidatedType,
 		})
 	}
-	fmt.Printf("\n************ in conversion_avro.go GetAvroSchemaDefinition 3")
 	avroSchema := QRecordAvroSchema{
 		Type:   "record",
 		Name:   dstTableName,
 		Fields: avroFields,
 	}
-	fmt.Printf("\n************ in conversion_avro.go GetAvroSchemaDefinition 4")
 
 	avroSchemaJSON, err := json.Marshal(avroSchema)
-	fmt.Printf("\n************ in conversion_avro.go GetAvroSchemaDefinition 5")
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %v", err)
 	}
-	fmt.Printf("\n************ in conversion_avro.go GetAvroSchemaDefinition 6")
 	return &QRecordAvroSchemaDefinition{
 		Schema:         string(avroSchemaJSON),
 		NullableFields: nullableFields,

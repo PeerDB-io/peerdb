@@ -25,8 +25,6 @@ func (c *PostgresConnector) GetQRepPartitions(
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 
-	fmt.Printf("\n******************************* in Postgres.GetQRepPartitions 1")
-
 	if config.WatermarkColumn == "" {
 		// if no watermark column is specified, return a single partition
 		partition := &protos.QRepPartition{
@@ -37,8 +35,6 @@ func (c *PostgresConnector) GetQRepPartitions(
 		return []*protos.QRepPartition{partition}, nil
 	}
 
-	fmt.Printf("\n******************************* in Postgres.GetQRepPartitions 2")
-
 	// begin a transaction
 	tx, err := c.pool.BeginTx(c.ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
@@ -47,7 +43,6 @@ func (c *PostgresConnector) GetQRepPartitions(
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	fmt.Printf("\n******************************* in Postgres.GetQRepPartitions 3")
 	defer func() {
 		deferErr := tx.Rollback(c.ctx)
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
@@ -59,7 +54,6 @@ func (c *PostgresConnector) GetQRepPartitions(
 	if err != nil {
 		return nil, fmt.Errorf("failed to set transaction snapshot: %w", err)
 	}
-	fmt.Printf("\n******************************* in Postgres.GetQRepPartitions 3")
 	// TODO re-enable locking of the watermark table.
 	// // lock the table while we get the partitions.
 	// lockQuery := fmt.Sprintf("LOCK %s IN EXCLUSIVE MODE", config.WatermarkTable)

@@ -468,8 +468,6 @@ func (a *FlowableActivity) ReplayTableSchemaDeltas(
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.
 func (a *FlowableActivity) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
-	fmt.Println("*************** in flowable.SetupQRepMetadataTables")
-
 	conn, err := connectors.GetQRepSyncConnector(ctx, config.DestinationPeer)
 	if err != nil {
 		return fmt.Errorf("failed to get connector: %w", err)
@@ -485,20 +483,15 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	last *protos.QRepPartition,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
-	fmt.Printf("\n******************************* in GetQRepPartitions 1")
-
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qrep pull connector: %w", err)
 	}
-	fmt.Printf("\n******************************* in GetQRepPartitions 2")
 	defer connectors.CloseConnector(srcConn)
 
 	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
 		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
 	})
-
-	fmt.Printf("\n******************************* in GetQRepPartitions 3")
 
 	defer func() {
 		shutdown <- struct{}{}
@@ -508,8 +501,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
 	}
-
-	fmt.Printf("\n******************************* in GetQRepPartitions 4")
 
 	if len(partitions) > 0 {
 		err = monitoring.InitializeQRepRun(
@@ -524,8 +515,6 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		}
 	}
 
-	fmt.Printf("\n******************************* in GetQRepPartitions 5")
-
 	return &protos.QRepParitionResult{
 		Partitions: partitions,
 	}, nil
@@ -537,7 +526,6 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-	fmt.Printf("\n ************************ in ReplicateQRepPartitions")
 	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	if err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
@@ -567,7 +555,6 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) error {
-	fmt.Printf("\n******************************* in replicateQRepPartition")
 
 	err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now())
 	if err != nil {
@@ -821,7 +808,6 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 func (a *FlowableActivity) QRepWaitUntilNewRows(ctx context.Context,
 	config *protos.QRepConfig, last *protos.QRepPartition,
 ) error {
-	fmt.Printf("\n******************************* in QRepWaitUntilNewRows")
 	if config.SourcePeer.Type != protos.DBType_POSTGRES || last.Range == nil {
 		return nil
 	}
@@ -912,7 +898,6 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) (int64, error) {
-	fmt.Printf("\n******************************** in ReplicateXminPartition")
 	startTime := time.Now()
 	srcConn, err := connectors.GetQRepPullConnector(ctx, config.SourcePeer)
 	if err != nil {

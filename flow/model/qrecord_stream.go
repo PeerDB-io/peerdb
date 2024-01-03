@@ -55,17 +55,12 @@ func NewQRecordStream(buffer int) *QRecordStream {
 }
 
 func (s *QRecordStream) Schema() (*QRecordSchema, error) {
-	fmt.Printf("\n************ in QRecordStream.Schema 1")
 	if s.schemaCache != nil {
 		return s.schemaCache, nil
 	}
 
-	fmt.Printf("\n************ in QRecordStream.Schema 2")
-
 	schemaOrError := <-s.schema
-	fmt.Printf("\n************ in QRecordStream.Schema 3 %+v", schemaOrError)
 	s.schemaCache = schemaOrError.Schema
-	fmt.Printf("\n************ in QRecordStream.Schema 4 %+v %+v", schemaOrError.Schema, schemaOrError.Err)
 	return schemaOrError.Schema, schemaOrError.Err
 }
 

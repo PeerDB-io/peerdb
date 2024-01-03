@@ -268,7 +268,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	} else {
 		workflowFn = peerflow.QRepFlowWorkflow
 	}
-	fmt.Printf("\n *********** cfg %v", cfg)
 	_, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, state)
 	if err != nil {
 		slog.Error("unable to start QRepFlow workflow",
@@ -625,10 +624,6 @@ func (h *FlowRequestHandler) CreatePeer(
 
 		chConfig := chConfigObject.ClickhouseConfig
 		encodedConfig, encodingErr = proto.Marshal(chConfig)
-		fmt.Printf("config %v", config)
-		fmt.Printf("chConfigObject %v", chConfigObject)
-		fmt.Printf("chConfig %v", chConfig)
-		fmt.Printf("encodedConfig %v", encodedConfig)
 	case protos.DBType_BIGQUERY:
 		bqConfigObject, ok := config.(*protos.Peer_BigqueryConfig)
 		if !ok {

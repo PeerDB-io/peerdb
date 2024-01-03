@@ -122,7 +122,6 @@ func NewClickhouseConnector(ctx context.Context,
 	// if err != nil {
 	// 	return nil, err
 	// }
-	fmt.Println("*********************in NewClickhouseConnector")
 	database, err := connect(ctx, clickhouseProtoConfig)
 	// snowflakeConfig := gosnowfla	ke.Config{
 	// 	Account:          snowflakeProtoConfig.AccountId,
@@ -167,7 +166,6 @@ func NewClickhouseConnector(ctx context.Context,
 }
 
 func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
-	fmt.Println("***********************start connect")
 	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s", //&database=%s
 		config.Host, config.Port, config.User, config.Password) //, config.Database
 	//dsn := "tcp://host.docker.internal:9009?username=clickhouse&password=clickhouse" //&database=desti"
@@ -184,18 +182,6 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 		fmt.Println("error in pinging %+v\n", err.Error())
 		return nil, err
 	}
-
-	fmt.Println("**********************successfully connected 1")
-
-	_, err2 := conn.Exec("select * from tasks")
-	if err2 != nil {
-		fmt.Println("****************err in querying after connecting 1", err2)
-	}
-	if err2 == nil {
-		fmt.Println("*****************select after connecting done 1")
-	}
-
-	fmt.Println("***********************end connect")
 
 	return conn, nil
 }
@@ -620,7 +606,6 @@ func (c *ClickhouseConnector) syncRecordsViaAvro(
 			rawTableIdentifier),
 	}
 	avroSyncer := NewClickhouseAvroSyncMethod(qrepConfig, c)
-	fmt.Printf("\n*************** in Clickhouse syncRecordsViaAvro 1 %+v", avroSyncer)
 	destinationTableSchema, err := c.getTableSchema(qrepConfig.DestinationTableIdentifier)
 	if err != nil {
 		return nil, err
