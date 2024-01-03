@@ -367,6 +367,12 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
+			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geography_point", Type: qvalue.QValueKindGeography, Nullable: true},
+			{Name: "geography_linestring", Type: qvalue.QValueKindGeography, Nullable: true},
+			{Name: "geography_polygon", Type: qvalue.QValueKindGeography, Nullable: true},
 		},
 	}
 }
@@ -377,7 +383,16 @@ func GetOwnersSelectorStringsSF() [2]string {
 	sfFields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		pgFields = append(pgFields, fmt.Sprintf(`"%s"`, field.Name))
-		sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
+		if strings.Contains(field.Name, "geo") {
+			colName := connsnowflake.SnowflakeIdentifierNormalize(field.Name)
+
+			// Have to apply a WKT transformation here,
+			// else the sql driver we use receives the values as snowflake's OBJECT
+			// which is troublesome to deal with. Now it receives it as string.
+			sfFields = append(sfFields, fmt.Sprintf(`ST_ASWKT(%s) as %s`, colName, colName))
+		} else {
+			sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
+		}
 	}
 	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
 }
