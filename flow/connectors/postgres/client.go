@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -291,7 +290,7 @@ func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, er
 
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
-	signal SlotSignal,
+	signal SnapshotSignal,
 	s SlotCheckResult,
 	slot string,
 	publication string,
@@ -353,10 +352,9 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
-		slotDetails := SlotCreationResult{
+		slotDetails := SnapshotCreationResult{
 			SlotName:     res.SlotName,
 			SnapshotName: res.SnapshotName,
-			Err:          nil,
 		}
 		signal.SlotCreated <- slotDetails
 		c.logger.Info("Waiting for clone to complete")
@@ -364,16 +362,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 		c.logger.Info("Clone complete")
 	} else {
 		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
-		var e error
-		if doInitialCopy {
-			e = errors.New("slot already exists")
-		}
-		slotDetails := SlotCreationResult{
-			SlotName:     slot,
-			SnapshotName: "",
-			Err:          e,
-		}
-		signal.SlotCreated <- slotDetails
+		signal.Error <- fmt.Errorf("replication slot '%s' already exists", slot)
 	}
 
 	return nil

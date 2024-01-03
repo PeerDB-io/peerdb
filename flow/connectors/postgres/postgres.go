@@ -794,7 +794,7 @@ func (c *PostgresConnector) EnsurePullability(
 }
 
 // SetupReplication sets up replication for the source connector.
-func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.SetupReplicationInput) error {
+func (c *PostgresConnector) SetupReplication(signal SnapshotSignal, req *protos.SetupReplicationInput) error {
 	// ensure that the flowjob name is [a-z0-9_] only
 	reg := regexp.MustCompile(`^[a-z0-9_]+$`)
 	if !reg.MatchString(req.FlowJobName) {

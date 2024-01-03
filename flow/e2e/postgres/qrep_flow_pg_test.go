@@ -195,7 +195,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 		},
 	}
 
-	signal := connpostgres.NewSlotSignal()
+	signal := connpostgres.NewSnapshotSignal()
 
 	// Moved to a go routine
 	go func() {

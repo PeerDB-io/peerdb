@@ -10,7 +10,14 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
+	"golang.org/x/sync/errgroup"
 )
+
+type SlotSnapshotSignal struct {
+	signal       connpostgres.SnapshotSignal
+	snapshotName string
+	connector    connectors.CDCPullConnector
+}
 
 type SnapshotActivity struct {
 	SnapshotConnections map[string]SlotSnapshotSignal
@@ -42,40 +49,32 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, nil
 	}
 
-	conn, err := connectors.GetCDCPullConnector(ctx, config.PeerConnectionConfig)
+	errGroup, errCtx := errgroup.WithContext(ctx)
+
+	conn, err := connectors.GetCDCPullConnector(errCtx, config.PeerConnectionConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
 
-	slotSignal := connpostgres.NewSlotSignal()
-
-	replicationErr := make(chan error)
-	defer close(replicationErr)
-
-	// This now happens in a goroutine
-	go func() {
+	snapshotSignal := connpostgres.NewSnapshotSignal()
+	errGroup.Go(func() error {
 		pgConn := conn.(*connpostgres.PostgresConnector)
-		err = pgConn.SetupReplication(slotSignal, config)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to setup replication", slog.Any("error", err))
-			replicationErr <- err
-			return
-		}
-	}()
+		return pgConn.SetupReplication(snapshotSignal, config)
+	})
 
 	slog.InfoContext(ctx, "waiting for slot to be created...")
-	var slotInfo connpostgres.SlotCreationResult
+	var slotInfo connpostgres.SnapshotCreationResult
 	select {
-	case slotInfo = <-slotSignal.SlotCreated:
+	case slotInfo = <-snapshotSignal.SlotCreated:
 		slog.InfoContext(ctx, fmt.Sprintf("slot '%s' created", slotInfo.SlotName))
-	case err := <-replicationErr:
+	case err := <-snapshotSignal.Error:
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return nil, fmt.Errorf("failed to setup replication: %w", err)
 	}
 
-	if slotInfo.Err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, slotInfo.Err)
-		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
+	if errWait := errGroup.Wait(); errWait != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, errWait)
+		return nil, fmt.Errorf("failed to setup replication: %w", errWait)
 	}
 
 	if a.SnapshotConnections == nil {
@@ -83,7 +82,7 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	a.SnapshotConnections[config.FlowJobName] = SlotSnapshotSignal{
-		signal:       slotSignal,
+		signal:       snapshotSignal,
 		snapshotName: slotInfo.SnapshotName,
 		connector:    conn,
 	}
