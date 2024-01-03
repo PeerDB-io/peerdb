@@ -9,7 +9,15 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type RowSource interface {
+	T() *testing.T
+	Pool() *pgxpool.Pool
+	Suffix() string
+	GetRows(table, cols string) (*model.QRecordBatch, error)
+}
 
 func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
 	t.Helper()

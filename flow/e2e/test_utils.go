@@ -86,13 +86,43 @@ func EnvEqual[T comparable](t *testing.T, env *testsuite.TestWorkflowEnvironment
 	}
 }
 
-func GetPgRows(pool *pgxpool.Pool, suffix string, tableName string, cols string) (*model.QRecordBatch, error) {
+func GetPgRows(pool *pgxpool.Pool, suffix string, table string, cols string) (*model.QRecordBatch, error) {
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, cols, suffix, tableName),
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, cols, suffix, table),
 	)
+}
+
+func RequireEqualTables(suite e2eshared.RowSource, table string, cols string) {
+	t := suite.T()
+	t.Helper()
+
+	suffix := suite.Suffix()
+	pool := suite.Pool()
+	pgRows, err := GetPgRows(pool, suffix, table, cols)
+	require.NoError(t, err)
+
+	rows, err := suite.GetRows(table, cols)
+	require.NoError(t, err)
+
+	require.True(t, e2eshared.CheckEqualRecordBatches(t, pgRows, rows))
+}
+
+func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite e2eshared.RowSource, table string, cols string) {
+	t := suite.T()
+	t.Helper()
+
+	suffix := suite.Suffix()
+	pool := suite.Pool()
+	pgRows, err := GetPgRows(pool, suffix, table, cols)
+	EnvNoError(t, env, err)
+
+	rows, err := suite.GetRows(table, cols)
+	EnvNoError(t, env, err)
+
+	EnvEqualRecordBatches(t, env, pgRows, rows)
 }
 
 func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
@@ -474,4 +504,14 @@ func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, q, other))
+}
+
+// See EnvNoError
+func EnvEqualRecordBatches(t *testing.T, env *testsuite.TestWorkflowEnvironment, q *model.QRecordBatch, other *model.QRecordBatch) {
+	t.Helper()
+
+	if !e2eshared.CheckEqualRecordBatches(t, q, other) {
+		env.CancelWorkflow()
+		runtime.Goexit()
+	}
 }
