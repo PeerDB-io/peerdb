@@ -64,7 +64,7 @@ func GetPgRows(pool *pgxpool.Pool, suffix string, tableName string, cols string)
 	pgQueryExecutor.SetTestEnv(true)
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", cols, suffix, tableName),
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, cols, suffix, tableName),
 	)
 }
 
