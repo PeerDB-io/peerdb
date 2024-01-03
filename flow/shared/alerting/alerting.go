@@ -76,7 +76,7 @@ func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage str
 	var createdTimestamp time.Time
 	err = row.Scan(&createdTimestamp)
 	if err != nil && err != pgx.ErrNoRows {
-		a.logger.Warn("failed to send alert: %v", err)
+		a.logger.Warn("failed to send alert: ", slog.String("err", err.Error()))
 		return
 	}
 

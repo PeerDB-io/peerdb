@@ -3,6 +3,7 @@ package e2e_postgres
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -557,4 +558,344 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 	checkErr := s.checkPeerdbColumns(dstTableName, 1)
 	require.NoError(s.t, checkErr)
 	env.AssertExpectations(s.t)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	cmpTableName := s.attachSchemaSuffix("test_softdel")
+	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	dstTableName := s.attachSchemaSuffix("test_softdel_dst")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 INT,
+			c2 INT,
+			t TEXT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_softdel"),
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName: connectionGen.FlowJobName,
+		Destination: s.peer,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		CdcStagingPath:    connectionGen.CdcStagingPath,
+		SoftDelete:        true,
+		SoftDeleteColName: "_PEERDB_IS_DELETED",
+		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+	}
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 3,
+		MaxBatchSize:     100,
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+		require.NoError(s.t, err)
+		e2e.NormalizeFlowCountQuery(env, connectionGen, 1)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
+		require.NoError(s.t, err)
+		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
+		// since we delete stuff, create another table to compare with
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			CREATE TABLE %s AS SELECT * FROM %s`, cmpTableName, srcTableName))
+		require.NoError(s.t, err)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id=1`, srcTableName))
+		require.NoError(s.t, err)
+
+		wg.Done()
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	wg.Wait()
+
+	// verify our updates and delete happened
+	err = s.comparePGTables(cmpTableName, dstTableName, "id,c1,c2,t")
+	require.NoError(s.t, err)
+
+	softDeleteQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s WHERE "_PEERDB_IS_DELETED"=TRUE`,
+		dstTableName)
+	numRows, err := s.countRowsInQuery(softDeleteQuery)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(1), numRows)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	cmpTableName := s.attachSchemaSuffix("test_softdel_iud")
+	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	dstTableName := s.attachSchemaSuffix("test_softdel_iud_dst")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 INT,
+			c2 INT,
+			t TEXT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_softdel_iud"),
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName: connectionGen.FlowJobName,
+		Destination: s.peer,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		CdcStagingPath:    connectionGen.CdcStagingPath,
+		SoftDelete:        true,
+		SoftDeleteColName: "_PEERDB_IS_DELETED",
+		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+	}
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 3,
+		MaxBatchSize:     100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+
+		insertTx, err := s.pool.Begin(context.Background())
+		require.NoError(s.t, err)
+
+		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+		require.NoError(s.t, err)
+		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
+			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
+		require.NoError(s.t, err)
+		// since we delete stuff, create another table to compare with
+		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
+			CREATE TABLE %s AS SELECT * FROM %s`, cmpTableName, srcTableName))
+		require.NoError(s.t, err)
+		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id=1`, srcTableName))
+		require.NoError(s.t, err)
+
+		require.NoError(s.t, insertTx.Commit(context.Background()))
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	// verify our updates and delete happened
+	err = s.comparePGTables(cmpTableName, dstTableName, "id,c1,c2,t")
+	require.NoError(s.t, err)
+
+	softDeleteQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s WHERE "_PEERDB_IS_DELETED"=TRUE`,
+		dstTableName)
+	numRows, err := s.countRowsInQuery(softDeleteQuery)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(1), numRows)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
+	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	dstTableName := s.attachSchemaSuffix("test_softdel_ud_dst")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			c1 INT,
+			c2 INT,
+			t TEXT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_softdel_ud"),
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName: connectionGen.FlowJobName,
+		Destination: s.peer,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		CdcStagingPath:    connectionGen.CdcStagingPath,
+		SoftDelete:        true,
+		SoftDeleteColName: "_PEERDB_IS_DELETED",
+		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+	}
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 4,
+		MaxBatchSize:     100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+		require.NoError(s.t, err)
+		e2e.NormalizeFlowCountQuery(env, connectionGen, 1)
+
+		insertTx, err := s.pool.Begin(context.Background())
+		require.NoError(s.t, err)
+		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
+			UPDATE %s SET t=random_string(10000) WHERE id=1`, srcTableName))
+		require.NoError(s.t, err)
+		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
+			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
+		require.NoError(s.t, err)
+		// since we delete stuff, create another table to compare with
+		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
+			CREATE TABLE %s AS SELECT * FROM %s`, cmpTableName, srcTableName))
+		require.NoError(s.t, err)
+		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id=1`, srcTableName))
+		require.NoError(s.t, err)
+
+		require.NoError(s.t, insertTx.Commit(context.Background()))
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	// verify our updates and delete happened
+	err = s.comparePGTables(cmpTableName, dstTableName, "id,c1,c2,t")
+	require.NoError(s.t, err)
+
+	softDeleteQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s WHERE "_PEERDB_IS_DELETED"=TRUE`,
+		dstTableName)
+	numRows, err := s.countRowsInQuery(softDeleteQuery)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(1), numRows)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	srcTableName := s.attachSchemaSuffix("test_softdel_iad")
+	dstTableName := s.attachSchemaSuffix("test_softdel_iad_dst")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
+			c1 INT,
+			c2 INT,
+			t TEXT
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("test_softdel_iad"),
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName: connectionGen.FlowJobName,
+		Destination: s.peer,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcTableName,
+				DestinationTableIdentifier: dstTableName,
+			},
+		},
+		Source:            e2e.GeneratePostgresPeer(e2e.PostgresPort),
+		CdcStagingPath:    connectionGen.CdcStagingPath,
+		SoftDelete:        true,
+		SoftDeleteColName: "_PEERDB_IS_DELETED",
+		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+	}
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 3,
+		MaxBatchSize:     100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and then insert and delete rows in the table.
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+		require.NoError(s.t, err)
+		e2e.NormalizeFlowCountQuery(env, connectionGen, 1)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id=1`, srcTableName))
+		require.NoError(s.t, err)
+		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
+		require.NoError(s.t, err)
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	// verify our updates and delete happened
+	err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t")
+	require.NoError(s.t, err)
+
+	softDeleteQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s WHERE "_PEERDB_IS_DELETED"=TRUE`,
+		dstTableName)
+	numRows, err := s.countRowsInQuery(softDeleteQuery)
+	require.NoError(s.t, err)
+	require.Equal(s.t, int64(0), numRows)
 }
