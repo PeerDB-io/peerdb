@@ -28,7 +28,7 @@ require (
 	github.com/slack-go/slack v0.12.3
 	github.com/snowflakedb/gosnowflake v1.7.1
 	github.com/stretchr/testify v1.8.4
-	github.com/twpayne/go-geos v0.14.0
+	github.com/twpayne/go-geom v1.5.3
 	github.com/urfave/cli/v3 v3.0.0-alpha8
 	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
 	github.com/ysmood/got v0.38.3

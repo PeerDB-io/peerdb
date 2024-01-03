@@ -2,10 +2,13 @@ package qvalue
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"math/big"
 	"reflect"
+	"slices"
 	"strconv"
 	"time"
 
@@ -204,16 +207,32 @@ func compareString(value1, value2 interface{}) bool {
 
 	str1, ok1 := value1.(string)
 	str2, ok2 := value2.(string)
-
-	// Catch matching WKB(in Postgres)-WKT(in destination) geo values
-	if ok1 && ok2 {
-		geoConvertedWKT, err := geo.GeoValidate(str1)
-		if err == nil && geo.GeoCompare(geoConvertedWKT, str2) {
-			return true
-		}
+	if !ok1 || !ok2 {
+		return false
 	}
 
-	return ok1 && ok2 && str1 == str2
+	if str1 == str2 {
+		return true
+	}
+
+	// Catch matching WKB(in Postgres)-WKT(in destination) geo values
+	wkb1, err := hex.DecodeString(str1)
+	if err != nil {
+		return false
+	}
+
+	wkb2le, err := geo.WktToWkb(str2, binary.LittleEndian)
+	if err != nil {
+		return false
+	}
+
+	wkb2be, err := geo.WktToWkb(str2, binary.BigEndian)
+	if err != nil {
+		return false
+	}
+
+	return slices.Compare(wkb1, wkb2le) == 0 ||
+		slices.Compare(wkb1, wkb2be) == 0
 }
 
 func compareStruct(value1, value2 interface{}) bool {
