@@ -51,7 +51,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		// insert 20 rows
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)
@@ -59,9 +59,9 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s (key, value) VALUES ($1, $2)
 		`, srcTableName), testKey, testValue)
-			require.NoError(s.t, err)
+			e2e.EnvNoError(s.t, env, err)
 		}
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)

@@ -83,8 +83,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
-			require.NoError(s.t, err)
+			`, srcTableName), testKey, testValue)
+			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 	}()
@@ -141,7 +141,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted initial row in the source table")
 
 		// verify we got our first row.
@@ -155,19 +155,19 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
 		// alter source table, add column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Altered source table, added column c2")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c2) VALUES ($1,$2)`, srcTableName), 2, 2)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row with added c2 in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
@@ -185,19 +185,19 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2")
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
 		// alter source table, add column c3, drop column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Altered source table, dropped column c2 and added column c3")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c3) VALUES ($1,$2)`, srcTableName), 3, 3)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row with added c3 in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
@@ -216,19 +216,19 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c3")
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
 		// alter source table, drop column c3 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c3`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Altered source table, dropped column c3")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 4)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row after dropping all columns in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
@@ -247,10 +247,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -308,20 +308,20 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t) VALUES ($1,$2)
 		`, srcTableName), i, testValue)
-			require.NoError(s.t, err)
+			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
 		// verify we got our 10 rows
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t")
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
 		_, err := s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -382,7 +382,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		rowsTx, err := s.pool.Begin(context.Background())
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
@@ -390,18 +390,18 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 			_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,%s(9000))
 		`, srcTableName, randomString), i, testValue)
-			require.NoError(s.t, err)
+			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
 		_, err = rowsTx.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = rowsTx.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
 		err = rowsTx.Commit(context.Background())
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -469,16 +469,16 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,%s(9000))
 		`, srcTableName, randomString), i, testValue)
-			require.NoError(s.t, err)
+			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		_, err = s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -537,13 +537,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(key, value) VALUES ($1, $2)
 		`, srcTableName), testKey, testValue)
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
 		// delete that row
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1
 		`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted and deleted a row for peerdb column check")
 	}()
 
@@ -609,25 +609,24 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	go func() {
+		defer wg.Done()
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 1)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		// since we delete stuff, create another table to compare with
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			CREATE TABLE %s AS SELECT * FROM %s`, cmpTableName, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
-		require.NoError(s.t, err)
-
-		wg.Done()
+		e2e.EnvNoError(s.t, env, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
@@ -698,23 +697,23 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
 		insertTx, err := s.pool.Begin(context.Background())
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		// since we delete stuff, create another table to compare with
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			CREATE TABLE %s AS SELECT * FROM %s`, cmpTableName, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
-		require.NoError(s.t, insertTx.Commit(context.Background()))
+		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
@@ -784,26 +783,26 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 1)
 
 		insertTx, err := s.pool.Begin(context.Background())
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET t=random_string(10000) WHERE id=1`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		// since we delete stuff, create another table to compare with
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			CREATE TABLE %s AS SELECT * FROM %s`, cmpTableName, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 
-		require.NoError(s.t, insertTx.Commit(context.Background()))
+		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
@@ -872,15 +871,15 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 1)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
-		require.NoError(s.t, err)
+		e2e.EnvNoError(s.t, env, err)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
