@@ -1,10 +1,8 @@
 package e2e_snowflake
 
 import (
-	"context"
 	"fmt"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
@@ -17,10 +15,6 @@ func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) 
 	require.NoError(s.t, err)
 	err = e2e.PopulateSourceTable(s.pool, s.pgSuffix, tableName, numRows)
 	require.NoError(s.t, err)
-}
-
-func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName, selector string) {
-	s.compareTableContentsWithDiffSelectorsSF(tableName, selector, selector, false)
 }
 
 func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, value string) error {
@@ -38,19 +32,17 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, va
 	return nil
 }
 
+func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName, selector string) {
+	s.compareTableContentsWithDiffSelectorsSF(tableName, selector, selector, false)
+}
+
 func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableName, pgSelector, sfSelector string,
 	tableCaseSensitive bool,
 ) {
-	// read rows from source table
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
-	pgQueryExecutor.SetTestEnv(true)
-	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, pgSelector, s.pgSuffix, tableName),
-	)
+	pgRows, err := e2e.GetPgRows(s.pool, s.pgSuffix, tableName, pgSelector)
 	require.NoError(s.t, err)
 
 	// read rows from destination table
-
 	var qualifiedTableName string
 	if tableCaseSensitive {
 		qualifiedTableName = fmt.Sprintf(`%s.%s."%s"`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
@@ -59,11 +51,11 @@ func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableNam
 	}
 
 	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
-	s.t.Logf("running query on snowflake: %s\n", sfSelQuery)
+	s.t.Logf("running query on snowflake: %s", sfSelQuery)
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
 	require.NoError(s.t, err)
 
-	e2e.RequireEqualRecordBatchs(s.t, pgRows, sfRows)
+	e2e.RequireEqualRecordBatches(s.t, pgRows, sfRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
