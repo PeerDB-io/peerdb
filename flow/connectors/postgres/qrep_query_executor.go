@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -446,7 +447,7 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 			customQKind := customTypeToQKind(typeName)
 			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
 				wkbString, ok := values[i].(string)
-				wkt, err := GeoValidate(wkbString)
+				wkt, err := geo.GeoValidate(wkbString)
 				if err != nil || !ok {
 					values[i] = nil
 				} else {

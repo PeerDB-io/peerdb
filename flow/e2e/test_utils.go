@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -23,6 +24,7 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -56,6 +58,15 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 		Alerter:     alerter,
 	})
 	env.RegisterActivity(&activities.SnapshotActivity{})
+}
+
+func GetPgRows(pool *pgxpool.Pool, suffix string, tableName string, cols string) (*model.QRecordBatch, error) {
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(pool, context.Background(), "testflow", "testpart")
+	pgQueryExecutor.SetTestEnv(true)
+
+	return pgQueryExecutor.ExecuteAndProcessQuery(
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, cols, suffix, tableName),
+	)
 }
 
 func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
@@ -357,6 +368,12 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
+			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geography_point", Type: qvalue.QValueKindGeography, Nullable: true},
+			{Name: "geography_linestring", Type: qvalue.QValueKindGeography, Nullable: true},
+			{Name: "geography_polygon", Type: qvalue.QValueKindGeography, Nullable: true},
 		},
 	}
 }
@@ -367,7 +384,16 @@ func GetOwnersSelectorStringsSF() [2]string {
 	sfFields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		pgFields = append(pgFields, fmt.Sprintf(`"%s"`, field.Name))
-		sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
+		if strings.Contains(field.Name, "geo") {
+			colName := connsnowflake.SnowflakeIdentifierNormalize(field.Name)
+
+			// Have to apply a WKT transformation here,
+			// else the sql driver we use receives the values as snowflake's OBJECT
+			// which is troublesome to deal with. Now it receives it as string.
+			sfFields = append(sfFields, fmt.Sprintf(`ST_ASWKT(%s) as %s`, colName, colName))
+		} else {
+			sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
+		}
 	}
 	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
 }
@@ -419,40 +445,7 @@ func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
 	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
 }
 
-// Equals checks if two QRecordBatches are identical.
-func RequireEqualRecordBatchs(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) bool {
+func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
-
-	if other == nil {
-		t.Log("other is nil")
-		return q == nil
-	}
-
-	// First check simple attributes
-	if q.NumRecords != other.NumRecords {
-		// print num records
-		t.Logf("q.NumRecords: %d", q.NumRecords)
-		t.Logf("other.NumRecords: %d", other.NumRecords)
-		return false
-	}
-
-	// Compare column names
-	if !q.Schema.EqualNames(other.Schema) {
-		t.Log("Column names are not equal")
-		t.Logf("Schema 1: %v", q.Schema.GetColumnNames())
-		t.Logf("Schema 2: %v", other.Schema.GetColumnNames())
-		return false
-	}
-
-	// Compare records
-	for i, record := range q.Records {
-		if !e2eshared.CheckQRecordEquality(t, record, other.Records[i]) {
-			t.Logf("Record %d is not equal", i)
-			t.Logf("Record 1: %v", record)
-			t.Logf("Record 2: %v", other.Records[i])
-			return false
-		}
-	}
-
-	return true
+	require.True(t, e2eshared.CheckEqualRecordBatches(t, q, other))
 }
