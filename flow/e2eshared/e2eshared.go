@@ -4,27 +4,35 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/PeerDB-io/peer-flow/model"
-
-	"github.com/ysmood/got"
 )
 
-func GotSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
+func RunSuite[T any](t *testing.T, setup func(t *testing.T) T, teardown func(T)) {
 	t.Helper()
 	t.Parallel()
 
-	got.Each(t, func(t *testing.T) T {
-		t.Helper()
-		g := got.New(t)
-		g.Parallel()
-		suite := setup(t)
-		g.Cleanup(func() {
-			teardown(suite)
-		})
-		return suite
-	})
+	// can be replaced with reflect.TypeFor[T]() in go 1.22
+	typ := reflect.TypeOf((*T)(nil)).Elem()
+	mcount := typ.NumMethod()
+	for i := 0; i < mcount; i++ {
+		m := typ.Method(i)
+		if strings.HasPrefix(m.Name, "Test") {
+			if m.Type.NumIn() == 1 && m.Type.NumOut() == 0 {
+				t.Run(m.Name, func(subtest *testing.T) {
+					subtest.Parallel()
+					suite := setup(subtest)
+					subtest.Cleanup(func() {
+						teardown(suite)
+					})
+					m.Func.Call([]reflect.Value{reflect.ValueOf(suite)})
+				})
+			}
+		}
+	}
 }
 
 // ReadFileToBytes reads a file to a byte array.

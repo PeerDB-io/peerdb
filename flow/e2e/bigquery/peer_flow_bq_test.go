@@ -29,7 +29,7 @@ type PeerFlowE2ETestSuiteBQ struct {
 }
 
 func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
-	e2eshared.GotSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteBQ) {
+	e2eshared.RunSuite(t, setupSuite, func(s PeerFlowE2ETestSuiteBQ) {
 		err := e2e.TearDownPostgres(s.pool, s.bqSuffix)
 		if err != nil {
 			slog.Error("failed to tear down postgres", slog.Any("error", err))
