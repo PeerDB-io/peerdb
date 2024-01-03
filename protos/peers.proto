@@ -89,6 +89,16 @@ message S3Config {
   PostgresConfig metadata_db = 7;
 }
 
+message ClickhouseConfig{
+  string host = 1;
+  uint32 port = 2;
+  string user = 3;
+  string password = 4;
+  string database = 5;
+  optional string metadata_schema = 6;
+  string s3_integration = 7;
+}
+
 message SqlServerConfig {
   string server = 1;
   uint32 port = 2;
@@ -106,6 +116,7 @@ enum DBType {
   S3 = 5;
   SQLSERVER = 6;
   EVENTHUB_GROUP = 7;
+  CLICKHOUSE = 8;  
 }
 
 message Peer {
@@ -120,5 +131,6 @@ message Peer {
     S3Config s3_config = 8;
     SqlServerConfig sqlserver_config = 9;
     EventHubGroupConfig eventhub_group_config = 10;
+    ClickhouseConfig clickhouse_config = 11;
   }
 }
