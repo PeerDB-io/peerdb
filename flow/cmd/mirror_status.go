@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -23,6 +24,18 @@ func (h *FlowRequestHandler) MirrorStatus(
 		}, nil
 	}
 
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	currState, err := h.getWorkflowStatus(ctx, workflowID)
+	if err != nil {
+		return &protos.MirrorStatusResponse{
+			ErrorMessage: fmt.Sprintf("unable to get flow state: %s", err.Error()),
+		}, nil
+	}
+
 	if cdcFlow {
 		cdcStatus, err := h.CDCFlowStatus(ctx, req)
 		if err != nil {
@@ -36,6 +49,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_CdcStatus{
 				CdcStatus: cdcStatus,
 			},
+			CurrentFlowState: *currState,
 		}, nil
 	} else {
 		qrepStatus, err := h.QRepFlowStatus(ctx, req)
@@ -50,6 +64,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_QrepStatus{
 				QrepStatus: qrepStatus,
 			},
+			CurrentFlowState: *currState,
 		}, nil
 	}
 }
@@ -271,4 +286,26 @@ func (h *FlowRequestHandler) getCloneTableFlowNames(ctx context.Context, flowJob
 	}
 
 	return flowNames, nil
+}
+
+func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (*protos.FlowStatus, error) {
+	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+	}
+	var state *protos.FlowStatus
+	err = res.Get(&state)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+	}
+	return state, nil
+}
+
+func (h *FlowRequestHandler) updateWorkflowStatus(ctx context.Context,
+	workflowID string, state *protos.FlowStatus) error {
+	_, err := h.temporalClient.UpdateWorkflow(ctx, workflowID, "", shared.FlowStatusUpdate, state)
+	if err != nil {
+		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
+	}
+	return nil
 }

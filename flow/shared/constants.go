@@ -7,10 +7,21 @@ import (
 )
 
 const (
-	peerFlowTaskQueue              = "peer-flow-task-queue"
-	snapshotFlowTaskQueue          = "snapshot-flow-task-queue"
+	// Task Queues
+	peerFlowTaskQueue     = "peer-flow-task-queue"
+	snapshotFlowTaskQueue = "snapshot-flow-task-queue"
+
+	// Signals
 	CDCFlowSignalName              = "peer-flow-signal"
 	CDCDynamicPropertiesSignalName = "cdc-dynamic-properties"
+
+	// Queries
+	CDCFlowStateQuery  = "q-cdc-flow-status"
+	QRepFlowStateQuery = "q-qrep-flow-state"
+	FlowStatusQuery    = "q-flow-status"
+
+	// Updates
+	FlowStatusUpdate = "u-flow-status"
 )
 
 const MirrorNameSearchAttribute = "MirrorName"

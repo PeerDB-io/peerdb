@@ -436,26 +436,55 @@ func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, error) {
-	var err error
-	if req.RequestedFlowState == protos.FlowState_STATE_PAUSED {
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	currState, err := h.getWorkflowStatus(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
+		*currState == protos.FlowStatus_STATUS_RUNNING {
+		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING.Enum())
+		if err != nil {
+			return nil, err
+		}
 		err = h.temporalClient.SignalWorkflow(
 			ctx,
-			req.WorkflowId,
+			workflowID,
 			"",
 			shared.CDCFlowSignalName,
 			shared.PauseSignal,
 		)
-	} else if req.RequestedFlowState == protos.FlowState_STATE_RUNNING {
+	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
+		*currState == protos.FlowStatus_STATUS_PAUSED {
 		err = h.temporalClient.SignalWorkflow(
 			ctx,
-			req.WorkflowId,
+			workflowID,
 			"",
 			shared.CDCFlowSignalName,
 			shared.NoopSignal,
 		)
+	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
+		(*currState == protos.FlowStatus_STATUS_RUNNING || *currState == protos.FlowStatus_STATUS_PAUSED) {
+		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING.Enum())
+		if err != nil {
+			return nil, err
+		}
+		_, err = h.ShutdownFlow(ctx, &protos.ShutdownRequest{
+			WorkflowId:      workflowID,
+			FlowJobName:     req.FlowJobName,
+			SourcePeer:      req.SourcePeer,
+			DestinationPeer: req.DestinationPeer,
+			RemoveFlowEntry: false,
+		})
+	} else {
+		return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
+			req.RequestedFlowState, currState)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("unable to signal PeerFlow workflow: %w", err)
+		return nil, fmt.Errorf("unable to signal CDCFlow workflow: %w", err)
 	}
 
 	return &protos.FlowStateChangeResponse{
@@ -709,4 +738,15 @@ func (h *FlowRequestHandler) DropPeer(
 	return &protos.DropPeerResponse{
 		Ok: true,
 	}, nil
+}
+
+func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName string) (string, error) {
+	q := "SELECT workflow_id FROM flows WHERE name ILIKE $1"
+	row := h.pool.QueryRow(ctx, q, flowJobName)
+	var workflowID string
+	if err := row.Scan(&workflowID); err != nil {
+		return "", fmt.Errorf("unable to get workflowID for flow job %s: %w", flowJobName, err)
+	}
+
+	return workflowID, nil
 }

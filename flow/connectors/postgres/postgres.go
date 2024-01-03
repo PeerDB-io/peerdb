@@ -468,7 +468,6 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		}
 		normalizeStatements := c.generateNormalizeStatements(destinationTableName, unchangedToastColsMap[destinationTableName],
 			rawTableIdentifier, supportsMerge, &peerdbCols)
-		fmt.Println(normalizeStatements)
 		for _, normalizeStatement := range normalizeStatements {
 			mergeStatementsBatch.Queue(normalizeStatement, batchIDs.NormalizeBatchID, batchIDs.SyncBatchID, destinationTableName).Exec(
 				func(ct pgconn.CommandTag) error {

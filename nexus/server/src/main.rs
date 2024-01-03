@@ -273,7 +273,11 @@ impl NexusBackend {
                     if let Some(workflow_details) = workflow_details {
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler
-                            .shutdown_flow_job(flow_job_name, workflow_details)
+                            .flow_state_change(
+                                flow_job_name,
+                                workflow_details,
+                                pt::peerdb_flow::FlowStatus::StatusTerminated,
+                            )
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(
@@ -693,11 +697,15 @@ impl NexusBackend {
                     if let Some(workflow_details) = workflow_details {
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler
-                            .flow_state_change(flow_job_name, &workflow_details.workflow_id, true)
+                            .flow_state_change(
+                                flow_job_name,
+                                workflow_details,
+                                pt::peerdb_flow::FlowStatus::StatusPaused,
+                            )
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to shutdown flow job: {:?}", err).into(),
+                                    format!("unable to pause flow job: {:?}", err).into(),
                                 )
                             })?;
                         let drop_mirror_success = format!("PAUSE MIRROR {}", flow_job_name);
@@ -752,11 +760,15 @@ impl NexusBackend {
                     if let Some(workflow_details) = workflow_details {
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler
-                            .flow_state_change(flow_job_name, &workflow_details.workflow_id, false)
+                            .flow_state_change(
+                                flow_job_name,
+                                workflow_details,
+                                pt::peerdb_flow::FlowStatus::StatusRunning,
+                            )
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to shutdown flow job: {:?}", err).into(),
+                                    format!("unable to resume flow job: {:?}", err).into(),
                                 )
                             })?;
                         let drop_mirror_success = format!("RESUME MIRROR {}", flow_job_name);

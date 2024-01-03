@@ -382,6 +382,7 @@ message QRepFlowState {
   uint64 num_partitions_processed = 2;
   bool needs_resync = 3;
   bool disable_wait_for_new_rows = 4;
+  FlowStatus current_flow_state = 5;
 }
 
 message PeerDBColumns {
@@ -393,4 +394,41 @@ message PeerDBColumns {
 message GetOpenConnectionsForUserResult {
   string user_name = 1;
   int64 current_open_connections = 2;
+}
+
+// UI reads current workflow status and also requests status changes using same enum
+// UI can request STATUS_PAUSED, STATUS_RUNNING and STATUS_TERMINATED
+// STATUS_RUNNING -> STATUS_PAUSED/STATUS_TERMINATED
+// STATUS_PAUSED -> STATUS_RUNNING/STATUS_TERMINATED
+// UI can read everything except STATUS_UNKNOWN
+enum FlowStatus {
+  // should never be read by UI, bail
+  STATUS_UNKNOWN = 0;
+  // enable pause and terminate buttons
+  STATUS_RUNNING = 1;
+  // pause button becomes resume button, terminate button should still be enabled
+  STATUS_PAUSED = 2;
+  // neither button should be enabled
+  STATUS_PAUSING = 3;
+  // neither button should be enabled, not reachable in QRep mirrors
+  STATUS_SETUP = 4;
+  // neither button should be enabled, not reachable in QRep mirrors
+  STATUS_SNAPSHOT = 5;
+  // neither button should be enabled
+  STATUS_TERMINATING = 6;
+  // neither button should be enabled
+  STATUS_TERMINATED = 7;
+}
+
+message CDCFlowStateUpdate {
+}
+
+message QRepFlowStateUpdate {
+}
+
+message FlowStateUpdate {
+  oneof update {
+    CDCFlowStateUpdate cdc_flow_state_update = 1;
+    QRepFlowStateUpdate qrep_flow_state_update = 2;
+  }
 }
