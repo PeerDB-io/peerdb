@@ -593,7 +593,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		stream = model.NewQRecordStream(bufferSize)
 		wg.Add(1)
 
-		pullPgRecords := func() {
+		go func() {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
 			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
 			numRecords := int64(tmp)
@@ -610,9 +610,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 				}
 			}
 			wg.Done()
-		}
-
-		go pullPgRecords()
+		}()
 	} else {
 		recordBatch, err := srcConn.PullQRepRecords(config, partition)
 		if err != nil {

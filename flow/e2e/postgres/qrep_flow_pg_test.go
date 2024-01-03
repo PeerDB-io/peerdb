@@ -197,10 +197,9 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 
 	signal := connpostgres.NewSlotSignal()
 
-	// Moved to a go routine
+	setupError := make(chan error)
 	go func() {
-		err := s.connector.SetupReplication(signal, setupReplicationInput)
-		require.NoError(s.t, err)
+		setupError <- s.connector.SetupReplication(signal, setupReplicationInput)
 	}()
 
 	slog.Info("waiting for slot creation to complete", flowLog)
@@ -211,6 +210,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 	time.Sleep(2 * time.Second)
 	signal.CloneComplete <- struct{}{}
 
+	require.NoError(s.t, <-setupError)
 	slog.Info("successfully setup replication", flowLog)
 }
 

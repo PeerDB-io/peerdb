@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,31 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 		Alerter:     alerter,
 	})
 	env.RegisterActivity(&activities.SnapshotActivity{})
+}
+
+// Helper function to assert errors in go routines running concurrent to workflows
+// This achieves two goals:
+// 1. cancel workflow to avoid waiting on goroutine which has failed
+// 2. get around t.FailNow being incorrect when called from non initial goroutine
+func EnvNoError(t *testing.T, env *testsuite.TestWorkflowEnvironment, err error) {
+	t.Helper()
+
+	if err != nil {
+		t.Error(err.Error())
+		env.CancelWorkflow()
+		runtime.Goexit()
+	}
+}
+
+// See EnvNoError
+func EnvEqual[T comparable](t *testing.T, env *testsuite.TestWorkflowEnvironment, x T, y T) {
+	t.Helper()
+
+	if x != y {
+		t.Error("not equal", x, y)
+		env.CancelWorkflow()
+		runtime.Goexit()
+	}
 }
 
 func GetPgRows(pool *pgxpool.Pool, suffix string, tableName string, cols string) (*model.QRecordBatch, error) {
