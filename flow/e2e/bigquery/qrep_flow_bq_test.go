@@ -14,20 +14,6 @@ func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int)
 	require.NoError(s.t, err)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsString string) {
-	pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, tableName, colsString)
-	require.NoError(s.t, err)
-
-	// read rows from destination table
-	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
-	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
-	s.t.Logf("running query on bigquery: %s", bqSelQuery)
-	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
-	require.NoError(s.t, err)
-
-	e2e.RequireEqualRecordBatches(s.t, pgRows, bqRows)
-}
-
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
@@ -57,7 +43,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
 
-	s.compareTableContentsBQ(tblName, "*")
+	e2e.RequireEqualTables(s, tblName, "*")
 
 	env.AssertExpectations(s.t)
 }

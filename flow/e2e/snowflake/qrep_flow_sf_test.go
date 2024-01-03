@@ -32,27 +32,16 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, va
 	return nil
 }
 
-func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName, selector string) {
-	s.compareTableContentsWithDiffSelectorsSF(tableName, selector, selector, false)
-}
-
 func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableName, pgSelector, sfSelector string,
 	tableCaseSensitive bool,
 ) {
 	pgRows, err := e2e.GetPgRows(s.pool, s.pgSuffix, tableName, pgSelector)
 	require.NoError(s.t, err)
 
-	// read rows from destination table
-	var qualifiedTableName string
 	if tableCaseSensitive {
-		qualifiedTableName = fmt.Sprintf(`%s.%s."%s"`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
-	} else {
-		qualifiedTableName = fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
+		tableName = fmt.Sprintf("\"%s\"", tableName)
 	}
-
-	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
-	s.t.Logf("running query on snowflake: %s", sfSelQuery)
-	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
+	sfRows, err := s.GetRows(tableName, sfSelector)
 	require.NoError(s.t, err)
 
 	e2e.RequireEqualRecordBatches(s.t, pgRows, sfRows)
