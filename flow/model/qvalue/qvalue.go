@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/google/uuid"
 )
 
@@ -204,6 +205,14 @@ func compareString(value1, value2 interface{}) bool {
 	str1, ok1 := value1.(string)
 	str2, ok2 := value2.(string)
 
+	// Catch matching WKB(in Postgres)-WKT(in destination) geo values
+	if ok1 && ok2 {
+		geoConvertedWKT, err := geo.GeoValidate(str1)
+		if err == nil && geo.GeoCompare(geoConvertedWKT, str2) {
+			return true
+		}
+	}
+
 	return ok1 && ok2 && str1 == str2
 }
 
@@ -267,6 +276,10 @@ func compareNumericArrays(value1, value2 interface{}) bool {
 		return true
 	}
 
+	if value1 == nil && value2 == "" {
+		return true
+	}
+
 	// Helper function to convert a value to float64
 	convertToFloat64 := func(val interface{}) []float64 {
 		switch v := val.(type) {
@@ -318,6 +331,11 @@ func compareArrayString(value1, value2 interface{}) bool {
 
 	// also return true if value2 is string null
 	if value1 == nil && value2 == "null" {
+		return true
+	}
+
+	// nulls end up as empty 'variants' in snowflake
+	if value1 == nil && value2 == "" {
 		return true
 	}
 
