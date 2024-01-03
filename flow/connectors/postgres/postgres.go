@@ -404,30 +404,41 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
-	normalizeBatchID, err := c.getLastNormalizeBatchID(req.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
+
 	jobMetadataExists, err := c.jobMetadataExists(req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
-	// normalize has caught up with sync or no SyncFlow has run, chill until more records are loaded.
-	if normalizeBatchID >= syncBatchID || !jobMetadataExists {
-		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
-			syncBatchID, normalizeBatchID))
+	// no SyncFlow has run, chill until more records are loaded.
+	if !jobMetadataExists {
+		c.logger.Info("no metadata found for mirror")
 		return &model.NormalizeResponse{
-			Done:         false,
-			StartBatchID: normalizeBatchID,
-			EndBatchID:   syncBatchID,
+			Done: false,
 		}, nil
 	}
 
-	unchangedToastColsMap, err := c.getTableNametoUnchangedCols(req.FlowJobName, syncBatchID, normalizeBatchID)
+	batchIDs, err := c.GetLastSyncAndNormalizeBatchID(req.FlowJobName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
+	}
+	// normalize has caught up with sync, chill until more records are loaded.
+	if batchIDs.NormalizeBatchID >= batchIDs.SyncBatchID {
+		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
+			batchIDs.SyncBatchID, batchIDs.NormalizeBatchID))
+		return &model.NormalizeResponse{
+			Done:         false,
+			StartBatchID: batchIDs.NormalizeBatchID,
+			EndBatchID:   batchIDs.SyncBatchID,
+		}, nil
+	}
+
+	destinationTableNames, err := c.getDistinctTableNamesInBatch(
+		req.FlowJobName, batchIDs.SyncBatchID, batchIDs.NormalizeBatchID)
+	if err != nil {
+		return nil, err
+	}
+	unchangedToastColsMap, err := c.getTableNametoUnchangedCols(req.FlowJobName,
+		batchIDs.SyncBatchID, batchIDs.NormalizeBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -449,16 +460,17 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	}
 	mergeStatementsBatch := &pgx.Batch{}
 	totalRowsAffected := 0
-	for destinationTableName, unchangedToastCols := range unchangedToastColsMap {
+	for _, destinationTableName := range destinationTableNames {
 		peerdbCols := protos.PeerDBColumns{
 			SoftDeleteColName: req.SoftDeleteColName,
 			SyncedAtColName:   req.SyncedAtColName,
 			SoftDelete:        req.SoftDelete,
 		}
-		normalizeStatements := c.generateNormalizeStatements(destinationTableName, unchangedToastCols,
+		normalizeStatements := c.generateNormalizeStatements(destinationTableName, unchangedToastColsMap[destinationTableName],
 			rawTableIdentifier, supportsMerge, &peerdbCols)
+		fmt.Println(normalizeStatements)
 		for _, normalizeStatement := range normalizeStatements {
-			mergeStatementsBatch.Queue(normalizeStatement, normalizeBatchID, syncBatchID, destinationTableName).Exec(
+			mergeStatementsBatch.Queue(normalizeStatement, batchIDs.NormalizeBatchID, batchIDs.SyncBatchID, destinationTableName).Exec(
 				func(ct pgconn.CommandTag) error {
 					totalRowsAffected += int(ct.RowsAffected())
 					return nil
@@ -475,7 +487,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 
 	// updating metadata with new normalizeBatchID
-	err = c.updateNormalizeMetadata(req.FlowJobName, syncBatchID, normalizeRecordsTx)
+	err = c.updateNormalizeMetadata(req.FlowJobName, batchIDs.SyncBatchID, normalizeRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -487,8 +499,8 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: normalizeBatchID + 1,
-		EndBatchID:   syncBatchID,
+		StartBatchID: batchIDs.NormalizeBatchID + 1,
+		EndBatchID:   batchIDs.SyncBatchID,
 	}, nil
 }
 

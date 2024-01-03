@@ -32,20 +32,22 @@ const (
 	createRawTableBatchIDIndexSQL  = "CREATE INDEX IF NOT EXISTS %s_batchid_idx ON %s.%s(_peerdb_batch_id)"
 	createRawTableDstTableIndexSQL = "CREATE INDEX IF NOT EXISTS %s_dst_table_idx ON %s.%s(_peerdb_destination_table_name)"
 
-	getLastOffsetSQL            = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
-	setLastOffsetSQL            = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1) WHERE mirror_job_name=$2"
-	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
-	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
-	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
+	getLastOffsetSQL                   = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
+	setLastOffsetSQL                   = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1) WHERE mirror_job_name=$2"
+	getLastSyncBatchID_SQL             = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
+	getLastSyncAndNormalizeBatchID_SQL = "SELECT sync_batch_id,normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
+	createNormalizedTableSQL           = "CREATE TABLE IF NOT EXISTS %s(%s)"
 
 	insertJobMetadataSQL                 = "INSERT INTO %s.%s VALUES ($1,$2,$3,$4)"
 	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
 	updateMetadataForSyncRecordsSQL      = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1), sync_batch_id=$2 WHERE mirror_job_name=$3"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 
+	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
+	_peerdb_batch_id>$1 AND _peerdb_batch_id<=$2`
 	getTableNameToUnchangedToastColsSQL = `SELECT _peerdb_destination_table_name,
 	ARRAY_AGG(DISTINCT _peerdb_unchanged_toast_columns) FROM %s.%s WHERE
-	_peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 GROUP BY _peerdb_destination_table_name`
+	_peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_record_type!=2 GROUP BY _peerdb_destination_table_name`
 	srcTableName      = "src"
 	mergeStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
@@ -428,46 +430,40 @@ func generateCreateTableSQLForNormalizedTable(
 }
 
 func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(
+	var result pgtype.Int8
+	err := c.pool.QueryRow(c.ctx, fmt.Sprintf(
 		getLastSyncBatchID_SQL,
 		c.metadataSchema,
 		mirrorJobsTableIdentifier,
-	), jobName)
+	), jobName).Scan(&result)
 	if err != nil {
-		return 0, fmt.Errorf("error querying Postgres peer for last syncBatchId: %w", err)
-	}
-	defer rows.Close()
-
-	var result pgtype.Int8
-	if !rows.Next() {
-		c.logger.Info("No row found, returning 0")
-		return 0, nil
-	}
-	err = rows.Scan(&result)
-	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.logger.Info("No row found, returning 0")
+			return 0, nil
+		}
 		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
 	return result.Int64, nil
 }
 
-func (c *PostgresConnector) getLastNormalizeBatchID(jobName string) (int64, error) {
-	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getLastNormalizeBatchID_SQL, c.metadataSchema,
-		mirrorJobsTableIdentifier), jobName)
+func (c *PostgresConnector) GetLastSyncAndNormalizeBatchID(jobName string) (*model.SyncAndNormalizeBatchID, error) {
+	var syncResult, normalizeResult pgtype.Int8
+	err := c.pool.QueryRow(c.ctx, fmt.Sprintf(
+		getLastSyncAndNormalizeBatchID_SQL,
+		c.metadataSchema,
+		mirrorJobsTableIdentifier,
+	), jobName).Scan(&syncResult, &normalizeResult)
 	if err != nil {
-		return 0, fmt.Errorf("error querying Postgres peer for last normalizeBatchId: %w", err)
+		if err == pgx.ErrNoRows {
+			c.logger.Info("No row found, returning 0")
+			return &model.SyncAndNormalizeBatchID{}, nil
+		}
+		return nil, fmt.Errorf("error while reading result row: %w", err)
 	}
-	defer rows.Close()
-
-	var result pgtype.Int8
-	if !rows.Next() {
-		c.logger.Info("No row found returning 0")
-		return 0, nil
-	}
-	err = rows.Scan(&result)
-	if err != nil {
-		return 0, fmt.Errorf("error while reading result row: %w", err)
-	}
-	return result.Int64, nil
+	return &model.SyncAndNormalizeBatchID{
+		SyncBatchID:      syncResult.Int64,
+		NormalizeBatchID: normalizeResult.Int64,
+	}, nil
 }
 
 func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {
@@ -547,6 +543,30 @@ func (c *PostgresConnector) updateNormalizeMetadata(flowJobName string, normaliz
 	}
 
 	return nil
+}
+
+func (c *PostgresConnector) getDistinctTableNamesInBatch(flowJobName string, syncBatchID int64,
+	normalizeBatchID int64,
+) ([]string, error) {
+	rawTableIdentifier := getRawTableIdentifier(flowJobName)
+
+	rows, err := c.pool.Query(c.ctx, fmt.Sprintf(getDistinctDestinationTableNamesSQL, c.metadataSchema,
+		rawTableIdentifier), normalizeBatchID, syncBatchID)
+	if err != nil {
+		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
+	}
+	defer rows.Close()
+
+	var result pgtype.Text
+	destinationTableNames := make([]string, 0)
+	for rows.Next() {
+		err = rows.Scan(&result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read row: %w", err)
+		}
+		destinationTableNames = append(destinationTableNames, result.String)
+	}
+	return destinationTableNames, nil
 }
 
 func (c *PostgresConnector) getTableNametoUnchangedCols(flowJobName string, syncBatchID int64,
@@ -768,7 +788,7 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string,
 
 		ssep := strings.Join(tmpArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
-			src._peerdb_record_type=1 AND _peerdb_unchanged_toast_columns='%s'
+			src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='%s'
 			THEN UPDATE SET %s `, cols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 
@@ -780,7 +800,7 @@ func (c *PostgresConnector) generateUpdateStatement(allCols []string,
 				fmt.Sprintf(`"%s" = TRUE`, peerdbCols.SoftDeleteColName))
 			ssep := strings.Join(tmpArray, ", ")
 			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
-			src._peerdb_record_type = 2 AND _peerdb_unchanged_toast_columns='%s'
+			src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns='%s'
 			THEN UPDATE SET %s `, cols, ssep)
 			updateStmts = append(updateStmts, updateStmt)
 		}
