@@ -29,7 +29,7 @@ type PeerFlowE2ETestSuitePG struct {
 }
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
-	e2eshared.GotSuite(t, SetupSuite, func(s PeerFlowE2ETestSuitePG) {
+	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuitePG) {
 		err := e2e.TearDownPostgres(s.pool, s.suffix)
 		if err != nil {
 			require.Fail(s.t, "failed to drop Postgres schema", err)

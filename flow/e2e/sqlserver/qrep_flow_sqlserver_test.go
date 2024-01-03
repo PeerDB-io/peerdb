@@ -30,7 +30,7 @@ type PeerFlowE2ETestSuiteSQLServer struct {
 }
 
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
-	e2eshared.GotSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
+	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
 		err := e2e.TearDownPostgres(s.pool, s.suffix)
 		require.NoError(s.t, err)
 
