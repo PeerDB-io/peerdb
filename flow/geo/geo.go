@@ -46,7 +46,5 @@ func GeoCompare(wkt1, wkt2 string) bool {
 		return false
 	}
 
-	// Compare the two geometries
-	compareResult := geom1.Equals(geom2)
-	return compareResult
+	return geom1.Equals(geom2)
 }

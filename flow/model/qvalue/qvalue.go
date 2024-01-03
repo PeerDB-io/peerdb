@@ -204,16 +204,16 @@ func compareString(value1, value2 interface{}) bool {
 
 	str1, ok1 := value1.(string)
 	str2, ok2 := value2.(string)
-
-	// Catch matching WKB(in Postgres)-WKT(in destination) geo values
-	if ok1 && ok2 {
-		geoConvertedWKT, err := geo.GeoValidate(str1)
-		if err == nil && geo.GeoCompare(geoConvertedWKT, str2) {
-			return true
-		}
+	if !ok1 || !ok2 {
+		return false
+	}
+	if str1 == str2 {
+		return true
 	}
 
-	return ok1 && ok2 && str1 == str2
+	// Catch matching WKB(in Postgres)-WKT(in destination) geo values
+	geoConvertedWKT, err := geo.GeoValidate(str1)
+	return err == nil && geo.GeoCompare(geoConvertedWKT, str2)
 }
 
 func compareStruct(value1, value2 interface{}) bool {
