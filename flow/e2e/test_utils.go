@@ -95,17 +95,17 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 	time.Sleep(5 * time.Second)
 	for {
 		response, err := env.QueryWorkflow(
-			peerflow.CDCFlowStatusQuery,
+			peerflow.CDCNormFlowStatusQuery,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
-			var state peerflow.CDCFlowWorkflowState
+			var state int
 			err = response.Get(&state)
 			if err != nil {
 				slog.Error(err.Error())
 			}
 
-			if len(state.NormalizeFlowStatuses) >= minCount {
+			if state >= minCount {
 				break
 			}
 		} else {

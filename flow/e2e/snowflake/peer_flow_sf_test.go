@@ -842,9 +842,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		MaxBatchSize:     100,
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
 	go func() {
@@ -990,8 +987,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		require.NoError(s.t, err)
 		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
 		s.compareTableContentsSF("test_simple_schema_changes", "id,c1")
-
-		wg.Done()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -1003,7 +998,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
 
-	wg.Wait()
 	env.AssertExpectations(s.t)
 }
 
@@ -1040,9 +1034,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		MaxBatchSize:     100,
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	go func() {
@@ -1066,11 +1057,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		require.NoError(s.t, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		require.NoError(s.t, err)
-		wg.Done()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-	wg.Wait()
 
 	// Verify workflow completes without error
 	require.True(s.t, env.IsWorkflowCompleted())
@@ -1197,8 +1186,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
-	wg := sync.WaitGroup{}
-	wg.Add(1)
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
@@ -1218,11 +1205,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		require.NoError(s.t, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		require.NoError(s.t, err)
-		wg.Done()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-	wg.Wait()
 
 	// Verify workflow completes without error
 	require.True(s.t, env.IsWorkflowCompleted())
@@ -1282,9 +1267,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
 	go func() {
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 
@@ -1304,11 +1286,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		require.NoError(s.t, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		require.NoError(s.t, err)
-		wg.Done()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-	wg.Wait()
 	require.True(s.t, env.IsWorkflowCompleted())
 	err = env.GetWorkflowError()
 	require.Contains(s.t, err.Error(), "continue as new")

@@ -19,6 +19,7 @@ import (
 
 const (
 	CDCFlowStatusQuery     = "q-cdc-flow-status"
+	CDCNormFlowStatusQuery = "q-norm-flow-status"
 	maxSyncFlowsPerCDCFlow = 32
 )
 
@@ -169,7 +170,6 @@ func CDCFlowWorkflowWithConfig(
 		limits.TotalSyncFlows = maxSyncFlowsPerCDCFlow
 	}
 
-	// Support a Query for the current state of the peer flow.
 	err := workflow.SetQueryHandler(ctx, CDCFlowStatusQuery, func(jobName string) (CDCFlowWorkflowState, error) {
 		return *state, nil
 	})

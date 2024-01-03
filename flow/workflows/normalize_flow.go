@@ -22,6 +22,13 @@ func NormalizeFlowWorkflow(ctx workflow.Context,
 	errors := make([]string, 0)
 	syncChan := workflow.GetSignalChannel(normalizeFlowCtx, "Sync")
 
+	err := workflow.SetQueryHandler(ctx, CDCNormFlowStatusQuery, func(jobName string) (int, error) {
+		return len(results), nil
+	})
+	if err != nil {
+		errors = append(errors, err.Error())
+	}
+
 	stopLoop := false
 	needSync := true
 	for {
