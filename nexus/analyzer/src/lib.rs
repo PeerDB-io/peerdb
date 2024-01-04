@@ -673,16 +673,14 @@ fn parse_db_options(
             // partition_count default to 3 if not set, parse as int
             let partition_count = opts
                 .get("partition_count")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "3".to_string())
+                .unwrap_or(&"3")
                 .parse::<u32>()
                 .context("unable to parse partition_count as valid int")?;
 
             // message_retention_in_days default to 7 if not set, parse as int
             let message_retention_in_days = opts
                 .get("message_retention_in_days")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "7".to_string())
+                .unwrap_or(&"7")
                 .parse::<u32>()
                 .context("unable to parse message_retention_in_days as valid int")?;
 

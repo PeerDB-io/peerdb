@@ -115,14 +115,14 @@ pub fn process_options(
                                 anyhow::bail!("{} must be one of {:?}", name, values);
                             }
                         }
-                        opts.insert((*name).to_string(), Value::String(str.clone()));
+                        opts.insert(name.to_string(), Value::String(str.clone()));
                     } else {
                         anyhow::bail!("Invalid value for {}", name);
                     }
                 } else if *required {
                     anyhow::bail!("{} is required", name);
                 } else if let Some(default) = default_val {
-                    opts.insert((*name).to_string(), Value::String(default.to_string()));
+                    opts.insert(name.to_string(), Value::String(default.to_string()));
                 }
             }
             QRepOptionType::Int {
@@ -139,7 +139,7 @@ pub fn process_options(
                                 anyhow::bail!("{} must be greater than {}", name, min);
                             }
                         }
-                        opts.insert((*name).to_string(), Value::Number(num.into()));
+                        opts.insert(name.to_string(), Value::Number(num.into()));
                     } else {
                         anyhow::bail!("Invalid value for {}", name);
                     }
@@ -147,7 +147,7 @@ pub fn process_options(
                     anyhow::bail!("{} is required", name);
                 } else {
                     let v = *default_value;
-                    opts.insert((*name).to_string(), Value::Number(v.into()));
+                    opts.insert(name.to_string(), Value::Number(v.into()));
                 }
             }
             QRepOptionType::StringArray { name } => {
@@ -158,7 +158,7 @@ pub fn process_options(
                             .split(',')
                             .map(|s| Value::String(s.trim().to_string()))
                             .collect();
-                        opts.insert((*name).to_string(), Value::Array(values));
+                        opts.insert(name.to_string(), Value::Array(values));
                     } else {
                         anyhow::bail!("Invalid value for {}", name);
                     }
@@ -171,7 +171,7 @@ pub fn process_options(
             } => {
                 if let Some(raw_value) = raw_opts.remove(*name) {
                     if let SqlValue::Boolean(b) = raw_value {
-                        opts.insert((*name).to_string(), Value::Bool(*b));
+                        opts.insert(name.to_string(), Value::Bool(*b));
                     } else {
                         anyhow::bail!("Invalid value for {}", name);
                     }
@@ -179,7 +179,7 @@ pub fn process_options(
                     anyhow::bail!("{} is required", name);
                 } else {
                     let v = *default_value;
-                    opts.insert((*name).to_string(), Value::Bool(v));
+                    opts.insert(name.to_string(), Value::Bool(v));
                 }
             }
         }
