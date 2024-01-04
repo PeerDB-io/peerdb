@@ -155,8 +155,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 1,
-		MaxBatchSize:     100,
+		ExitAfterRecords: -1,
+		MaxBatchSize:     1,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
@@ -258,6 +258,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 				PrimaryKeyColumns: []string{"id"},
 			}),
 		)
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
@@ -302,13 +304,16 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 10,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		// insert 10 rows into the source table
 		for i := 0; i < 10; i++ {
@@ -320,19 +325,20 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
-		// verify we got our 10 rows
-		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
-		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t")
-		e2e.EnvNoError(s.t, env, err)
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize 10 rows", func(ctx context.Context) bool {
+			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
+		})
 
 		_, err := s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
 		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	wg.Wait()
 
 	// Verify workflow completes without error
 	require.True(s.t, env.IsWorkflowCompleted())
