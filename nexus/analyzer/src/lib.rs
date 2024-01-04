@@ -181,7 +181,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                                     .exclude
                                     .as_ref()
                                     .map(|ss| ss.iter().map(|s| s.to_string()).collect())
-                                    .unwrap_or_default()
+                                    .unwrap_or_default(),
                             });
                         }
 
@@ -516,7 +516,13 @@ fn parse_db_options(
         let val = match opt.value {
             sqlparser::ast::Value::SingleQuotedString(ref str) => str,
             sqlparser::ast::Value::Number(ref v, _) => v,
-            sqlparser::ast::Value::Boolean(v) => if v { "true" } else { "false" },
+            sqlparser::ast::Value::Boolean(v) => {
+                if v {
+                    "true"
+                } else {
+                    "false"
+                }
+            }
             _ => panic!("invalid option type for peer"),
         };
         opts.insert(&opt.name.value, val);
@@ -673,11 +679,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Eventhub => {
-            let conn_str: String = opts
-                .get("metadata_db")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let metadata_db = parse_metadata_db_info(&conn_str)?;
+            let conn_str = opts.get("metadata_db").map(|s| s.to_string());
+            let metadata_db = parse_metadata_db_info(conn_str)?;
             let subscription_id = opts
                 .get("subscription_id")
                 .map(|s| s.to_string())
@@ -721,11 +724,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::S3 => {
-            let s3_conn_str: String = opts
-                .get("metadata_db")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
+            let s3_conn_str = opts.get("metadata_db").map(|s| s.to_string());
+            let metadata_db = parse_metadata_db_info(s3_conn_str)?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
@@ -764,15 +764,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::EventhubGroup => {
-            let conn_str = opts
-                .get("metadata_db")
-                .context("no metadata db specified")?;
+            let conn_str = opts.get("metadata_db").map(|s| s.to_string());
             let metadata_db = parse_metadata_db_info(conn_str)?;
-
-            // metadata_db is required for eventhub group
-            if metadata_db.is_none() {
-                anyhow::bail!("metadata_db is required for eventhub group");
-            }
 
             // split comma separated list of columns and trim
             let unnest_columns = opts
@@ -823,10 +816,11 @@ fn parse_db_options(
     Ok(config)
 }
 
-fn parse_metadata_db_info(conn_str: &str) -> anyhow::Result<Option<PostgresConfig>> {
-    if conn_str.is_empty() {
-        return Ok(None);
-    }
+fn parse_metadata_db_info(conn_str_opt: Option<String>) -> anyhow::Result<Option<PostgresConfig>> {
+    let conn_str = match conn_str_opt {
+        Some(conn_str) => conn_str,
+        None => return Ok(None),
+    };
 
     let mut metadata_db = PostgresConfig::default();
     let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
