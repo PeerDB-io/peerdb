@@ -196,9 +196,7 @@ func (c *PostgresConnector) SetLastOffset(jobName string, lastOffset int64) erro
 
 // PullRecords pulls records from the source.
 func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.PullRecordsRequest) error {
-	defer func() {
-		req.RecordStream.Close()
-	}()
+	defer req.RecordStream.Close()
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", req.FlowJobName)
