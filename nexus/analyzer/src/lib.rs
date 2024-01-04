@@ -664,7 +664,7 @@ fn parse_db_options(
         }
         DbType::Eventhub => {
             let conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(conn_str)?;
+            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
             let subscription_id = opts
                 .get("subscription_id")
                 .map(|s| s.to_string())
@@ -709,7 +709,7 @@ fn parse_db_options(
         }
         DbType::S3 => {
             let s3_conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(s3_conn_str)?;
+            let metadata_db = parse_metadata_db_info(s3_conn_str.copied())?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
@@ -749,7 +749,7 @@ fn parse_db_options(
         }
         DbType::EventhubGroup => {
             let conn_str = opts.get("metadata_db");
-            let metadata_db = parse_metadata_db_info(conn_str)?;
+            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
 
             // metadata_db is required for eventhub group
             if metadata_db.is_none() {
@@ -800,7 +800,7 @@ fn parse_db_options(
     Ok(config)
 }
 
-fn parse_metadata_db_info(conn_str: Option<&&str>) -> anyhow::Result<Option<PostgresConfig>> {
+fn parse_metadata_db_info(conn_str: Option<&str>) -> anyhow::Result<Option<PostgresConfig>> {
     let conn_str = match conn_str {
         Some(conn_str) => conn_str,
         None => return Ok(None),
