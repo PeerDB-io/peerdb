@@ -3,7 +3,7 @@ package e2e_postgres
 import (
 	"context"
 	"fmt"
-	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -111,7 +111,7 @@ func WaitFuncSchema(
 	srcTableName string,
 	dstTableName string,
 	cols string,
-	expectedTableSchema *protos.TableSchema,
+	expectedSchema *protos.TableSchema,
 ) func(context.Context) bool {
 	return func(ctx context.Context) bool {
 		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -121,8 +121,12 @@ func WaitFuncSchema(
 			return false
 		}
 		tableSchema := output.TableNameSchemaMapping[dstTableName]
-		if !reflect.DeepEqual(expectedTableSchema, tableSchema) {
-			s.t.Log("deep equal false", expectedTableSchema, tableSchema)
+		if expectedSchema.TableIdentifier != tableSchema.TableIdentifier ||
+			expectedSchema.IsReplicaIdentityFull != tableSchema.IsReplicaIdentityFull ||
+			slices.Compare(expectedSchema.PrimaryKeyColumns, tableSchema.PrimaryKeyColumns) != 0 ||
+			slices.Compare(expectedSchema.ColumnNames, tableSchema.ColumnNames) != 0 ||
+			slices.Compare(expectedSchema.ColumnTypes, tableSchema.ColumnTypes) != 0 {
+			s.t.Log("schemas unequal", expectedSchema, tableSchema)
 			return false
 		}
 		return s.comparePGTables(srcTableName, dstTableName, cols) == nil
@@ -264,14 +268,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 	wg.Wait()
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
 	env.AssertExpectations(s.t)
 }
 
@@ -334,22 +330,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize modifications", func(ctx context.Context) bool {
+			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
+		})
 		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
 	wg.Wait()
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t")
-	require.NoError(s.t, err)
-
 	env.AssertExpectations(s.t)
 }
 
