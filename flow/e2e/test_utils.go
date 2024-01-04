@@ -283,7 +283,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
 							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}',
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15, '2023-08-08' %s
+							'{"key": "value"}', 15, CURRENT_DATE %s
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)
