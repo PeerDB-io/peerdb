@@ -3,7 +3,9 @@ package e2e_postgres
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -104,6 +106,28 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	env.AssertExpectations(s.t)
 }
 
+func WaitFuncSchema(
+	s PeerFlowE2ETestSuitePG,
+	srcTableName string,
+	dstTableName string,
+	cols string,
+	expectedTableSchema *protos.TableSchema,
+) func(context.Context) bool {
+	return func(ctx context.Context) bool {
+		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
+			TableIdentifiers: []string{dstTableName},
+		})
+		if err != nil {
+			return false
+		}
+		tableSchema := output.TableNameSchemaMapping[dstTableName]
+		if !reflect.DeepEqual(expectedTableSchema, tableSchema) {
+			return false
+		}
+		return s.comparePGTables(srcTableName, dstTableName, cols) == nil
+	}
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
@@ -136,7 +160,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		// insert first row.
 		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -144,21 +171,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted initial row in the source table")
 
-		// verify we got our first row.
-		e2e.NormalizeFlowCountQuery(env, connectionGen, 2)
-		expectedTableSchema := &protos.TableSchema{
-			TableIdentifier:   dstTableName,
-			ColumnNames:       []string{"id", "c1"},
-			ColumnTypes:       []string{string(qvalue.QValueKindInt64), string(qvalue.QValueKindInt64)},
-			PrimaryKeyColumns: []string{"id"},
-		}
-		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-			TableIdentifiers: []string{dstTableName},
-		})
-		e2e.EnvNoError(s.t, env, err)
-		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
-		e2e.EnvNoError(s.t, env, err)
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing first row",
+			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1", &protos.TableSchema{
+				TableIdentifier:   dstTableName,
+				ColumnNames:       []string{"id", "c1"},
+				ColumnTypes:       []string{string(qvalue.QValueKindInt64), string(qvalue.QValueKindInt64)},
+				PrimaryKeyColumns: []string{"id"},
+			}),
+		)
 
 		// alter source table, add column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -170,25 +190,18 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row with added c2 in the source table")
 
-		// verify we got our two rows, if schema did not match up it will error.
-		e2e.NormalizeFlowCountQuery(env, connectionGen, 4)
-		expectedTableSchema = &protos.TableSchema{
-			TableIdentifier: dstTableName,
-			ColumnNames:     []string{"id", "c1", "c2"},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-			},
-			PrimaryKeyColumns: []string{"id"},
-		}
-		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-			TableIdentifiers: []string{dstTableName},
-		})
-		e2e.EnvNoError(s.t, env, err)
-		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2")
-		e2e.EnvNoError(s.t, env, err)
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing altered row",
+			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1,c2", &protos.TableSchema{
+				TableIdentifier: dstTableName,
+				ColumnNames:     []string{"id", "c1", "c2"},
+				ColumnTypes: []string{
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+				},
+				PrimaryKeyColumns: []string{"id"},
+			}),
+		)
 
 		// alter source table, add column c3, drop column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -200,26 +213,19 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row with added c3 in the source table")
 
-		// verify we got our two rows, if schema did not match up it will error.
-		e2e.NormalizeFlowCountQuery(env, connectionGen, 6)
-		expectedTableSchema = &protos.TableSchema{
-			TableIdentifier: dstTableName,
-			ColumnNames:     []string{"id", "c1", "c2", "c3"},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-			},
-			PrimaryKeyColumns: []string{"id"},
-		}
-		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-			TableIdentifiers: []string{dstTableName},
-		})
-		e2e.EnvNoError(s.t, env, err)
-		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c3")
-		e2e.EnvNoError(s.t, env, err)
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing dropped column row",
+			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1,c3", &protos.TableSchema{
+				TableIdentifier: dstTableName,
+				ColumnNames:     []string{"id", "c1", "c2", "c3"},
+				ColumnTypes: []string{
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+				},
+				PrimaryKeyColumns: []string{"id"},
+			}),
+		)
 
 		// alter source table, drop column c3 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -231,29 +237,23 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row after dropping all columns in the source table")
 
-		// verify we got our two rows, if schema did not match up it will error.
-		e2e.NormalizeFlowCountQuery(env, connectionGen, 8)
-		expectedTableSchema = &protos.TableSchema{
-			TableIdentifier: dstTableName,
-			ColumnNames:     []string{"id", "c1", "c2", "c3"},
-			ColumnTypes: []string{
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-				string(qvalue.QValueKindInt64),
-			},
-			PrimaryKeyColumns: []string{"id"},
-		}
-		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
-			TableIdentifiers: []string{dstTableName},
-		})
-		e2e.EnvNoError(s.t, env, err)
-		require.Equal(s.t, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
-		err = s.comparePGTables(srcTableName, dstTableName, "id,c1")
-		e2e.EnvNoError(s.t, env, err)
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing 2nd dropped column row",
+			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1", &protos.TableSchema{
+				TableIdentifier: dstTableName,
+				ColumnNames:     []string{"id", "c1", "c2", "c3"},
+				ColumnTypes: []string{
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+				},
+				PrimaryKeyColumns: []string{"id"},
+			}),
+		)
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+	wg.Wait()
 
 	// Verify workflow completes without error
 	require.True(s.t, env.IsWorkflowCompleted())

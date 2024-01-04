@@ -517,3 +517,19 @@ func EnvEqualRecordBatches(t *testing.T, env *testsuite.TestWorkflowEnvironment,
 		runtime.Goexit()
 	}
 }
+
+func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout time.Duration, name string, f func(ctx context.Context) bool) {
+	t.Helper()
+
+	ctx, cleanup := context.WithTimeout(context.Background(), timeout)
+	defer cleanup()
+	deadline, _ := ctx.Deadline()
+	for !f(ctx) {
+		if time.Now().Compare(deadline) >= 0 {
+			t.Error("WaitFor timed out", name)
+			env.CancelWorkflow()
+			runtime.Goexit()
+		}
+		time.Sleep(time.Second)
+	}
+}
