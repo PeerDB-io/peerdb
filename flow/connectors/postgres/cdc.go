@@ -338,7 +338,6 @@ func (p *PostgresCDCSource) consumeStream(
 		var ctx context.Context
 		var cancel context.CancelFunc
 
-		activity.RecordHeartbeat(p.ctx, "consuming stream")
 		if cdcRecordsStorage.IsEmpty() {
 			ctx, cancel = context.WithCancel(p.ctx)
 		} else {
