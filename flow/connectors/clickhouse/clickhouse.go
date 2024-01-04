@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/exp/maps"
@@ -154,14 +155,14 @@ func NewClickhouseConnector(ctx context.Context,
 	if clickhouseProtoConfig.MetadataSchema != nil {
 		metadataSchema = *clickhouseProtoConfig.MetadataSchema
 	}
-	//flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &ClickhouseConnector{
 		ctx:      ctx,
 		database: database,
 		//database:           conn,
 		tableSchemaMapping: nil,
 		metadataSchema:     metadataSchema,
-		//logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 

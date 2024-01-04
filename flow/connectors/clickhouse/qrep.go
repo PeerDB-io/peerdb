@@ -254,30 +254,30 @@ func (c *ClickhouseConnector) createExternalStage(stageName string, config *prot
 }
 
 func (c *ClickhouseConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	c.logger.Error("Consolidating partitions")
+	c.logger.Info("Consolidating partitions NOOP for now")
 
-	destTable := config.DestinationTableIdentifier
-	stageName := c.getStageNameForJob(config.FlowJobName)
+	// destTable := config.DestinationTableIdentifier
+	// stageName := c.getStageNameForJob(config.FlowJobName)
 
-	colInfo, err := c.getColsFromTable(destTable)
-	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to get columns from table %s", destTable), slog.Any("error", err))
-		return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
-	}
+	// colInfo, err := c.getColsFromTable(destTable)
+	// if err != nil {
+	// 	c.logger.Error(fmt.Sprintf("failed to get columns from table %s", destTable), slog.Any("error", err))
+	// 	return fmt.Errorf("failed to get columns from table %s: %w", destTable, err)
+	// }
 
-	allCols := colInfo.Columns
-	err = CopyStageToDestination(c, config, destTable, stageName, allCols)
-	if err != nil {
-		c.logger.Error("failed to copy stage to destination", slog.Any("error", err))
-		return fmt.Errorf("failed to copy stage to destination: %w", err)
-	}
+	// allCols := colInfo.Columns
+	// err = CopyStageToDestination(c, config, destTable, stageName, allCols)
+	// if err != nil {
+	// 	c.logger.Error("failed to copy stage to destination", slog.Any("error", err))
+	// 	return fmt.Errorf("failed to copy stage to destination: %w", err)
+	// }
 
 	return nil
 }
 
 // CleanupQRepFlow function for clickhouse connector
 func (c *ClickhouseConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
-	c.logger.Error("Cleaning up flow job")
+	c.logger.Info("Cleaning up flow job")
 	return c.dropStage(config.StagingPath, config.FlowJobName)
 }
 
@@ -323,48 +323,52 @@ func (c *ClickhouseConnector) getColsFromTable(tableName string) (*model.ColumnI
 
 // dropStage drops the stage for the given job.
 func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
-	stageName := c.getStageNameForJob(job)
-	stmt := fmt.Sprintf("DROP STAGE IF EXISTS %s", stageName)
+	fmt.Printf("\n********************* qrep drop stage 1*********************\n stagingPath:%+v, job: %+v", stagingPath, job)
+	//stageName := c.getStageNameForJob(job)
+	//stmt := fmt.Sprintf("DROP STAGE IF EXISTS %s", stageName)
 
-	_, err := c.database.Exec(stmt)
-	if err != nil {
-		return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
-	}
+	// _, err := c.database.Exec(stmt)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
+	// }
 
 	// if s3 we need to delete the contents of the bucket
-	if strings.HasPrefix(stagingPath, "s3://") {
-		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
-		if err != nil {
-			c.logger.Error("failed to create S3 bucket and prefix", slog.Any("error", err))
-			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
-		}
+	//if strings.HasPrefix(stagingPath, "s3://") {
+	// s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
+	// if err != nil {
+	// 	c.logger.Error("failed to create S3 bucket and prefix", slog.Any("error", err))
+	// 	return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
+	// }
+	bucket := "avro-clickhouse"
+	prefix := ""
 
-		c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
+	c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", bucket, prefix, job))
 
-		// deleting the contents of the bucket with prefix
-		s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
-		if err != nil {
-			c.logger.Error("failed to create S3 client", slog.Any("error", err))
-			return fmt.Errorf("failed to create S3 client: %w", err)
-		}
-
-		// Create a list of all objects with the defined prefix in the bucket
-		iter := s3manager.NewDeleteListIterator(s3svc, &s3.ListObjectsInput{
-			Bucket: aws.String(s3o.Bucket),
-			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
-		})
-
-		// Iterate through the objects in the bucket with the prefix and delete them
-		s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
-		if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
-			c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
-			return fmt.Errorf("failed to delete objects from bucket: %w", err)
-		}
-
-		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
+	// deleting the contents of the bucket with prefix
+	s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
+	if err != nil {
+		c.logger.Error("failed to create S3 client", slog.Any("error", err))
+		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
-	c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
+	// Create a list of all objects with the defined prefix in the bucket
+	iter := s3manager.NewDeleteListIterator(s3svc, &s3.ListObjectsInput{
+		Bucket: aws.String(bucket),
+		//Prefix: aws.String(fmt.Sprintf("%s/%s", prefix, job)),
+		Prefix: aws.String(fmt.Sprintf("%s", job)),
+	})
+
+	// Iterate through the objects in the bucket with the prefix and delete them
+	s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
+	if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
+		c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
+		return fmt.Errorf("failed to delete objects from bucket: %w", err)
+	}
+
+	c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", bucket, prefix, job))
+	//}
+
+	//c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
 	return nil
 }
 

@@ -280,7 +280,8 @@ func GetQRepConsolidateConnector(ctx context.Context,
 	switch inner.(type) {
 	case *protos.Peer_SnowflakeConfig:
 		return connsnowflake.NewSnowflakeConnector(ctx, config.GetSnowflakeConfig())
-
+	case *protos.Peer_ClickhouseConfig:
+		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}
