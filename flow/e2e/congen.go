@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -137,7 +138,15 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 func TearDownPostgres(pool *pgxpool.Pool, suffix string) error {
 	// drop the e2e_test schema
 	if pool != nil {
-		err := cleanPostgres(pool, suffix)
+		deadline := time.Now().Add(time.Minute)
+		var err error
+		for {
+			err = cleanPostgres(pool, suffix)
+			if time.Now().Compare(deadline) > 0 {
+				break
+			}
+			time.Sleep(time.Second)
+		}
 		if err != nil {
 			return err
 		}

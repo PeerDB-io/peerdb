@@ -267,7 +267,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-	time.Sleep(2 * time.Minute)
 	wg.Wait()
 	env.AssertExpectations(s.t)
 }

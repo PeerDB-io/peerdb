@@ -297,17 +297,19 @@ func (p *PostgresCDCSource) consumeStream(
 			}
 		}
 
-		if (cdcRecordsStorage.Len() >= int(req.MaxBatchSize)) && !p.commitLock {
-			return nil
-		}
+		if !p.commitLock {
+			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
+				return nil
+			}
 
-		if waitingForCommit && !p.commitLock {
-			p.logger.Info(fmt.Sprintf(
-				"[%s] commit received, returning currently accumulated records - %d",
-				p.flowJobName,
-				cdcRecordsStorage.Len()),
-			)
-			return nil
+			if waitingForCommit {
+				p.logger.Info(fmt.Sprintf(
+					"[%s] commit received, returning currently accumulated records - %d",
+					p.flowJobName,
+					cdcRecordsStorage.Len()),
+				)
+				return nil
+			}
 		}
 
 		// if we are past the next standby deadline (?)
@@ -343,6 +345,7 @@ func (p *PostgresCDCSource) consumeStream(
 		rawMsg, err := conn.ReceiveMessage(ctx)
 		cancel()
 
+		utils.RecordHeartbeatWithRecover(p.ctx, "consumeStream ReceiveMessage")
 		ctxErr := p.ctx.Err()
 		if ctxErr != nil {
 			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
