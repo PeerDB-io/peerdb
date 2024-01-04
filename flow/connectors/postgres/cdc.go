@@ -340,9 +340,14 @@ func (p *PostgresCDCSource) consumeStream(
 		} else {
 			ctx, cancel = context.WithDeadline(p.ctx, nextStandbyMessageDeadline)
 		}
-
 		rawMsg, err := conn.ReceiveMessage(ctx)
 		cancel()
+
+		ctxErr := p.ctx.Err()
+		if ctxErr != nil {
+			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
+		}
+
 		if err != nil && !p.commitLock {
 			if pgconn.Timeout(err) {
 				p.logger.Info(fmt.Sprintf("Stand-by deadline reached, returning currently accumulated records - %d",
