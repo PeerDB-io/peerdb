@@ -331,6 +331,10 @@ func CDCFlowWorkflowWithConfig(
 		// check and act on signals before a fresh flow starts.
 		w.receiveAndHandleSignalAsync(ctx, state)
 
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		if state.ActiveSignal == shared.PauseSignal {
 			startTime := time.Now()
 			state.CurrentFlowState = protos.FlowStatus_STATUS_PAUSED.Enum()
@@ -343,6 +347,8 @@ func CDCFlowWorkflowWithConfig(
 				ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 				if ok {
 					state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+				} else if err := ctx.Err(); err != nil {
+					return nil, err
 				}
 			}
 
