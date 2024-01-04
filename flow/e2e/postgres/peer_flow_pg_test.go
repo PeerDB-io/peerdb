@@ -122,6 +122,7 @@ func WaitFuncSchema(
 		}
 		tableSchema := output.TableNameSchemaMapping[dstTableName]
 		if !reflect.DeepEqual(expectedTableSchema, tableSchema) {
+			s.t.Log("deep equal false", expectedTableSchema, tableSchema)
 			return false
 		}
 		return s.comparePGTables(srcTableName, dstTableName, cols) == nil

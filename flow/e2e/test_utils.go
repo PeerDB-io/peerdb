@@ -525,6 +525,7 @@ func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout ti
 	defer cleanup()
 	deadline, _ := ctx.Deadline()
 	for !f(ctx) {
+		t.Log(time.Now(), deadline)
 		if time.Now().Compare(deadline) >= 0 {
 			t.Error("WaitFor timed out", name)
 			env.CancelWorkflow()
