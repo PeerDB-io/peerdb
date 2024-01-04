@@ -174,9 +174,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing first row",
 			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1", &protos.TableSchema{
-				TableIdentifier:   dstTableName,
-				ColumnNames:       []string{"id", "c1"},
-				ColumnTypes:       []string{string(qvalue.QValueKindInt64), string(qvalue.QValueKindInt64)},
+				TableIdentifier: dstTableName,
+				ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT"},
+				ColumnTypes: []string{
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindTimestamp),
+				},
 				PrimaryKeyColumns: []string{"id"},
 			}),
 		)
@@ -194,11 +198,12 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing altered row",
 			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1,c2", &protos.TableSchema{
 				TableIdentifier: dstTableName,
-				ColumnNames:     []string{"id", "c1", "c2"},
+				ColumnNames:     []string{"id", "c1", "c2", "_PEERDB_SYNCED_AT"},
 				ColumnTypes: []string{
 					string(qvalue.QValueKindInt64),
 					string(qvalue.QValueKindInt64),
 					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindTimestamp),
 				},
 				PrimaryKeyColumns: []string{"id"},
 			}),
@@ -217,10 +222,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing dropped column row",
 			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1,c3", &protos.TableSchema{
 				TableIdentifier: dstTableName,
-				ColumnNames:     []string{"id", "c1", "c2", "c3"},
+				ColumnNames:     []string{"id", "c1", "c2", "_PEERDB_SYNCED_AT", "c3"},
 				ColumnTypes: []string{
 					string(qvalue.QValueKindInt64),
 					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindTimestamp),
 					string(qvalue.QValueKindInt64),
 					string(qvalue.QValueKindInt64),
 				},
@@ -241,11 +247,12 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing 2nd dropped column row",
 			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1", &protos.TableSchema{
 				TableIdentifier: dstTableName,
-				ColumnNames:     []string{"id", "c1", "c2", "c3"},
+				ColumnNames:     []string{"id", "c1", "c2", "_PEERDB_SYNCED_AT", "c3"},
 				ColumnTypes: []string{
 					string(qvalue.QValueKindInt64),
 					string(qvalue.QValueKindInt64),
 					string(qvalue.QValueKindInt64),
+					string(qvalue.QValueKindTimestamp),
 					string(qvalue.QValueKindInt64),
 				},
 				PrimaryKeyColumns: []string{"id"},
