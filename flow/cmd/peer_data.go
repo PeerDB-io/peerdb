@@ -168,7 +168,6 @@ func (h *FlowRequestHandler) GetColumns(
 				ON
 					kcu.constraint_name = tc.constraint_name
 					AND kcu.constraint_schema = tc.constraint_schema
-					AND kcu.constraint_name = tc.constraint_name
 				WHERE
 					tc.constraint_type = 'PRIMARY KEY'
 					AND kcu.table_schema = $1

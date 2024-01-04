@@ -8,6 +8,7 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import { Divider } from '@tremor/react';
 import Image from 'next/image';
@@ -219,6 +220,7 @@ export default function CreateMirrors() {
               fontWeight: 'bold',
             }}
             variant='normalSolid'
+            disabled={loading}
             onClick={() =>
               mirrorType === 'CDC'
                 ? handleCreateCDC(
@@ -240,7 +242,13 @@ export default function CreateMirrors() {
                   )
             }
           >
-            <Icon name='add' /> Create Mirror
+            {loading ? (
+              <ProgressCircle variant='determinate_progress_circle' />
+            ) : (
+              <>
+                <Icon name='add' /> Create Mirror
+              </>
+            )}
           </Button>
         )}
       </Panel>
