@@ -663,11 +663,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Eventhub => {
-            let conn_str: String = opts
-                .get("metadata_db")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let metadata_db = parse_metadata_db_info(&conn_str)?;
+            let conn_str = opts.get("metadata_db").map(|s| s.to_string());
+            let metadata_db = parse_metadata_db_info(conn_str)?;
             let subscription_id = opts
                 .get("subscription_id")
                 .map(|s| s.to_string())
@@ -711,11 +708,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::S3 => {
-            let s3_conn_str: String = opts
-                .get("metadata_db")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
+            let s3_conn_str = opts.get("metadata_db").map(|s| s.to_string());
+            let metadata_db = parse_metadata_db_info(s3_conn_str)?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
@@ -754,9 +748,7 @@ fn parse_db_options(
             Some(config)
         }
         DbType::EventhubGroup => {
-            let conn_str = opts
-                .get("metadata_db")
-                .context("no metadata db specified")?;
+            let conn_str = opts.get("metadata_db").map(|s| s.to_string());
             let metadata_db = parse_metadata_db_info(conn_str)?;
 
             // metadata_db is required for eventhub group
@@ -808,10 +800,11 @@ fn parse_db_options(
     Ok(config)
 }
 
-fn parse_metadata_db_info(conn_str: &str) -> anyhow::Result<Option<PostgresConfig>> {
-    if conn_str.is_empty() {
-        return Ok(None);
-    }
+fn parse_metadata_db_info(conn_str: Option<String>) -> anyhow::Result<Option<PostgresConfig>> {
+    let conn_str = match conn_str {
+        Some(conn_str) => conn_str,
+        None => return Ok(None),
+    };
 
     let mut metadata_db = PostgresConfig::default();
     let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
