@@ -13,19 +13,20 @@ func HeartbeatRoutine(
 	ctx context.Context,
 	interval time.Duration,
 	message func() string,
-) chan struct{} {
-	counter := 1
+) chan<- struct{} {
 	shutdown := make(chan struct{})
 	go func() {
+		counter := 0
 		for {
+			counter += 1
 			msg := fmt.Sprintf("heartbeat #%d: %s", counter, message())
 			RecordHeartbeatWithRecover(ctx, msg)
-			counter += 1
-			to := time.After(interval)
 			select {
 			case <-shutdown:
 				return
-			case <-to:
+			case <-ctx.Done():
+				return
+			case <-time.After(interval):
 			}
 		}
 	}()
