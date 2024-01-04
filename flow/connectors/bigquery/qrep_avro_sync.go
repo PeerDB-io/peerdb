@@ -123,6 +123,9 @@ func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol
 		case bigquery.JSONFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("PARSE_JSON(`%s`) AS `%s`", col.Name, col.Name))
+		case bigquery.DateFieldType:
+			transformedColumns = append(transformedColumns,
+				fmt.Sprintf("CAST(`%s` AS DATE) AS `%s`", col.Name, col.Name))
 		default:
 			transformedColumns = append(transformedColumns, fmt.Sprintf("`%s`", col.Name))
 		}
