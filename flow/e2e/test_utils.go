@@ -222,6 +222,7 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		"f6 jsonb",
 		"f7 jsonb",
 		"f8 smallint",
+		"my_date DATE",
 	}
 	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
 		tblFields = append(tblFields, `"geometryPoint" geometry(point)`,
@@ -282,7 +283,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
 							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}',
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15 %s
+							'{"key": "value"}', 15, CURRENT_DATE %s
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)
@@ -303,7 +304,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, my_date
 					%s
 			) VALUES %s;
 	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
@@ -424,6 +425,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
+			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
 			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
 			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
 			{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},
