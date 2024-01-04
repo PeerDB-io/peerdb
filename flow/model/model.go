@@ -412,7 +412,7 @@ func (r *CDCRecordStream) Close() {
 	r.lastCheckpointSet = true
 }
 
-func (r *CDCRecordStream) GetRecords() chan Record {
+func (r *CDCRecordStream) GetRecords() <-chan Record {
 	return r.records
 }
 
