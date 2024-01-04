@@ -819,8 +819,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 				slog.InfoContext(ctx, fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 			}
 		}
-		ticker.Stop()
-		ticker = time.NewTicker(sendTimeout)
+		ticker.Reset(sendTimeout)
 	}
 }
 
