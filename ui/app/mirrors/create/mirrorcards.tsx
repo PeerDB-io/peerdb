@@ -75,7 +75,7 @@ const MirrorCards = ({
                 as={Link}
                 target='_blank'
                 style={{ color: 'teal', cursor: 'pointer' }}
-                href='https://docs.peerdb.io/usecases/Real-time%20CDC/overview'
+                href={card.link}
               >
                 Learn more
               </Label>
