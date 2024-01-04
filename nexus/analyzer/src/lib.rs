@@ -800,11 +800,15 @@ fn parse_db_options(
     Ok(config)
 }
 
-fn parse_metadata_db_info(conn_str: Option<&str>) -> anyhow::Result<Option<PostgresConfig>> {
+fn parse_metadata_db_info(conn_str: Option<&&str>) -> anyhow::Result<Option<PostgresConfig>> {
     let conn_str = match conn_str {
         Some(conn_str) => conn_str,
         None => return Ok(None),
     };
+
+    if conn_str.is_empty() {
+        return Ok(None);
+    }
 
     let mut metadata_db = PostgresConfig::default();
     let param_pairs: Vec<&str> = conn_str.split_whitespace().collect();
