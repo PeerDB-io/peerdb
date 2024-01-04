@@ -152,9 +152,9 @@ func NewClickhouseConnector(ctx context.Context,
 	// }
 
 	metadataSchema := "_PEERDB_INTERNAL"
-	if clickhouseProtoConfig.MetadataSchema != nil {
-		metadataSchema = *clickhouseProtoConfig.MetadataSchema
-	}
+	// if clickhouseProtoConfig.MetadataSchema != nil {
+	// 	metadataSchema = *clickhouseProtoConfig.MetadataSchema
+	// }
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &ClickhouseConnector{
 		ctx:      ctx,

@@ -623,7 +623,6 @@ fn parse_db_options(
                     .get("database")
                     .context("no default database specified")?
                     .to_string(),
-                metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 s3_integration: s3_int,
             };
             let config = Config::ClickhouseConfig(clickhouse_config);

@@ -163,9 +163,7 @@ pub struct ClickhouseConfig {
     pub password: ::prost::alloc::string::String,
     #[prost(string, tag="5")]
     pub database: ::prost::alloc::string::String,
-    #[prost(string, optional, tag="6")]
-    pub metadata_schema: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(string, tag="7")]
+    #[prost(string, tag="6")]
     pub s3_integration: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
