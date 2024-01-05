@@ -85,14 +85,13 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 		return nil, err
 	}
 
-	cloneStatuses := []*protos.QRepMirrorStatus{}
+	cloneStatuses := []*protos.CloneTableSummary{}
 	for _, cloneJobName := range cloneJobNames {
-		cloneStatus, err := h.QRepFlowStatus(ctx, &protos.MirrorStatusRequest{
-			FlowJobName: cloneJobName,
-		})
+		cloneStatus, err := h.cloneTableSummary(ctx, cloneJobName)
 		if err != nil {
 			return nil, err
 		}
+
 		cloneStatuses = append(cloneStatuses, cloneStatus)
 	}
 
@@ -104,6 +103,71 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 		Config:         config,
 		SnapshotStatus: initialCopyStatus,
 	}, nil
+}
+
+func (h *FlowRequestHandler) cloneTableSummary(
+	ctx context.Context,
+	flowJobName string,
+) (*protos.CloneTableSummary, error) {
+	cfg := h.getQRepConfigFromCatalog(flowJobName)
+	res := &protos.CloneTableSummary{
+		FlowJobName: flowJobName,
+		TableName:   cfg.DestinationTableIdentifier,
+	}
+
+	q := `
+	SELECT 
+		MIN(start_time) AS StartTime,
+		COUNT(*) AS NumPartitionsTotal,
+		COUNT(CASE WHEN end_time IS NOT NULL THEN 1 END) AS NumPartitionsCompleted,
+		SUM(rows_in_partition) FILTER (WHERE end_time IS NOT NULL) AS NumRowsSynced,
+		AVG(EXTRACT(EPOCH FROM (end_time - start_time)) * 1000) FILTER (WHERE end_time IS NOT NULL) AS AvgTimePerPartitionMs
+	FROM 
+		peerdb_stats.qrep_partitions
+	WHERE 
+		flow_name = $1
+	GROUP BY 
+		flow_name;
+	`
+
+	var startTime pgtype.Timestamp
+	var numPartitionsTotal pgtype.Int8
+	var numPartitionsCompleted pgtype.Int8
+	var numRowsSynced pgtype.Int8
+	var avgTimePerPartitionMs pgtype.Float8
+
+	err := h.pool.QueryRow(ctx, q, flowJobName).Scan(
+		&startTime,
+		&numPartitionsTotal,
+		&numPartitionsCompleted,
+		&numRowsSynced,
+		&avgTimePerPartitionMs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query qrep partition - %s: %w", flowJobName, err)
+	}
+
+	if startTime.Valid {
+		res.StartTime = timestamppb.New(startTime.Time)
+	}
+
+	if numPartitionsTotal.Valid {
+		res.NumPartitionsTotal = int32(numPartitionsTotal.Int64)
+	}
+
+	if numPartitionsCompleted.Valid {
+		res.NumPartitionsCompleted = int32(numPartitionsCompleted.Int64)
+	}
+
+	if numRowsSynced.Valid {
+		res.NumRowsSynced = int64(numRowsSynced.Int64)
+	}
+
+	if avgTimePerPartitionMs.Valid {
+		res.AvgTimePerPartitionMs = int64(avgTimePerPartitionMs.Float64)
+	}
+
+	return res, nil
 }
 
 func (h *FlowRequestHandler) QRepFlowStatus(

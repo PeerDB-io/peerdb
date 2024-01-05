@@ -162,8 +162,18 @@ message PeerStatResponse {
   repeated StatInfo stat_data = 1;
 }
 
+message CloneTableSummary {
+  string table_name = 1;
+  google.protobuf.Timestamp start_time = 2;
+  int32 num_partitions_completed = 3;
+  int32 num_partitions_total = 4;
+  int64 num_rows_synced = 5;
+  int64 avg_time_per_partition_ms = 6;
+  string flow_job_name = 7;
+}
+
 message SnapshotStatus {
-  repeated QRepMirrorStatus clones = 1;
+  repeated CloneTableSummary clones = 1;
 }
 
 message CDCMirrorStatus {
