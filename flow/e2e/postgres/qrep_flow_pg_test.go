@@ -165,7 +165,7 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 	return rows.Err()
 }
 
-func (s PeerFlowE2ETestSuitePG) countRowsInQuery(query string) (int64, error) {
+func (s PeerFlowE2ETestSuitePG) RunInt64Query(query string) (int64, error) {
 	var count pgtype.Int8
 	err := s.pool.QueryRow(context.Background(), query).Scan(&count)
 	return count.Int64, err
