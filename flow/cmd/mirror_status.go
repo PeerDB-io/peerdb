@@ -168,29 +168,6 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 	return res, nil
 }
 
-func (h *FlowRequestHandler) getPartitionUUIDs(
-	ctx context.Context,
-	flowJobName string,
-) ([]string, error) {
-	rows, err := h.pool.Query(ctx,
-		"SELECT partition_uuid FROM peerdb_stats.qrep_partitions WHERE flow_name = $1", flowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("unable to query qrep partitions: %w", err)
-	}
-	defer rows.Close()
-
-	partitionUUIDs := []string{}
-	for rows.Next() {
-		var partitionUUID pgtype.Text
-		if err := rows.Scan(&partitionUUID); err != nil {
-			return nil, fmt.Errorf("unable to scan partition row: %w", err)
-		}
-		partitionUUIDs = append(partitionUUIDs, partitionUUID.String)
-	}
-
-	return partitionUUIDs, nil
-}
-
 func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	flowJobName string,
 ) (*protos.FlowConnectionConfigs, error) {
