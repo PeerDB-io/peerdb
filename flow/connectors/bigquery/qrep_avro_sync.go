@@ -122,7 +122,7 @@ func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol
 				fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
 		case bigquery.JSONFieldType:
 			transformedColumns = append(transformedColumns,
-				fmt.Sprintf("PARSE_JSON(`%s`) AS `%s`", col.Name, col.Name))
+				fmt.Sprintf("PARSE_JSON(`%s`,wide_number_mode=>'round') AS `%s`", col.Name, col.Name))
 		case bigquery.DateFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("CAST(`%s` AS DATE) AS `%s`", col.Name, col.Name))
