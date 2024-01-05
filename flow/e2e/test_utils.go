@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,16 @@ func EnvEqual[T comparable](t *testing.T, env *testsuite.TestWorkflowEnvironment
 
 	if x != y {
 		t.Error("not equal", x, y)
+		env.CancelWorkflow()
+		runtime.Goexit()
+	}
+}
+
+func EnvTrue(t *testing.T, env *testsuite.TestWorkflowEnvironment, val bool) {
+	t.Helper()
+
+	if !val {
+		t.Error("assertion failed")
 		env.CancelWorkflow()
 		runtime.Goexit()
 	}
@@ -528,6 +539,14 @@ func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
 	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
 }
 
+func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
+	return x.TableIdentifier == y.TableIdentifier ||
+		x.IsReplicaIdentityFull == y.IsReplicaIdentityFull ||
+		slices.Compare(x.PrimaryKeyColumns, y.PrimaryKeyColumns) == 0 ||
+		slices.Compare(x.ColumnNames, y.ColumnNames) == 0 ||
+		slices.Compare(x.ColumnTypes, y.ColumnTypes) == 0
+}
+
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, q, other))
@@ -543,7 +562,7 @@ func EnvEqualRecordBatches(t *testing.T, env *testsuite.TestWorkflowEnvironment,
 	}
 }
 
-func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout time.Duration, name string, f func(ctx context.Context) bool) {
+func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout time.Duration, reason string, f func(ctx context.Context) bool) {
 	t.Helper()
 
 	ctx, cleanup := context.WithTimeout(context.Background(), timeout)
@@ -552,7 +571,7 @@ func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout ti
 	for !f(ctx) {
 		t.Log(time.Now(), deadline)
 		if time.Now().Compare(deadline) >= 0 {
-			t.Error("WaitFor timed out", name)
+			t.Error("WaitFor timed out", reason)
 			env.CancelWorkflow()
 			runtime.Goexit()
 		}

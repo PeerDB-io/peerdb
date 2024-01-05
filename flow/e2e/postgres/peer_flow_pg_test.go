@@ -3,7 +3,6 @@ package e2e_postgres
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 
@@ -119,11 +118,7 @@ func WaitFuncSchema(
 			return false
 		}
 		tableSchema := output.TableNameSchemaMapping[dstTableName]
-		if expectedSchema.TableIdentifier != tableSchema.TableIdentifier ||
-			expectedSchema.IsReplicaIdentityFull != tableSchema.IsReplicaIdentityFull ||
-			slices.Compare(expectedSchema.PrimaryKeyColumns, tableSchema.PrimaryKeyColumns) != 0 ||
-			slices.Compare(expectedSchema.ColumnNames, tableSchema.ColumnNames) != 0 ||
-			slices.Compare(expectedSchema.ColumnTypes, tableSchema.ColumnTypes) != 0 {
+		if !e2e.CompareTableSchemas(expectedSchema, tableSchema) {
 			s.t.Log("schemas unequal", expectedSchema, tableSchema)
 			return false
 		}
