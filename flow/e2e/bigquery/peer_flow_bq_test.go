@@ -743,7 +743,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
-		'{"sai":1}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
+		'{"sai":1}'::json,'{"sai":-8.02139037433155}'::jsonb,'08:00:2b:01:02:03'::macaddr,
 		1.2,1.23,4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
 		txid_current_snapshot(),
