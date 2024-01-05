@@ -1513,7 +1513,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 
 	tableName := "test_softdel_iad"
 	srcTableName := s.attachSchemaSuffix(tableName)
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_iad")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -1574,7 +1574,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", tableName, dstTableName, "id,c1,c2,t")
+		e2e.EnvWaitForEqualTables(env, s, "normalize reinsert", tableName, "id,c1,c2,t")
 
 		env.CancelWorkflow()
 	}()
@@ -1616,7 +1616,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 20,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
@@ -1634,17 +1634,17 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 20 rows into the source table")
+		e2e.EnvWaitForEqualTablesWithNames(
+			env,
+			s,
+			"normalize mixed case",
+			"testMixedCase",
+			"\"testMixedCase\"",
+			"id,\"pulseArmor\",\"highGold\",\"eVe\"",
+		)
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
-
-	// Verify workflow completes without error
-	require.True(s.t, env.IsWorkflowCompleted())
-	err = env.GetWorkflowError()
-
-	// allow only continue as new error
-	require.Contains(s.t, err.Error(), "continue as new")
-
-	s.compareTableContentsWithDiffSelectorsSF("testMixedCase", `"pulseArmor","highGold","eVe",id`,
-		`"pulseArmor","highGold","eVe",id`, true)
 }
