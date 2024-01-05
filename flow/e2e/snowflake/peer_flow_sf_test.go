@@ -870,7 +870,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		s.t.Log("Inserted initial row in the source table")
 
 		e2e.EnvWaitForEqualTables(env, s, "normalize reinsert", "test_simple_schema_changes", "id,c1")
-		s.t.Log("Tables equal")
 
 		expectedTableSchema := &protos.TableSchema{
 			TableIdentifier: strings.ToUpper(dstTableName),
@@ -892,7 +891,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 		})
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvTrue(s.t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))
-		s.t.Log("Schemas equal")
 
 		// alter source table, add column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -925,7 +923,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvEqual(s.t, env, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		e2e.EnvTrue(s.t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))
 		e2e.EnvEqualTables(env, s, "test_simple_schema_changes", "id,c1,c2")
 
 		// alter source table, add column c3, drop column c2 and insert another row.
@@ -961,7 +959,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvEqual(s.t, env, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		e2e.EnvTrue(s.t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))
 		e2e.EnvEqualTables(env, s, "test_simple_schema_changes", "id,c1,c3")
 
 		// alter source table, drop column c3 and insert another row.
@@ -997,7 +995,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			TableIdentifiers: []string{dstTableName},
 		})
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvEqual(s.t, env, expectedTableSchema, output.TableNameSchemaMapping[dstTableName])
+		e2e.EnvTrue(s.t, env, e2e.CompareTableSchemas(expectedTableSchema, output.TableNameSchemaMapping[dstTableName]))
 		e2e.EnvEqualTables(env, s, "test_simple_schema_changes", "id,c1")
 
 		env.CancelWorkflow()

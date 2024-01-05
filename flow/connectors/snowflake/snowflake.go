@@ -248,8 +248,7 @@ func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.T
 		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
 	}
 	defer func() {
-		// not sure if the errors these two return are same or different?
-		err = errors.Join(rows.Close(), rows.Err())
+		err = rows.Close()
 		if err != nil {
 			c.logger.Error("error while closing rows for reading schema of table",
 				slog.String("tableName", tableName),
@@ -289,8 +288,7 @@ func (c *SnowflakeConnector) GetLastOffset(jobName string) (int64, error) {
 		return 0, fmt.Errorf("error querying Snowflake peer for last syncedID: %w", err)
 	}
 	defer func() {
-		// not sure if the errors these two return are same or different?
-		err = errors.Join(rows.Close(), rows.Err())
+		err = rows.Close()
 		if err != nil {
 			c.logger.Error("error while closing rows for reading last offset", slog.Any("error", err))
 		}
