@@ -1260,8 +1260,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
-	cmpTableName := s.attachSchemaSuffix("test_softdel")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := s.attachSchemaSuffix("test_softdel_src")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -1275,7 +1274,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: cmpTableName,
+		FlowJobName: srcTableName,
 	}
 
 	config := &protos.FlowConnectionConfigs{
@@ -1423,8 +1422,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	env := e2e.NewTemporalTestWorkflowEnvironment()
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
-	cmpTableName := s.attachSchemaSuffix("test_softdel_ud")
-	srcTableName := fmt.Sprintf("%s_src", cmpTableName)
+	srcTableName := s.attachSchemaSuffix("test_softdel_ud_src")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_ud")
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
