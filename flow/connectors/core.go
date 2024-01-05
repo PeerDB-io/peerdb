@@ -161,8 +161,8 @@ func GetCDCSyncConnector(ctx context.Context, config *protos.Peer) (CDCSyncConne
 		return conneventhub.NewEventHubConnector(ctx, config.GetEventhubGroupConfig())
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, config.GetS3Config())
-	case *protos.Peer_ClickhouseConfig:
-		return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
+	// case *protos.Peer_ClickhouseConfig:
+	// 	return connclickhouse.NewClickhouseConnector(ctx, config.GetClickhouseConfig())
 	default:
 		return nil, ErrUnsupportedFunctionality
 	}

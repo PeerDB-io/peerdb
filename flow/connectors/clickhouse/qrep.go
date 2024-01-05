@@ -37,7 +37,7 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 	if err != nil {
 		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
-	//c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
+	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 	done, err := c.isPartitionSynced(partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
@@ -186,7 +186,7 @@ func (c *ClickhouseConnector) createQRepMetadataTable() error { //createMetadata
 
 		return fmt.Errorf("failed to create table %s.%s: %w", c.metadataSchema, qRepMetadataTableName, err)
 	}
-	//c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
+	c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
 	return nil
 }
 
@@ -324,7 +324,7 @@ func (c *ClickhouseConnector) getColsFromTable(tableName string) (*model.ColumnI
 // dropStage drops the stage for the given job.
 func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 	fmt.Printf("\n********************* qrep drop stage 1*********************\n stagingPath:%+v, job: %+v", stagingPath, job)
-	//stageName := c.getStageNameForJob(job)
+	stageName := c.getStageNameForJob(job)
 	//stmt := fmt.Sprintf("DROP STAGE IF EXISTS %s", stageName)
 
 	// _, err := c.database.Exec(stmt)
@@ -368,7 +368,7 @@ func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 	c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", bucket, prefix, job))
 	//}
 
-	//c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
+	c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
 	return nil
 }
 
