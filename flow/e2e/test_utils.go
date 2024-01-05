@@ -125,6 +125,31 @@ func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite e2eshared.RowS
 	EnvEqualRecordBatches(t, env, pgRows, rows)
 }
 
+func EnvWaitForEqualTables(
+	env *testsuite.TestWorkflowEnvironment,
+	suite e2eshared.RowSource,
+	reason string,
+	table string,
+	cols string,
+) {
+	t := suite.T()
+	EnvWaitFor(t, env, time.Minute, reason, func(ctx context.Context) bool {
+		suffix := suite.Suffix()
+		pool := suite.Pool()
+		pgRows, err := GetPgRows(pool, suffix, table, cols)
+		if err != nil {
+			return false
+		}
+
+		rows, err := suite.GetRows(table, cols)
+		if err != nil {
+			return false
+		}
+
+		return e2eshared.CheckEqualRecordBatches(t, pgRows, rows)
+	})
+}
+
 func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig,
 ) {
