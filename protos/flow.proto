@@ -349,7 +349,7 @@ message QRepFlowState {
   uint64 num_partitions_processed = 2;
   bool needs_resync = 3;
   bool disable_wait_for_new_rows = 4;
-  FlowStatus current_flow_state = 5;
+  FlowStatus current_flow_status = 5;
 }
 
 message PeerDBColumns {
@@ -387,20 +387,27 @@ enum FlowStatus {
   STATUS_TERMINATED = 7;
 }
 
-message CDCFlowStateUpdate {
+message CDCFlowConfigUpdate {
+  repeated TableMapping additional_tables = 1;
 }
 
-message QRepFlowStateUpdate {
+message QRepFlowConfigUpdate {
 }
 
-message FlowStateUpdate {
+message FlowConfigUpdate {
   oneof update {
-    CDCFlowStateUpdate cdc_flow_state_update = 1;
-    QRepFlowStateUpdate qrep_flow_state_update = 2;
+    CDCFlowConfigUpdate cdc_flow_config_update = 1;
+    QRepFlowConfigUpdate qrep_flow_config_update = 2;
   }
 }
 
 message SetupFlowOutput {
   map<uint32, string> src_table_id_name_mapping = 1;
   map<string, TableSchema> table_name_schema_mapping = 2;
+}
+
+message AddTablesToPublicationInput{
+  string flow_job_name = 1;
+  string publication_name = 2;
+  repeated TableMapping additional_tables = 3;
 }

@@ -51,7 +51,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_CdcStatus{
 				CdcStatus: cdcStatus,
 			},
-			CurrentFlowState: *currState,
+			CurrentFlowState: currState,
 		}, nil
 	} else {
 		qrepStatus, err := h.QRepFlowStatus(ctx, req)
@@ -66,7 +66,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			Status: &protos.MirrorStatusResponse_QrepStatus{
 				QrepStatus: qrepStatus,
 			},
-			CurrentFlowState: *currState,
+			CurrentFlowState: currState,
 		}, nil
 	}
 }
@@ -334,17 +334,41 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 	return false, nil
 }
 
-func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (*protos.FlowStatus, error) {
+func (h *FlowRequestHandler) getCloneTableFlowNames(ctx context.Context, flowJobName string) ([]string, error) {
+	q := "SELECT flow_name FROM peerdb_stats.qrep_runs WHERE flow_name ILIKE $1"
+	rows, err := h.pool.Query(ctx, q, "clone_"+flowJobName+"_%")
+	if err != nil {
+		return nil, fmt.Errorf("unable to getCloneTableFlowNames: %w", err)
+	}
+	defer rows.Close()
+
+	flowNames := []string{}
+	for rows.Next() {
+		var name pgtype.Text
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("unable to scan flow row: %w", err)
+		}
+		if name.Valid {
+			flowNames = append(flowNames, name.String)
+		}
+	}
+
+	return flowNames, nil
+}
+
+func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
 	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
-		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+		return protos.FlowStatus_STATUS_UNKNOWN,
+			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
-	var state *protos.FlowStatus
+	var state protos.FlowStatus
 	err = res.Get(&state)
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
-		return nil, fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
+		return protos.FlowStatus_STATUS_UNKNOWN,
+			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
 	}
 	return state, nil
 }
@@ -358,6 +382,17 @@ func (h *FlowRequestHandler) updateWorkflowStatus(
 	if err != nil {
 		slog.Error(fmt.Sprintf("failed to update state in workflow with ID %s: %s", workflowID, err.Error()))
 		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
+	}
+	return nil
+}
+
+func (h *FlowRequestHandler) attemptCDCFlowConfigUpdate(ctx context.Context,
+	workflowID string, cdcFlowConfigUpdate *protos.CDCFlowConfigUpdate,
+) error {
+	_, err := h.temporalClient.UpdateWorkflow(ctx, workflowID, "",
+		shared.CDCFlowConfigUpdate, cdcFlowConfigUpdate)
+	if err != nil {
+		return fmt.Errorf("failed to update config in CDC workflow with ID %s: %w", workflowID, err)
 	}
 	return nil
 }

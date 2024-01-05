@@ -42,6 +42,7 @@ func NewQRepFlowState() *protos.QRepFlowState {
 		},
 		NumPartitionsProcessed: 0,
 		NeedsResync:            true,
+		CurrentFlowStatus:      protos.FlowStatus_STATUS_RUNNING,
 	}
 }
 
@@ -367,7 +368,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 }
 
 func (q *QRepFlowExecution) receiveAndHandleSignalAsync(ctx workflow.Context) {
-	signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+	signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 
 	var signalVal shared.CDCFlowSignal
 	ok := signalChan.ReceiveAsync(&signalVal)
@@ -426,7 +427,24 @@ func QRepFlowWorkflow(
 
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to set `%s` query handler: %w", shared.QRepFlowStateQuery, err)
+	}
+
+	// Support a Query for the current status of the arep flow.
+	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (*protos.FlowStatus, error) {
+		return &state.CurrentFlowStatus, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
+	}
+
+	// Support an Update for the current status of the qrep flow.
+	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
+		state.CurrentFlowStatus = *status
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register query handler: %w", err)
 	}
 
 	// get qrep run uuid via side-effect
@@ -507,7 +525,8 @@ func QRepFlowWorkflow(
 	q.receiveAndHandleSignalAsync(ctx)
 	if q.activeSignal == shared.PauseSignal {
 		startTime := time.Now()
-		signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		signalChan := workflow.GetSignalChannel(ctx, shared.FlowSignalName)
 		var signalVal shared.CDCFlowSignal
 
 		for q.activeSignal == shared.PauseSignal {
@@ -521,6 +540,7 @@ func QRepFlowWorkflow(
 	}
 	if q.activeSignal == shared.ShutdownSignal {
 		q.logger.Info("terminating workflow - ", config.FlowJobName)
+		state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATED
 		return nil
 	}
 

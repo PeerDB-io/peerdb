@@ -135,38 +135,30 @@ func EnvWaitForEqualTables(
 	table string,
 	cols string,
 ) {
-	suite.T().Helper()
-	EnvWaitForEqualTablesWithNames(env, suite, reason, table, table, cols)
-}
+	// wait for PeerFlowStatusQuery to finish setup
+	// sleep for 5 second to allow the workflow to start
+	time.Sleep(5 * time.Second)
+	for {
+		response, err := env.QueryWorkflow(
+			shared.CDCFlowStateQuery,
+			connectionGen.FlowJobName,
+		)
+		if err == nil {
+			var state peerflow.CDCFlowWorkflowState
+			err = response.Get(&state)
+			if err != nil {
+				slog.Error(err.Error())
+			}
 
-func EnvWaitForEqualTablesWithNames(
-	env *testsuite.TestWorkflowEnvironment,
-	suite e2eshared.RowSource,
-	reason string,
-	srcTable string,
-	dstTable string,
-	cols string,
-) {
-	t := suite.T()
-	t.Helper()
-
-	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
-		t.Helper()
-
-		suffix := suite.Suffix()
-		pool := suite.Pool()
-		pgRows, err := GetPgRows(pool, suffix, srcTable, cols)
-		if err != nil {
-			return false
+			if *state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
+				break
+			}
+		} else {
+			// log the error for informational purposes
+			slog.Error(err.Error())
 		}
-
-		rows, err := suite.GetRows(dstTable, cols)
-		if err != nil {
-			return false
-		}
-
-		return e2eshared.CheckEqualRecordBatches(t, pgRows, rows)
-	})
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironment,

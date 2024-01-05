@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -205,8 +206,7 @@ func (c *PostgresConnector) PullRecords(catalogPool *pgxpool.Pool, req *model.Pu
 		slotName = req.OverrideReplicationSlotName
 	}
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	publicationName := c.getDefaultPublicationName(req.FlowJobName)
 	if req.OverridePublicationName != "" {
 		publicationName = req.OverridePublicationName
 	}
@@ -826,8 +826,7 @@ func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.Setu
 		slotName = req.ExistingReplicationSlotName
 	}
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", req.FlowJobName)
+	publicationName := c.getDefaultPublicationName(req.FlowJobName)
 	if req.ExistingPublicationName != "" {
 		publicationName = req.ExistingPublicationName
 	}
@@ -859,8 +858,7 @@ func (c *PostgresConnector) PullFlowCleanup(jobName string) error {
 	// Slotname would be the job name prefixed with "peerflow_slot_"
 	slotName := fmt.Sprintf("peerflow_slot_%s", jobName)
 
-	// Publication name would be the job name prefixed with "peerflow_pub_"
-	publicationName := fmt.Sprintf("peerflow_pub_%s", jobName)
+	publicationName := c.getDefaultPublicationName(jobName)
 
 	pullFlowCleanupTx, err := c.pool.Begin(c.ctx)
 	if err != nil {
@@ -937,4 +935,24 @@ func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnecti
 		UserName:               c.config.User,
 		CurrentOpenConnections: result.Int64,
 	}, nil
+}
+
+func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublicationInput) error {
+	// don't modify custom publications
+	if req == nil || req.PublicationName != "" || len(req.AdditionalTables) == 0 {
+		return nil
+	}
+
+	additionalSrcTables := make([]string, 0, len(req.AdditionalTables))
+	for _, additionalTableMapping := range req.AdditionalTables {
+		additionalSrcTables = append(additionalSrcTables, additionalTableMapping.SourceTableIdentifier)
+	}
+	additionalSrcTablesString := strings.Join(additionalSrcTables, ",")
+
+	_, err := c.pool.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
+		c.getDefaultPublicationName(req.FlowJobName), additionalSrcTablesString))
+	if err != nil {
+		return fmt.Errorf("failed to alter publication: %w", err)
+	}
+	return nil
 }

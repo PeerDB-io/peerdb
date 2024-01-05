@@ -272,6 +272,7 @@ impl NexusBackend {
                                 flow_job_name,
                                 workflow_details,
                                 pt::peerdb_flow::FlowStatus::StatusTerminated,
+                                None,
                             )
                             .await
                             .map_err(|err| {
@@ -687,6 +688,7 @@ impl NexusBackend {
                                 flow_job_name,
                                 workflow_details,
                                 pt::peerdb_flow::FlowStatus::StatusPaused,
+                                None,
                             )
                             .await
                             .map_err(|err| {
@@ -748,6 +750,18 @@ impl NexusBackend {
                                 flow_job_name,
                                 workflow_details,
                                 pt::peerdb_flow::FlowStatus::StatusRunning,
+                                Some(pt::peerdb_flow::FlowConfigUpdate {
+                                    update: Some(pt::peerdb_flow::flow_config_update::Update::CdcFlowConfigUpdate(
+                                        pt::peerdb_flow::CdcFlowConfigUpdate {
+                                        additional_tables: vec![pt::peerdb_flow::TableMapping {
+                                            source_table_identifier: "public.oss2".to_string(),
+                                            destination_table_identifier: "public.oss2dst"
+                                                .to_string(),
+                                            partition_key: "".to_string(),
+                                            exclude: vec![],
+                                        }],
+                                    })),
+                                }),
                             )
                             .await
                             .map_err(|err| {
@@ -755,9 +769,9 @@ impl NexusBackend {
                                     format!("unable to resume flow job: {:?}", err).into(),
                                 )
                             })?;
-                        let drop_mirror_success = format!("RESUME MIRROR {}", flow_job_name);
+                        let resume_mirror_success = format!("RESUME MIRROR {}", flow_job_name);
                         Ok(vec![Response::Execution(Tag::new(
-                            &drop_mirror_success,
+                            &resume_mirror_success
                         ))])
                     } else if *if_exists {
                         let no_mirror_success = "NO SUCH MIRROR";

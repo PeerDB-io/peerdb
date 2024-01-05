@@ -12,7 +12,7 @@ const (
 	snapshotFlowTaskQueue = "snapshot-flow-task-queue"
 
 	// Signals
-	CDCFlowSignalName              = "peer-flow-signal"
+	FlowSignalName                 = "peer-flow-signal"
 	CDCDynamicPropertiesSignalName = "cdc-dynamic-properties"
 
 	// Queries
@@ -21,7 +21,8 @@ const (
 	FlowStatusQuery    = "q-flow-status"
 
 	// Updates
-	FlowStatusUpdate = "u-flow-status"
+	FlowStatusUpdate    = "u-flow-status"
+	CDCFlowConfigUpdate = "u-cdc-flow-config-update"
 )
 
 const MirrorNameSearchAttribute = "MirrorName"
