@@ -157,20 +157,26 @@ func NewClickhouseConnector(ctx context.Context,
 }
 
 func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, error) {
-	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s", //&database=%s
+	dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s", //&database=%s"
 		config.Host, config.Port, config.User, config.Password) //, config.Database
-	//dsn := "tcp://host.docker.internal:9009?username=clickhouse&password=clickhouse" //&database=desti"
 
 	fmt.Println("connecting...", dsn)
 
 	conn, err := sql.Open("clickhouse", dsn)
 	if err != nil {
-		fmt.Println("clickhouse error in connecting %+v\n", err.Error())
+		fmt.Printf("\nclickhouse error in connecting %+v\n", err.Error())
 		return nil, err
 	}
 
 	if err := conn.PingContext(ctx); err != nil {
-		fmt.Println("error in pinging %+v\n", err.Error())
+		fmt.Printf("\nerror in pinging %+v\n", err.Error())
+		return nil, err
+	}
+
+	// Execute USE database command to select a specific database
+	_, err = conn.Exec(fmt.Sprintf("USE %s", config.Database))
+	if err != nil {
+		fmt.Printf("\nerror in selecing database %+v\n", err.Error())
 		return nil, err
 	}
 

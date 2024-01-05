@@ -68,10 +68,10 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 	partitionJSON := string(pbytes)
 
 	insertMetadataStmt := fmt.Sprintf(
-		`INSERT INTO %s.%s
+		`INSERT INTO %s
 			(flowJobName, partitionID, syncPartition, syncStartTime, syncFinishTime)
 			VALUES ('%s', '%s', '%s', '%s', NOW());`,
-		"desti", qRepMetadataTableName, jobName, partition.PartitionId,
+		qRepMetadataTableName, jobName, partition.PartitionId,
 		partitionJSON, startTime.Format("2006-01-02 15:04:05.000000")) //c.metadataSchema
 
 	return insertMetadataStmt, nil
@@ -103,9 +103,9 @@ func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error
 	//nolint:gosec
 	queryString := fmt.Sprintf(`
 		SELECT COUNT(*)
-		FROM %s.%s
+		FROM %s
 		WHERE partitionID = '%s'
-	`, "desti", qRepMetadataTableName, partitionID) //c.metadataSchema
+	`, qRepMetadataTableName, partitionID) //c.metadataSchema
 
 	row := c.database.QueryRow(queryString)
 
@@ -119,7 +119,6 @@ func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error
 }
 
 func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-	// NOTE that Snowflake does not support transactional DDL
 	//createMetadataTablesTx, err := c.database.BeginTx(c.ctx, nil)
 	// if err != nil {
 	// 	return fmt.Errorf("unable to begin transaction for creating metadata tables: %w", err)
@@ -165,7 +164,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig)
 func (c *ClickhouseConnector) createQRepMetadataTable() error { //createMetadataTableTx *sql.Tx
 	// Define the schema
 	schemaStatement := `
-	CREATE TABLE IF NOT EXISTS %s.%s (
+	CREATE TABLE IF NOT EXISTS %s (
 		flowJobName String,
 		partitionID String,
 		syncPartition String,
@@ -174,8 +173,7 @@ func (c *ClickhouseConnector) createQRepMetadataTable() error { //createMetadata
 		) ENGINE = MergeTree()
 		ORDER BY partitionID;
 	`
-	queryString := fmt.Sprintf(schemaStatement, "desti", qRepMetadataTableName) //c.metadataSchema,
-
+	queryString := fmt.Sprintf(schemaStatement, qRepMetadataTableName) //c.metadataSchema,
 	//_, err := createMetadataTableTx.Exec(queryString)
 	_, err := c.database.Exec(queryString)
 	//_, err := c.database.Exec("select * from tasks;")
@@ -254,7 +252,7 @@ func (c *ClickhouseConnector) createExternalStage(stageName string, config *prot
 }
 
 func (c *ClickhouseConnector) ConsolidateQRepPartitions(config *protos.QRepConfig) error {
-	c.logger.Info("Consolidating partitions NOOP for now")
+	c.logger.Info("Consolidating partitions noop")
 
 	// destTable := config.DestinationTableIdentifier
 	// stageName := c.getStageNameForJob(config.FlowJobName)
@@ -275,6 +273,7 @@ func (c *ClickhouseConnector) ConsolidateQRepPartitions(config *protos.QRepConfi
 	return nil
 }
 
+// TODO: this is not called right now from the main flow for clickhouse, check core.go#GetQRepConsolidateConnector
 // CleanupQRepFlow function for clickhouse connector
 func (c *ClickhouseConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
 	c.logger.Info("Cleaning up flow job")
@@ -325,48 +324,39 @@ func (c *ClickhouseConnector) getColsFromTable(tableName string) (*model.ColumnI
 func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 	fmt.Printf("\n********************* qrep drop stage 1*********************\n stagingPath:%+v, job: %+v", stagingPath, job)
 	stageName := c.getStageNameForJob(job)
-	//stmt := fmt.Sprintf("DROP STAGE IF EXISTS %s", stageName)
-
-	// _, err := c.database.Exec(stmt)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
-	// }
 
 	// if s3 we need to delete the contents of the bucket
-	//if strings.HasPrefix(stagingPath, "s3://") {
-	// s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
-	// if err != nil {
-	// 	c.logger.Error("failed to create S3 bucket and prefix", slog.Any("error", err))
-	// 	return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
-	// }
-	bucket := "avro-clickhouse"
-	prefix := ""
+	if strings.HasPrefix(stagingPath, "s3://") {
+		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
+		if err != nil {
+			c.logger.Error("failed to create S3 bucket and prefix", slog.Any("error", err))
+			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
+		}
 
-	c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", bucket, prefix, job))
+		c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 
-	// deleting the contents of the bucket with prefix
-	s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
-	if err != nil {
-		c.logger.Error("failed to create S3 client", slog.Any("error", err))
-		return fmt.Errorf("failed to create S3 client: %w", err)
+		// deleting the contents of the bucket with prefix
+		s3svc, err := utils.CreateS3Client(utils.S3PeerCredentials{})
+		if err != nil {
+			c.logger.Error("failed to create S3 client", slog.Any("error", err))
+			return fmt.Errorf("failed to create S3 client: %w", err)
+		}
+
+		// Create a list of all objects with the defined prefix in the bucket
+		iter := s3manager.NewDeleteListIterator(s3svc, &s3.ListObjectsInput{
+			Bucket: aws.String(s3o.Bucket),
+			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
+		})
+
+		// Iterate through the objects in the bucket with the prefix and delete them
+		s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
+		if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
+			c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
+			return fmt.Errorf("failed to delete objects from bucket: %w", err)
+		}
+
+		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 	}
-
-	// Create a list of all objects with the defined prefix in the bucket
-	iter := s3manager.NewDeleteListIterator(s3svc, &s3.ListObjectsInput{
-		Bucket: aws.String(bucket),
-		//Prefix: aws.String(fmt.Sprintf("%s/%s", prefix, job)),
-		Prefix: aws.String(fmt.Sprintf("%s", job)),
-	})
-
-	// Iterate through the objects in the bucket with the prefix and delete them
-	s3Client := s3manager.NewBatchDeleteWithClient(s3svc)
-	if err := s3Client.Delete(aws.BackgroundContext(), iter); err != nil {
-		c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
-		return fmt.Errorf("failed to delete objects from bucket: %w", err)
-	}
-
-	c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", bucket, prefix, job))
-	//}
 
 	c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
 	return nil

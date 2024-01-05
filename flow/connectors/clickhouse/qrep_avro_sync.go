@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -37,62 +36,62 @@ func NewClickhouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickhouseAvroSyncMethod) SyncRecords(
-	dstTableSchema []*sql.ColumnType,
-	stream *model.QRecordStream,
-	flowJobName string,
-) (int, error) {
-	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
-	dstTableName := s.config.DestinationTableIdentifier
+// func (s *ClickhouseAvroSyncMethod) SyncRecords(
+// 	dstTableSchema []*sql.ColumnType,
+// 	stream *model.QRecordStream,
+// 	flowJobName string,
+// ) (int, error) {
+// 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
+// 	dstTableName := s.config.DestinationTableIdentifier
 
-	schema, err := stream.Schema()
-	if err != nil {
-		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
+// 	schema, err := stream.Schema()
+// 	if err != nil {
+// 		return -1, fmt.Errorf("failed to get schema from stream: %w", err)
+// 	}
 
-	s.connector.logger.Info("sync function called and schema acquired", tableLog)
+// 	s.connector.logger.Info("sync function called and schema acquired", tableLog)
 
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
-	if err != nil {
-		return 0, err
-	}
+// 	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+// 	if err != nil {
+// 		return 0, err
+// 	}
 
-	partitionID := shared.RandomString(16)
-	avroFile, err := s.writeToAvroFile(stream, avroSchema, partitionID, flowJobName)
-	if err != nil {
-		return 0, err
-	}
-	defer avroFile.Cleanup()
-	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
+// 	partitionID := shared.RandomString(16)
+// 	avroFile, err := s.writeToAvroFile(stream, avroSchema, partitionID, flowJobName)
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	defer avroFile.Cleanup()
+// 	s.connector.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
 
-	stage := s.connector.getStageNameForJob(s.config.FlowJobName)
-	err = s.connector.createStage(stage, s.config)
-	if err != nil {
-		return 0, err
-	}
-	s.connector.logger.Info(fmt.Sprintf("Created stage %s", stage))
+// 	stage := s.connector.getStageNameForJob(s.config.FlowJobName)
+// 	err = s.connector.createStage(stage, s.config)
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	s.connector.logger.Info(fmt.Sprintf("Created stage %s", stage))
 
-	colInfo, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
-	if err != nil {
-		return 0, err
-	}
+// 	colInfo, err := s.connector.getColsFromTable(s.config.DestinationTableIdentifier)
+// 	if err != nil {
+// 		return 0, err
+// 	}
 
-	allCols := colInfo.Columns
-	err = s.putFileToStage(avroFile, stage)
-	if err != nil {
-		return 0, err
-	}
-	s.connector.logger.Info("pushed avro file to stage", tableLog)
+// 	allCols := colInfo.Columns
+// 	err = s.putFileToStage(avroFile, stage)
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	s.connector.logger.Info("pushed avro file to stage", tableLog)
 
-	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, allCols)
-	if err != nil {
-		return 0, err
-	}
-	s.connector.logger.Info(fmt.Sprintf("copying records into %s from stage %s",
-		s.config.DestinationTableIdentifier, stage))
+// 	err = CopyStageToDestination(s.connector, s.config, s.config.DestinationTableIdentifier, stage, allCols)
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	s.connector.logger.Info(fmt.Sprintf("copying records into %s from stage %s",
+// 		s.config.DestinationTableIdentifier, stage))
 
-	return avroFile.NumRecords, nil
-}
+// 	return avroFile.NumRecords, nil
+// }
 
 func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
@@ -140,7 +139,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	query := fmt.Sprintf("INSERT INTO desti.todos SELECT * FROM s3('%s','%s','%s', 'Avro')", avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
+	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s', 'Avro')", config.DestinationTableIdentifier, avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
 
 	_, err = s.connector.database.Exec(query)
 	if err != nil {
@@ -171,68 +170,68 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	return avroFile.NumRecords, nil
 }
 
-func (s *ClickhouseAvroSyncMethod) addMissingColumns(
-	flowJobName string,
-	schema *model.QRecordSchema,
-	dstTableSchema []*sql.ColumnType,
-	dstTableName string,
-	partition *protos.QRepPartition,
-) error {
-	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
-	// check if avro schema has additional columns compared to destination table
-	// if so, we need to add those columns to the destination table
-	colsToTypes := map[string]qvalue.QValueKind{}
-	for _, col := range schema.Fields {
-		hasColumn := false
-		// check ignoring case
-		for _, dstCol := range dstTableSchema {
-			if strings.EqualFold(col.Name, dstCol.Name()) {
-				hasColumn = true
-				break
-			}
-		}
+// func (s *ClickhouseAvroSyncMethod) addMissingColumns(
+// 	flowJobName string,
+// 	schema *model.QRecordSchema,
+// 	dstTableSchema []*sql.ColumnType,
+// 	dstTableName string,
+// 	partition *protos.QRepPartition,
+// ) error {
+// 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
+// 	// check if avro schema has additional columns compared to destination table
+// 	// if so, we need to add those columns to the destination table
+// 	colsToTypes := map[string]qvalue.QValueKind{}
+// 	for _, col := range schema.Fields {
+// 		hasColumn := false
+// 		// check ignoring case
+// 		for _, dstCol := range dstTableSchema {
+// 			if strings.EqualFold(col.Name, dstCol.Name()) {
+// 				hasColumn = true
+// 				break
+// 			}
+// 		}
 
-		if !hasColumn {
-			s.connector.logger.Info(fmt.Sprintf("adding column %s to destination table %s",
-				col.Name, dstTableName), partitionLog)
-			colsToTypes[col.Name] = col.Type
-		}
-	}
+// 		if !hasColumn {
+// 			s.connector.logger.Info(fmt.Sprintf("adding column %s to destination table %s",
+// 				col.Name, dstTableName), partitionLog)
+// 			colsToTypes[col.Name] = col.Type
+// 		}
+// 	}
 
-	if len(colsToTypes) > 0 {
-		tx, err := s.connector.database.Begin()
-		if err != nil {
-			return fmt.Errorf("failed to begin transaction: %w", err)
-		}
-		for colName, colType := range colsToTypes {
-			sfColType, err := colType.ToDWHColumnType(qvalue.QDWHTypeClickhouse)
-			if err != nil {
-				return fmt.Errorf("failed to convert QValueKind to Snowflake column type: %w", err)
-			}
-			upperCasedColName := strings.ToUpper(colName)
-			alterTableCmd := fmt.Sprintf("ALTER TABLE %s ", dstTableName)
-			alterTableCmd += fmt.Sprintf("ADD COLUMN IF NOT EXISTS \"%s\" %s;", upperCasedColName, sfColType)
+// 	if len(colsToTypes) > 0 {
+// 		tx, err := s.connector.database.Begin()
+// 		if err != nil {
+// 			return fmt.Errorf("failed to begin transaction: %w", err)
+// 		}
+// 		for colName, colType := range colsToTypes {
+// 			sfColType, err := colType.ToDWHColumnType(qvalue.QDWHTypeClickhouse)
+// 			if err != nil {
+// 				return fmt.Errorf("failed to convert QValueKind to Snowflake column type: %w", err)
+// 			}
+// 			upperCasedColName := strings.ToUpper(colName)
+// 			alterTableCmd := fmt.Sprintf("ALTER TABLE %s ", dstTableName)
+// 			alterTableCmd += fmt.Sprintf("ADD COLUMN IF NOT EXISTS \"%s\" %s;", upperCasedColName, sfColType)
 
-			s.connector.logger.Info(fmt.Sprintf("altering destination table %s with command `%s`",
-				dstTableName, alterTableCmd), partitionLog)
+// 			s.connector.logger.Info(fmt.Sprintf("altering destination table %s with command `%s`",
+// 				dstTableName, alterTableCmd), partitionLog)
 
-			if _, err := tx.Exec(alterTableCmd); err != nil {
-				return fmt.Errorf("failed to alter destination table: %w", err)
-			}
-		}
+// 			if _, err := tx.Exec(alterTableCmd); err != nil {
+// 				return fmt.Errorf("failed to alter destination table: %w", err)
+// 			}
+// 		}
 
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit transaction: %w", err)
-		}
+// 		if err := tx.Commit(); err != nil {
+// 			return fmt.Errorf("failed to commit transaction: %w", err)
+// 		}
 
-		s.connector.logger.Info("successfully added missing columns to destination table "+
-			dstTableName, partitionLog)
-	} else {
-		s.connector.logger.Info("no missing columns found in destination table "+dstTableName, partitionLog)
-	}
+// 		s.connector.logger.Info("successfully added missing columns to destination table "+
+// 			dstTableName, partitionLog)
+// 	} else {
+// 		s.connector.logger.Info("no missing columns found in destination table "+dstTableName, partitionLog)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (s *ClickhouseAvroSyncMethod) getAvroSchema(
 	dstTableName string,
@@ -325,84 +324,84 @@ func (s *ClickhouseAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage
 	return nil
 }
 
-func (c *ClickhouseConnector) GetCopyTransformation(
-	dstTableName string,
-) (*CopyInfo, error) {
-	colInfo, colsErr := c.getColsFromTable(dstTableName)
-	if colsErr != nil {
-		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
-	}
+// func (c *ClickhouseConnector) GetCopyTransformation(
+// 	dstTableName string,
+// ) (*CopyInfo, error) {
+// 	colInfo, colsErr := c.getColsFromTable(dstTableName)
+// 	if colsErr != nil {
+// 		return nil, fmt.Errorf("failed to get columns from  destination table: %w", colsErr)
+// 	}
 
-	transformations := make([]string, 0, len(colInfo.ColumnMap))
-	columnOrder := make([]string, 0, len(colInfo.ColumnMap))
-	for colName, colType := range colInfo.ColumnMap {
-		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
-		switch colType {
-		case "GEOGRAPHY":
-			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
-		case "GEOMETRY":
-			transformations = append(transformations,
-				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
-		case "NUMBER":
-			transformations = append(transformations,
-				fmt.Sprintf("$1:\"%s\" AS \"%s\"", strings.ToLower(colName), colName))
-		default:
-			transformations = append(transformations,
-				fmt.Sprintf("($1:\"%s\")::%s AS \"%s\"", strings.ToLower(colName), colType, colName))
-		}
-	}
-	transformationSQL := strings.Join(transformations, ",")
-	columnsSQL := strings.Join(columnOrder, ",")
-	return &CopyInfo{transformationSQL, columnsSQL}, nil
-}
+// 	transformations := make([]string, 0, len(colInfo.ColumnMap))
+// 	columnOrder := make([]string, 0, len(colInfo.ColumnMap))
+// 	for colName, colType := range colInfo.ColumnMap {
+// 		columnOrder = append(columnOrder, fmt.Sprintf("\"%s\"", colName))
+// 		switch colType {
+// 		case "GEOGRAPHY":
+// 			transformations = append(transformations,
+// 				fmt.Sprintf("TO_GEOGRAPHY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
+// 		case "GEOMETRY":
+// 			transformations = append(transformations,
+// 				fmt.Sprintf("TO_GEOMETRY($1:\"%s\"::string, true) AS \"%s\"", strings.ToLower(colName), colName))
+// 		case "NUMBER":
+// 			transformations = append(transformations,
+// 				fmt.Sprintf("$1:\"%s\" AS \"%s\"", strings.ToLower(colName), colName))
+// 		default:
+// 			transformations = append(transformations,
+// 				fmt.Sprintf("($1:\"%s\")::%s AS \"%s\"", strings.ToLower(colName), colType, colName))
+// 		}
+// 	}
+// 	transformationSQL := strings.Join(transformations, ",")
+// 	columnsSQL := strings.Join(columnOrder, ",")
+// 	return &CopyInfo{transformationSQL, columnsSQL}, nil
+// }
 
-func CopyStageToDestination(
-	connector *ClickhouseConnector,
-	config *protos.QRepConfig,
-	dstTableName string,
-	stage string,
-	allCols []string,
-) error {
-	connector.logger.Info("Copying stage to destination " + dstTableName)
-	copyOpts := []string{
-		"FILE_FORMAT = (TYPE = AVRO)",
-		"PURGE = TRUE",
-		"ON_ERROR = 'CONTINUE'",
-	}
+// func CopyStageToDestination(
+// 	connector *ClickhouseConnector,
+// 	config *protos.QRepConfig,
+// 	dstTableName string,
+// 	stage string,
+// 	allCols []string,
+// ) error {
+// 	connector.logger.Info("Copying stage to destination " + dstTableName)
+// 	copyOpts := []string{
+// 		"FILE_FORMAT = (TYPE = AVRO)",
+// 		"PURGE = TRUE",
+// 		"ON_ERROR = 'CONTINUE'",
+// 	}
 
-	writeHandler := NewClickhouseAvroWriteHandler(connector, dstTableName, stage, copyOpts)
+// 	writeHandler := NewClickhouseAvroWriteHandler(connector, dstTableName, stage, copyOpts)
 
-	appendMode := true
-	if config.WriteMode != nil {
-		writeType := config.WriteMode.WriteType
-		if writeType == protos.QRepWriteType_QREP_WRITE_MODE_UPSERT {
-			appendMode = false
-		}
-	}
+// 	appendMode := true
+// 	if config.WriteMode != nil {
+// 		writeType := config.WriteMode.WriteType
+// 		if writeType == protos.QRepWriteType_QREP_WRITE_MODE_UPSERT {
+// 			appendMode = false
+// 		}
+// 	}
 
-	copyTransformation, err := connector.GetCopyTransformation(dstTableName)
-	if err != nil {
-		return fmt.Errorf("failed to get copy transformation: %w", err)
-	}
-	switch appendMode {
-	case true:
-		err := writeHandler.HandleAppendMode(copyTransformation)
-		if err != nil {
-			return fmt.Errorf("failed to handle append mode: %w", err)
-		}
+// 	copyTransformation, err := connector.GetCopyTransformation(dstTableName)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to get copy transformation: %w", err)
+// 	}
+// 	switch appendMode {
+// 	case true:
+// 		err := writeHandler.HandleAppendMode(copyTransformation)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to handle append mode: %w", err)
+// 		}
 
-	case false:
-		upsertKeyCols := config.WriteMode.UpsertKeyColumns
-		err := writeHandler.HandleUpsertMode(allCols, upsertKeyCols, config.WatermarkColumn,
-			config.FlowJobName, copyTransformation)
-		if err != nil {
-			return fmt.Errorf("failed to handle upsert mode: %w", err)
-		}
-	}
+// 	case false:
+// 		upsertKeyCols := config.WriteMode.UpsertKeyColumns
+// 		err := writeHandler.HandleUpsertMode(allCols, upsertKeyCols, config.WatermarkColumn,
+// 			config.FlowJobName, copyTransformation)
+// 		if err != nil {
+// 			return fmt.Errorf("failed to handle upsert mode: %w", err)
+// 		}
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (s *ClickhouseAvroSyncMethod) insertMetadata(
 	partition *protos.QRepPartition,
@@ -450,134 +449,134 @@ func NewClickhouseAvroWriteHandler(
 	}
 }
 
-func (s *ClickhouseAvroWriteHandler) HandleAppendMode(
-	copyInfo *CopyInfo,
-) error {
-	//nolint:gosec
-	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
-		s.dstTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
-	s.connector.logger.Info("running copy command: " + copyCmd)
-	_, err := s.connector.database.Exec(copyCmd)
-	if err != nil {
-		return fmt.Errorf("failed to run COPY INTO command: %w", err)
-	}
+// func (s *ClickhouseAvroWriteHandler) HandleAppendMode(
+// 	copyInfo *CopyInfo,
+// ) error {
+// 	//nolint:gosec
+// 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
+// 		s.dstTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
+// 	s.connector.logger.Info("running copy command: " + copyCmd)
+// 	_, err := s.connector.database.Exec(copyCmd)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
+// 	}
 
-	s.connector.logger.Info("copied file from stage " + s.stage + " to table " + s.dstTableName)
-	return nil
-}
+// 	s.connector.logger.Info("copied file from stage " + s.stage + " to table " + s.dstTableName)
+// 	return nil
+// }
 
-func GenerateMergeCommand(
-	allCols []string,
-	upsertKeyCols []string,
-	watermarkCol string,
-	tempTableName string,
-	dstTable string,
-) (string, error) {
-	// all cols are acquired from snowflake schema, so let us try to make upsert key cols match the case
-	// and also the watermark col, then the quoting should be fine
-	caseMatchedCols := map[string]string{}
-	for _, col := range allCols {
-		caseMatchedCols[strings.ToLower(col)] = col
-	}
+// func GenerateMergeCommand(
+// 	allCols []string,
+// 	upsertKeyCols []string,
+// 	watermarkCol string,
+// 	tempTableName string,
+// 	dstTable string,
+// ) (string, error) {
+// 	// all cols are acquired from snowflake schema, so let us try to make upsert key cols match the case
+// 	// and also the watermark col, then the quoting should be fine
+// 	caseMatchedCols := map[string]string{}
+// 	for _, col := range allCols {
+// 		caseMatchedCols[strings.ToLower(col)] = col
+// 	}
 
-	for i, col := range upsertKeyCols {
-		upsertKeyCols[i] = caseMatchedCols[strings.ToLower(col)]
-	}
+// 	for i, col := range upsertKeyCols {
+// 		upsertKeyCols[i] = caseMatchedCols[strings.ToLower(col)]
+// 	}
 
-	upsertKeys := []string{}
-	partitionKeyCols := []string{}
-	for _, key := range upsertKeyCols {
-		quotedKey := utils.QuoteIdentifier(key)
-		upsertKeys = append(upsertKeys, fmt.Sprintf("dst.%s = src.%s", quotedKey, quotedKey))
-		partitionKeyCols = append(partitionKeyCols, quotedKey)
-	}
-	upsertKeyClause := strings.Join(upsertKeys, " AND ")
+// 	upsertKeys := []string{}
+// 	partitionKeyCols := []string{}
+// 	for _, key := range upsertKeyCols {
+// 		quotedKey := utils.QuoteIdentifier(key)
+// 		upsertKeys = append(upsertKeys, fmt.Sprintf("dst.%s = src.%s", quotedKey, quotedKey))
+// 		partitionKeyCols = append(partitionKeyCols, quotedKey)
+// 	}
+// 	upsertKeyClause := strings.Join(upsertKeys, " AND ")
 
-	updateSetClauses := []string{}
-	insertColumnsClauses := []string{}
-	insertValuesClauses := []string{}
-	for _, column := range allCols {
-		quotedColumn := utils.QuoteIdentifier(column)
-		updateSetClauses = append(updateSetClauses, fmt.Sprintf("%s = src.%s", quotedColumn, quotedColumn))
-		insertColumnsClauses = append(insertColumnsClauses, quotedColumn)
-		insertValuesClauses = append(insertValuesClauses, fmt.Sprintf("src.%s", quotedColumn))
-	}
-	updateSetClause := strings.Join(updateSetClauses, ", ")
-	insertColumnsClause := strings.Join(insertColumnsClauses, ", ")
-	insertValuesClause := strings.Join(insertValuesClauses, ", ")
-	selectCmd := fmt.Sprintf(`
-		SELECT *
-		FROM %s
-		QUALIFY ROW_NUMBER() OVER (PARTITION BY %s ORDER BY %s DESC) = 1
-	`, tempTableName, strings.Join(partitionKeyCols, ","), partitionKeyCols[0])
+// 	updateSetClauses := []string{}
+// 	insertColumnsClauses := []string{}
+// 	insertValuesClauses := []string{}
+// 	for _, column := range allCols {
+// 		quotedColumn := utils.QuoteIdentifier(column)
+// 		updateSetClauses = append(updateSetClauses, fmt.Sprintf("%s = src.%s", quotedColumn, quotedColumn))
+// 		insertColumnsClauses = append(insertColumnsClauses, quotedColumn)
+// 		insertValuesClauses = append(insertValuesClauses, fmt.Sprintf("src.%s", quotedColumn))
+// 	}
+// 	updateSetClause := strings.Join(updateSetClauses, ", ")
+// 	insertColumnsClause := strings.Join(insertColumnsClauses, ", ")
+// 	insertValuesClause := strings.Join(insertValuesClauses, ", ")
+// 	selectCmd := fmt.Sprintf(`
+// 		SELECT *
+// 		FROM %s
+// 		QUALIFY ROW_NUMBER() OVER (PARTITION BY %s ORDER BY %s DESC) = 1
+// 	`, tempTableName, strings.Join(partitionKeyCols, ","), partitionKeyCols[0])
 
-	mergeCmd := fmt.Sprintf(`
-			MERGE INTO %s dst
-			USING (%s) src
-			ON %s
-			WHEN MATCHED THEN UPDATE SET %s
-			WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
-		`, dstTable, selectCmd, upsertKeyClause,
-		updateSetClause, insertColumnsClause, insertValuesClause)
+// 	mergeCmd := fmt.Sprintf(`
+// 			MERGE INTO %s dst
+// 			USING (%s) src
+// 			ON %s
+// 			WHEN MATCHED THEN UPDATE SET %s
+// 			WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)
+// 		`, dstTable, selectCmd, upsertKeyClause,
+// 		updateSetClause, insertColumnsClause, insertValuesClause)
 
-	return mergeCmd, nil
-}
+// 	return mergeCmd, nil
+// }
 
 // HandleUpsertMode handles the upsert mode
-func (s *ClickhouseAvroWriteHandler) HandleUpsertMode(
-	allCols []string,
-	upsertKeyCols []string,
-	watermarkCol string,
-	flowJobName string,
-	copyInfo *CopyInfo,
-) error {
-	runID, err := shared.RandomUInt64()
-	if err != nil {
-		return fmt.Errorf("failed to generate run ID: %w", err)
-	}
+// func (s *ClickhouseAvroWriteHandler) HandleUpsertMode(
+// 	allCols []string,
+// 	upsertKeyCols []string,
+// 	watermarkCol string,
+// 	flowJobName string,
+// 	copyInfo *CopyInfo,
+// ) error {
+// 	runID, err := shared.RandomUInt64()
+// 	if err != nil {
+// 		return fmt.Errorf("failed to generate run ID: %w", err)
+// 	}
 
-	tempTableName := fmt.Sprintf("%s_temp_%d", s.dstTableName, runID)
+// 	tempTableName := fmt.Sprintf("%s_temp_%d", s.dstTableName, runID)
 
-	//nolint:gosec
-	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
-		tempTableName, s.dstTableName)
-	if _, err := s.connector.database.Exec(createTempTableCmd); err != nil {
-		return fmt.Errorf("failed to create temp table: %w", err)
-	}
-	s.connector.logger.Info("created temp table " + tempTableName)
+// 	//nolint:gosec
+// 	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
+// 		tempTableName, s.dstTableName)
+// 	if _, err := s.connector.database.Exec(createTempTableCmd); err != nil {
+// 		return fmt.Errorf("failed to create temp table: %w", err)
+// 	}
+// 	s.connector.logger.Info("created temp table " + tempTableName)
 
-	//nolint:gosec
-	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
-		tempTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
-	_, err = s.connector.database.Exec(copyCmd)
-	if err != nil {
-		return fmt.Errorf("failed to run COPY INTO command: %w", err)
-	}
-	s.connector.logger.Info("copied file from stage " + s.stage + " to temp table " + tempTableName)
+// 	//nolint:gosec
+// 	copyCmd := fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) %s",
+// 		tempTableName, copyInfo.columnsSQL, copyInfo.transformationSQL, s.stage, strings.Join(s.copyOpts, ","))
+// 	_, err = s.connector.database.Exec(copyCmd)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
+// 	}
+// 	s.connector.logger.Info("copied file from stage " + s.stage + " to temp table " + tempTableName)
 
-	mergeCmd, err := GenerateMergeCommand(allCols, upsertKeyCols, watermarkCol, tempTableName, s.dstTableName)
-	if err != nil {
-		return fmt.Errorf("failed to generate merge command: %w", err)
-	}
+// 	mergeCmd, err := GenerateMergeCommand(allCols, upsertKeyCols, watermarkCol, tempTableName, s.dstTableName)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to generate merge command: %w", err)
+// 	}
 
-	startTime := time.Now()
-	rows, err := s.connector.database.Exec(mergeCmd)
-	if err != nil {
-		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
-	}
-	rowCount, err := rows.RowsAffected()
-	if err == nil {
-		totalRowsAtTarget, err := s.connector.getTableCounts([]string{s.dstTableName})
-		if err != nil {
-			return err
-		}
-		s.connector.logger.Info(fmt.Sprintf("merged %d rows into destination table %s, total rows at target: %d",
-			rowCount, s.dstTableName, totalRowsAtTarget))
-	} else {
-		s.connector.logger.Error("failed to get rows affected", slog.Any("error", err))
-	}
+// 	startTime := time.Now()
+// 	rows, err := s.connector.database.Exec(mergeCmd)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
+// 	}
+// 	rowCount, err := rows.RowsAffected()
+// 	if err == nil {
+// 		totalRowsAtTarget, err := s.connector.getTableCounts([]string{s.dstTableName})
+// 		if err != nil {
+// 			return err
+// 		}
+// 		s.connector.logger.Info(fmt.Sprintf("merged %d rows into destination table %s, total rows at target: %d",
+// 			rowCount, s.dstTableName, totalRowsAtTarget))
+// 	} else {
+// 		s.connector.logger.Error("failed to get rows affected", slog.Any("error", err))
+// 	}
 
-	s.connector.logger.Info(fmt.Sprintf("merged data from temp table %s into destination table %s, time taken %v",
-		tempTableName, s.dstTableName, time.Since(startTime)))
-	return nil
-}
+// 	s.connector.logger.Info(fmt.Sprintf("merged data from temp table %s into destination table %s, time taken %v",
+// 		tempTableName, s.dstTableName, time.Since(startTime)))
+// 	return nil
+// }
