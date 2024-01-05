@@ -45,7 +45,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		switch qvalue.QValueKind(colType) {
 		case qvalue.QValueKindJSON:
 			// if the type is JSON, then just extract JSON
-			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
+			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
 				colName, bqType, colName)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
