@@ -852,7 +852,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 1,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
