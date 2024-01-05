@@ -1181,7 +1181,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 
 	tableName := "test_exclude_sf"
 	srcTableName := s.attachSchemaSuffix(tableName)
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_exclude_sf")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tableName)
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -1234,13 +1234,13 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
-		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize table", tableName, dstTableName, "id,t,t2")
+		e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,t,t2")
 		_, err = s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
 		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize update/delete", tableName, dstTableName, "id,t,t2")
+		e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,t,t2")
 
 		env.CancelWorkflow()
 	}()
@@ -1262,8 +1262,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	tableName := "test_softdel_src"
+	dstName := "test_softdel"
 	srcTableName := s.attachSchemaSuffix(tableName)
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, dstName)
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -1308,11 +1309,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize row", tableName, dstTableName, "id,c1,c2,t")
+		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize row", tableName, dstName, "id,c1,c2,t")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize update", tableName, dstTableName, "id,c1,c2,t")
+		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize update", tableName, dstName, "id,c1,c2,t")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
@@ -1321,7 +1322,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 			s,
 			"normalize delete",
 			tableName,
-			dstTableName+" WHERE NOT _PEERDB_IS_DELETED",
+			dstName+" WHERE NOT _PEERDB_IS_DELETED",
 			"id,c1,c2,t",
 		)
 
@@ -1425,8 +1426,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	e2e.RegisterWorkflowsAndActivities(s.t, env)
 
 	tableName := "test_softdel_ud_src"
+	dstName := "test_softdel_ud"
 	srcTableName := s.attachSchemaSuffix(tableName)
-	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_softdel_ud")
+	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, dstName)
 
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -1471,7 +1473,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize insert", tableName, dstTableName, "id,c1,c2,t")
+		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize insert", tableName, dstName, "id,c1,c2,t")
 
 		insertTx, err := s.pool.Begin(context.Background())
 		e2e.EnvNoError(s.t, env, err)
@@ -1491,7 +1493,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 			s,
 			"normalize transaction",
 			tableName,
-			dstTableName+" WHERE NOT _PEERDB_IS_DELETED",
+			dstName+" WHERE NOT _PEERDB_IS_DELETED",
 			"id,c1,c2,t",
 		)
 
