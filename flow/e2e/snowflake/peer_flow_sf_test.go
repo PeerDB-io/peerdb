@@ -911,16 +911,14 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			ColumnNames: []string{
 				"ID",
 				"C1",
-				"C2",
-				"_PEERDB_IS_DELETED",
 				"_PEERDB_SYNCED_AT",
+				"C2",
 			},
 			ColumnTypes: []string{
 				string(qvalue.QValueKindNumeric),
 				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindBoolean),
 				string(qvalue.QValueKindTimestamp),
+				string(qvalue.QValueKindNumeric),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -947,18 +945,16 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			ColumnNames: []string{
 				"ID",
 				"C1",
+				"_PEERDB_SYNCED_AT",
 				"C2",
 				"C3",
-				"_PEERDB_IS_DELETED",
-				"_PEERDB_SYNCED_AT",
 			},
 			ColumnTypes: []string{
 				string(qvalue.QValueKindNumeric),
 				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindBoolean),
 				string(qvalue.QValueKindTimestamp),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
@@ -985,18 +981,16 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 			ColumnNames: []string{
 				"ID",
 				"C1",
+				"_PEERDB_SYNCED_AT",
 				"C2",
 				"C3",
-				"_PEERDB_IS_DELETED",
-				"_PEERDB_SYNCED_AT",
 			},
 			ColumnTypes: []string{
 				string(qvalue.QValueKindNumeric),
 				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindNumeric),
-				string(qvalue.QValueKindBoolean),
 				string(qvalue.QValueKindTimestamp),
+				string(qvalue.QValueKindNumeric),
+				string(qvalue.QValueKindNumeric),
 			},
 		}
 		output, err = s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
