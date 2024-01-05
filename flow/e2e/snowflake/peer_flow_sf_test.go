@@ -143,7 +143,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_simple_flow"),
+		FlowJobName:      srcTableName,
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
@@ -171,7 +171,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 			e2e.EnvNoError(s.t, env, err)
 		}
 		s.t.Log("Inserted 20 rows into the source table")
-		e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1")
+		e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,key,value")
 
 		env.CancelWorkflow()
 	}()
@@ -208,7 +208,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_simple_flow"),
+		FlowJobName:      srcTableName,
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
@@ -269,7 +269,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_invalid_geo_sf_avro_cdc"),
+		FlowJobName:      srcTableName,
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,

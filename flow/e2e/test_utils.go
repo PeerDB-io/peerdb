@@ -143,6 +143,8 @@ func EnvWaitForEqualTables(
 	table string,
 	cols string,
 ) {
+	suite.T().Helper()
+
 	EnvWaitForEqualTablesWithNames(env, suite, reason, table, table, cols)
 }
 
@@ -155,6 +157,8 @@ func EnvWaitForEqualTablesWithNames(
 	cols string,
 ) {
 	t := suite.T()
+	t.Helper()
+
 	EnvWaitFor(t, env, time.Minute, reason, func(ctx context.Context) bool {
 		suffix := suite.Suffix()
 		pool := suite.Pool()

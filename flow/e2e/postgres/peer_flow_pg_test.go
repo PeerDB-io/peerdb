@@ -750,7 +750,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 	}
 
 	limits := peerflow.CDCFlowLimits{
-		ExitAfterRecords: 4,
+		ExitAfterRecords: -1,
 		MaxBatchSize:     100,
 	}
 
@@ -777,7 +777,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 		_, err = insertTx.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-
 		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
 		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize transaction", func(ctx context.Context) bool {
