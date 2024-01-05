@@ -234,7 +234,9 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	}
 
 	logger.Info("cloning tables in parallel: ", numTablesInParallel)
-	s.cloneTables(ctx, slotInfo, numTablesInParallel)
+	if err := s.cloneTables(ctx, slotInfo, numTablesInParallel); err != nil {
+		return fmt.Errorf("failed to clone tables: %w", err)
+	}
 
 	if err := s.closeSlotKeepAlive(sessionCtx); err != nil {
 		return fmt.Errorf("failed to close slot keep alive: %w", err)
@@ -276,7 +278,9 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 			SlotName:     "peerdb_initial_copy_only",
 			SnapshotName: "", // empty snapshot name indicates that we should not use a snapshot
 		}
-		se.cloneTables(ctx, slotInfo, int(config.SnapshotNumTablesInParallel))
+		if err := se.cloneTables(ctx, slotInfo, int(config.SnapshotNumTablesInParallel)); err != nil {
+			return fmt.Errorf("failed to clone tables: %w", err)
+		}
 		return nil
 	}
 

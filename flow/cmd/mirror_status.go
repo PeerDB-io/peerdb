@@ -280,7 +280,8 @@ func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID s
 }
 
 func (h *FlowRequestHandler) updateWorkflowStatus(ctx context.Context,
-	workflowID string, state *protos.FlowStatus) error {
+	workflowID string, state *protos.FlowStatus,
+) error {
 	_, err := h.temporalClient.UpdateWorkflow(ctx, workflowID, "", shared.FlowStatusUpdate, state)
 	if err != nil {
 		return fmt.Errorf("failed to update state in workflow with ID %s: %w", workflowID, err)
