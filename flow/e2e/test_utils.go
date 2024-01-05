@@ -143,16 +143,27 @@ func EnvWaitForEqualTables(
 	table string,
 	cols string,
 ) {
+	EnvWaitForEqualTablesWithNames(env, suite, reason, table, table, cols)
+}
+
+func EnvWaitForEqualTablesWithNames(
+	env *testsuite.TestWorkflowEnvironment,
+	suite e2eshared.RowSource,
+	reason string,
+	srcTable string,
+	dstTable string,
+	cols string,
+) {
 	t := suite.T()
 	EnvWaitFor(t, env, time.Minute, reason, func(ctx context.Context) bool {
 		suffix := suite.Suffix()
 		pool := suite.Pool()
-		pgRows, err := GetPgRows(pool, suffix, table, cols)
+		pgRows, err := GetPgRows(pool, suffix, srcTable, cols)
 		if err != nil {
 			return false
 		}
 
-		rows, err := suite.GetRows(table, cols)
+		rows, err := suite.GetRows(dstTable, cols)
 		if err != nil {
 			return false
 		}
