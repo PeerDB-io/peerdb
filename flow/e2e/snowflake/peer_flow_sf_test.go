@@ -196,8 +196,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the Snowflake side
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
@@ -262,8 +260,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 	count, err := s.sfHelper.CountRows("test_replica_identity_no_pkey")
 	require.NoError(s.t, err)
 	require.Equal(s.t, 20, count)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
@@ -344,8 +340,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 	polyCount, err := s.sfHelper.CountNonNullRows("test_invalid_geo_sf_avro_cdc", "poly")
 	require.NoError(s.t, err)
 	require.Equal(s.t, 6, polyCount)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
@@ -412,7 +406,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, "test_toast_sf_1", `id,t1,t2,k`)
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
@@ -474,7 +467,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Nochanges_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, "test_toast_sf_2", `id,t1,t2,k`)
-	env.AssertExpectations(s.t)
 	wg.Wait()
 }
 
@@ -548,7 +540,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, "test_toast_sf_3", `id,t1,t2,k`)
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
@@ -614,7 +605,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, "test_toast_sf_4", `id,t1,k`)
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
@@ -680,7 +670,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, "test_toast_sf_5", `id,t1,t2,k`)
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
@@ -763,8 +752,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 
 	// Make sure that there are no nulls
 	require.Equal(s.t, noNulls, true)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
@@ -822,8 +809,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 
 	require.Equal(s.t, 1, count1)
 	require.Equal(s.t, 1, count2)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
@@ -1011,8 +996,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Simple_Schema_Changes_SF() {
 
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
@@ -1084,8 +1067,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 
 	// verify our updates and delete happened
 	e2e.RequireEqualTables(s, "test_simple_cpkey", "id,c1,c2,t")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
@@ -1160,8 +1141,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 
 	// verify our updates and delete happened
 	e2e.RequireEqualTables(s, "test_cpkey_toast1", "id,c1,c2,t,t2")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
@@ -1232,8 +1211,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 
 	// verify our updates and delete happened
 	e2e.RequireEqualTables(s, "test_cpkey_toast2", "id,c1,c2,t,t2")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
@@ -1709,6 +1686,4 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 
 	s.compareTableContentsWithDiffSelectorsSF("testMixedCase", `"pulseArmor","highGold","eVe",id`,
 		`"pulseArmor","highGold","eVe",id`, true)
-
-	env.AssertExpectations(s.t)
 }

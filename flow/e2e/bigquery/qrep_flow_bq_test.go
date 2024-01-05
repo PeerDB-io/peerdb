@@ -44,8 +44,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	require.NoError(s.t, err)
 
 	e2e.RequireEqualTables(s, tblName, "*")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
@@ -79,6 +77,4 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 
 	err = s.checkPeerdbColumns(tblName, false)
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }

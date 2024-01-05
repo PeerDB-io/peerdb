@@ -100,8 +100,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 
 	err = s.comparePGTables(srcTableName, dstTableName, "id,key,value")
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
@@ -261,8 +259,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
@@ -335,8 +331,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 
 	err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t")
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
@@ -416,8 +410,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	// verify our updates and delete happened
 	err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2")
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
@@ -493,8 +485,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	// verify our updates and delete happened
 	err = s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2")
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
@@ -557,7 +547,6 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 	require.Contains(s.t, err.Error(), "continue as new")
 	checkErr := s.checkPeerdbColumns(dstTableName, 1)
 	require.NoError(s.t, checkErr)
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {

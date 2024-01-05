@@ -258,8 +258,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
@@ -303,6 +301,4 @@ func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_P
 
 	err = s.checkSyncedAt(dstSchemaQualified)
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }

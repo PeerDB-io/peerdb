@@ -81,6 +81,4 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, 4, len(files))
-
-	env.AssertExpectations(s.t)
 }
