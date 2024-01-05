@@ -44,6 +44,7 @@ func (s PeerFlowE2ETestSuiteSF) Suffix() string {
 }
 
 func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*model.QRecordBatch, error) {
+	s.t.Helper()
 	qualifiedTableName := fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
 	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
 	s.t.Logf("running query on snowflake: %s", sfSelQuery)
@@ -1562,7 +1563,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize row", tableName, dstTableName, "id,c1,c2,t")
+		e2e.EnvWaitForEqualTables(env, s, "normalize row", tableName, "id,c1,c2,t")
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)

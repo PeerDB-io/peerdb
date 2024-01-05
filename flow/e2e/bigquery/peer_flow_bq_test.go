@@ -42,6 +42,7 @@ func (s PeerFlowE2ETestSuiteBQ) Suffix() string {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) GetRows(tableName string, colsString string) (*model.QRecordBatch, error) {
+	s.t.Helper()
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
 	s.t.Logf("running query on bigquery: %s", bqSelQuery)
