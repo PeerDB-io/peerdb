@@ -110,19 +110,10 @@ func (h *FlowRequestHandler) QRepFlowStatus(
 	ctx context.Context,
 	req *protos.MirrorStatusRequest,
 ) (*protos.QRepMirrorStatus, error) {
-	parts, err := h.getPartitionUUIDs(ctx, req.FlowJobName)
+	partitionStatuses, err := h.getPartitionStatuses(ctx, req.FlowJobName)
 	if err != nil {
+		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", req.FlowJobName, err.Error()))
 		return nil, err
-	}
-
-	partitionStatuses := []*protos.PartitionStatus{}
-	for _, part := range parts {
-		partitionStatus, err := h.getPartitionStatus(ctx, part)
-		if err != nil {
-			return nil, err
-		}
-
-		partitionStatuses = append(partitionStatuses, partitionStatus)
 	}
 
 	return &protos.QRepMirrorStatus{
@@ -133,61 +124,48 @@ func (h *FlowRequestHandler) QRepFlowStatus(
 	}, nil
 }
 
-// getPartitionStatus returns the status of a partition uuid.
-func (h *FlowRequestHandler) getPartitionStatus(
+func (h *FlowRequestHandler) getPartitionStatuses(
 	ctx context.Context,
-	partitionUUID string,
-) (*protos.PartitionStatus, error) {
-	partitionStatus := &protos.PartitionStatus{
-		PartitionId: partitionUUID,
+	flowJobName string,
+) ([]*protos.PartitionStatus, error) {
+	q := "SELECT start_time, end_time, rows_in_partition FROM peerdb_stats.qrep_partitions WHERE flow_name = $1"
+	rows, err := h.pool.Query(ctx, q, flowJobName)
+	if err != nil {
+		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", flowJobName, err.Error()))
+		return nil, fmt.Errorf("unable to query qrep partition - %s: %w", flowJobName, err)
 	}
 
+	defer rows.Close()
+
+	res := []*protos.PartitionStatus{}
 	var startTime pgtype.Timestamp
 	var endTime pgtype.Timestamp
 	var numRows pgtype.Int4
 
-	q := "SELECT start_time, end_time, rows_in_partition FROM peerdb_stats.qrep_partitions WHERE partition_uuid = $1"
-	err := h.pool.QueryRow(ctx, q, partitionUUID).Scan(&startTime, &endTime, &numRows)
-	if err != nil {
-		return nil, fmt.Errorf("unable to query qrep partition - %s: %w", partitionUUID, err)
-	}
-
-	if startTime.Valid {
-		partitionStatus.StartTime = timestamppb.New(startTime.Time)
-	}
-
-	if endTime.Valid {
-		partitionStatus.EndTime = timestamppb.New(endTime.Time)
-	}
-
-	if numRows.Valid {
-		partitionStatus.NumRows = numRows.Int32
-	}
-
-	return partitionStatus, nil
-}
-
-func (h *FlowRequestHandler) getPartitionUUIDs(
-	ctx context.Context,
-	flowJobName string,
-) ([]string, error) {
-	rows, err := h.pool.Query(ctx,
-		"SELECT partition_uuid FROM peerdb_stats.qrep_partitions WHERE flow_name = $1", flowJobName)
-	if err != nil {
-		return nil, fmt.Errorf("unable to query qrep partitions: %w", err)
-	}
-	defer rows.Close()
-
-	partitionUUIDs := []string{}
 	for rows.Next() {
-		var partitionUUID pgtype.Text
-		if err := rows.Scan(&partitionUUID); err != nil {
-			return nil, fmt.Errorf("unable to scan partition row: %w", err)
+		if err := rows.Scan(&startTime, &endTime, &numRows); err != nil {
+			slog.Error(fmt.Sprintf("unable to scan qrep partition - %s: %s", flowJobName, err.Error()))
+			return nil, fmt.Errorf("unable to scan qrep partition - %s: %w", flowJobName, err)
 		}
-		partitionUUIDs = append(partitionUUIDs, partitionUUID.String)
+
+		partitionStatus := &protos.PartitionStatus{}
+
+		if startTime.Valid {
+			partitionStatus.StartTime = timestamppb.New(startTime.Time)
+		}
+
+		if endTime.Valid {
+			partitionStatus.EndTime = timestamppb.New(endTime.Time)
+		}
+
+		if numRows.Valid {
+			partitionStatus.NumRows = numRows.Int32
+		}
+
+		res = append(res, partitionStatus)
 	}
 
-	return partitionUUIDs, nil
+	return res, nil
 }
 
 func (h *FlowRequestHandler) getFlowConfigFromCatalog(
