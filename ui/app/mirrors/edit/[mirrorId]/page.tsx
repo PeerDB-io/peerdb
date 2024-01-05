@@ -56,7 +56,6 @@ export default async function EditMirror({
   });
 
   if (mirrorStatus.errorMessage) {
-    console.log(mirrorStatus.errorMessage);
     return <NoMirror />;
   }
 
