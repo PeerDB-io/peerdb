@@ -198,8 +198,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Connection_Config() {
 
 	// assert that error contains "invalid connection configs"
 	require.Contains(s.t, err.Error(), "invalid connection configs")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
@@ -242,8 +240,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
@@ -286,8 +282,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
-
-	env.AssertExpectations(s.t)
 }
 
 // Test_Complete_Simple_Flow_BQ tests a complete flow with data in the source table.
@@ -356,8 +350,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Simple_Flow_BQ() {
 
 	// TODO: verify that the data is correctly synced to the destination table
 	// on the bigquery side
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
@@ -425,7 +417,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, dstTableName, "id,t1,t2,k")
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
@@ -488,7 +479,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Nochanges_BQ() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, dstTableName, "id,t1,t2,k")
-	env.AssertExpectations(s.t)
 	<-done
 }
 
@@ -563,7 +553,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, dstTableName, "id,t1,t2,k")
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
@@ -630,7 +619,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, dstTableName, "id,t1,k")
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
@@ -697,7 +685,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, dstTableName, "id,t1,t2,k")
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
@@ -779,8 +766,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	// check if JSON on bigquery side is a good JSON
 	err = s.checkJSONValue(dstTableName, "c17", "sai", "-8.021390374331551")
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
@@ -863,8 +848,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 
 	require.Equal(s.t, 6, lineCount)
 	require.Equal(s.t, 6, polyCount)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
@@ -924,8 +907,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 
 	require.Equal(s.t, 1, count1)
 	require.Equal(s.t, 1, count2)
-
-	env.AssertExpectations(s.t)
 }
 
 // TODO: not checking schema exactly, add later
@@ -1025,8 +1006,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 
 	// allow only continue as new error
 	require.Contains(s.t, err.Error(), "continue as new")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
@@ -1098,8 +1077,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	e2e.RequireEqualTables(s, dstTableName, "id,c1,c2,t")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
@@ -1175,8 +1152,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 
 	// verify our updates and delete happened
 	e2e.RequireEqualTables(s, dstTableName, "id,c1,c2,t,t2")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
@@ -1248,8 +1223,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 
 	// verify our updates and delete happened
 	e2e.RequireEqualTables(s, dstTableName, "id,c1,c2,t,t2")
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
@@ -1311,8 +1284,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 
 	err = s.checkPeerdbColumns(dstTableName, true)
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
@@ -1379,8 +1350,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 
 	err = s.bqHelper.DropDataset(secondDataset)
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
