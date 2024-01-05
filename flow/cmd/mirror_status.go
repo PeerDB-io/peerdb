@@ -125,9 +125,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	FROM 
 		peerdb_stats.qrep_partitions
 	WHERE 
-		flow_name = $1
-	GROUP BY 
-		flow_name;
+		flow_name = $1;
 	`
 
 	var startTime pgtype.Timestamp
@@ -160,7 +158,7 @@ func (h *FlowRequestHandler) cloneTableSummary(
 	}
 
 	if numRowsSynced.Valid {
-		res.NumRowsSynced = int64(numRowsSynced.Int64)
+		res.NumRowsSynced = numRowsSynced.Int64
 	}
 
 	if avgTimePerPartitionMs.Valid {
@@ -192,8 +190,8 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 	ctx context.Context,
 	flowJobName string,
 ) ([]*protos.PartitionStatus, error) {
-	q := "SELECT start_time, end_time, rows_in_partition FROM peerdb_stats.qrep_partitions WHERE flow_name = $1"
-	rows, err := h.pool.Query(ctx, q, flowJobName)
+	q := "SELECT start_time, end_time, rows_in_partition FROM peerdb_stats.qrep_partitions WHERE flow_name ILIKE $1"
+	rows, err := h.pool.Query(ctx, q, "clone_"+flowJobName+"_%")
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", flowJobName, err.Error()))
 		return nil, fmt.Errorf("unable to query qrep partition - %s: %w", flowJobName, err)

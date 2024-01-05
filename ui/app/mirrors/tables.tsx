@@ -17,7 +17,6 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
       }),
     [searchQuery, cdcFlows]
   );
-  const [isLoading, setIsLoading] = useState(false);
 
   return (
     <>

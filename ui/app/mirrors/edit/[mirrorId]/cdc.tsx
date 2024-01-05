@@ -10,6 +10,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@tremor/react';
@@ -17,6 +18,7 @@ import moment, { Duration, Moment } from 'moment';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
+import { useLocalStorage } from 'usehooks-ts';
 import CdcDetails from './cdcDetails';
 
 class TableCloneSummary {
@@ -68,8 +70,11 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedRows = useMemo(() => {
-    const shownRows = allRows.filter((row: any) =>
-      row.tableName.toLowerCase().includes(searchQuery.toLowerCase())
+    const shownRows = allRows.filter(
+      (row: TableCloneSummary) =>
+        row.cloneTableSummary.tableName
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase())
     );
     shownRows.sort((a, b) => {
       const aValue = a[sortField];
@@ -237,11 +242,10 @@ export function CDCMirror({
   createdAt,
   syncStatusChild,
 }: CDCMirrorStatusProps) {
-  const [selectedTab, setSelectedTab] = useState(-1);
   const LocalStorageTabKey = 'cdctab';
-
+  const [selectedTab, setSelectedTab] = useLocalStorage(LocalStorageTabKey, 0);
+  const [mounted, setMounted] = useState(false);
   const handleTab = (index: number) => {
-    localStorage.setItem(LocalStorageTabKey, index.toString());
     setSelectedTab(index);
   };
 
@@ -249,15 +253,18 @@ export function CDCMirror({
   if (cdc.snapshotStatus) {
     snapshot = <SnapshotStatusTable status={cdc.snapshotStatus} />;
   }
-
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setSelectedTab(
-        parseInt(localStorage?.getItem(LocalStorageTabKey) ?? '0') | 0
-      );
-    }
+    setMounted(true);
   }, []);
-
+  if (!mounted) {
+    return (
+      <div style={{ marginTop: '1rem' }}>
+        <Label>
+          <ProgressCircle variant='determinate_progress_circle' />
+        </Label>
+      </div>
+    );
+  }
   return (
     <TabGroup
       index={selectedTab}

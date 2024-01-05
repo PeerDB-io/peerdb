@@ -5,6 +5,7 @@ import { LayoutMain } from '@/lib/Layout';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import { redirect } from 'next/navigation';
 import { CDCMirror } from './cdc';
+import NoMirror from './nomirror';
 import SyncStatus from './syncStatus';
 
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,11 @@ export default async function EditMirror({
       start_time: 'desc',
     },
   });
+
+  if (mirrorStatus.errorMessage) {
+    console.log(mirrorStatus.errorMessage);
+    return <NoMirror />;
+  }
 
   let syncStatusChild = <></>;
   if (mirrorStatus.cdcStatus) {
