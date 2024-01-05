@@ -32,6 +32,8 @@ jobs:
       - name: checkout sources
         uses: actions/checkout@v4
 
+      - uses: bufbuild/buf-setup-action@v1.28.1
+
       - name: setup protos
         run: |
           ./generate_protos.sh
