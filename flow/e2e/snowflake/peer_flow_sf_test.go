@@ -144,7 +144,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_Simple_Flow_SF() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(srcTableName),
+		FlowJobName:      s.attachSuffix(tableName),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		PostgresPort:     e2e.PostgresPort,
 		Destination:      s.sfHelper.Peer,
@@ -1199,7 +1199,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("test_exclude_flow"),
+		FlowJobName: s.attachSuffix(tableName),
 	}
 
 	config := &protos.FlowConnectionConfigs{
@@ -1444,7 +1444,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_UD_Same_Batch() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("test_softdel_ud"),
+		FlowJobName: s.attachSuffix(dstName),
 	}
 
 	config := &protos.FlowConnectionConfigs{
@@ -1572,7 +1572,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Insert_After_Delete() {
 			s,
 			"normalize delete",
 			tableName,
-			dstTableName+" WHERE NOT _PEERDB_IS_DELETED",
+			tableName+" WHERE NOT _PEERDB_IS_DELETED",
 			"id,c1,c2,t",
 		)
 
