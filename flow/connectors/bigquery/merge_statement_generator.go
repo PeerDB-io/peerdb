@@ -120,8 +120,22 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
-// generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt() string {
+// generateMergeStmts generates merge statements, partitioned by unchanged toast columns.
+func (m *mergeStmtGenerator) generateMergeStmts() []string {
+	// TODO (kaushik): This is so that the statement size for individual merge statements
+	// doesn't exceed the limit. We should make this configurable.
+	const batchSize = 8
+	partitions := utils.ArrayPartition(m.unchangedToastColumns, batchSize)
+
+	mergeStmts := make([]string, 0, len(partitions))
+	for _, partition := range partitions {
+		mergeStmts = append(mergeStmts, m.generateMergeStmt(partition))
+	}
+
+	return mergeStmts
+}
+
+func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
 	// comma separated list of column names
 	columnCount := utils.TableSchemaColumns(m.normalizedTableSchema)
 	backtickColNames := make([]string, 0, columnCount)
@@ -139,8 +153,11 @@ func (m *mergeStmtGenerator) generateMergeStmt() string {
 	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
 	insertValuesSQL := shortCsep + ",CURRENT_TIMESTAMP"
 
-	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames,
-		m.unchangedToastColumns, m.peerdbCols)
+	updateStatementsforToastCols := m.generateUpdateStatements(
+		pureColNames,
+		unchangedToastColumns,
+		m.peerdbCols,
+	)
 	if m.peerdbCols.SoftDelete {
 		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(",`%s`", m.peerdbCols.SoftDeleteColName)
 		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
