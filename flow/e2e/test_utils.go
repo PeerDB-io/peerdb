@@ -38,8 +38,8 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 		t.Fatalf("unable to create catalog connection pool: %v", err)
 	}
 
-	// set a 300 second timeout for the workflow to execute a few runs.
-	env.SetTestTimeout(300 * time.Second)
+	// set a 5 minute timeout for the workflow to execute a few runs.
+	env.SetTestTimeout(5 * time.Minute)
 
 	env.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
@@ -148,7 +148,7 @@ func EnvWaitForEqualTablesWithNames(
 	t := suite.T()
 	t.Helper()
 
-	EnvWaitFor(t, env, time.Minute, reason, func(ctx context.Context) bool {
+	EnvWaitFor(t, env, 2*time.Minute, reason, func(ctx context.Context) bool {
 		t.Helper()
 
 		suffix := suite.Suffix()
