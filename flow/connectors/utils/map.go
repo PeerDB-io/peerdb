@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"slices"
+	"sort"
 	"strings"
 
 	"golang.org/x/exp/maps"
@@ -11,5 +13,8 @@ func KeysToString(m map[string]struct{}) string {
 		return ""
 	}
 
-	return strings.Join(maps.Keys(m), ",")
+	sm := maps.Keys(m)
+	sort.Strings(sm)
+	slices.Sort[[]string](sm)
+	return strings.Join(sm, ",")
 }
