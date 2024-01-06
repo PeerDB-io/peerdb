@@ -120,8 +120,35 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
-// generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt() string {
+// TODO move to utils.
+func partition[T any](slice []T, size int) [][]T {
+	var partitions [][]T
+
+	for size < len(slice) {
+		slice, partitions = slice[size:], append(partitions, slice[0:size])
+	}
+
+	// Add the last remaining values
+	partitions = append(partitions, slice)
+
+	return partitions
+}
+
+// generateMergeStmts generates merge statements, partitioned by unchanged toast columns.
+func (m *mergeStmtGenerator) generateMergeStmts() []string {
+	// partition unchanged toast columns into batches of 8
+	const batchSize = 8
+	partitions := partition(m.unchangedToastColumns, batchSize)
+
+	mergeStmts := make([]string, 0, len(partitions))
+	for _, partition := range partitions {
+		mergeStmts = append(mergeStmts, m.generateMergeStmt(partition))
+	}
+
+	return mergeStmts
+}
+
+func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
 	// comma separated list of column names
 	columnCount := utils.TableSchemaColumns(m.normalizedTableSchema)
 	backtickColNames := make([]string, 0, columnCount)
@@ -139,8 +166,11 @@ func (m *mergeStmtGenerator) generateMergeStmt() string {
 	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
 	insertValuesSQL := shortCsep + ",CURRENT_TIMESTAMP"
 
-	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames,
-		m.unchangedToastColumns, m.peerdbCols)
+	updateStatementsforToastCols := m.generateUpdateStatements(
+		pureColNames,
+		unchangedToastColumns,
+		m.peerdbCols,
+	)
 	if m.peerdbCols.SoftDelete {
 		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(",`%s`", m.peerdbCols.SoftDeleteColName)
 		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"

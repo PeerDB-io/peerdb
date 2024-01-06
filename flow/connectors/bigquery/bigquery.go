@@ -606,13 +606,19 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			},
 			shortColumn: map[string]string{},
 		}
+
 		// normalize anything between last normalized batch id to last sync batchid
-		mergeStmt := mergeGen.generateMergeStmt()
+		mergeStmts := mergeGen.generateMergeStmts()
 
 		// run the merge statement
-		_, err = c.client.Query(mergeStmt).Read(c.ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute merge statement %s: %v", mergeStmt, err)
+		for i, mergeStmt := range mergeStmts {
+			c.logger.Info(fmt.Sprintf("running merge statement [%d/%d] for table %s..",
+				i, len(mergeStmts), tableName))
+			q := c.client.Query(mergeStmt)
+			_, err = q.Read(c.ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to execute merge statement %s: %v", mergeStmt, err)
+			}
 		}
 	}
 	// update metadata to make the last normalized batch id to the recent last sync batch id.
