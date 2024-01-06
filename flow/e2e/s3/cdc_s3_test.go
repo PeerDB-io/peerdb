@@ -40,8 +40,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		Destination:      s.s3Helper.GetPeer(),
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(s.t, err)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
 		TotalSyncFlows:   4,
@@ -50,8 +49,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 	}
 
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
-		e2e.EnvNoError(s.t, env, err)
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		// insert 20 rows
 		for i := 1; i <= 20; i++ {
 			testKey := fmt.Sprintf("test_key_%d", i)

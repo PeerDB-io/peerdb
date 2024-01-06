@@ -167,9 +167,10 @@ func EnvWaitForEqualTablesWithNames(
 	})
 }
 
-func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
+func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig,
-) error {
+) {
+	t.Helper()
 	// errors expected while PeerFlowStatusQuery is setup
 	counter := 0
 	for {
@@ -187,10 +188,12 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 
 			if *state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
-				return nil
+				return
 			}
 		} else if counter > 15 {
-			return err
+			t.Error("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
+			env.CancelWorkflow()
+			runtime.Goexit()
 		} else if counter > 5 {
 			// log the error for informational purposes
 			slog.Error(err.Error())
