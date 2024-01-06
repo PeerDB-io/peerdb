@@ -148,7 +148,7 @@ func EnvWaitForEqualTablesWithNames(
 	t := suite.T()
 	t.Helper()
 
-	EnvWaitFor(t, env, 2*time.Minute, reason, func(ctx context.Context) bool {
+	EnvWaitFor(t, env, 2*time.Minute, reason, func() bool {
 		t.Helper()
 
 		suffix := suite.Suffix()
@@ -538,14 +538,12 @@ func EnvEqualRecordBatches(t *testing.T, env *testsuite.TestWorkflowEnvironment,
 	EnvTrue(t, env, e2eshared.CheckEqualRecordBatches(t, q, other))
 }
 
-func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout time.Duration, reason string, f func(ctx context.Context) bool) {
+func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout time.Duration, reason string, f func() bool) {
 	t.Helper()
 
-	ctx, cleanup := context.WithTimeout(context.Background(), timeout)
-	defer cleanup()
-	deadline, _ := ctx.Deadline()
+	deadline := time.Now().Add(timeout)
 	t.Log("WaitFor", reason)
-	for !f(ctx) {
+	for !f() {
 		if time.Now().After(deadline) {
 			t.Error("UNEXPECTED TIMEOUT", reason)
 			env.CancelWorkflow()

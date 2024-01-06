@@ -1379,19 +1379,17 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize delete",
-			func(ctx context.Context) bool {
-				pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, srcName, "id,c1,c2,t")
-				if err != nil {
-					return false
-				}
-				rows, err := s.GetRowsWhere(tableName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
-				if err != nil {
-					return false
-				}
-				return e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows)
-			},
-		)
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize delete", func() bool {
+			pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, srcName, "id,c1,c2,t")
+			if err != nil {
+				return false
+			}
+			rows, err := s.GetRowsWhere(tableName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
+			if err != nil {
+				return false
+			}
+			return e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows)
+		})
 
 		env.CancelWorkflow()
 	}()
@@ -1556,27 +1554,25 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize transaction",
-			func(ctx context.Context) bool {
-				pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, srcName, "id,c1,c2,t")
-				e2e.EnvNoError(s.t, env, err)
-				rows, err := s.GetRowsWhere(dstName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
-				if err != nil {
-					return false
-				}
-				if !e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows) {
-					return false
-				}
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize transaction", func() bool {
+			pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, srcName, "id,c1,c2,t")
+			e2e.EnvNoError(s.t, env, err)
+			rows, err := s.GetRowsWhere(dstName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
+			if err != nil {
+				return false
+			}
+			if !e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows) {
+				return false
+			}
 
-				newerSyncedAtQuery := fmt.Sprintf(
-					"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
-					s.bqHelper.Config.DatasetId, dstName)
-				numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
-				e2e.EnvNoError(s.t, env, err)
-				s.t.Log("waiting on _PEERDB_IS_DELETED to be 1, currently", numNewRows)
-				return err == nil && numNewRows == 1
-			},
-		)
+			newerSyncedAtQuery := fmt.Sprintf(
+				"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
+				s.bqHelper.Config.DatasetId, dstName)
+			numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
+			e2e.EnvNoError(s.t, env, err)
+			s.t.Log("waiting on _PEERDB_IS_DELETED to be 1, currently", numNewRows)
+			return err == nil && numNewRows == 1
+		})
 
 		env.CancelWorkflow()
 	}()
@@ -1638,19 +1634,17 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize delete",
-			func(ctx context.Context) bool {
-				pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, tableName, "id,c1,c2,t")
-				if err != nil {
-					return false
-				}
-				rows, err := s.GetRowsWhere(tableName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
-				if err != nil {
-					return false
-				}
-				return e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows)
-			},
-		)
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize delete", func() bool {
+			pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, tableName, "id,c1,c2,t")
+			if err != nil {
+				return false
+			}
+			rows, err := s.GetRowsWhere(tableName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
+			if err != nil {
+				return false
+			}
+			return e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows)
+		})
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)

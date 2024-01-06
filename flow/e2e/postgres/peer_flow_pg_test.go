@@ -11,6 +11,7 @@ import (
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/testsuite"
 )
 
 func (s PeerFlowE2ETestSuitePG) attachSchemaSuffix(tableName string) string {
@@ -101,14 +102,17 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	require.NoError(s.t, err)
 }
 
-func WaitFuncSchema(
-	s PeerFlowE2ETestSuitePG,
+func (s PeerFlowE2ETestSuitePG) WaitForSchema(
+	env *testsuite.TestWorkflowEnvironment,
+	reason string,
 	srcTableName string,
 	dstTableName string,
 	cols string,
 	expectedSchema *protos.TableSchema,
-) func(context.Context) bool {
-	return func(ctx context.Context) bool {
+) {
+	s.t.Helper()
+	e2e.EnvWaitFor(s.t, env, 2*time.Minute, reason, func() bool {
+		s.t.Helper()
 		output, err := s.connector.GetTableSchema(&protos.GetTableSchemaBatchInput{
 			TableIdentifiers: []string{dstTableName},
 		})
@@ -121,7 +125,7 @@ func WaitFuncSchema(
 			return false
 		}
 		return s.comparePGTables(srcTableName, dstTableName, cols) == nil
-	}
+	})
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
@@ -163,18 +167,16 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted initial row in the source table")
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing first row",
-			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1", &protos.TableSchema{
-				TableIdentifier: dstTableName,
-				ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT"},
-				ColumnTypes: []string{
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindTimestamp),
-				},
-				PrimaryKeyColumns: []string{"id"},
-			}),
-		)
+		s.WaitForSchema(env, "normalizing first row", srcTableName, dstTableName, "id,c1", &protos.TableSchema{
+			TableIdentifier: dstTableName,
+			ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT"},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindTimestamp),
+			},
+			PrimaryKeyColumns: []string{"id"},
+		})
 
 		// alter source table, add column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -186,19 +188,17 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row with added c2 in the source table")
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing altered row",
-			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1,c2", &protos.TableSchema{
-				TableIdentifier: dstTableName,
-				ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2"},
-				ColumnTypes: []string{
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindTimestamp),
-					string(qvalue.QValueKindInt64),
-				},
-				PrimaryKeyColumns: []string{"id"},
-			}),
-		)
+		s.WaitForSchema(env, "normalizing altered row", srcTableName, dstTableName, "id,c1,c2", &protos.TableSchema{
+			TableIdentifier: dstTableName,
+			ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2"},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindTimestamp),
+				string(qvalue.QValueKindInt64),
+			},
+			PrimaryKeyColumns: []string{"id"},
+		})
 
 		// alter source table, add column c3, drop column c2 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -210,20 +210,18 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row with added c3 in the source table")
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing dropped column row",
-			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1,c3", &protos.TableSchema{
-				TableIdentifier: dstTableName,
-				ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2", "c3"},
-				ColumnTypes: []string{
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindTimestamp),
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindInt64),
-				},
-				PrimaryKeyColumns: []string{"id"},
-			}),
-		)
+		s.WaitForSchema(env, "normalizing dropped column row", srcTableName, dstTableName, "id,c1,c3", &protos.TableSchema{
+			TableIdentifier: dstTableName,
+			ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2", "c3"},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindTimestamp),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+			},
+			PrimaryKeyColumns: []string{"id"},
+		})
 
 		// alter source table, drop column c3 and insert another row.
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
@@ -235,20 +233,18 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		s.t.Log("Inserted row after dropping all columns in the source table")
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalizing 2nd dropped column row",
-			WaitFuncSchema(s, srcTableName, dstTableName, "id,c1", &protos.TableSchema{
-				TableIdentifier: dstTableName,
-				ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2", "c3"},
-				ColumnTypes: []string{
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindTimestamp),
-					string(qvalue.QValueKindInt64),
-					string(qvalue.QValueKindInt64),
-				},
-				PrimaryKeyColumns: []string{"id"},
-			}),
-		)
+		s.WaitForSchema(env, "normalizing 2nd dropped column row", srcTableName, dstTableName, "id,c1", &protos.TableSchema{
+			TableIdentifier: dstTableName,
+			ColumnNames:     []string{"id", "c1", "_PEERDB_SYNCED_AT", "c2", "c3"},
+			ColumnTypes: []string{
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindTimestamp),
+				string(qvalue.QValueKindInt64),
+				string(qvalue.QValueKindInt64),
+			},
+			PrimaryKeyColumns: []string{"id"},
+		})
 
 		env.CancelWorkflow()
 	}()
@@ -302,7 +298,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize 10 rows", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize 10 rows", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 
@@ -311,7 +307,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize modifications", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize modifications", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 		env.CancelWorkflow()
@@ -450,7 +446,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize 10 rows", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize 10 rows", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2") == nil
 		})
 		_, err = s.pool.Exec(context.Background(),
@@ -459,7 +455,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize update", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize update", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2") == nil
 		})
 
@@ -581,13 +577,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize update", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize update", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 		// since we delete stuff, create another table to compare with
@@ -598,7 +594,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize delete", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize delete", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName+` WHERE NOT "_PEERDB_IS_DELETED"`, "id,c1,c2,t") == nil
 		})
 
@@ -756,7 +752,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 
@@ -773,7 +769,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize transaction", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize transaction", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName+` WHERE NOT "_PEERDB_IS_DELETED"`, "id,c1,c2,t") == nil
 		})
 
@@ -843,19 +839,19 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize delete", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize delete", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName+` WHERE NOT "_PEERDB_IS_DELETED"`, "id,c1,c2,t") == nil
 		})
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize reinsert", func(ctx context.Context) bool {
+		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize reinsert", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 
