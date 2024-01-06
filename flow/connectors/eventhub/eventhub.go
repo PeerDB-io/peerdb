@@ -195,8 +195,7 @@ func (c *EventHubConnector) processBatch(
 				}
 			}
 
-			ticker.Stop()
-			ticker = time.NewTicker(eventHubFlushTimeout)
+			ticker.Reset(eventHubFlushTimeout)
 		}
 	}
 }
@@ -217,9 +216,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			numRecords, req.FlowJobName,
 		)
 	})
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
 	if err != nil {

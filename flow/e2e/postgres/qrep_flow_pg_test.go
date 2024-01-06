@@ -29,7 +29,7 @@ type PeerFlowE2ETestSuitePG struct {
 }
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
-	e2eshared.GotSuite(t, SetupSuite, func(s PeerFlowE2ETestSuitePG) {
+	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuitePG) {
 		err := e2e.TearDownPostgres(s.pool, s.suffix)
 		if err != nil {
 			require.Fail(s.t, "failed to drop Postgres schema", err)
@@ -165,6 +165,12 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 	return rows.Err()
 }
 
+func (s PeerFlowE2ETestSuitePG) countRowsInQuery(query string) (int64, error) {
+	var count pgtype.Int8
+	err := s.pool.QueryRow(context.Background(), query).Scan(&count)
+	return count.Int64, err
+}
+
 func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 	setupTx, err := s.pool.Begin(context.Background())
 	require.NoError(s.t, err)
@@ -191,10 +197,9 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 
 	signal := connpostgres.NewSlotSignal()
 
-	// Moved to a go routine
+	setupError := make(chan error)
 	go func() {
-		err := s.connector.SetupReplication(signal, setupReplicationInput)
-		require.NoError(s.t, err)
+		setupError <- s.connector.SetupReplication(signal, setupReplicationInput)
 	}()
 
 	slog.Info("waiting for slot creation to complete", flowLog)
@@ -205,6 +210,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 	time.Sleep(2 * time.Second)
 	signal.CloneComplete <- struct{}{}
 
+	require.NoError(s.t, <-setupError)
 	slog.Info("successfully setup replication", flowLog)
 }
 
@@ -252,8 +258,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_PG() {
@@ -297,6 +301,4 @@ func (s PeerFlowE2ETestSuitePG) Test_Setup_Destination_And_PeerDB_Columns_QRep_P
 
 	err = s.checkSyncedAt(dstSchemaQualified)
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }

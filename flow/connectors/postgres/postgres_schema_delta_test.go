@@ -235,7 +235,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 }
 
 func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
-	e2eshared.GotSuite(t, SetupSuite, func(s PostgresSchemaDeltaTestSuite) {
+	e2eshared.RunSuite(t, SetupSuite, func(s PostgresSchemaDeltaTestSuite) {
 		teardownTx, err := s.connector.pool.Begin(context.Background())
 		require.NoError(s.t, err)
 		defer func() {

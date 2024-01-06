@@ -88,7 +88,6 @@ func (a *FlowableActivity) recordSlotSizePeriodically(
 		case <-ctx.Done():
 			return
 		}
-		ticker.Stop()
-		ticker = time.NewTicker(timeout)
+		ticker.Reset(timeout)
 	}
 }

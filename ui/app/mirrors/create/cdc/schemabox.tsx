@@ -48,11 +48,13 @@ const SchemaBox = ({
 
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
-    return rows.filter(
-      (row) =>
-        row.schema === schema &&
-        row.source.toLowerCase().includes(tableQueryLower)
-    );
+    return rows
+      .filter(
+        (row) =>
+          row.schema === schema &&
+          row.source.toLowerCase().includes(tableQueryLower)
+      )
+      .sort((a, b) => a.source.localeCompare(b.source));
   }, [schema, rows, tableQuery]);
 
   const schemaIsExpanded = useCallback(

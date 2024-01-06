@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -82,13 +83,10 @@ func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetc
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
 
 	if !qe.testEnv {
-		shutdownCh := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
+		shutdown := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
 			return fmt.Sprintf("running '%s'", q)
 		})
-
-		defer func() {
-			shutdownCh <- struct{}{}
-		}()
+		defer shutdown()
 	}
 
 	rows, err := tx.Query(qe.ctx, q)
@@ -446,7 +444,7 @@ func mapRowToQRecord(row pgx.Rows, fds []pgconn.FieldDescription,
 			customQKind := customTypeToQKind(typeName)
 			if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
 				wkbString, ok := values[i].(string)
-				wkt, err := GeoValidate(wkbString)
+				wkt, err := geo.GeoValidate(wkbString)
 				if err != nil || !ok {
 					values[i] = nil
 				} else {

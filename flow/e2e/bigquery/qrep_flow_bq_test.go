@@ -1,10 +1,8 @@
 package e2e_bigquery
 
 import (
-	"context"
 	"fmt"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/stretchr/testify/require"
 )
@@ -14,26 +12,6 @@ func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int)
 	require.NoError(s.t, err)
 	err = e2e.PopulateSourceTable(s.pool, s.bqSuffix, tableName, rowCount)
 	require.NoError(s.t, err)
-}
-
-func (s PeerFlowE2ETestSuiteBQ) compareTableContentsBQ(tableName string, colsString string) {
-	// read rows from source table
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
-	pgQueryExecutor.SetTestEnv(true)
-
-	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", colsString, s.bqSuffix, tableName),
-	)
-	require.NoError(s.t, err)
-
-	// read rows from destination table
-	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
-	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
-	s.t.Logf("running query on bigquery: %s", bqSelQuery)
-	bqRows, err := s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
-	require.NoError(s.t, err)
-
-	e2e.RequireEqualRecordBatchs(s.t, pgRows, bqRows)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
@@ -65,9 +43,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	err = env.GetWorkflowError()
 	require.NoError(s.t, err)
 
-	s.compareTableContentsBQ(tblName, "*")
-
-	env.AssertExpectations(s.t)
+	e2e.RequireEqualTables(s, tblName, "*")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
@@ -101,6 +77,4 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 
 	err = s.checkPeerdbColumns(tblName, false)
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }

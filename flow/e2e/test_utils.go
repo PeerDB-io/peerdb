@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/activities"
+	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
@@ -18,10 +20,12 @@ import (
 	"github.com/PeerDB-io/peer-flow/logger"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -57,6 +61,70 @@ func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnv
 	env.RegisterActivity(&activities.SnapshotActivity{})
 }
 
+// Helper function to assert errors in go routines running concurrent to workflows
+// This achieves two goals:
+// 1. cancel workflow to avoid waiting on goroutine which has failed
+// 2. get around t.FailNow being incorrect when called from non initial goroutine
+func EnvNoError(t *testing.T, env *testsuite.TestWorkflowEnvironment, err error) {
+	t.Helper()
+
+	if err != nil {
+		t.Error(err.Error())
+		env.CancelWorkflow()
+		runtime.Goexit()
+	}
+}
+
+// See EnvNoError
+func EnvEqual[T comparable](t *testing.T, env *testsuite.TestWorkflowEnvironment, x T, y T) {
+	t.Helper()
+
+	if x != y {
+		t.Error("not equal", x, y)
+		env.CancelWorkflow()
+		runtime.Goexit()
+	}
+}
+
+func GetPgRows(pool *pgxpool.Pool, suffix string, table string, cols string) (*model.QRecordBatch, error) {
+	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(pool, context.Background(), "testflow", "testpart")
+	pgQueryExecutor.SetTestEnv(true)
+
+	return pgQueryExecutor.ExecuteAndProcessQuery(
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, cols, suffix, table),
+	)
+}
+
+func RequireEqualTables(suite e2eshared.RowSource, table string, cols string) {
+	t := suite.T()
+	t.Helper()
+
+	suffix := suite.Suffix()
+	pool := suite.Pool()
+	pgRows, err := GetPgRows(pool, suffix, table, cols)
+	require.NoError(t, err)
+
+	rows, err := suite.GetRows(table, cols)
+	require.NoError(t, err)
+
+	require.True(t, e2eshared.CheckEqualRecordBatches(t, pgRows, rows))
+}
+
+func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite e2eshared.RowSource, table string, cols string) {
+	t := suite.T()
+	t.Helper()
+
+	suffix := suite.Suffix()
+	pool := suite.Pool()
+	pgRows, err := GetPgRows(pool, suffix, table, cols)
+	EnvNoError(t, env, err)
+
+	rows, err := suite.GetRows(table, cols)
+	EnvNoError(t, env, err)
+
+	EnvEqualRecordBatches(t, env, pgRows, rows)
+}
+
 func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig,
 ) {
@@ -65,7 +133,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 	time.Sleep(5 * time.Second)
 	for {
 		response, err := env.QueryWorkflow(
-			peerflow.CDCFlowStatusQuery,
+			shared.CDCFlowStateQuery,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
@@ -75,7 +143,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 				slog.Error(err.Error())
 			}
 
-			if state.SnapshotComplete {
+			if *state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
 				break
 			}
 		} else {
@@ -95,7 +163,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 	time.Sleep(5 * time.Second)
 	for {
 		response, err := env.QueryWorkflow(
-			peerflow.CDCNormFlowStatusQuery,
+			shared.CDCFlowStateQuery,
 			connectionGen.FlowJobName,
 		)
 		if err == nil {
@@ -154,6 +222,7 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		"f6 jsonb",
 		"f7 jsonb",
 		"f8 smallint",
+		"my_date DATE",
 	}
 	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
 		tblFields = append(tblFields, `"geometryPoint" geometry(point)`,
@@ -212,9 +281,9 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							1.2345, false, 12345, '%s',
 							12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
-							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}',
+							ARRAY['varchar1', 'varchar2'], '{"key": -8.02139037433155}',
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15 %s
+							'{"key": "value"}', 15, CURRENT_DATE %s
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)
@@ -235,7 +304,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, my_date
 					%s
 			) VALUES %s;
 	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
@@ -356,6 +425,13 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
+			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
+			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},
+			{Name: "geography_point", Type: qvalue.QValueKindGeography, Nullable: true},
+			{Name: "geography_linestring", Type: qvalue.QValueKindGeography, Nullable: true},
+			{Name: "geography_polygon", Type: qvalue.QValueKindGeography, Nullable: true},
 		},
 	}
 }
@@ -366,7 +442,16 @@ func GetOwnersSelectorStringsSF() [2]string {
 	sfFields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		pgFields = append(pgFields, fmt.Sprintf(`"%s"`, field.Name))
-		sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
+		if strings.Contains(field.Name, "geo") {
+			colName := connsnowflake.SnowflakeIdentifierNormalize(field.Name)
+
+			// Have to apply a WKT transformation here,
+			// else the sql driver we use receives the values as snowflake's OBJECT
+			// which is troublesome to deal with. Now it receives it as string.
+			sfFields = append(sfFields, fmt.Sprintf(`ST_ASWKT(%s) as %s`, colName, colName))
+		} else {
+			sfFields = append(sfFields, connsnowflake.SnowflakeIdentifierNormalize(field.Name))
+		}
 	}
 	return [2]string{strings.Join(pgFields, ","), strings.Join(sfFields, ",")}
 }
@@ -418,40 +503,17 @@ func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
 	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
 }
 
-// Equals checks if two QRecordBatches are identical.
-func RequireEqualRecordBatchs(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) bool {
+func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
+	t.Helper()
+	require.True(t, e2eshared.CheckEqualRecordBatches(t, q, other))
+}
+
+// See EnvNoError
+func EnvEqualRecordBatches(t *testing.T, env *testsuite.TestWorkflowEnvironment, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
 
-	if other == nil {
-		t.Log("other is nil")
-		return q == nil
+	if !e2eshared.CheckEqualRecordBatches(t, q, other) {
+		env.CancelWorkflow()
+		runtime.Goexit()
 	}
-
-	// First check simple attributes
-	if q.NumRecords != other.NumRecords {
-		// print num records
-		t.Logf("q.NumRecords: %d", q.NumRecords)
-		t.Logf("other.NumRecords: %d", other.NumRecords)
-		return false
-	}
-
-	// Compare column names
-	if !q.Schema.EqualNames(other.Schema) {
-		t.Log("Column names are not equal")
-		t.Logf("Schema 1: %v", q.Schema.GetColumnNames())
-		t.Logf("Schema 2: %v", other.Schema.GetColumnNames())
-		return false
-	}
-
-	// Compare records
-	for i, record := range q.Records {
-		if !e2eshared.CheckQRecordEquality(t, record, other.Records[i]) {
-			t.Logf("Record %d is not equal", i)
-			t.Logf("Record 1: %v", record)
-			t.Logf("Record 2: %v", other.Records[i])
-			return false
-		}
-	}
-
-	return true
 }

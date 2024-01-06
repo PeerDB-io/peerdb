@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/cdc_records"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -248,10 +249,7 @@ func (p *PostgresCDCSource) consumeStream(
 		currRecords := cdcRecordsStorage.Len()
 		return fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
 	})
-
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
@@ -362,8 +360,8 @@ func (p *PostgresCDCSource) consumeStream(
 					if retryAttemptForWALSegmentRemoved > maxRetriesForWalSegmentRemoved {
 						return fmt.Errorf("max retries for WAL segment removed exceeded: %+v", errMsg)
 					} else {
-						p.logger.Warn(fmt.Sprintf(
-							"WAL segment removed, restarting replication retrying in 30 seconds..."),
+						p.logger.Warn(
+							"WAL segment removed, restarting replication retrying in 30 seconds...",
 							slog.Any("error", errMsg), slog.Int("retryAttempt", retryAttemptForWALSegmentRemoved))
 						time.Sleep(30 * time.Second)
 						continue
@@ -761,7 +759,7 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32, forma
 	if ok {
 		customQKind := customTypeToQKind(typeName)
 		if customQKind == qvalue.QValueKindGeography || customQKind == qvalue.QValueKindGeometry {
-			wkt, err := GeoValidate(string(data))
+			wkt, err := geo.GeoValidate(string(data))
 			if err != nil {
 				return qvalue.QValue{
 					Kind:  customQKind,

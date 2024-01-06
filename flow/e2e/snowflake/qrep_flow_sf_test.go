@@ -1,10 +1,8 @@
 package e2e_snowflake
 
 import (
-	"context"
 	"fmt"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/google/uuid"
@@ -17,10 +15,6 @@ func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) 
 	require.NoError(s.t, err)
 	err = e2e.PopulateSourceTable(s.pool, s.pgSuffix, tableName, numRows)
 	require.NoError(s.t, err)
-}
-
-func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName, selector string) {
-	s.compareTableContentsWithDiffSelectorsSF(tableName, selector, selector, false)
 }
 
 func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, value string) error {
@@ -41,29 +35,16 @@ func (s PeerFlowE2ETestSuiteSF) checkJSONValue(tableName, colName, fieldName, va
 func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableName, pgSelector, sfSelector string,
 	tableCaseSensitive bool,
 ) {
-	// read rows from source table
-	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
-	pgQueryExecutor.SetTestEnv(true)
-	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s."%s" ORDER BY id`, pgSelector, s.pgSuffix, tableName),
-	)
+	pgRows, err := e2e.GetPgRows(s.pool, s.pgSuffix, tableName, pgSelector)
 	require.NoError(s.t, err)
 
-	// read rows from destination table
-
-	var qualifiedTableName string
 	if tableCaseSensitive {
-		qualifiedTableName = fmt.Sprintf(`%s.%s."%s"`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
-	} else {
-		qualifiedTableName = fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
+		tableName = fmt.Sprintf("\"%s\"", tableName)
 	}
-
-	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
-	s.t.Logf("running query on snowflake: %s\n", sfSelQuery)
-	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
+	sfRows, err := s.GetRows(tableName, sfSelector)
 	require.NoError(s.t, err)
 
-	e2e.RequireEqualRecordBatchs(s.t, pgRows, sfRows)
+	e2e.RequireEqualRecordBatches(s.t, pgRows, sfRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
@@ -106,8 +87,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 
 	err = s.checkJSONValue(dstSchemaQualified, "f7", "key", "\"value\"")
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
@@ -151,8 +130,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
@@ -193,8 +170,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
@@ -239,8 +214,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() {
@@ -284,8 +257,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 
 	sel := e2e.GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1], false)
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
@@ -330,6 +301,4 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	err = s.sfHelper.checkSyncedAt(fmt.Sprintf(`SELECT "_PEERDB_SYNCED_AT" FROM %s.%s`,
 		s.sfHelper.testSchemaName, tblName))
 	require.NoError(s.t, err)
-
-	env.AssertExpectations(s.t)
 }

@@ -29,6 +29,7 @@ export default async function SyncStatus({
     orderBy: {
       start_time: 'desc',
     },
+    distinct: ['batch_id'],
   });
 
   const rows = syncs.map((sync) => ({

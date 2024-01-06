@@ -13,23 +13,22 @@ func HeartbeatRoutine(
 	ctx context.Context,
 	interval time.Duration,
 	message func() string,
-) chan struct{} {
-	counter := 1
-	shutdown := make(chan struct{})
+) context.CancelFunc {
+	ctx, cancel := context.WithCancel(ctx)
 	go func() {
+		counter := 0
 		for {
+			counter += 1
 			msg := fmt.Sprintf("heartbeat #%d: %s", counter, message())
 			RecordHeartbeatWithRecover(ctx, msg)
-			counter += 1
-			to := time.After(interval)
 			select {
-			case <-shutdown:
+			case <-ctx.Done():
 				return
-			case <-to:
+			case <-time.After(interval):
 			}
 		}
 	}()
-	return shutdown
+	return cancel
 }
 
 // if the functions are being called outside the context of a Temporal workflow,

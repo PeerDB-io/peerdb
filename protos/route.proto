@@ -162,8 +162,18 @@ message PeerStatResponse {
   repeated StatInfo stat_data = 1;
 }
 
+message CloneTableSummary {
+  string table_name = 1;
+  google.protobuf.Timestamp start_time = 2;
+  int32 num_partitions_completed = 3;
+  int32 num_partitions_total = 4;
+  int64 num_rows_synced = 5;
+  int64 avg_time_per_partition_ms = 6;
+  string flow_job_name = 7;
+}
+
 message SnapshotStatus {
-  repeated QRepMirrorStatus clones = 1;
+  repeated CloneTableSummary clones = 1;
 }
 
 message CDCMirrorStatus {
@@ -179,19 +189,16 @@ message MirrorStatusResponse {
     CDCMirrorStatus cdc_status = 3;
   }
   string error_message = 4;
-}
-
-// in the future, consider moving DropFlow to this and reduce route surface
-enum FlowState {
-  STATE_UNKNOWN = 0;
-  STATE_RUNNING = 1;
-  STATE_PAUSED = 2;
+  peerdb_flow.FlowStatus current_flow_state = 5;
 }
 
 message FlowStateChangeRequest {
-  string workflow_id = 1;
-  string flow_job_name = 2;
-  FlowState requested_flow_state = 3;
+  string flow_job_name = 1;
+  peerdb_flow.FlowStatus requested_flow_state = 2;
+  peerdb_peers.Peer source_peer = 3;
+  peerdb_peers.Peer destination_peer = 4;
+  // only can be sent in certain situations
+  optional peerdb_flow.FlowStateUpdate flow_state_update = 5;
 }
 
 message FlowStateChangeResponse {

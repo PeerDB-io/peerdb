@@ -86,30 +86,6 @@ impl FlowGrpcClient {
         Ok(workflow_id)
     }
 
-    pub async fn shutdown_flow_job(
-        &mut self,
-        flow_job_name: &str,
-        workflow_details: WorkflowDetails,
-    ) -> anyhow::Result<()> {
-        let shutdown_flow_req = pt::peerdb_route::ShutdownRequest {
-            flow_job_name: flow_job_name.to_string(),
-            workflow_id: workflow_details.workflow_id,
-            source_peer: Some(workflow_details.source_peer),
-            destination_peer: Some(workflow_details.destination_peer),
-            remove_flow_entry: false,
-        };
-        let response = self.client.shutdown_flow(shutdown_flow_req).await?;
-        let shutdown_response = response.into_inner();
-        if shutdown_response.ok {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(format!(
-                "failed to shutdown flow job: {:?}",
-                shutdown_response.error_message
-            )))
-        }
-    }
-
     pub async fn drop_peer(&mut self, peer_name: &str) -> anyhow::Result<()> {
         let drop_peer_req = pt::peerdb_route::DropPeerRequest {
             peer_name: String::from(peer_name),
@@ -129,25 +105,24 @@ impl FlowGrpcClient {
     pub async fn flow_state_change(
         &mut self,
         flow_job_name: &str,
-        workflow_id: &str,
-        pause: bool,
+        workflow_details: WorkflowDetails,
+        state: pt::peerdb_flow::FlowStatus,
     ) -> anyhow::Result<()> {
-        let pause_flow_req = pt::peerdb_route::FlowStateChangeRequest {
+        let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
-            workflow_id: workflow_id.to_owned(),
-            requested_flow_state: match pause {
-                true => pt::peerdb_route::FlowState::StatePaused.into(),
-                false => pt::peerdb_route::FlowState::StateRunning.into(),
-            },
+            requested_flow_state: state.into(),
+            source_peer: Some(workflow_details.source_peer),
+            destination_peer: Some(workflow_details.destination_peer),
+            flow_state_update: None,
         };
-        let response = self.client.flow_state_change(pause_flow_req).await?;
-        let pause_response = response.into_inner();
-        if pause_response.ok {
+        let response = self.client.flow_state_change(state_change_req).await?;
+        let state_change_response = response.into_inner();
+        if state_change_response.ok {
             Ok(())
         } else {
             Err(anyhow::anyhow!(format!(
-                "failed to pause/unpause flow job: {:?}",
-                pause_response.error_message
+                "failed to change the state of flow job {}: {:?}",
+                flow_job_name, state_change_response.error_message
             )))
         }
     }

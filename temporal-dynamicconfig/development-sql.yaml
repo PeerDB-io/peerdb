@@ -4,3 +4,5 @@ limit.maxIDLength:
 system.forceSearchAttributesCacheRefreshOnRead:
   - value: true # Dev setup only. Please don't turn this on in production.
     constraints: {}
+frontend.enableUpdateWorkflowExecution:
+  - value: true # to enable external updates of workflow status [PAUSING, TERMINATING]

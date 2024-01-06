@@ -286,10 +286,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("pushing records for job - %s", jobName)
 	})
-
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
@@ -397,9 +394,7 @@ func (a *FlowableActivity) StartNormalize(
 	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	slog.InfoContext(ctx, "initializing table schema...")
 	err = dstConn.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
@@ -492,10 +487,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
 		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
 	})
-
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	partitions, err := srcConn.GetQRepPartitions(config, last)
 	if err != nil {
@@ -591,7 +583,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		stream = model.NewQRecordStream(bufferSize)
 		wg.Add(1)
 
-		pullPgRecords := func() {
+		go func() {
 			pgConn := srcConn.(*connpostgres.PostgresConnector)
 			tmp, err := pgConn.PullQRepRecordStream(config, partition, stream)
 			numRecords := int64(tmp)
@@ -608,9 +600,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 				}
 			}
 			wg.Done()
-		}
-
-		go pullPgRecords()
+		}()
 	} else {
 		recordBatch, err := srcConn.PullQRepRecords(config, partition)
 		if err != nil {
@@ -635,10 +625,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
 		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	})
-
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
@@ -684,10 +671,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
 	})
-
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	err = dstConn.ConsolidateQRepPartitions(config)
 	if err != nil {
@@ -819,8 +803,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 				slog.InfoContext(ctx, fmt.Sprintf("sent walheartbeat to peer %v", pgPeer.Name))
 			}
 		}
-		ticker.Stop()
-		ticker = time.NewTicker(sendTimeout)
+		ticker.Reset(sendTimeout)
 	}
 }
 
@@ -997,10 +980,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
 		return "syncing xmin."
 	})
-
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {

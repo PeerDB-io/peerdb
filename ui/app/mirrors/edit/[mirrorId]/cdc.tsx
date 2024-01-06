@@ -3,13 +3,14 @@ import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
 import TimeLabel from '@/components/TimeComponent';
 import {
   CDCMirrorStatus,
-  QRepMirrorStatus,
+  CloneTableSummary,
   SnapshotStatus,
 } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressBar } from '@/lib/ProgressBar';
+import { ProgressCircle } from '@/lib/ProgressCircle';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@tremor/react';
@@ -17,77 +18,40 @@ import moment, { Duration, Moment } from 'moment';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
+import { useLocalStorage } from 'usehooks-ts';
 import CdcDetails from './cdcDetails';
 
 class TableCloneSummary {
-  flowJobName: string;
-  tableName: string;
-  totalNumPartitions: number;
-  totalNumRows: number;
-  completedNumPartitions: number;
-  completedNumRows: number;
-  avgTimePerPartition: Duration | null;
-  cloneStartTime: Moment | null;
+  cloneStartTime: Moment | null = null;
+  cloneTableSummary: CloneTableSummary;
+  avgTimePerPartition: Duration | null = null;
 
-  constructor(clone: QRepMirrorStatus) {
-    this.flowJobName = clone.config?.flowJobName || '';
-    this.tableName = clone.config?.watermarkTable || '';
-    this.totalNumPartitions = 0;
-    this.totalNumRows = 0;
-    this.completedNumPartitions = 0;
-    this.completedNumRows = 0;
-    this.avgTimePerPartition = null;
-    this.cloneStartTime = null;
-
-    this.calculate(clone);
-  }
-
-  private calculate(clone: QRepMirrorStatus): void {
-    let totalTime = moment.duration(0);
-    clone.partitions?.forEach((partition) => {
-      this.totalNumPartitions++;
-      this.totalNumRows += partition.numRows;
-
-      if (partition.startTime) {
-        let st = moment(partition.startTime);
-        if (!this.cloneStartTime || st.isBefore(this.cloneStartTime)) {
-          this.cloneStartTime = st;
-        }
-      }
-
-      if (partition.endTime) {
-        this.completedNumPartitions++;
-        this.completedNumRows += partition.numRows;
-        let st = moment(partition.startTime);
-        let et = moment(partition.endTime);
-        let duration = moment.duration(et.diff(st));
-        totalTime = totalTime.add(duration);
-      }
-    });
-
-    if (this.completedNumPartitions > 0) {
+  constructor(clone: CloneTableSummary) {
+    this.cloneTableSummary = clone;
+    if (clone.startTime) {
+      this.cloneStartTime = moment(clone.startTime);
+    }
+    if (clone.avgTimePerPartitionMs) {
       this.avgTimePerPartition = moment.duration(
-        totalTime.asMilliseconds() / this.completedNumPartitions
+        clone.avgTimePerPartitionMs,
+        'ms'
       );
     }
   }
 
-  getRowProgressPercentage(): number {
-    if (this.totalNumRows === 0) {
-      return 0;
-    }
-    return (this.completedNumRows / this.totalNumRows) * 100;
-  }
-
   getPartitionProgressPercentage(): number {
-    if (this.totalNumPartitions === 0) {
+    if (this.cloneTableSummary.numPartitionsTotal === 0) {
       return 0;
     }
-    return (this.completedNumPartitions / this.totalNumPartitions) * 100;
+    return (
+      (this.cloneTableSummary.numPartitionsCompleted /
+        this.cloneTableSummary.numPartitionsTotal) *
+      100
+    );
   }
 }
 
-function summarizeTableClone(clone: QRepMirrorStatus): TableCloneSummary {
+function summarizeTableClone(clone: CloneTableSummary): TableCloneSummary {
   return new TableCloneSummary(clone);
 }
 
@@ -106,8 +70,11 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedRows = useMemo(() => {
-    const shownRows = allRows.filter((row: any) =>
-      row.tableName.toLowerCase().includes(searchQuery.toLowerCase())
+    const shownRows = allRows.filter(
+      (row: TableCloneSummary) =>
+        row.cloneTableSummary.tableName
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase())
     );
     shownRows.sort((a, b) => {
       const aValue = a[sortField];
@@ -231,10 +198,10 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
             <TableCell>
               <Label>
                 <Link
-                  href={`/mirrors/status/qrep/${clone.flowJobName}`}
+                  href={`/mirrors/status/qrep/${clone.cloneTableSummary.flowJobName}`}
                   className='underline cursor-pointer'
                 >
-                  {clone.tableName}
+                  {clone.cloneTableSummary.tableName}
                 </Link>
               </Label>
             </TableCell>
@@ -247,9 +214,10 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
             </TableCell>
             <TableCell>
               <ProgressBar progress={clone.getPartitionProgressPercentage()} />
-              {clone.completedNumPartitions} / {clone.totalNumPartitions}
+              {clone.cloneTableSummary.numPartitionsCompleted} /{' '}
+              {clone.cloneTableSummary.numPartitionsTotal}
             </TableCell>
-            <TableCell>{clone.completedNumRows}</TableCell>
+            <TableCell>{clone.cloneTableSummary.numRowsSynced}</TableCell>
             <TableCell>
               <Label>
                 {clone.avgTimePerPartition?.humanize({ ss: 1 }) || 'N/A'}
@@ -274,11 +242,10 @@ export function CDCMirror({
   createdAt,
   syncStatusChild,
 }: CDCMirrorStatusProps) {
-  const [selectedTab, setSelectedTab] = useState(-1);
   const LocalStorageTabKey = 'cdctab';
-
+  const [selectedTab, setSelectedTab] = useLocalStorage(LocalStorageTabKey, 0);
+  const [mounted, setMounted] = useState(false);
   const handleTab = (index: number) => {
-    localStorage.setItem(LocalStorageTabKey, index.toString());
     setSelectedTab(index);
   };
 
@@ -286,15 +253,18 @@ export function CDCMirror({
   if (cdc.snapshotStatus) {
     snapshot = <SnapshotStatusTable status={cdc.snapshotStatus} />;
   }
-
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setSelectedTab(
-        parseInt(localStorage?.getItem(LocalStorageTabKey) ?? '0') | 0
-      );
-    }
+    setMounted(true);
   }, []);
-
+  if (!mounted) {
+    return (
+      <div style={{ marginTop: '1rem' }}>
+        <Label>
+          <ProgressCircle variant='determinate_progress_circle' />
+        </Label>
+      </div>
+    );
+  }
   return (
     <TabGroup
       index={selectedTab}

@@ -116,10 +116,17 @@ func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol
 		if col.Name == syncedAtCol || col.Name == softDeleteCol {
 			continue
 		}
-		if col.Type == bigquery.GeographyFieldType {
+		switch col.Type {
+		case bigquery.GeographyFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
-		} else {
+		case bigquery.JSONFieldType:
+			transformedColumns = append(transformedColumns,
+				fmt.Sprintf("PARSE_JSON(`%s`,wide_number_mode=>'round') AS `%s`", col.Name, col.Name))
+		case bigquery.DateFieldType:
+			transformedColumns = append(transformedColumns,
+				fmt.Sprintf("CAST(`%s` AS DATE) AS `%s`", col.Name, col.Name))
+		default:
 			transformedColumns = append(transformedColumns, fmt.Sprintf("`%s`", col.Name))
 		}
 	}
@@ -280,7 +287,7 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	}
 
 	switch bqField.Type {
-	case bigquery.StringFieldType, bigquery.GeographyFieldType:
+	case bigquery.StringFieldType, bigquery.GeographyFieldType, bigquery.JSONFieldType:
 		return considerRepeated("string", bqField.Repeated), nil
 	case bigquery.BytesFieldType:
 		return "bytes", nil
@@ -366,9 +373,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 				objectFolder, stagingTable)
 		},
 	)
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	var avroFile *avro.AvroFile
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema,

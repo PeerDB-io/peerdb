@@ -43,10 +43,6 @@ type CDCFlowWorkflowState struct {
 	NormalizeFlowStatuses []model.NormalizeResponse
 	// Current signalled state of the peer flow.
 	ActiveSignal shared.CDCFlowSignal
-	// SetupComplete indicates whether the peer flow setup has completed.
-	SetupComplete bool
-	// SnapshotComplete indicates whether the initial snapshot workflow has completed.
-	SnapshotComplete bool
 	// Errors encountered during child sync flow executions.
 	SyncFlowErrors []string
 	// Errors encountered during child sync flow executions.
@@ -54,6 +50,8 @@ type CDCFlowWorkflowState struct {
 	// Global mapping of relation IDs to RelationMessages sent as a part of logical replication.
 	// Needed to support schema changes.
 	RelationMessageMapping model.RelationMessageMapping
+	// current workflow state
+	CurrentFlowState *protos.FlowStatus
 }
 
 type SignalProps struct {
@@ -68,7 +66,6 @@ func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
 		SyncFlowStatuses:      nil,
 		NormalizeFlowStatuses: nil,
 		ActiveSignal:          shared.NoopSignal,
-		SetupComplete:         false,
 		SyncFlowErrors:        nil,
 		NormalizeFlowErrors:   nil,
 		// WORKAROUND: empty maps are protobufed into nil maps for reasons beyond me
@@ -78,6 +75,7 @@ func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
 				RelationName: "protobuf_workaround",
 			},
 		},
+		CurrentFlowState: protos.FlowStatus_STATUS_SETUP.Enum(),
 	}
 }
 
@@ -174,7 +172,20 @@ func CDCFlowWorkflowWithConfig(
 		return *state, nil
 	})
 	if err != nil {
-		return state, fmt.Errorf("failed to set `%s` query handler: %w", CDCFlowStatusQuery, err)
+		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
+	}
+	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (*protos.FlowStatus, error) {
+		return state.CurrentFlowState, nil
+	})
+	if err != nil {
+		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
+	}
+	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
+		state.CurrentFlowState = status
+		return nil
+	})
+	if err != nil {
+		return state, fmt.Errorf("failed to set `%s` update handler: %w", shared.FlowStatusUpdate, err)
 	}
 
 	mirrorNameSearch := map[string]interface{}{
@@ -185,7 +196,7 @@ func CDCFlowWorkflowWithConfig(
 	// because Resync modifies TableMappings before Setup and also before Snapshot
 	// for safety, rely on the idempotency of SetupFlow instead
 	// also, no signals are being handled until the loop starts, so no PAUSE/DROP will take here.
-	if !(state.SetupComplete && state.SnapshotComplete) {
+	if state.CurrentFlowState != protos.FlowStatus_STATUS_RUNNING.Enum() {
 		// if resync is true, alter the table name schema mapping to temporarily add
 		// a suffix to the table names.
 		if cfg.Resync {
@@ -215,7 +226,7 @@ func CDCFlowWorkflowWithConfig(
 		if err := setupFlowFuture.Get(setupFlowCtx, &cfg); err != nil {
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
-		state.SetupComplete = true
+		state.CurrentFlowState = protos.FlowStatus_STATUS_SNAPSHOT.Enum()
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID, err := GetChildWorkflowID(ctx, "snapshot-flow", cfg.FlowJobName)
@@ -277,7 +288,7 @@ func CDCFlowWorkflowWithConfig(
 			}
 		}
 
-		state.SnapshotComplete = true
+		state.CurrentFlowState = protos.FlowStatus_STATUS_RUNNING.Enum()
 		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 
 		// if initial_copy_only is opted for, we end the flow here.
@@ -361,6 +372,7 @@ func CDCFlowWorkflowWithConfig(
 
 		if state.ActiveSignal == shared.PauseSignal {
 			startTime := time.Now()
+			state.CurrentFlowState = protos.FlowStatus_STATUS_PAUSED.Enum()
 			signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
 			var signalVal shared.CDCFlowSignal
 
@@ -372,13 +384,19 @@ func CDCFlowWorkflowWithConfig(
 					state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
 				}
 			}
+
+			w.logger.Info("mirror has been resumed after ", time.Since(startTime))
 		}
+
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
 			finishNormalize()
 			w.logger.Info("peer flow has been shutdown")
+			state.CurrentFlowState = protos.FlowStatus_STATUS_TERMINATED.Enum()
 			return state, nil
 		}
+
+		state.CurrentFlowState = protos.FlowStatus_STATUS_RUNNING.Enum()
 
 		// check if total sync flows have been completed
 		// since this happens immediately after we check for signals, the case of a signal being missed

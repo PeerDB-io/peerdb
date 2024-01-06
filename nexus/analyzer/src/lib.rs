@@ -11,7 +11,7 @@ use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
         peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
-        S3Config, SnowflakeConfig, SqlServerConfig,
+        S3Config, SnowflakeConfig, SqlServerConfig,ClickhouseConfig
     },
 };
 use qrep::process_options;
@@ -663,11 +663,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::Eventhub => {
-            let conn_str: String = opts
-                .get("metadata_db")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let metadata_db = parse_metadata_db_info(&conn_str)?;
+            let conn_str = opts.get("metadata_db");
+            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
             let subscription_id = opts
                 .get("subscription_id")
                 .map(|s| s.to_string())
@@ -676,16 +673,14 @@ fn parse_db_options(
             // partition_count default to 3 if not set, parse as int
             let partition_count = opts
                 .get("partition_count")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "3".to_string())
+                .unwrap_or(&"3")
                 .parse::<u32>()
                 .context("unable to parse partition_count as valid int")?;
 
             // message_retention_in_days default to 7 if not set, parse as int
             let message_retention_in_days = opts
                 .get("message_retention_in_days")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "7".to_string())
+                .unwrap_or(&"7")
                 .parse::<u32>()
                 .context("unable to parse message_retention_in_days as valid int")?;
 
@@ -711,11 +706,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::S3 => {
-            let s3_conn_str: String = opts
-                .get("metadata_db")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            let metadata_db = parse_metadata_db_info(&s3_conn_str)?;
+            let s3_conn_str = opts.get("metadata_db");
+            let metadata_db = parse_metadata_db_info(s3_conn_str.copied())?;
             let s3_config = S3Config {
                 url: opts
                     .get("url")
@@ -754,10 +746,8 @@ fn parse_db_options(
             Some(config)
         }
         DbType::EventhubGroup => {
-            let conn_str = opts
-                .get("metadata_db")
-                .context("no metadata db specified")?;
-            let metadata_db = parse_metadata_db_info(conn_str)?;
+            let conn_str = opts.get("metadata_db");
+            let metadata_db = parse_metadata_db_info(conn_str.copied())?;
 
             // metadata_db is required for eventhub group
             if metadata_db.is_none() {
@@ -803,12 +793,47 @@ fn parse_db_options(
             let config = Config::EventhubGroupConfig(eventhub_group_config);
             Some(config)
         }
+        DbType::Clickhouse => {
+            let s3_int = opts
+                .get("s3_integration")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+                        
+            let clickhouse_config = ClickhouseConfig {
+                host: opts.get("host").context("no host specified")?.to_string(),
+                port: opts
+                    .get("port")
+                    .context("no port specified")?
+                    .parse::<u32>()
+                    .context("unable to parse port as valid int")?,
+                user: opts
+                    .get("user")
+                    .context("no username specified")?
+                    .to_string(),
+                password: opts
+                    .get("password")
+                    .context("no password specified")?
+                    .to_string(),
+                database: opts
+                    .get("database")
+                    .context("no default database specified")?
+                    .to_string(),
+                s3_integration: s3_int,
+            };
+            let config = Config::ClickhouseConfig(clickhouse_config);
+            Some(config)
+        }        
     };
 
     Ok(config)
 }
 
-fn parse_metadata_db_info(conn_str: &str) -> anyhow::Result<Option<PostgresConfig>> {
+fn parse_metadata_db_info(conn_str: Option<&str>) -> anyhow::Result<Option<PostgresConfig>> {
+    let conn_str = match conn_str {
+        Some(conn_str) => conn_str,
+        None => return Ok(None),
+    };
+
     if conn_str.is_empty() {
         return Ok(None);
     }

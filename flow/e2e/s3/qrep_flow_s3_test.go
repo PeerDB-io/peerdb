@@ -37,11 +37,11 @@ func tearDownSuite(s PeerFlowE2ETestSuiteS3) {
 }
 
 func TestPeerFlowE2ETestSuiteS3(t *testing.T) {
-	e2eshared.GotSuite(t, SetupSuiteS3, tearDownSuite)
+	e2eshared.RunSuite(t, SetupSuiteS3, tearDownSuite)
 }
 
 func TestPeerFlowE2ETestSuiteGCS(t *testing.T) {
-	e2eshared.GotSuite(t, SetupSuiteGCS, tearDownSuite)
+	e2eshared.RunSuite(t, SetupSuiteGCS, tearDownSuite)
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
@@ -135,8 +135,6 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, 1, len(files))
-
-	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
@@ -186,6 +184,4 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, 10, len(files))
-
-	env.AssertExpectations(s.t)
 }
