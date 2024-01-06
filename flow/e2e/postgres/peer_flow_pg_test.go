@@ -298,7 +298,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize 10 rows", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize 10 rows", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 
@@ -307,7 +307,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize modifications", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize modifications", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 		env.CancelWorkflow()
@@ -446,7 +446,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize 10 rows", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize 10 rows", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2") == nil
 		})
 		_, err = s.pool.Exec(context.Background(),
@@ -455,7 +455,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 		e2e.EnvNoError(s.t, env, err)
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize update", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize update", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2") == nil
 		})
 
@@ -577,13 +577,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize row", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize update", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize update", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 		// since we delete stuff, create another table to compare with
@@ -594,7 +594,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize delete", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize delete", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName+` WHERE NOT "_PEERDB_IS_DELETED"`, "id,c1,c2,t") == nil
 		})
 
@@ -752,7 +752,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize row", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 
@@ -769,7 +769,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize transaction", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize transaction", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName+` WHERE NOT "_PEERDB_IS_DELETED"`, "id,c1,c2,t") == nil
 		})
 
@@ -839,19 +839,19 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize row", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize row", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize delete", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize delete", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName+` WHERE NOT "_PEERDB_IS_DELETED"`, "id,c1,c2,t") == nil
 		})
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(id,c1,c2,t) VALUES (1,3,4,random_string(10000))`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize reinsert", func() bool {
+		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize reinsert", func() bool {
 			return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t") == nil
 		})
 

@@ -211,7 +211,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos
 		CdcStagingPath:     c.CdcStagingPath,
 		SoftDelete:         c.SoftDelete,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
-		IdleTimeoutSeconds: 30,
+		IdleTimeoutSeconds: 15,
 	}
 	if ret.SoftDelete {
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
