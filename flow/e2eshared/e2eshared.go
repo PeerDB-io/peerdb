@@ -111,8 +111,6 @@ func CheckEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.Q
 	for i, record := range q.Records {
 		if !CheckQRecordEquality(t, record, other.Records[i]) {
 			t.Logf("Record %d is not equal", i)
-			t.Logf("Record 1: %v", record)
-			t.Logf("Record 2: %v", other.Records[i])
 			return false
 		}
 	}
