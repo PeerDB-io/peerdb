@@ -1586,6 +1586,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 				return e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows)
 			},
 		)
+
+		env.CancelWorkflow()
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)

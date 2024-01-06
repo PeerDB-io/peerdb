@@ -160,6 +160,8 @@ func EnvWaitForEqualTablesWithNames(
 	t.Helper()
 
 	EnvWaitFor(t, env, time.Minute, reason, func(ctx context.Context) bool {
+		t.Helper()
+
 		suffix := suite.Suffix()
 		pool := suite.Pool()
 		pgRows, err := GetPgRows(pool, suffix, srcTable, cols)
