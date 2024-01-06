@@ -205,36 +205,6 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 	}
 }
 
-func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
-	connectionGen FlowConnectionGenerationConfig,
-	minCount int,
-) {
-	// wait for PeerFlowStatusQuery to finish setup
-	// sleep for 5 second to allow the workflow to start
-	time.Sleep(5 * time.Second)
-	for {
-		response, err := env.QueryWorkflow(
-			shared.CDCFlowStateQuery,
-			connectionGen.FlowJobName,
-		)
-		if err == nil {
-			var state peerflow.CDCFlowWorkflowState
-			err = response.Get(&state)
-			if err != nil {
-				slog.Error(err.Error())
-			}
-
-			if len(state.NormalizeFlowStatuses) >= minCount {
-				break
-			}
-		} else {
-			// log the error for informational purposes
-			slog.Error(err.Error())
-		}
-		time.Sleep(1 * time.Second)
-	}
-}
-
 func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
