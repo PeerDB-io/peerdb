@@ -41,6 +41,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 
 	syncMetaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
+		WaitForCancellation: true,
 	})
 
 	// execute GetLastSyncedID on destination peer
@@ -65,6 +66,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 72 * time.Hour,
 		HeartbeatTimeout:    30 * time.Second,
+		WaitForCancellation: true,
 	})
 
 	// execute StartFlow on the peers to start the flow
@@ -83,6 +85,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 
 	replayTableSchemaDeltaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Minute,
+		WaitForCancellation: true,
 	})
 	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
 		FlowConnectionConfigs: config,

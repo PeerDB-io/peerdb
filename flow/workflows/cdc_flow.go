@@ -216,7 +216,8 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: mirrorNameSearch,
+			SearchAttributes:    mirrorNameSearch,
+			WaitForCancellation: true,
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
@@ -242,8 +243,9 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			TaskQueue:        taskQueue,
-			SearchAttributes: mirrorNameSearch,
+			TaskQueue:           taskQueue,
+			SearchAttributes:    mirrorNameSearch,
+			WaitForCancellation: true,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
@@ -392,7 +394,8 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: mirrorNameSearch,
+			SearchAttributes:    mirrorNameSearch,
+			WaitForCancellation: true,
 		}
 		syncCtx := workflow.WithChildOptions(ctx, childSyncFlowOpts)
 		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
@@ -464,7 +467,8 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: mirrorNameSearch,
+			SearchAttributes:    mirrorNameSearch,
+			WaitForCancellation: true,
 		}
 		normCtx := workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
