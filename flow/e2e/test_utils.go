@@ -169,11 +169,12 @@ func EnvWaitForEqualTablesWithNames(
 
 func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig,
-) {
-	// wait for PeerFlowStatusQuery to finish setup
-	// sleep for 5 second to allow the workflow to start
-	time.Sleep(5 * time.Second)
+) error {
+	// errors expected while PeerFlowStatusQuery is setup
+	counter := 0
 	for {
+		time.Sleep(time.Second)
+		counter++
 		response, err := env.QueryWorkflow(
 			shared.CDCFlowStateQuery,
 			connectionGen.FlowJobName,
@@ -186,13 +187,14 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			}
 
 			if *state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
-				break
+				return nil
 			}
-		} else {
+		} else if counter > 15 {
+			return err
+		} else if counter > 5 {
 			// log the error for informational purposes
 			slog.Error(err.Error())
 		}
-		time.Sleep(1 * time.Second)
 	}
 }
 

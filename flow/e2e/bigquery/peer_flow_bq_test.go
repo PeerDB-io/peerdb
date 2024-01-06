@@ -998,7 +998,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		s.t.Log("Inserted row after dropping all columns in the source table")
 
 		// verify we got our two rows, if schema did not match up it will error.
-		e2e.EnvWaitForEqualTables(env, s, "normalize altered row", tableName, "id,c1")
+		e2e.EnvWaitForEqualTables(env, s, "normalize drop column", tableName, "id,c1")
 
 		env.CancelWorkflow()
 	}()
