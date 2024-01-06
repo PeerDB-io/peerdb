@@ -1555,6 +1555,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
 		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize transaction", func() bool {
+			rows2, _ := s.GetRows(dstName, "id,c1,c2,_PEERDB_IS_DELETED")
+			s.t.Log("ROWS", rows2)
+
 			pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, srcName, "id,c1,c2,t")
 			e2e.EnvNoError(s.t, env, err)
 			rows, err := s.GetRowsWhere(dstName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
