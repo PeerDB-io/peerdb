@@ -43,7 +43,7 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	}
 
 	var config *protos.SnowflakeConfig
-	err = json.Unmarshal(content, config)
+	err = json.Unmarshal(content, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
