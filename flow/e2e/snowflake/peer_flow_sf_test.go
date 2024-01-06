@@ -1250,7 +1250,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 
-	sfRows, err := s.GetRows("*", "test_exclude_sf")
+	sfRows, err := s.GetRows(tableName, "*")
 	require.NoError(s.t, err)
 
 	for _, field := range sfRows.Schema.Fields {
