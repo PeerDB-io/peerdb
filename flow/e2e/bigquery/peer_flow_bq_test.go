@@ -1593,10 +1593,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 					"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
 					s.bqHelper.Config.DatasetId, dstName)
 				numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
-				s.t.Log("count", numNewRows)
-				if err != nil {
-					s.t.Error("ERROR ERROR ERROR", err)
-				}
+				s.t.Log("countcount", numNewRows, err != nil, numNewRows == 1)
 				return err != nil && numNewRows == 1
 			},
 		)
