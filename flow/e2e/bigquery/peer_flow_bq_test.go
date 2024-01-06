@@ -1592,8 +1592,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
 
-	newerSyncedAtQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM`+"`%s.%s`"+`WHERE _PEERDB_IS_DELETED`,
+	newerSyncedAtQuery := fmt.Sprintf(
+		"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
 		s.bqHelper.datasetName, dstName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)

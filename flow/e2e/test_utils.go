@@ -70,18 +70,7 @@ func EnvNoError(t *testing.T, env *testsuite.TestWorkflowEnvironment, err error)
 	t.Helper()
 
 	if err != nil {
-		t.Error(err.Error())
-		env.CancelWorkflow()
-		runtime.Goexit()
-	}
-}
-
-// See EnvNoError
-func EnvEqual[T comparable](t *testing.T, env *testsuite.TestWorkflowEnvironment, x T, y T) {
-	t.Helper()
-
-	if x != y {
-		t.Error("not equal", x, y)
+		t.Error("UNEXPECTED ERROR", err.Error())
 		env.CancelWorkflow()
 		runtime.Goexit()
 	}
@@ -91,7 +80,7 @@ func EnvTrue(t *testing.T, env *testsuite.TestWorkflowEnvironment, val bool) {
 	t.Helper()
 
 	if !val {
-		t.Error("assertion failed")
+		t.Error("UNEXPECTED FALSE")
 		env.CancelWorkflow()
 		runtime.Goexit()
 	}
@@ -539,14 +528,9 @@ func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, q, other))
 }
 
-// See EnvNoError
 func EnvEqualRecordBatches(t *testing.T, env *testsuite.TestWorkflowEnvironment, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
-
-	if !e2eshared.CheckEqualRecordBatches(t, q, other) {
-		env.CancelWorkflow()
-		runtime.Goexit()
-	}
+	EnvTrue(t, env, e2eshared.CheckEqualRecordBatches(t, q, other))
 }
 
 func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout time.Duration, reason string, f func(ctx context.Context) bool) {
@@ -555,10 +539,10 @@ func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout ti
 	ctx, cleanup := context.WithTimeout(context.Background(), timeout)
 	defer cleanup()
 	deadline, _ := ctx.Deadline()
+	t.Log("WaitFor", reason)
 	for !f(ctx) {
-		t.Log(time.Now(), deadline)
 		if time.Now().Compare(deadline) >= 0 {
-			t.Error("WaitFor timed out", reason)
+			t.Error("UNEXPECTED TIMEOUT", reason)
 			env.CancelWorkflow()
 			runtime.Goexit()
 		}
