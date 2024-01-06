@@ -1237,13 +1237,13 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		}
 		s.t.Log("Inserted 10 rows into the source table")
 
-		e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,t,t2")
+		e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t,t2")
 		_, err = s.pool.Exec(context.Background(),
 			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,t,t2")
+		e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c1,t,t2")
 
 		env.CancelWorkflow()
 	}()
