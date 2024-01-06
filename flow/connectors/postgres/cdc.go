@@ -249,10 +249,7 @@ func (p *PostgresCDCSource) consumeStream(
 		currRecords := cdcRecordsStorage.Len()
 		return fmt.Sprintf("pulling records for job - %s, currently have %d records", jobName, currRecords)
 	})
-
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	standbyMessageTimeout := req.IdleTimeout
 	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)

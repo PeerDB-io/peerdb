@@ -282,10 +282,7 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage 
 	shutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
 		return fmt.Sprintf("putting file to stage %s", stage)
 	})
-
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	if _, err := s.connector.database.ExecContext(s.connector.ctx, putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
