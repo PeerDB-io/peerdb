@@ -1576,9 +1576,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		e2e.EnvWaitFor(s.t, env, time.Minute, "normalize transaction",
 			func(ctx context.Context) bool {
 				pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, srcName, "id,c1,c2,t")
-				if err != nil {
-					return false
-				}
+				e2e.EnvNoError(s.t, env, err)
 				rows, err := s.GetRowsWhere(dstName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
 				if err != nil {
 					return false
@@ -1591,6 +1589,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 					"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
 					s.bqHelper.Config.DatasetId, dstName)
 				numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
+				e2e.EnvNoError(s.t, env, err)
+				s.t.Log("waiting on _PEERDB_IS_DELETED to be 1, currently", numNewRows)
 				return err == nil && numNewRows == 1
 			},
 		)
