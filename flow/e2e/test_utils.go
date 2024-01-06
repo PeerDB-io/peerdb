@@ -543,7 +543,7 @@ func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout ti
 	deadline, _ := ctx.Deadline()
 	t.Log("WaitFor", reason)
 	for !f(ctx) {
-		if time.Now().Compare(deadline) >= 0 {
+		if time.Now().After(deadline) {
 			t.Error("UNEXPECTED TIMEOUT", reason)
 			env.CancelWorkflow()
 			runtime.Goexit()

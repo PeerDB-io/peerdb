@@ -139,18 +139,16 @@ func TearDownPostgres(pool *pgxpool.Pool, suffix string) error {
 	// drop the e2e_test schema
 	if pool != nil {
 		deadline := time.Now().Add(time.Minute)
-		var err error
 		for {
-			err = cleanPostgres(pool, suffix)
-			if time.Now().Compare(deadline) > 0 {
-				break
+			err := cleanPostgres(pool, suffix)
+			if err == nil {
+				pool.Close()
+				return nil
+			} else if time.Now().After(deadline) {
+				return err
 			}
 			time.Sleep(time.Second)
 		}
-		if err != nil {
-			return err
-		}
-		pool.Close()
 	}
 	return nil
 }
@@ -196,7 +194,7 @@ func GenerateSnowflakePeer(snowflakeConfig *protos.SnowflakeConfig) (*protos.Pee
 	return ret, nil
 }
 
-func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*protos.FlowConnectionConfigs, error) {
+func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos.FlowConnectionConfigs {
 	tblMappings := []*protos.TableMapping{}
 	for k, v := range c.TableNameMapping {
 		tblMappings = append(tblMappings, &protos.TableMapping{
@@ -205,18 +203,20 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 		})
 	}
 
-	ret := &protos.FlowConnectionConfigs{}
-	ret.FlowJobName = c.FlowJobName
-	ret.TableMappings = tblMappings
-	ret.Source = GeneratePostgresPeer(c.PostgresPort)
-	ret.Destination = c.Destination
-	ret.CdcStagingPath = c.CdcStagingPath
-	ret.SoftDelete = c.SoftDelete
+	ret := &protos.FlowConnectionConfigs{
+		FlowJobName:        c.FlowJobName,
+		TableMappings:      tblMappings,
+		Source:             GeneratePostgresPeer(c.PostgresPort),
+		Destination:        c.Destination,
+		CdcStagingPath:     c.CdcStagingPath,
+		SoftDelete:         c.SoftDelete,
+		SyncedAtColName:    "_PEERDB_SYNCED_AT",
+		IdleTimeoutSeconds: 30,
+	}
 	if ret.SoftDelete {
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	}
-	ret.SyncedAtColName = "_PEERDB_SYNCED_AT"
-	return ret, nil
+	return ret
 }
 
 type QRepFlowConnectionGenerationConfig struct {
