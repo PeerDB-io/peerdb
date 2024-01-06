@@ -124,7 +124,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 func (m *mergeStmtGenerator) generateMergeStmts() []string {
 	// TODO (kaushik): This is so that the statement size for individual merge statements
 	// doesn't exceed the limit. We should make this configurable.
-	const batchSize = 8
+	const batchSize = 64
 	partitions := utils.ArrayPartition(m.unchangedToastColumns, batchSize)
 
 	mergeStmts := make([]string, 0, len(partitions))
