@@ -64,7 +64,7 @@ func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
 			s.t.FailNow()
 		}
 
-		err = s.bqHelper.DropDataset(s.bqHelper.datasetName)
+		err = s.bqHelper.DropDataset(s.bqHelper.Config.DatasetId)
 		if err != nil {
 			slog.Error("failed to tear down bigquery", slog.Any("error", err))
 			s.t.FailNow()
@@ -75,7 +75,7 @@ func TestPeerFlowE2ETestSuiteBQ(t *testing.T) {
 func (s PeerFlowE2ETestSuiteBQ) checkJSONValue(tableName, colName, fieldName, value string) error {
 	res, err := s.bqHelper.ExecuteAndProcessQuery(fmt.Sprintf(
 		"SELECT `%s`.%s FROM `%s.%s`;",
-		colName, fieldName, s.bqHelper.datasetName, tableName))
+		colName, fieldName, s.bqHelper.Config.DatasetId, tableName))
 	if err != nil {
 		return fmt.Errorf("json value check failed: %v", err)
 	}
@@ -848,10 +848,10 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 
 	// We inserted 4 invalid shapes in each.
 	// They should have been filtered out as null on destination
-	lineCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "line")
+	lineCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.Config.DatasetId, dstTableName, "line")
 	require.NoError(s.t, err)
 
-	polyCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.datasetName, dstTableName, "`polyPoly`")
+	polyCount, err := s.bqHelper.countRowsWithDataset(s.bqHelper.Config.DatasetId, dstTableName, "`polyPoly`")
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, 6, lineCount)
@@ -1277,7 +1277,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
 	dstTable1Name := "test1_bq"
-	secondDataset := fmt.Sprintf("%s_2", s.bqHelper.datasetName)
+	secondDataset := fmt.Sprintf("%s_2", s.bqHelper.Config.DatasetId)
 	srcTable2Name := s.attachSchemaSuffix("test2_bq")
 	dstTable2Name := "test2_bq"
 
@@ -1417,7 +1417,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 
 	newerSyncedAtQuery := fmt.Sprintf(
 		"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
-		s.bqHelper.datasetName, tableName)
+		s.bqHelper.Config.DatasetId, tableName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(1), numNewRows)
@@ -1501,7 +1501,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_IUD_Same_Batch() {
 
 	newerSyncedAtQuery := fmt.Sprintf(`
 		SELECT COUNT(*) FROM`+"`%s.%s`"+`WHERE _PEERDB_IS_DELETED`,
-		s.bqHelper.datasetName, dstTableName)
+		s.bqHelper.Config.DatasetId, dstTableName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(1), numNewRows)
@@ -1591,7 +1591,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 				s.t.Log("rows same", rows.NumRecords, newrows.NumRecords)
 				newerSyncedAtQuery := fmt.Sprintf(
 					"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
-					s.bqHelper.datasetName, dstName)
+					s.bqHelper.Config.DatasetId, dstName)
 				numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 				return err != nil && numNewRows == 1
 			},
@@ -1682,7 +1682,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 
 	newerSyncedAtQuery := fmt.Sprintf(
 		"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
-		s.bqHelper.datasetName, tableName)
+		s.bqHelper.Config.DatasetId, tableName)
 	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
 	require.NoError(s.t, err)
 	require.Equal(s.t, int64(0), numNewRows)

@@ -29,8 +29,6 @@ type BigQueryTestHelper struct {
 	Peer *protos.Peer
 	// client to talk to BigQuery
 	client *bigquery.Client
-	// dataset to use for testing.
-	datasetName string
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
@@ -51,7 +49,7 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	var config protos.BigqueryConfig
+	var config *protos.BigqueryConfig
 	err = json.Unmarshal(content, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
@@ -60,7 +58,7 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 	// suffix the dataset with the runID to namespace stateful schemas.
 	config.DatasetId = fmt.Sprintf("%s_%d", config.DatasetId, runID)
 
-	bqsa, err := peer_bq.NewBigQueryServiceAccount(&config)
+	bqsa, err := peer_bq.NewBigQueryServiceAccount(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
 	}
@@ -70,14 +68,13 @@ func NewBigQueryTestHelper() (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}
 
-	peer := generateBQPeer(&config)
+	peer := generateBQPeer(config)
 
 	return &BigQueryTestHelper{
-		runID:       runID,
-		Config:      &config,
-		client:      client,
-		datasetName: config.DatasetId,
-		Peer:        peer,
+		runID:  runID,
+		Config: config,
+		client: client,
+		Peer:   peer,
 	}, nil
 }
 
@@ -115,12 +112,12 @@ func (b *BigQueryTestHelper) datasetExists(datasetName string) (bool, error) {
 
 // RecreateDataset recreates the dataset, i.e, deletes it if exists and creates it again.
 func (b *BigQueryTestHelper) RecreateDataset() error {
-	exists, err := b.datasetExists(b.datasetName)
+	exists, err := b.datasetExists(b.Config.DatasetId)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
 
-	dataset := b.client.Dataset(b.datasetName)
+	dataset := b.client.Dataset(b.Config.DatasetId)
 	if exists {
 		err := dataset.DeleteWithContents(context.Background())
 		if err != nil {
@@ -168,7 +165,7 @@ func (b *BigQueryTestHelper) RunCommand(command string) error {
 
 // countRows(tableName) returns the number of rows in the given table.
 func (b *BigQueryTestHelper) countRows(tableName string) (int, error) {
-	return b.countRowsWithDataset(b.datasetName, tableName, "")
+	return b.countRowsWithDataset(b.Config.DatasetId, tableName, "")
 }
 
 func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, nonNullCol string) (int, error) {
@@ -445,7 +442,7 @@ func (b *BigQueryTestHelper) CreateTable(tableName string, schema *model.QRecord
 		fields = append(fields, fmt.Sprintf("`%s` %s", field.Name, bqType))
 	}
 
-	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.datasetName, tableName, strings.Join(fields, ", "))
+	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.Config.DatasetId, tableName, strings.Join(fields, ", "))
 
 	err := b.RunCommand(command)
 	if err != nil {
