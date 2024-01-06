@@ -1583,7 +1583,15 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 				if err != nil {
 					return false
 				}
-				return e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows)
+				if !e2eshared.CheckEqualRecordBatches(s.t, pgRows, rows) {
+					return false
+				}
+
+				newerSyncedAtQuery := fmt.Sprintf(
+					"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
+					s.bqHelper.datasetName, dstName)
+				numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
+				return err != nil && numNewRows == 1
 			},
 		)
 
@@ -1591,13 +1599,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	}()
 
 	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, config, &limits, nil)
-
-	newerSyncedAtQuery := fmt.Sprintf(
-		"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
-		s.bqHelper.datasetName, dstName)
-	numNewRows, err := s.bqHelper.RunInt64Query(newerSyncedAtQuery)
-	require.NoError(s.t, err)
-	require.Equal(s.t, int64(1), numNewRows)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {

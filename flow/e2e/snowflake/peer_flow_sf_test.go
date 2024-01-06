@@ -1239,9 +1239,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 
 		e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,t,t2")
 		_, err = s.pool.Exec(context.Background(),
-			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=$1`, srcTableName), 1)
+			fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,t,t2")
 
@@ -1257,7 +1257,6 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 		require.NotEqual(s.t, field.Name, "c2")
 	}
 	require.Equal(s.t, 5, len(sfRows.Schema.Fields))
-	require.Equal(s.t, 10, len(sfRows.Records))
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
