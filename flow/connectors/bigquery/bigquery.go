@@ -613,7 +613,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		// run the merge statement
 		for i, mergeStmt := range mergeStmts {
 			c.logger.Info(fmt.Sprintf("running merge statement [%d/%d] for table %s..",
-				i, len(mergeStmts), tableName))
+				i+1, len(mergeStmts), tableName))
 			q := c.client.Query(mergeStmt)
 			_, err = q.Read(c.ctx)
 			if err != nil {
