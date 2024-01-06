@@ -604,6 +604,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 				SyncedAtColName:   req.SyncedAtColName,
 				SoftDelete:        req.SoftDelete,
 			},
+			shortColumn: map[string]string{},
 		}
 		// normalize anything between last normalized batch id to last sync batchid
 		mergeStmt := mergeGen.generateMergeStmt()
