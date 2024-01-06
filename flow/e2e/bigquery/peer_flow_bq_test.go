@@ -1587,8 +1587,6 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 					return false
 				}
 
-				newrows, _ := s.GetRows(dstName, "id,c1,c2,t")
-				s.t.Log("rows same", rows.NumRecords, newrows.NumRecords)
 				newerSyncedAtQuery := fmt.Sprintf(
 					"SELECT COUNT(*) FROM `%s.%s` WHERE _PEERDB_IS_DELETED",
 					s.bqHelper.Config.DatasetId, dstName)
