@@ -120,25 +120,12 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 	return fmt.Sprintf(cte, pkeyColsStr)
 }
 
-// TODO move to utils.
-func partition[T any](slice []T, size int) [][]T {
-	var partitions [][]T
-
-	for size < len(slice) {
-		slice, partitions = slice[size:], append(partitions, slice[0:size])
-	}
-
-	// Add the last remaining values
-	partitions = append(partitions, slice)
-
-	return partitions
-}
-
 // generateMergeStmts generates merge statements, partitioned by unchanged toast columns.
 func (m *mergeStmtGenerator) generateMergeStmts() []string {
-	// partition unchanged toast columns into batches of 8
+	// TODO (kaushik): This is so that the statement size for individual merge statements
+	// doesn't exceed the limit. We should make this configurable.
 	const batchSize = 8
-	partitions := partition(m.unchangedToastColumns, batchSize)
+	partitions := utils.ArrayPartition(m.unchangedToastColumns, batchSize)
 
 	mergeStmts := make([]string, 0, len(partitions))
 	for _, partition := range partitions {

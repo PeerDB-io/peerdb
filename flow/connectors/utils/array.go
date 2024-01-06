@@ -16,3 +16,16 @@ func ArrayMinus(first []string, second []string) []string {
 	}
 	return result
 }
+
+func ArrayPartition[T any](slice []T, size int) [][]T {
+	var partitions [][]T
+
+	for size < len(slice) {
+		slice, partitions = slice[size:], append(partitions, slice[0:size])
+	}
+
+	// Add the last remaining values
+	partitions = append(partitions, slice)
+
+	return partitions
+}
