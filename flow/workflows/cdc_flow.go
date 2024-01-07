@@ -72,7 +72,7 @@ func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
 				RelationName: "protobuf_workaround",
 			},
 		},
-		CurrentFlowState: *protos.FlowStatus_STATUS_SETUP.Enum(),
+		CurrentFlowState: protos.FlowStatus_STATUS_SETUP,
 	}
 }
 
@@ -193,7 +193,7 @@ func CDCFlowWorkflowWithConfig(
 	// because Resync modifies TableMappings before Setup and also before Snapshot
 	// for safety, rely on the idempotency of SetupFlow instead
 	// also, no signals are being handled until the loop starts, so no PAUSE/DROP will take here.
-	if state.CurrentFlowState != *protos.FlowStatus_STATUS_RUNNING.Enum() {
+	if state.CurrentFlowState != protos.FlowStatus_STATUS_RUNNING {
 		// if resync is true, alter the table name schema mapping to temporarily add
 		// a suffix to the table names.
 		if cfg.Resync {
@@ -223,7 +223,7 @@ func CDCFlowWorkflowWithConfig(
 		if err := setupFlowFuture.Get(setupFlowCtx, &cfg); err != nil {
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
-		state.CurrentFlowState = *protos.FlowStatus_STATUS_SNAPSHOT.Enum()
+		state.CurrentFlowState = protos.FlowStatus_STATUS_SNAPSHOT
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID, err := GetChildWorkflowID(ctx, "snapshot-flow", cfg.FlowJobName)
@@ -285,7 +285,7 @@ func CDCFlowWorkflowWithConfig(
 			}
 		}
 
-		state.CurrentFlowState = *protos.FlowStatus_STATUS_RUNNING.Enum()
+		state.CurrentFlowState = protos.FlowStatus_STATUS_RUNNING
 		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 
 		// if initial_copy_only is opted for, we end the flow here.
@@ -333,7 +333,7 @@ func CDCFlowWorkflowWithConfig(
 
 		if state.ActiveSignal == shared.PauseSignal {
 			startTime := time.Now()
-			state.CurrentFlowState = *protos.FlowStatus_STATUS_PAUSED.Enum()
+			state.CurrentFlowState = protos.FlowStatus_STATUS_PAUSED
 			signalChan := workflow.GetSignalChannel(ctx, shared.CDCFlowSignalName)
 			var signalVal shared.CDCFlowSignal
 
@@ -352,11 +352,11 @@ func CDCFlowWorkflowWithConfig(
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
 			w.logger.Info("peer flow has been shutdown")
-			state.CurrentFlowState = *protos.FlowStatus_STATUS_TERMINATED.Enum()
+			state.CurrentFlowState = protos.FlowStatus_STATUS_TERMINATED
 			return state, nil
 		}
 
-		state.CurrentFlowState = *protos.FlowStatus_STATUS_RUNNING.Enum()
+		state.CurrentFlowState = protos.FlowStatus_STATUS_RUNNING
 
 		// check if total sync flows have been completed
 		// since this happens immediately after we check for signals, the case of a signal being missed
