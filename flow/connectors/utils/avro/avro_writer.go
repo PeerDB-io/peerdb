@@ -136,7 +136,10 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 			written := numRows.Load()
 			return fmt.Sprintf("[avro] written %d rows to OCF", written)
 		})
-		defer shutdown()
+
+		defer func() {
+			shutdown <- struct{}{}
+		}()
 	}
 
 	for qRecordOrErr := range p.stream.Records {

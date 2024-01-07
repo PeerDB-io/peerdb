@@ -286,7 +286,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("pushing records for job - %s", jobName)
 	})
-	defer shutdown()
+
+	defer func() {
+		shutdown <- struct{}{}
+	}()
 
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
@@ -394,7 +397,9 @@ func (a *FlowableActivity) StartNormalize(
 	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
-	defer shutdown()
+	defer func() {
+		shutdown <- struct{}{}
+	}()
 
 	slog.InfoContext(ctx, "initializing table schema...")
 	err = dstConn.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
@@ -489,7 +494,10 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
 		return fmt.Sprintf("getting partitions for job - %s", config.FlowJobName)
 	})
-	defer shutdown()
+
+	defer func() {
+		shutdown <- struct{}{}
+	}()
 
 	partitions, err := srcConn.GetQRepPartitions(config, last)
 	if err != nil {
@@ -627,7 +635,10 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
 		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	})
-	defer shutdown()
+
+	defer func() {
+		shutdown <- struct{}{}
+	}()
 
 	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
@@ -673,7 +684,10 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
 		return fmt.Sprintf("consolidating partitions for job - %s", config.FlowJobName)
 	})
-	defer shutdown()
+
+	defer func() {
+		shutdown <- struct{}{}
+	}()
 
 	err = dstConn.ConsolidateQRepPartitions(config)
 	if err != nil {
@@ -982,7 +996,10 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
 		return "syncing xmin."
 	})
-	defer shutdown()
+
+	defer func() {
+		shutdown <- struct{}{}
+	}()
 
 	rowsSynced, err := dstConn.SyncQRepRecords(config, partition, stream)
 	if err != nil {
