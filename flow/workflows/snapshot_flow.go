@@ -246,6 +246,10 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 }
 
 func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigs) error {
+	if 1 > 0 {
+		return nil
+	}
+
 	logger := workflow.GetLogger(ctx)
 
 	se := &SnapshotFlowExecution{
