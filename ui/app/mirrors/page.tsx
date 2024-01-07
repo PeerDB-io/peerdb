@@ -31,20 +31,21 @@ export default function Mirrors() {
 
   let qrepFlows = flows?.filter((flow) => {
     if (flow.config_proto && flow.query_string) {
-      let config = QRepConfig.decode(flow.config_proto);
-      const watermarkCol = config.watermarkColumn.toLowerCase();
+      //let config = QRepConfig.decode(flow.config_proto);
+      const watermarkCol = 'id';//config.watermarkColumn.toLowerCase();
       return watermarkCol !== 'xmin' && watermarkCol !== 'ctid';
     }
     return false;
   });
 
-  let xminFlows = flows?.filter((flow) => {
-    if (flow.config_proto && flow.query_string) {
-      let config = QRepConfig.decode(flow.config_proto);
-      return config.watermarkColumn.toLowerCase() === 'xmin';
-    }
-    return false;
-  });
+  // let xminFlows = flows?.filter((flow) => {
+  //   if (flow.config_proto && flow.query_string) {
+  //     let config = QRepConfig.decode(flow.config_proto);
+  //     return config.watermarkColumn.toLowerCase() === 'xmin';
+  //   }
+  //   return false;
+  // });
+  let xminFlows = []
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
