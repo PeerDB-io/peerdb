@@ -83,10 +83,13 @@ func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetc
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
 
 	if !qe.testEnv {
-		shutdown := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
+		shutdownCh := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
 			return fmt.Sprintf("running '%s'", q)
 		})
-		defer shutdown()
+
+		defer func() {
+			shutdownCh <- struct{}{}
+		}()
 	}
 
 	rows, err := tx.Query(qe.ctx, q)
