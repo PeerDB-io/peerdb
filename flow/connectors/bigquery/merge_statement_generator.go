@@ -204,7 +204,7 @@ func (m *mergeStmtGenerator) generateUpdateStatements(
 	updateStmts := make([]string, 0, len(unchangedToastCols))
 
 	for _, cols := range unchangedToastCols {
-		unchangedColsArray := strings.Split(cols, ", ")
+		unchangedColsArray := strings.Split(cols, ",")
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols))
 		for _, colName := range otherCols {
