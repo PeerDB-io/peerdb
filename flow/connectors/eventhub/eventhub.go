@@ -216,7 +216,9 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			numRecords, req.FlowJobName,
 		)
 	})
-	defer shutdown()
+	defer func() {
+		shutdown <- struct{}{}
+	}()
 
 	numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
 	if err != nil {
