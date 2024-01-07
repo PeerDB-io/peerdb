@@ -446,7 +446,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 	if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
 		*currState == protos.FlowStatus_STATUS_RUNNING {
-		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING.Enum())
+		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_PAUSING)
 		if err != nil {
 			return nil, err
 		}
@@ -468,7 +468,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		)
 	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
 		(*currState == protos.FlowStatus_STATUS_RUNNING || *currState == protos.FlowStatus_STATUS_PAUSED) {
-		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING.Enum())
+		err = h.updateWorkflowStatus(ctx, workflowID, protos.FlowStatus_STATUS_TERMINATING)
 		if err != nil {
 			return nil, err
 		}

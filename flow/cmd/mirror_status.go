@@ -341,8 +341,10 @@ func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID s
 	return state, nil
 }
 
-func (h *FlowRequestHandler) updateWorkflowStatus(ctx context.Context,
-	workflowID string, state *protos.FlowStatus,
+func (h *FlowRequestHandler) updateWorkflowStatus(
+	ctx context.Context,
+	workflowID string,
+	state protos.FlowStatus,
 ) error {
 	_, err := h.temporalClient.UpdateWorkflow(ctx, workflowID, "", shared.FlowStatusUpdate, state)
 	if err != nil {

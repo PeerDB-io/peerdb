@@ -183,12 +183,12 @@ func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironmen
 		if err == nil {
 			var state peerflow.CDCFlowWorkflowState
 			err = response.Get(&state)
-			if err != nil {
+      if err == nil {
+        if state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
+				  return
+			  }
+		  } else {
 				slog.Error(err.Error())
-			}
-
-			if *state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
-				return
 			}
 		} else if counter > 15 {
 			t.Error("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
