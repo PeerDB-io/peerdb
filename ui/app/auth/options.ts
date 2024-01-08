@@ -1,7 +1,7 @@
-import { Provider } from 'next-auth/providers/index';
-import CredentialsProvider from 'next-auth/providers/credentials';
 import { Configuration } from '@/app/config/config';
 import { AuthOptions } from 'next-auth';
+import CredentialsProvider from 'next-auth/providers/credentials';
+import { Provider } from 'next-auth/providers/index';
 
 function getEnabledProviders(): Provider[] {
   return [
@@ -11,7 +11,10 @@ function getEnabledProviders(): Provider[] {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials, req) {
-        if (credentials == null || credentials.password != Configuration.authentication.PEERDB_PASSWORD) {
+        if (
+          credentials == null ||
+          credentials.password != Configuration.authentication.PEERDB_PASSWORD
+        ) {
           return null;
         }
         return { id: '1', name: 'Admin' };
@@ -19,7 +22,6 @@ function getEnabledProviders(): Provider[] {
     }),
   ];
 }
-
 export const authOptions: AuthOptions = {
   providers: getEnabledProviders(),
   debug: false,
