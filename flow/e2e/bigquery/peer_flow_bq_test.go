@@ -739,7 +739,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		ARRAY[10299301,2579827],
 		ARRAY[0.0003, 8902.0092],
 		ARRAY['hello','bye'],'happy',
-		'key1=>value1, key2=>value2'::hstore
+		'key1=>value1, key2=>NULL'::hstore
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 	}()
@@ -771,6 +771,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 
 	// check if HSTORE on bigquery side is a good JSON
 	err = s.checkJSONValue(dstTableName, "c45", "key1", "\"value1\"")
+	require.NoError(s.t, err)
+	err = s.checkJSONValue(dstTableName, "c45", "key2", "\"\"")
 	require.NoError(s.t, err)
 
 	env.AssertExpectations(s.t)
