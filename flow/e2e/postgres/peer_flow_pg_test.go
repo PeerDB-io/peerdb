@@ -2,14 +2,16 @@ package e2e_postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 )
@@ -112,8 +114,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	srcTableName := s.attachSchemaSuffix("test_enum_flow")
 	dstTableName := s.attachSchemaSuffix("test_enum_flow_dst")
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
+	var pgErr *pgconn.PgError
 	_, enumErr := s.pool.Exec(context.Background(), createMoodEnum)
-	if enumErr != nil && !strings.Contains(enumErr.Error(), "already exists") {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject {
 		require.NoError(s.t, enumErr)
 	}
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`

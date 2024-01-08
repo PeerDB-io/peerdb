@@ -2,6 +2,7 @@ package e2e_snowflake
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -17,6 +18,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
@@ -690,8 +693,9 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	srcTableName := s.attachSchemaSuffix("test_types_sf")
 	dstTableName := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, "test_types_sf")
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
+	var pgErr *pgconn.PgError
 	_, enumErr := s.pool.Exec(context.Background(), createMoodEnum)
-	if enumErr != nil && !strings.Contains(enumErr.Error(), "already exists") {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject {
 		require.NoError(s.t, enumErr)
 	}
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`

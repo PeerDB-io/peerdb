@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -24,6 +25,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
@@ -185,7 +188,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 }
 
 func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
-	createEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
+	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
@@ -236,8 +239,9 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 			"geography_polygon geography(polygon)")
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-	_, enumErr := pool.Exec(context.Background(), createEnum)
-	if enumErr != nil && !strings.Contains(enumErr.Error(), "already exists") {
+	var pgErr *pgconn.PgError
+	_, enumErr := pool.Exec(context.Background(), createMoodEnum)
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject {
 		return enumErr
 	}
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
