@@ -243,6 +243,7 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		"f8 smallint",
 		"my_date DATE",
 		"my_mood mood",
+		"myh HSTORE",
 	}
 	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
 		tblFields = append(tblFields, `"geometryPoint" geometry(point)`,
@@ -307,7 +308,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
 							ARRAY['varchar1', 'varchar2'], '{"key": -8.02139037433155}',
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15, CURRENT_DATE, 'happy' %s
+							'{"key": "value"}', 15, CURRENT_DATE, 'happy', '"a"=>"b"' %s
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)

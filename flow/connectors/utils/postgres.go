@@ -58,21 +58,14 @@ func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]str
 	return customTypeMap, nil
 }
 
-func RegisterCustomTypesForConnection(ctx context.Context, conn *pgx.Conn) error {
-	typeNames := []string{"hstore", "geometry", "geography"}
-	typeOIDs := make(map[string]uint32)
-
-	for _, typeName := range typeNames {
-		err := conn.QueryRow(ctx, `SELECT oid FROM pg_type WHERE typname = $1`, typeName).Scan(typeOIDs[typeName])
-		if err != nil {
-			return err
-		}
+func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
+	var hstoreOID uint32
+	err := conn.QueryRow(context.Background(), `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID)
+	if err != nil {
+		return err
 	}
 
-	typeMap := conn.TypeMap()
-	for typeName, typeOID := range typeOIDs {
-		typeMap.RegisterType(&pgtype.Type{Name: typeName, OID: typeOID})
-	}
+	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
 
 	return nil
 }

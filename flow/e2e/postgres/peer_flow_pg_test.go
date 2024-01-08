@@ -85,6 +85,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
 			value TEXT NOT NULL
+			myh HSTORE NOT NULL
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
@@ -112,7 +113,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 			testKey := fmt.Sprintf("test_key_%d", i)
 			testValue := fmt.Sprintf("test_value_%d", i)
 			_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(key, value) VALUES ($1, $2)
+			INSERT INTO %s(key, value, myh) VALUES ($1, $2, '"a"=>"b"')
 			`, srcTableName), testKey, testValue)
 			e2e.EnvNoError(s.t, env, err)
 		}

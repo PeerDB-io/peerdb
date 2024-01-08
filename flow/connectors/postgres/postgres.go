@@ -57,7 +57,7 @@ func NewPostgresConnector(ctx context.Context, pgConfig *protos.PostgresConfig) 
 	replConfig.ConnConfig.RuntimeParams["replication"] = "database"
 	replConfig.ConnConfig.RuntimeParams["bytea_output"] = "hex"
 	replConfig.MaxConns = 1
-
+	connConfig.AfterConnect = utils.RegisterHStore
 	pool, err := NewSSHWrappedPostgresPool(ctx, connConfig, pgConfig.SshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
