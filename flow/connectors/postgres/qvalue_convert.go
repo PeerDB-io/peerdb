@@ -111,6 +111,8 @@ func qValueKindToPostgresType(qvalueKind string) string {
 		return "BYTEA"
 	case qvalue.QValueKindJSON:
 		return "JSONB"
+	case qvalue.QValueKindHStore:
+		return "HSTORE"
 	case qvalue.QValueKindUUID:
 		return "UUID"
 	case qvalue.QValueKindTime:
@@ -399,6 +401,8 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 		qValueKind = qvalue.QValueKindGeometry
 	case "geography":
 		qValueKind = qvalue.QValueKindGeography
+	case "hstore":
+		qValueKind = qvalue.QValueKindHStore
 	default:
 		qValueKind = qvalue.QValueKindString
 	}
