@@ -2,7 +2,7 @@
 This is in reference to PostgreSQL's hstore:
 https://github.com/postgres/postgres/blob/bea18b1c949145ba2ca79d4765dba3cc9494a480/contrib/hstore/hstore_io.c
 
-This package is an implementation of the above code.
+This package is an implementation based on the above code.
 */
 package hstore_util
 
