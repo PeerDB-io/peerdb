@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -55,4 +56,23 @@ func GetCustomDataTypes(ctx context.Context, pool *pgxpool.Pool) (map[uint32]str
 		customTypeMap[typeID.Uint32] = typeName.String
 	}
 	return customTypeMap, nil
+}
+
+func RegisterCustomTypesForConnection(ctx context.Context, conn *pgx.Conn) error {
+	typeNames := []string{"hstore", "geometry", "geography"}
+	typeOIDs := make(map[string]uint32)
+
+	for _, typeName := range typeNames {
+		err := conn.QueryRow(ctx, `SELECT oid FROM pg_type WHERE typname = $1`, typeName).Scan(typeOIDs[typeName])
+		if err != nil {
+			return err
+		}
+	}
+
+	typeMap := conn.TypeMap()
+	for typeName, typeOID := range typeOIDs {
+		typeMap.RegisterType(&pgtype.Type{Name: typeName, OID: typeOID})
+	}
+
+	return nil
 }
