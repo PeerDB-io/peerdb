@@ -15,7 +15,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	conn_utils "github.com/PeerDB-io/peer-flow/connectors/utils"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -238,7 +237,10 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 	tblFieldStr := strings.Join(tblFields, ",")
 	var pgErr *pgconn.PgError
 	_, enumErr := pool.Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !conn_utils.IsUniqueError(pgErr) {
+	if errors.As(enumErr, &pgErr) &&
+		pgErr.Code != pgerrcode.DuplicateObject &&
+		// S3 and GCS in parallel creating the same type
+		pgErr.Code != pgerrcode.UniqueViolation {
 		return enumErr
 	}
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
