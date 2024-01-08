@@ -185,6 +185,8 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 }
 
 func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
+	createEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
+
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
@@ -223,6 +225,7 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		"f7 jsonb",
 		"f8 smallint",
 		"my_date DATE",
+		"my_mood mood",
 	}
 	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
 		tblFields = append(tblFields, `"geometryPoint" geometry(point)`,
@@ -233,7 +236,10 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 			"geography_polygon geography(polygon)")
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-
+	_, enumErr := pool.Exec(context.Background(), createEnum)
+	if enumErr != nil && !strings.Contains(enumErr.Error(), "already exists") {
+		return enumErr
+	}
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
 			%s
@@ -283,7 +289,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
 							ARRAY['varchar1', 'varchar2'], '{"key": -8.02139037433155}',
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15, CURRENT_DATE %s
+							'{"key": "value"}', 15, CURRENT_DATE, 'happy' %s
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)
@@ -304,7 +310,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, my_date
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, my_date, my_mood
 					%s
 			) VALUES %s;
 	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))

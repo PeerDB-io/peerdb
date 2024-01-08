@@ -110,6 +110,24 @@ func (s PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQua
 	return nil
 }
 
+func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualified string) error {
+	var exists pgtype.Bool
+	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s src "+
+		"WHERE NOT EXISTS ("+
+		"SELECT 1 FROM %s dst "+
+		"WHERE src.my_mood::text = dst.my_mood::text)) LIMIT 1;", srcSchemaQualified,
+		dstSchemaQualified)
+	err := s.pool.QueryRow(context.Background(), query).Scan(&exists)
+	if err != nil {
+		return err
+	}
+
+	if exists.Bool {
+		return fmt.Errorf("enum comparison failed: rows are not equal\n")
+	}
+	return nil
+}
+
 func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	query := fmt.Sprintf("SELECT %s FROM %s EXCEPT SELECT %s FROM %s", selector, srcSchemaQualified,
 		selector, dstSchemaQualified)
