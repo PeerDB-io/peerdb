@@ -329,7 +329,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, my_date, my_mood
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, my_date, my_mood, myh
 					%s
 			) VALUES %s;
 	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
