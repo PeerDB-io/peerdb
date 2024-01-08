@@ -11,6 +11,7 @@ import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { useLocalStorage } from 'usehooks-ts';
+import { SessionProvider } from 'next-auth/react';
 
 const centerFlexStyle = {
   display: 'flex',
@@ -34,6 +35,7 @@ export default function SidebarComponent(props: { }) {
   );
 
   return (
+    <SessionProvider>
     <Sidebar
       topTitle={
         <Label as={Link} href='/'>
@@ -107,5 +109,6 @@ export default function SidebarComponent(props: { }) {
         Alert Configuration
       </SidebarItem>
     </Sidebar>
+    </SessionProvider>
   );
 }
