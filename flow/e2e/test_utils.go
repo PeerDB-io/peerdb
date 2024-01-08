@@ -141,9 +141,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			err = response.Get(&state)
 			if err != nil {
 				slog.Error(err.Error())
-			}
-
-			if state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
+			} else if state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
 				break
 			}
 		} else {
@@ -171,9 +169,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			err = response.Get(&state)
 			if err != nil {
 				slog.Error(err.Error())
-			}
-
-			if len(state.NormalizeFlowStatuses) >= minCount {
+			} else if len(state.NormalizeFlowStatuses) >= minCount {
 				break
 			}
 		} else {
