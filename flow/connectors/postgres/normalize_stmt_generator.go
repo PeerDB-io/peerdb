@@ -194,7 +194,7 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(allCols []string) []st
 		unquotedUnchangedColsArray := strings.Split(cols, ",")
 		unchangedColsArray := make([]string, 0, len(unquotedUnchangedColsArray))
 		for _, unchangedToastCol := range unquotedUnchangedColsArray {
-			unchangedColsArray = append(unchangedColsArray, unchangedToastCol)
+			unchangedColsArray = append(unchangedColsArray, fmt.Sprintf(`"%s"`, unchangedToastCol))
 		}
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols))

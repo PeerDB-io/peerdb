@@ -9,12 +9,12 @@ import (
 )
 
 func TestGenerateMergeUpdateStatement(t *testing.T) {
-	allCols := []string{"col1", "col2", "col3"}
+	allCols := []string{`"col1"`, `"col2"`, `"col3"`}
 	unchangedToastCols := []string{""}
 
 	expected := []string{
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns=''
-		THEN UPDATE SET col1=src.col1,col2=src.col2,col3=src.col3,
+		THEN UPDATE SET "col1"=src."col1","col2"=src."col2","col3"=src."col3",
 		 "_peerdb_synced_at"=CURRENT_TIMESTAMP`,
 	}
 	normalizeGen := &normalizeStmtGenerator{
@@ -38,15 +38,15 @@ func TestGenerateMergeUpdateStatement(t *testing.T) {
 }
 
 func TestGenerateMergeUpdateStatement_WithSoftDelete(t *testing.T) {
-	allCols := []string{"col1", "col2", "col3"}
+	allCols := []string{`"col1"`, `"col2"`, `"col3"`}
 	unchangedToastCols := []string{""}
 
 	expected := []string{
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns=''
-		THEN UPDATE SET col1=src.col1,col2=src.col2,col3=src.col3,
+		THEN UPDATE SET "col1"=src."col1","col2"=src."col2","col3"=src."col3",
 		 "_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
 		`WHEN MATCHED AND src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns=''
-		 THEN UPDATE SET col1=src.col1,col2=src.col2,col3=src.col3,
+		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","col3"=src."col3",
 		  "_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
 	}
 	normalizeGen := &normalizeStmtGenerator{
@@ -70,18 +70,18 @@ func TestGenerateMergeUpdateStatement_WithSoftDelete(t *testing.T) {
 }
 
 func TestGenerateMergeUpdateStatement_WithUnchangedToastCols(t *testing.T) {
-	allCols := []string{"col1", "col2", "col3"}
+	allCols := []string{`"col1"`, `"col2"`, `"col3"`}
 	unchangedToastCols := []string{"", "col2,col3", "col2", "col3"}
 
 	expected := []string{
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns=''
-		 THEN UPDATE SET col1=src.col1,col2=src.col2,col3=src.col3,"_peerdb_synced_at"=CURRENT_TIMESTAMP`,
+		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","col3"=src."col3","_peerdb_synced_at"=CURRENT_TIMESTAMP`,
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='col2,col3'
-		 THEN UPDATE SET col1=src.col1,"_peerdb_synced_at"=CURRENT_TIMESTAMP`,
+		 THEN UPDATE SET "col1"=src."col1","_peerdb_synced_at"=CURRENT_TIMESTAMP`,
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='col2'
-		 THEN UPDATE SET col1=src.col1,col3=src.col3,"_peerdb_synced_at"=CURRENT_TIMESTAMP`,
+		 THEN UPDATE SET "col1"=src."col1","col3"=src."col3","_peerdb_synced_at"=CURRENT_TIMESTAMP`,
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='col3'
-		 THEN UPDATE SET col1=src.col1,col2=src.col2,"_peerdb_synced_at"=CURRENT_TIMESTAMP`,
+		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","_peerdb_synced_at"=CURRENT_TIMESTAMP`,
 	}
 	normalizeGen := &normalizeStmtGenerator{
 		unchangedToastColumns: unchangedToastCols,
@@ -104,26 +104,28 @@ func TestGenerateMergeUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 }
 
 func TestGenerateMergeUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *testing.T) {
-	allCols := []string{"col1", "col2", "col3"}
+	allCols := []string{`"col1"`, `"col2"`, `"col3"`}
 	unchangedToastCols := []string{"", "col2,col3", "col2", "col3"}
 
 	expected := []string{
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns=''
-		 THEN UPDATE SET col1=src.col1,col2=src.col2,col3=src.col3,"_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
+		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","col3"=src."col3",
+		 "_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
 		`WHEN MATCHED AND src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns=''
-		 THEN UPDATE SET col1=src.col1,col2=src.col2,col3=src.col3,"_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
+		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","col3"=src."col3",
+		 "_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='col2,col3'
-		 THEN UPDATE SET col1=src.col1,"_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
+		 THEN UPDATE SET "col1"=src."col1","_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
 		`WHEN MATCHED AND src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns='col2,col3'
-		 THEN UPDATE SET col1=src.col1,"_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
+		 THEN UPDATE SET "col1"=src."col1","_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='col2'
-		 THEN UPDATE SET col1=src.col1,col3=src.col3,"_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
+		 THEN UPDATE SET "col1"=src."col1","col3"=src."col3","_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
 		`WHEN MATCHED AND src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns='col2'
-		 THEN UPDATE SET col1=src.col1,col3=src.col3,"_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
+		 THEN UPDATE SET "col1"=src."col1","col3"=src."col3","_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
 		`WHEN MATCHED AND src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='col3'
-		 THEN UPDATE SET col1=src.col1,col2=src.col2,"_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
+		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=FALSE`,
 		`WHEN MATCHED AND src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns='col3'
-		 THEN UPDATE SET col1=src.col1,col2=src.col2,"_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
+		 THEN UPDATE SET "col1"=src."col1","col2"=src."col2","_peerdb_synced_at"=CURRENT_TIMESTAMP,"_peerdb_soft_delete"=TRUE`,
 	}
 	normalizeGen := &normalizeStmtGenerator{
 		unchangedToastColumns: unchangedToastCols,
