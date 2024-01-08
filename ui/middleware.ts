@@ -1,19 +1,13 @@
-import type { NextRequest } from 'next/server';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withAuth } from 'next-auth/middleware';
 
-export default function middleware(req: NextRequest) {
-  if (
-    req.nextUrl.pathname !== '/login' &&
-    req.nextUrl.pathname !== '/api/login' &&
-    req.nextUrl.pathname !== '/api/logout' &&
-    process.env.PEERDB_PASSWORD &&
-    req.cookies.get('auth')?.value !== process.env.PEERDB_PASSWORD
-  ) {
-    req.cookies.delete('auth');
-    return NextResponse.redirect(new URL('/login?reject', req.url));
-  }
-  return NextResponse.next();
+const authMiddleware = withAuth({});
+
+
+export default async function middleware(req: NextRequest, resp: NextResponse) {
+  return (authMiddleware as any)(req);
 }
+
 
 export const config = {
   matcher: [
