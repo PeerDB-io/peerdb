@@ -196,7 +196,14 @@ and updating the other columns (not the unchanged toast columns)
 7. Return the list of generated update statements.
 */
 func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string {
-	updateStmts := make([]string, 0, len(m.unchangedToastColumns))
+	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
+	// weird way of doing it but avoids prealloc lint
+	updateStmts := make([]string, 0, func() int {
+		if handleSoftDelete {
+			return 2 * len(m.unchangedToastColumns)
+		}
+		return len(m.unchangedToastColumns)
+	}())
 
 	for _, cols := range m.unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
@@ -212,7 +219,7 @@ func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string
 				m.peerdbCols.SyncedAtColName))
 		}
 		// set soft-deleted to false, tackles insert after soft-delete
-		if m.peerdbCols.SoftDeleteColName != "" {
+		if handleSoftDelete {
 			tmpArray = append(tmpArray, fmt.Sprintf("`%s`=FALSE",
 				m.peerdbCols.SoftDeleteColName))
 		}
@@ -226,7 +233,7 @@ func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string
 		// generates update statements for the case where updates and deletes happen in the same branch
 		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
 		// and then set soft-delete to true.
-		if m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "") {
+		if handleSoftDelete {
 			tmpArray = append(tmpArray[:len(tmpArray)-1],
 				fmt.Sprintf("`%s`=TRUE", m.peerdbCols.SoftDeleteColName))
 			ssep := strings.Join(tmpArray, ",")

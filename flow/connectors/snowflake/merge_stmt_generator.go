@@ -25,12 +25,12 @@ type mergeStmtGenerator struct {
 	peerdbCols *protos.PeerDBColumns
 }
 
-func (c *mergeStmtGenerator) generateMergeStmt() (string, error) {
-	parsedDstTable, _ := utils.ParseSchemaTable(c.dstTableName)
-	columnNames := utils.TableSchemaColumnNames(c.normalizedTableSchema)
+func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
+	parsedDstTable, _ := utils.ParseSchemaTable(m.dstTableName)
+	columnNames := utils.TableSchemaColumnNames(m.normalizedTableSchema)
 
-	flattenedCastsSQLArray := make([]string, 0, utils.TableSchemaColumns(c.normalizedTableSchema))
-	err := utils.IterColumnsError(c.normalizedTableSchema, func(columnName, genericColumnType string) error {
+	flattenedCastsSQLArray := make([]string, 0, utils.TableSchemaColumns(m.normalizedTableSchema))
+	err := utils.IterColumnsError(m.normalizedTableSchema, func(columnName, genericColumnType string) error {
 		qvKind := qvalue.QValueKind(genericColumnType)
 		sfType, err := qValueKindToSnowflakeType(qvKind)
 		if err != nil {
@@ -82,7 +82,7 @@ func (c *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	}
 	// append synced_at column
 	quotedUpperColNames = append(quotedUpperColNames,
-		fmt.Sprintf(`"%s"`, strings.ToUpper(c.peerdbCols.SyncedAtColName)),
+		fmt.Sprintf(`"%s"`, strings.ToUpper(m.peerdbCols.SyncedAtColName)),
 	)
 
 	insertColumnsSQL := strings.TrimSuffix(strings.Join(quotedUpperColNames, ","), ",")
@@ -95,14 +95,14 @@ func (c *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	// fill in synced_at column
 	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
 	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
-	updateStatementsforToastCols := c.generateUpdateStatements(columnNames)
+	updateStatementsforToastCols := m.generateUpdateStatements(columnNames)
 
 	// handling the case when an insert and delete happen in the same batch, with updates in the middle
 	// with soft-delete, we want the row to be in the destination with SOFT_DELETE true
 	// the current merge statement doesn't do that, so we add another case to insert the DeleteRecord
-	if c.peerdbCols.SoftDelete && (c.peerdbCols.SoftDeleteColName != "") {
+	if m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "") {
 		softDeleteInsertColumnsSQL := strings.Join(append(quotedUpperColNames,
-			c.peerdbCols.SoftDeleteColName), ",")
+			m.peerdbCols.SoftDeleteColName), ",")
 		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
 			fmt.Sprintf("WHEN NOT MATCHED AND (SOURCE._PEERDB_RECORD_TYPE = 2) THEN INSERT (%s) VALUES(%s)",
@@ -110,9 +110,9 @@ func (c *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, " ")
 
-	normalizedpkeyColsArray := make([]string, 0, len(c.normalizedTableSchema.PrimaryKeyColumns))
-	pkeySelectSQLArray := make([]string, 0, len(c.normalizedTableSchema.PrimaryKeyColumns))
-	for _, pkeyColName := range c.normalizedTableSchema.PrimaryKeyColumns {
+	normalizedpkeyColsArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
+	pkeySelectSQLArray := make([]string, 0, len(m.normalizedTableSchema.PrimaryKeyColumns))
+	for _, pkeyColName := range m.normalizedTableSchema.PrimaryKeyColumns {
 		normalizedPkeyColName := SnowflakeIdentifierNormalize(pkeyColName)
 		normalizedpkeyColsArray = append(normalizedpkeyColsArray, normalizedPkeyColName)
 		pkeySelectSQLArray = append(pkeySelectSQLArray, fmt.Sprintf("TARGET.%s = SOURCE.%s",
@@ -122,16 +122,16 @@ func (c *mergeStmtGenerator) generateMergeStmt() (string, error) {
 	pkeySelectSQL := strings.Join(pkeySelectSQLArray, " AND ")
 
 	deletePart := "DELETE"
-	if c.peerdbCols.SoftDelete {
-		colName := c.peerdbCols.SoftDeleteColName
+	if m.peerdbCols.SoftDelete {
+		colName := m.peerdbCols.SoftDeleteColName
 		deletePart = fmt.Sprintf("UPDATE SET %s = TRUE", colName)
-		if c.peerdbCols.SyncedAtColName != "" {
-			deletePart = fmt.Sprintf("%s, %s = CURRENT_TIMESTAMP", deletePart, c.peerdbCols.SyncedAtColName)
+		if m.peerdbCols.SyncedAtColName != "" {
+			deletePart = fmt.Sprintf("%s, %s = CURRENT_TIMESTAMP", deletePart, m.peerdbCols.SyncedAtColName)
 		}
 	}
 
 	mergeStatement := fmt.Sprintf(mergeStatementSQL, snowflakeSchemaTableNormalize(parsedDstTable),
-		toVariantColumnName, c.rawTableName, c.normalizeBatchID, c.syncBatchID, flattenedCastsSQL,
+		toVariantColumnName, m.rawTableName, m.normalizeBatchID, m.syncBatchID, flattenedCastsSQL,
 		fmt.Sprintf("(%s)", strings.Join(normalizedpkeyColsArray, ",")),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 
@@ -162,10 +162,17 @@ and updating the other columns.
 6. Repeat steps 1-5 for each unique set of unchanged toast column groups.
 7. Return the list of generated update statements.
 */
-func (c *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string {
-	updateStmts := make([]string, 0, len(c.unchangedToastColumns))
+func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string {
+	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
+	// weird way of doing it but avoids prealloc lint
+	updateStmts := make([]string, 0, func() int {
+		if handleSoftDelete {
+			return 2 * len(m.unchangedToastColumns)
+		}
+		return len(m.unchangedToastColumns)
+	}())
 
-	for _, cols := range c.unchangedToastColumns {
+	for _, cols := range m.unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols)+2)
@@ -175,14 +182,14 @@ func (c *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string
 		}
 
 		// set the synced at column to the current timestamp
-		if c.peerdbCols.SyncedAtColName != "" {
+		if m.peerdbCols.SyncedAtColName != "" {
 			tmpArray = append(tmpArray, fmt.Sprintf(`"%s" = CURRENT_TIMESTAMP`,
-				c.peerdbCols.SyncedAtColName))
+				m.peerdbCols.SyncedAtColName))
 		}
 		// set soft-deleted to false, tackles insert after soft-delete
-		if c.peerdbCols.SoftDelete && (c.peerdbCols.SoftDeleteColName != "") {
+		if handleSoftDelete {
 			tmpArray = append(tmpArray, fmt.Sprintf(`"%s" = FALSE`,
-				c.peerdbCols.SoftDeleteColName))
+				m.peerdbCols.SoftDeleteColName))
 		}
 
 		ssep := strings.Join(tmpArray, ", ")
@@ -194,9 +201,9 @@ func (c *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string
 		// generates update statements for the case where updates and deletes happen in the same branch
 		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
 		// and then set soft-delete to true.
-		if c.peerdbCols.SoftDelete && (c.peerdbCols.SoftDeleteColName != "") {
+		if handleSoftDelete {
 			tmpArray = append(tmpArray[:len(tmpArray)-1], fmt.Sprintf(`"%s" = TRUE`,
-				c.peerdbCols.SoftDeleteColName))
+				m.peerdbCols.SoftDeleteColName))
 			ssep := strings.Join(tmpArray, ", ")
 			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 			(SOURCE._PEERDB_RECORD_TYPE = 2) AND _PEERDB_UNCHANGED_TOAST_COLUMNS='%s'
