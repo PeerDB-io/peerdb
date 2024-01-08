@@ -2,6 +2,7 @@ package e2e_postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 )
@@ -100,6 +103,64 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 
 	err = s.comparePGTables(srcTableName, dstTableName, "id,key,value")
 	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	srcTableName := s.attachSchemaSuffix("test_enum_flow")
+	dstTableName := s.attachSchemaSuffix("test_enum_flow_dst")
+	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
+	var pgErr *pgconn.PgError
+	_, enumErr := s.pool.Exec(context.Background(), createMoodEnum)
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject {
+		require.NoError(s.t, enumErr)
+	}
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			my_mood mood,
+			my_null_mood mood
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_enum_flow"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.peer,
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	require.NoError(s.t, err)
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
+	}
+
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(my_mood, my_null_mood) VALUES ('happy',null)
+			`, srcTableName))
+		e2e.EnvNoError(s.t, env, err)
+		s.t.Log("Inserted enums into the source table")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	err = s.checkEnums(srcTableName, dstTableName)
+	require.NoError(s.t, err)
+
+	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
