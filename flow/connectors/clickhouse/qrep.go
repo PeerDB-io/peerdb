@@ -358,7 +358,7 @@ func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 	}
 
-	c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
+	//c.logger.Info(fmt.Sprintf("Dropped stage %s", stageName))
 	return nil
 }
 
