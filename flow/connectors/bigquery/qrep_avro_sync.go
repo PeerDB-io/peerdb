@@ -373,9 +373,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 				objectFolder, stagingTable)
 		},
 	)
-	defer func() {
-		shutdown <- struct{}{}
-	}()
+	defer shutdown()
 
 	var avroFile *avro.AvroFile
 	ocfWriter := avro.NewPeerDBOCFWriter(s.connector.ctx, stream, avroSchema,

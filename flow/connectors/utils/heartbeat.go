@@ -13,7 +13,7 @@ func HeartbeatRoutine(
 	ctx context.Context,
 	interval time.Duration,
 	message func() string,
-) chan<- struct{} {
+) func() {
 	shutdown := make(chan struct{})
 	go func() {
 		counter := 0
@@ -30,7 +30,7 @@ func HeartbeatRoutine(
 			}
 		}
 	}()
-	return shutdown
+	return func() { shutdown <- struct{}{} }
 }
 
 // if the functions are being called outside the context of a Temporal workflow,
