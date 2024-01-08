@@ -432,6 +432,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
 			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
+			{Name: "my_mood", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
 			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
 			{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},
