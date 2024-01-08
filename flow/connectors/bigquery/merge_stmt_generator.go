@@ -47,10 +47,17 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		var castStmt string
 		shortCol := m.shortColumn[colName]
 		switch qvalue.QValueKind(colType) {
-		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
+		case qvalue.QValueKindJSON:
 			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
 				colName, bqType, shortCol)
+		case qvalue.QValueKindHStore:
+			// PARSE_JSON doesn't work for HSTORE with \" in the value, so use SAFE.PARSE_JSON and coalesce with TO_JSON
+			castStmt = fmt.Sprintf("CAST(COALESCE("+
+				"SAFE.PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'))"+
+				",TO_JSON(JSON_VALUE(_peerdb_data, '$.%s'))"+
+				") AS %s) AS `%s`",
+				colName, colName, bqType, shortCol)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",

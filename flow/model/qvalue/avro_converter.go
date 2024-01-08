@@ -1,13 +1,12 @@
 package qvalue
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/big"
-	"regexp"
 	"time"
 
+	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
 )
@@ -96,30 +95,6 @@ type QValueAvroConverter struct {
 	Value     QValue
 	TargetDWH QDWHType
 	Nullable  bool
-}
-
-func HStoreToJSON(hstore string) (string, error) {
-	re := regexp.MustCompile(`"(.*?)"=>(?:"([^"]*)"|NULL)`)
-	matches := re.FindAllStringSubmatch(hstore, -1)
-
-	result := make(map[string]interface{})
-	for _, match := range matches {
-		if len(match) == 3 {
-			key := match[1]
-			if match[2] != "NULL" {
-				result[key] = match[2]
-			} else {
-				result[key] = nil
-			}
-		}
-	}
-
-	jsonData, err := json.Marshal(result)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonData), nil
 }
 
 func NewQValueAvroConverter(value QValue, targetDWH QDWHType, nullable bool) *QValueAvroConverter {
@@ -307,9 +282,9 @@ func (c *QValueAvroConverter) processHStore() (interface{}, error) {
 		return nil, fmt.Errorf("invalid HSTORE value %v", c.Value.Value)
 	}
 
-	jsonString, err := HStoreToJSON(hstoreString)
+	jsonString, err := hstore_util.ParseHstore(hstoreString)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	if c.Nullable {

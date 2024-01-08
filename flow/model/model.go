@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
@@ -162,7 +163,7 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 				return nil, fmt.Errorf("expected string value for hstore column %s for value %T", col, v.Value)
 			}
 
-			jsonVal, err := qvalue.HStoreToJSON(hstoreVal)
+			jsonVal, err := hstore_util.ParseHstore(hstoreVal)
 			if err != nil {
 				return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T", col, v.Value)
 			}
