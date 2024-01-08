@@ -10,8 +10,7 @@ export default function Logout() {
     return (
       <Button
         style={{ backgroundColor: 'white', border: '1px solid rgba(0,0,0,0.15)' }}
-        onClick={() => router.push('/api/auth/signout')
-        }
+        onClick={() => router.push('/api/auth/signout')}
       >
         Log out
       </Button>
