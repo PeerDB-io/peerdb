@@ -11,6 +11,7 @@ import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { useLocalStorage } from 'usehooks-ts';
+
 const centerFlexStyle = {
   display: 'flex',
   justifyContent: 'center',
@@ -19,7 +20,7 @@ const centerFlexStyle = {
   marginBottom: '0.5rem',
 };
 
-export default function SidebarComponent(props: { logout?: boolean }) {
+export default function SidebarComponent(props: { }) {
   const timezones = ['UTC', 'Local', 'Relative'];
   const [zone, setZone] = useLocalStorage('timezone-ui', '');
 
@@ -71,7 +72,7 @@ export default function SidebarComponent(props: { logout?: boolean }) {
               />
             </div>
           </div>
-          {props.logout && <Logout />}
+          <Logout />
         </>
       }
       bottomLabel={

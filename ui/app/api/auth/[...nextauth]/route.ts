@@ -1,7 +1,7 @@
-import NextAuth, { AuthOptions, Session } from 'next-auth';
+import NextAuth, { AuthOptions } from 'next-auth';
 import { Configuration } from '@/app/config/config';
 import { Provider } from 'next-auth/providers/index';
-import CredentialsProvider from "next-auth/providers/credentials"
+import CredentialsProvider from 'next-auth/providers/credentials';
 
 
 function getEnabledProviders(): Provider[] {
@@ -33,7 +33,6 @@ export const authOptions: AuthOptions = {
   theme: {
     colorScheme: 'light',
     logo: '/images/peerdb-combinedMark.svg',
-
   },
 };
 
