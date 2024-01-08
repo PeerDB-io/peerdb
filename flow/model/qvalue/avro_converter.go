@@ -98,7 +98,7 @@ type QValueAvroConverter struct {
 	Nullable  bool
 }
 
-func hstoreToJSON(hstore string) (string, error) {
+func HStoreToJSON(hstore string) (string, error) {
 	re := regexp.MustCompile(`"(.*?)"=>(?:"([^"]*)"|NULL)`)
 	matches := re.FindAllStringSubmatch(hstore, -1)
 
@@ -307,7 +307,7 @@ func (c *QValueAvroConverter) processHStore() (interface{}, error) {
 		return nil, fmt.Errorf("invalid HSTORE value %v", c.Value.Value)
 	}
 
-	jsonString, err := hstoreToJSON(hstoreString)
+	jsonString, err := HStoreToJSON(hstoreString)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func (c *QValueAvroConverter) processHStore() (interface{}, error) {
 			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return goavro.Union("string", ""), nil
 		}
-		return goavro.Union("string", hstoreString), nil
+		return goavro.Union("string", jsonString), nil
 	}
 
 	if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
