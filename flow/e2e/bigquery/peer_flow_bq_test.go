@@ -770,9 +770,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	require.NoError(s.t, err)
 
 	// check if HSTORE on bigquery side is a good JSON
-	err = s.checkJSONValue(dstTableName, "c45", "key1", "\"value1\"")
+	err = s.checkJSONValue(dstTableName, "c46", "key1", "\"value1\"")
 	require.NoError(s.t, err)
-	err = s.checkJSONValue(dstTableName, "c45", "key2", "\"\"")
+	err = s.checkJSONValue(dstTableName, "c46", "key2", "\"\"")
 	require.NoError(s.t, err)
 
 	env.AssertExpectations(s.t)
