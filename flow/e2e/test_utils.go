@@ -133,7 +133,6 @@ func EnvWaitForEqualTables(
 	cols string,
 ) {
 	suite.T().Helper()
-
 	EnvWaitForEqualTablesWithNames(env, suite, reason, table, table, cols)
 }
 

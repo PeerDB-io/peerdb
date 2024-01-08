@@ -17,7 +17,7 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 		},
 	}
 	allCols := []string{"col1", "col2", "col3"}
-	unchangedToastCols := []string{"", "col2, col3", "col2", "col3"}
+	unchangedToastCols := []string{"", "col2,col3", "col2", "col3"}
 
 	expected := []string{
 		"WHEN MATCHED AND _rt!=2 AND _ut=''" +
