@@ -82,7 +82,6 @@ type ClickhouseConnector struct {
 	ctx                context.Context
 	database           *sql.DB
 	tableSchemaMapping map[string]*protos.TableSchema
-	metadataSchema     string
 	logger             slog.Logger
 }
 
@@ -141,7 +140,7 @@ func NewClickhouseConnector(ctx context.Context,
 	// 	return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	// }
 
-	metadataSchema := "_PEERDB_INTERNAL"
+	//metadataSchema := "_PEERDB_INTERNAL"
 	// if clickhouseProtoConfig.MetadataSchema != nil {
 	// 	metadataSchema = *clickhouseProtoConfig.MetadataSchema
 	// }
@@ -151,8 +150,8 @@ func NewClickhouseConnector(ctx context.Context,
 		database: database,
 		//database:           conn,
 		tableSchemaMapping: nil,
-		metadataSchema:     metadataSchema,
-		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		//metadataSchema:     metadataSchema,
+		logger: *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 

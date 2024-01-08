@@ -179,10 +179,10 @@ func (c *ClickhouseConnector) createQRepMetadataTable() error { //createMetadata
 	//_, err := c.database.Exec("select * from tasks;")
 
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to create table %s.%s", c.metadataSchema, qRepMetadataTableName),
+		c.logger.Error(fmt.Sprintf("failed to create table %s", qRepMetadataTableName),
 			slog.Any("error", err))
 
-		return fmt.Errorf("failed to create table %s.%s: %w", c.metadataSchema, qRepMetadataTableName, err)
+		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
 	c.logger.Info(fmt.Sprintf("Created table %s", qRepMetadataTableName))
 	return nil
@@ -323,7 +323,7 @@ func (c *ClickhouseConnector) getColsFromTable(tableName string) (*model.ColumnI
 // dropStage drops the stage for the given job.
 func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 	fmt.Printf("\n********************* qrep drop stage 1*********************\n stagingPath:%+v, job: %+v", stagingPath, job)
-	stageName := c.getStageNameForJob(job)
+	//stageName := c.getStageNameForJob(job)
 
 	// if s3 we need to delete the contents of the bucket
 	if strings.HasPrefix(stagingPath, "s3://") {
@@ -362,6 +362,6 @@ func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 	return nil
 }
 
-func (c *ClickhouseConnector) getStageNameForJob(job string) string {
-	return fmt.Sprintf("%s.peerdb_stage_%s", c.metadataSchema, job)
-}
+// func (c *ClickhouseConnector) getStageNameForJob(job string) string {
+// 	return fmt.Sprintf("%s.peerdb_stage_%s", c.metadataSchema, job)
+// }
