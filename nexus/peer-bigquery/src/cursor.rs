@@ -1,5 +1,4 @@
 use dashmap::DashMap;
-use tokio::sync::Mutex;
 
 use futures::StreamExt;
 use peer_cursor::{QueryExecutor, QueryOutput, Records, SchemaRef, SendableStream};
@@ -10,7 +9,7 @@ use crate::BigQueryQueryExecutor;
 
 pub struct BigQueryCursor {
     position: usize,
-    stream: Mutex<SendableStream>,
+    stream: SendableStream,
     schema: SchemaRef,
 }
 
@@ -42,7 +41,7 @@ impl BigQueryCursorManager {
                 // Create a new cursor
                 let cursor = BigQueryCursor {
                     position: 0,
-                    stream: Mutex::new(stream),
+                    stream,
                     schema,
                 };
 
@@ -75,9 +74,8 @@ impl BigQueryCursorManager {
         let prev_end = cursor.position;
         let mut cursor_position = cursor.position;
         {
-            let mut stream = cursor.stream.lock().await;
             while cursor_position - prev_end < count {
-                match stream.next().await {
+                match cursor.stream.next().await {
                     Some(Ok(record)) => {
                         records.push(record);
                         cursor_position += 1;
