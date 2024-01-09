@@ -5,7 +5,6 @@ import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 import Link from 'next/link';
 import SlotTable from './slottable';
 import StatTable from './stattable';
-export const dynamic = 'force-dynamic';
 
 type DataConfigProps = {
   params: { peerName: string };

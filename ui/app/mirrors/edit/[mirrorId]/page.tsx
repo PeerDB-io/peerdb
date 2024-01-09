@@ -8,8 +8,6 @@ import { CDCMirror } from './cdc';
 import NoMirror from './nomirror';
 import SyncStatus from './syncStatus';
 
-export const dynamic = 'force-dynamic';
-
 type EditMirrorProps = {
   params: { mirrorId: string };
 };
