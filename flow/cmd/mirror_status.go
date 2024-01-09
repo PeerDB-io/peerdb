@@ -17,6 +17,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 	ctx context.Context,
 	req *protos.MirrorStatusRequest,
 ) (*protos.MirrorStatusResponse, error) {
+	slog.Info("Mirror status endpoint called")
 	cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
 	if err != nil {
 		return &protos.MirrorStatusResponse{
