@@ -393,6 +393,35 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool
 	}
 }
 
+// check if NaN, Inf double values are null
+func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, ColName []string) (bool, error) {
+	csep := strings.Join(ColName, ",")
+	command := fmt.Sprintf("SELECT %s FROM `%s.%s`",
+		csep, b.Config.DatasetId, tableName)
+	it, err := b.client.Query(command).Read(context.Background())
+	if err != nil {
+		return false, fmt.Errorf("failed to run command: %w", err)
+	}
+
+	var row []bigquery.Value
+	for {
+		err := it.Next(&row)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return false, fmt.Errorf("failed to iterate over query results: %w", err)
+		}
+	}
+
+	floatArr, _ := row[1].([]float64)
+	if row[0] != nil || len(floatArr) > 0 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 	switch val {
 	case qvalue.QValueKindInt16:
