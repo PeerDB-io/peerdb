@@ -23,7 +23,7 @@ pub trait RecordStream: Stream<Item = PgWireResult<Record>> {
     fn schema(&self) -> SchemaRef;
 }
 
-pub type SendableStream = Pin<Box<dyn RecordStream + Send>>;
+pub type SendableStream = Pin<Box<dyn RecordStream + Send + Sync>>;
 
 pub struct Records {
     pub records: Vec<Record>,
