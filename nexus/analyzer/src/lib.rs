@@ -10,8 +10,8 @@ use anyhow::Context;
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, DbType, EventHubConfig, MongoConfig, Peer, PostgresConfig,
-        S3Config, SnowflakeConfig, SqlServerConfig,ClickhouseConfig
+        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, MongoConfig, Peer,
+        PostgresConfig, S3Config, SnowflakeConfig, SqlServerConfig,
     },
 };
 use qrep::process_options;
@@ -798,7 +798,7 @@ fn parse_db_options(
                 .get("s3_integration")
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-                        
+
             let clickhouse_config = ClickhouseConfig {
                 host: opts.get("host").context("no host specified")?.to_string(),
                 port: opts
@@ -822,7 +822,7 @@ fn parse_db_options(
             };
             let config = Config::ClickhouseConfig(clickhouse_config);
             Some(config)
-        }        
+        }
     };
 
     Ok(config)

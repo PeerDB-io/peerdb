@@ -1,7 +1,7 @@
 use anyhow::Context;
 use async_recursion::async_recursion;
 use cursor::SnowflakeCursorManager;
-use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
+use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser;
@@ -395,7 +395,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
         }
     }
 
-    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
         match stmt {
             Statement::Query(query) => {
                 let mut new_query = query.clone();

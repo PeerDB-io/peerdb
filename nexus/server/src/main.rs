@@ -17,7 +17,7 @@ use peer_bigquery::BigQueryQueryExecutor;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     util::{records_to_query_response, sendable_stream_to_query_response},
-    QueryExecutor, QueryOutput, SchemaRef,
+    QueryExecutor, QueryOutput, Schema,
 };
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
@@ -1045,7 +1045,7 @@ impl ExtendedQueryHandler for NexusBackend {
             NexusStatement::PeerCursor { .. } => Ok(DescribeResponse::no_data()),
             NexusStatement::Empty => Ok(DescribeResponse::no_data()),
             NexusStatement::PeerQuery { stmt, assoc } => {
-                let schema: Option<SchemaRef> = match assoc {
+                let schema: Option<Schema> = match assoc {
                     QueryAssociation::Peer(peer) => {
                         // if the peer is of type bigquery, let us route the query to bq.
                         match &peer.config {
@@ -1099,7 +1099,7 @@ impl ExtendedQueryHandler for NexusBackend {
                     } else {
                         Ok(DescribeResponse::new(
                             param_types,
-                            described_schema.fields.clone(),
+                            (*described_schema).clone(),
                         ))
                     }
                 } else {

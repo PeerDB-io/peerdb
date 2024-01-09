@@ -1,7 +1,7 @@
 use crate::SnowflakeQueryExecutor;
 use dashmap::DashMap;
 use futures::StreamExt;
-use peer_cursor::{QueryExecutor, QueryOutput, Records, SchemaRef, SendableStream};
+use peer_cursor::{QueryExecutor, QueryOutput, Records, Schema, SendableStream};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::ast::Statement;
 use tokio::sync::Mutex;
@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 pub struct SnowflakeCursor {
     position: usize,
     stream: Mutex<SendableStream>,
-    schema: SchemaRef,
+    schema: Schema,
 }
 
 pub struct SnowflakeCursorManager {

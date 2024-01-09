@@ -2,7 +2,7 @@ use dashmap::DashMap;
 use tokio::sync::Mutex;
 
 use futures::StreamExt;
-use peer_cursor::{QueryExecutor, QueryOutput, Records, SchemaRef, SendableStream};
+use peer_cursor::{QueryExecutor, QueryOutput, Records, Schema, SendableStream};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::ast::Statement;
 
@@ -11,7 +11,7 @@ use crate::BigQueryQueryExecutor;
 pub struct BigQueryCursor {
     position: usize,
     stream: Mutex<SendableStream>,
-    schema: SchemaRef,
+    schema: Schema,
 }
 
 pub struct BigQueryCursorManager {
