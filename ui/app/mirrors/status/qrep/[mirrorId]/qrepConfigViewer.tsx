@@ -5,8 +5,6 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 
-export const dynamic = 'force-dynamic';
-
 type QRepConfigViewerProps = {
   mirrorId: string;
 };
