@@ -17,7 +17,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 	ctx context.Context,
 	req *protos.MirrorStatusRequest,
 ) (*protos.MirrorStatusResponse, error) {
-	slog.Info("Mirror status endpoint called")
+	slog.Info("Mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 	cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
 	if err != nil {
 		return &protos.MirrorStatusResponse{
@@ -74,6 +74,7 @@ func (h *FlowRequestHandler) CDCFlowStatus(
 	ctx context.Context,
 	req *protos.MirrorStatusRequest,
 ) (*protos.CDCMirrorStatus, error) {
+	slog.Info("CDC mirror status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 	config, err := h.getFlowConfigFromCatalog(req.FlowJobName)
 	if err != nil {
 		return nil, err
@@ -173,6 +174,7 @@ func (h *FlowRequestHandler) QRepFlowStatus(
 	ctx context.Context,
 	req *protos.MirrorStatusRequest,
 ) (*protos.QRepMirrorStatus, error) {
+	slog.Info("QRep Flow status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 	partitionStatuses, err := h.getPartitionStatuses(ctx, req.FlowJobName)
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", req.FlowJobName, err.Error()))
