@@ -11,13 +11,12 @@ use pgwire::{
     error::{ErrorInfo, PgWireError, PgWireResult},
 };
 use sqlparser::{ast::Statement, dialect::PostgreSqlDialect, parser::Parser};
-use tokio::sync::Mutex;
 
 const DIALECT: PostgreSqlDialect = PostgreSqlDialect {};
 
 #[derive(Clone)]
 pub struct NexusQueryParser {
-    catalog: Arc<Mutex<Catalog>>,
+    catalog: Arc<Catalog>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,13 +92,12 @@ pub struct NexusParsedStatement {
 }
 
 impl NexusQueryParser {
-    pub fn new(catalog: Arc<Mutex<Catalog>>) -> Self {
+    pub fn new(catalog: Arc<Catalog>) -> Self {
         Self { catalog }
     }
 
     pub async fn get_peers_bridge(&self) -> PgWireResult<HashMap<String, pt::peerdb_peers::Peer>> {
-        let catalog = self.catalog.lock().await;
-        let peers = catalog.get_peers().await;
+        let peers = self.catalog.get_peers().await;
 
         peers.map_err(|e| {
             PgWireError::UserError(Box::new(ErrorInfo::new(
