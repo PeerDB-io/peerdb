@@ -461,13 +461,21 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	mergeStatementsBatch := &pgx.Batch{}
 	totalRowsAffected := 0
 	for _, destinationTableName := range destinationTableNames {
-		peerdbCols := protos.PeerDBColumns{
-			SoftDeleteColName: req.SoftDeleteColName,
-			SyncedAtColName:   req.SyncedAtColName,
-			SoftDelete:        req.SoftDelete,
+		normalizeStmtGen := &normalizeStmtGenerator{
+			rawTableName:          rawTableIdentifier,
+			dstTableName:          destinationTableName,
+			normalizedTableSchema: c.tableSchemaMapping[destinationTableName],
+			unchangedToastColumns: unchangedToastColsMap[destinationTableName],
+			peerdbCols: &protos.PeerDBColumns{
+				SoftDeleteColName: req.SoftDeleteColName,
+				SyncedAtColName:   req.SyncedAtColName,
+				SoftDelete:        req.SoftDelete,
+			},
+			supportsMerge:  supportsMerge,
+			metadataSchema: c.metadataSchema,
+			logger:         c.logger,
 		}
-		normalizeStatements := c.generateNormalizeStatements(destinationTableName, unchangedToastColsMap[destinationTableName],
-			rawTableIdentifier, supportsMerge, &peerdbCols)
+		normalizeStatements := normalizeStmtGen.generateNormalizeStatements()
 		for _, normalizeStatement := range normalizeStatements {
 			mergeStatementsBatch.Queue(normalizeStatement, batchIDs.NormalizeBatchID, batchIDs.SyncBatchID, destinationTableName).Exec(
 				func(ct pgconn.CommandTag) error {

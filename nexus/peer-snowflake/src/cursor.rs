@@ -4,11 +4,10 @@ use futures::StreamExt;
 use peer_cursor::{QueryExecutor, QueryOutput, Records, Schema, SendableStream};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::ast::Statement;
-use tokio::sync::Mutex;
 
 pub struct SnowflakeCursor {
     position: usize,
-    stream: Mutex<SendableStream>,
+    stream: SendableStream,
     schema: Schema,
 }
 
@@ -39,7 +38,7 @@ impl SnowflakeCursorManager {
                 // Create a new cursor
                 let cursor = SnowflakeCursor {
                     position: 0,
-                    stream: Mutex::new(stream),
+                    stream,
                     schema,
                 };
 
@@ -72,9 +71,8 @@ impl SnowflakeCursorManager {
         let prev_end = cursor.position;
         let mut cursor_position = cursor.position;
         {
-            let mut stream = cursor.stream.lock().await;
             while cursor_position - prev_end < count {
-                match stream.next().await {
+                match cursor.stream.next().await {
                     Some(Ok(record)) => {
                         records.push(record);
                         cursor_position += 1;
