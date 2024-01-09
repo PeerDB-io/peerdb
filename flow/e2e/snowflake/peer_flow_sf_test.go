@@ -11,6 +11,7 @@ import (
 	"time"
 
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -684,7 +685,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	var pgErr *pgconn.PgError
 	_, enumErr := s.pool.Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
 		require.NoError(s.t, enumErr)
 	}
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`

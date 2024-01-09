@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2e"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -114,7 +115,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	var pgErr *pgconn.PgError
 	_, enumErr := s.pool.Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(enumErr) {
 		require.NoError(s.t, enumErr)
 	}
 	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
