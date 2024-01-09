@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"math"
 	"math/big"
 	"slices"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -129,6 +132,14 @@ func (r *RecordItems) Len() int {
 	return len(r.Values)
 }
 
+func convertFloatArrayToStringArray(floatArr []float64) []string {
+	strArr := make([]string, len(floatArr))
+	for i, v := range floatArr {
+		strArr[i] = strconv.FormatFloat(v, 'f', -1, 64) // Convert float to string
+	}
+	return strArr
+}
+
 func (r *RecordItems) toMap() (map[string]interface{}, error) {
 	if r.ColToValIdx == nil {
 		return nil, errors.New("colToValIdx is nil")
@@ -167,6 +178,33 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 				return nil, errors.New("expected *big.Rat value")
 			}
 			jsonStruct[col] = bigRat.FloatString(9)
+		case qvalue.QValueKindFloat64, qvalue.QValueKindFloat32:
+			floatVal, ok := v.Value.(float64)
+			if !ok {
+				return nil, errors.New("expected float64 value")
+			}
+			if math.IsNaN(floatVal) {
+				jsonStruct[col] = nil
+			} else {
+				jsonStruct[col] = floatVal
+			}
+		case qvalue.QValueKindArrayFloat64, qvalue.QValueKindArrayFloat32:
+			floatArr, ok := v.Value.([]float64)
+			if !ok {
+				return nil, errors.New("expected []float64 value")
+			}
+
+			// remove NaN values
+			cleanedArr := make([]float64, 0, len(floatArr))
+			for _, val := range floatArr {
+				if !math.IsNaN(val) && !math.IsInf(val, 0) {
+					cleanedArr = append(cleanedArr, val)
+				} else {
+					slog.Warn("NaN or INF value found in float array - skipping",
+						slog.Any("array", convertFloatArrayToStringArray(floatArr)))
+				}
+			}
+			jsonStruct[col] = cleanedArr
 		default:
 			jsonStruct[col] = v.Value
 		}
