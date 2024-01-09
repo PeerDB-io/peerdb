@@ -17,7 +17,7 @@ func ArrayMinus(first []string, second []string) []string {
 	return result
 }
 
-func ArrayChunksGen[T any](slice []T, size int) [][]T {
+func ArrayChunks[T any](slice []T, size int) [][]T {
 	var chunks [][]T
 
 	for size < len(slice) {
