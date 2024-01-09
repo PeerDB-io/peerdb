@@ -744,7 +744,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		txid_current_snapshot(),
 		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello'),
 		ARRAY[10299301,2579827],
-		ARRAY[0.0003, 8902.0092],
+		ARRAY[0.0003, 8902.0092, 'NaN'],
 		ARRAY['hello','bye'],'happy';
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
@@ -774,6 +774,59 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	// check if JSON on bigquery side is a good JSON
 	err = s.checkJSONValue(dstTableName, "c17", "sai", "-8.021390374331551")
 	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	srcTableName := s.attachSchemaSuffix("test_nans_bq")
+	dstTableName := "test_nans_bq"
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 double precision,c2 double precision[]);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_nans_bq"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.bqHelper.Peer,
+		CdcStagingPath:   "",
+	}
+
+	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	require.NoError(s.t, err)
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
+	}
+
+	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
+	// and execute a transaction touching toast columns
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		/* test inserting various types*/
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO %s SELECT 2, 'NaN'::double precision, '{NaN, Infinity, -Infinity}';
+		`, srcTableName))
+		e2e.EnvNoError(s.t, env, err)
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	// check if JSON on bigquery side is a good JSON
+	good, err := s.bqHelper.CheckDoubleValues(dstTableName, []string{"c1", "c2"})
+	require.NoError(s.t, err)
+	require.True(s.t, good)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
