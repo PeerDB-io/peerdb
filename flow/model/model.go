@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"slices"
 	"sync/atomic"
@@ -167,6 +168,56 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 				return nil, errors.New("expected *big.Rat value")
 			}
 			jsonStruct[col] = bigRat.FloatString(9)
+		case qvalue.QValueKindFloat64:
+			floatVal, ok := v.Value.(float64)
+			if !ok {
+				return nil, errors.New("expected float64 value")
+			}
+			if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
+				jsonStruct[col] = nil
+			} else {
+				jsonStruct[col] = floatVal
+			}
+		case qvalue.QValueKindFloat32:
+			floatVal, ok := v.Value.(float32)
+			if !ok {
+				return nil, errors.New("expected float32 value")
+			}
+			if math.IsNaN(float64(floatVal)) || math.IsInf(float64(floatVal), 0) {
+				jsonStruct[col] = nil
+			} else {
+				jsonStruct[col] = floatVal
+			}
+		case qvalue.QValueKindArrayFloat64:
+			floatArr, ok := v.Value.([]float64)
+			if !ok {
+				return nil, errors.New("expected []float64 value")
+			}
+
+			nullableFloatArr := make([]interface{}, 0, len(floatArr))
+			for _, val := range floatArr {
+				if math.IsNaN(val) || math.IsInf(val, 0) {
+					nullableFloatArr = append(nullableFloatArr, nil)
+				} else {
+					nullableFloatArr = append(nullableFloatArr, val)
+				}
+			}
+			jsonStruct[col] = nullableFloatArr
+		case qvalue.QValueKindArrayFloat32:
+			floatArr, ok := v.Value.([]float32)
+			if !ok {
+				return nil, errors.New("expected []float32 value")
+			}
+			nullableFloatArr := make([]interface{}, 0, len(floatArr))
+			for _, val := range floatArr {
+				if math.IsNaN(float64(val)) || math.IsInf(float64(val), 0) {
+					nullableFloatArr = append(nullableFloatArr, nil)
+				} else {
+					nullableFloatArr = append(nullableFloatArr, val)
+				}
+			}
+			jsonStruct[col] = nullableFloatArr
+
 		default:
 			jsonStruct[col] = v.Value
 		}
