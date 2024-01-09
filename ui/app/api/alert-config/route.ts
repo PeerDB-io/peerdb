@@ -1,8 +1,6 @@
 import { alertConfigType } from '@/app/alert-config/validation';
 import prisma from '@/app/utils/prisma';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET() {
   const configs = await prisma.alerting_config.findMany();
   const serializedConfigs = configs.map((config) => ({
