@@ -187,7 +187,7 @@ func GenerateSnowflakePeer(snowflakeConfig *protos.SnowflakeConfig) (*protos.Pee
 	return ret, nil
 }
 
-func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*protos.FlowConnectionConfigs, error) {
+func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos.FlowConnectionConfigs {
 	tblMappings := []*protos.TableMapping{}
 	for k, v := range c.TableNameMapping {
 		tblMappings = append(tblMappings, &protos.TableMapping{
@@ -207,7 +207,8 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() (*proto
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	}
 	ret.SyncedAtColName = "_PEERDB_SYNCED_AT"
-	return ret, nil
+	ret.IdleTimeoutSeconds = 10
+	return ret
 }
 
 type QRepFlowConnectionGenerationConfig struct {

@@ -69,8 +69,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(s.t, err)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
 		ExitAfterRecords: 10,
@@ -134,8 +133,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(s.t, err)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
 		ExitAfterRecords: 1,
@@ -186,8 +184,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Schema_Changes_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(s.t, err)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
 		ExitAfterRecords: 1,
@@ -348,7 +345,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
@@ -425,7 +422,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
@@ -504,7 +501,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
@@ -573,7 +570,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 		SoftDelete:       true,
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 	require.NoError(s.t, err)
 
 	limits := peerflow.CDCFlowLimits{
