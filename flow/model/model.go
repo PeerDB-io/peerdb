@@ -194,7 +194,9 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 				return nil, errors.New("expected []float64 value")
 			}
 
-			// remove NaN values
+			// json.Marshal cannot support NaN or INF values
+			// BigQuery cannot support NULL values in arrays
+			// Solution: Skip NaN values in float arrays we get
 			cleanedArr := make([]float64, 0, len(floatArr))
 			for _, val := range floatArr {
 				if !math.IsNaN(val) && !math.IsInf(val, 0) {
