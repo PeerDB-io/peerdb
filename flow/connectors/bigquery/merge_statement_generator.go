@@ -185,7 +185,7 @@ func (m *mergeStmtGenerator) generateMergeStmts() []string {
 	// TODO (kaushik): This is so that the statement size for individual merge statements
 	// doesn't exceed the limit. We should make this configurable.
 	const batchSize = 8
-	partitions := utils.ArrayPartition(m.unchangedToastColumns, batchSize)
+	partitions := utils.ArrayChunksGen(m.unchangedToastColumns, batchSize)
 
 	mergeStmts := make([]string, 0, len(partitions))
 	for _, partition := range partitions {

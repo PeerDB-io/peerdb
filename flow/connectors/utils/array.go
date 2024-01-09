@@ -17,15 +17,14 @@ func ArrayMinus(first []string, second []string) []string {
 	return result
 }
 
-func ArrayPartition[T any](slice []T, size int) [][]T {
-	var partitions [][]T
+func ArrayChunksGen[T any](slice []T, size int) [][]T {
+	var chunks [][]T
 
 	for size < len(slice) {
-		slice, partitions = slice[size:], append(partitions, slice[0:size])
+		chunks = append(chunks, slice[:size])
+		slice = slice[size:]
 	}
 
 	// Add the last remaining values
-	partitions = append(partitions, slice)
-
-	return partitions
+	return append(chunks, slice)
 }
