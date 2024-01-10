@@ -82,7 +82,7 @@ func (p *hstoreParser) consumeExpected2(one byte, two byte) error {
 var errEOSInQuoted = errors.New(`found end before closing double-quote ('"')`)
 
 // consumeDoubleQuoted consumes a double-quoted string from p. The double quote must have been
-// parsed already. This copies the string from the backing string so it can be garbage collected.
+// parsed already.
 func (p *hstoreParser) consumeDoubleQuoted() (string, error) {
 	// fast path: assume most keys/values do not contain escapes
 	nextDoubleQuote := strings.IndexByte(p.str[p.pos:], '"')
@@ -91,7 +91,7 @@ func (p *hstoreParser) consumeDoubleQuoted() (string, error) {
 	}
 	nextDoubleQuote += p.pos
 	if p.nextBackslash == -1 || p.nextBackslash > nextDoubleQuote {
-		s := strings.Clone(p.str[p.pos:nextDoubleQuote])
+		s := p.str[p.pos:nextDoubleQuote]
 		p.pos = nextDoubleQuote + 1
 		return s, nil
 	}
