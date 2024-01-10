@@ -104,14 +104,11 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		cname := fd.Name
 		ctype := postgresOIDToQValueKind(fd.DataTypeOID)
 		if ctype == qvalue.QValueKindInvalid {
-			var err error
-			if err != nil {
-				typeName, ok := qe.customTypeMap[fd.DataTypeOID]
-				if ok {
-					ctype = customTypeToQKind(typeName)
-				} else {
-					ctype = qvalue.QValueKindString
-				}
+			typeName, ok := qe.customTypeMap[fd.DataTypeOID]
+			if ok {
+				ctype = customTypeToQKind(typeName)
+			} else {
+				ctype = qvalue.QValueKindString
 			}
 		}
 		// there isn't a way to know if a column is nullable or not

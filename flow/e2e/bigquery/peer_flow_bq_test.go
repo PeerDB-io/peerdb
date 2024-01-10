@@ -702,7 +702,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
-		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood);
+		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE);
 	`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -737,8 +737,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		txid_current_snapshot(),
 		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello'),
 		ARRAY[10299301,2579827],
-		ARRAY[0.0003, 8902.0092, 'NaN'],
-		ARRAY['hello','bye'],'happy';
+		ARRAY[0.0003, 8902.0092],
+		ARRAY['hello','bye'],'happy',
+		'key1=>value1, key2=>NULL'::hstore
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 	}()
@@ -756,7 +757,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		"c41", "c1", "c2", "c3", "c4",
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
-		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45",
+		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46",
 	})
 	if err != nil {
 		s.t.Log(err)
@@ -767,6 +768,14 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	// check if JSON on bigquery side is a good JSON
 	err = s.checkJSONValue(dstTableName, "c17", "sai", "-8.021390374331551")
 	require.NoError(s.t, err)
+
+	// check if HSTORE on bigquery side is a good JSON
+	err = s.checkJSONValue(dstTableName, "c46", "key1", "\"value1\"")
+	require.NoError(s.t, err)
+	err = s.checkJSONValue(dstTableName, "c46", "key2", "null")
+	require.NoError(s.t, err)
+
+	env.AssertExpectations(s.t)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
