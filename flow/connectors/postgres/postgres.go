@@ -101,6 +101,7 @@ func (c *PostgresConnector) GetReplPool(ctx context.Context) (*SSHWrappedPostgre
 
 	pool, err := NewSSHWrappedPostgresPool(ctx, c.replConfig, c.config.SshConfig)
 	if err != nil {
+		slog.Error("failed to create replication connection pool", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create replication connection pool: %w", err)
 	}
 
