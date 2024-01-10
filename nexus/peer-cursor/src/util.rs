@@ -90,7 +90,7 @@ pub fn records_to_query_response<'a>(records: Records) -> PgWireResult<Response<
         .boxed();
 
     Ok(Response::Query(QueryResponse::new(
-        records.schema.clone(),
+        records.schema,
         data_row_stream,
     )))
 }
