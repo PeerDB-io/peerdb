@@ -143,7 +143,7 @@ impl Catalog {
                     let config_len = clickhouse_config.encoded_len();
                     buf.reserve(config_len);
                     clickhouse_config.encode(&mut buf)?;
-                }                
+                }
             };
 
             buf
@@ -340,11 +340,14 @@ impl Catalog {
                 Ok(Some(Config::EventhubGroupConfig(eventhub_group_config)))
             }
             Some(DbType::Clickhouse) => {
-                let err = format!("unable to decode {} options for peer {}", "clickhouse", name);
+                let err = format!(
+                    "unable to decode {} options for peer {}",
+                    "clickhouse", name
+                );
                 let clickhouse_config =
                     pt::peerdb_peers::ClickhouseConfig::decode(options).context(err)?;
                 Ok(Some(Config::ClickhouseConfig(clickhouse_config)))
-            }            
+            }
             None => Ok(None),
         }
     }

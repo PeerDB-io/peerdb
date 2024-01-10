@@ -7,7 +7,7 @@ use gcp_bigquery_client::{
     Client,
 };
 use peer_connections::PeerConnectionTracker;
-use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, SchemaRef};
+use peer_cursor::{CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::BigqueryConfig;
 use sqlparser::ast::{CloseCursor, Expr, FetchDirection, Statement, Value};
@@ -200,7 +200,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
     }
 
     // describe the output of the query
-    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
         // print the statement
         tracing::info!("[bigquery] describe: {}", stmt);
         // only support SELECT statements
