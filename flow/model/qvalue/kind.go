@@ -65,7 +65,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindUUID:        "STRING",
 	QValueKindTimeTZ:      "STRING",
 	QValueKindInvalid:     "STRING",
-	QValueKindHStore:      "STRING",
+	QValueKindHStore:      "VARIANT",
 	QValueKindGeography:   "GEOGRAPHY",
 	QValueKindGeometry:    "GEOMETRY",
 	QValueKindPoint:       "GEOMETRY",
