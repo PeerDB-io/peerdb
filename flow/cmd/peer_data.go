@@ -84,23 +84,45 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	}
 
 	defer peerPool.Close()
-	rows, err := peerPool.Query(ctx, "SELECT table_name "+
-		"FROM information_schema.tables "+
-		"WHERE table_schema = $1 AND table_type = 'BASE TABLE';", req.SchemaName)
+	rows, err := peerPool.Query(ctx, `SELECT DISTINCT ON (t.relname)
+    t.relname,
+    CASE
+        WHEN c.constraint_type = 'PRIMARY KEY' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
+        ELSE false
+    END AS can_mirror
+	FROM
+		information_schema.table_constraints c
+	RIGHT JOIN
+		pg_class t ON c.table_name = t.relname
+	WHERE
+		t.relnamespace::regnamespace::text = $1
+	AND
+    	t.relkind = 'r'
+	ORDER BY
+    t.relname,
+    can_mirror DESC;`, req.SchemaName)
 	if err != nil {
 		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
 
 	defer rows.Close()
-	var tables []string
+	var tables []*protos.TableResponse
 	for rows.Next() {
 		var table pgtype.Text
-		err := rows.Scan(&table)
+		var hasPkeyOrReplica pgtype.Bool
+		err := rows.Scan(&table, &hasPkeyOrReplica)
 		if err != nil {
 			return &protos.SchemaTablesResponse{Tables: nil}, err
 		}
+		canMirror := false
+		if hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool {
+			canMirror = true
+		}
 
-		tables = append(tables, table.String)
+		tables = append(tables, &protos.TableResponse{
+			TableName: table.String,
+			CanMirror: canMirror,
+		})
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }

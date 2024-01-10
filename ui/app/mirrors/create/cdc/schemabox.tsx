@@ -7,6 +7,7 @@ import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
+import { Tooltip } from '@/lib/Tooltip';
 import {
   Dispatch,
   SetStateAction,
@@ -17,7 +18,12 @@ import {
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
-import { expandableStyle, schemaBoxStyle, tableBoxStyle } from './styles';
+import {
+  expandableStyle,
+  schemaBoxStyle,
+  tableBoxStyle,
+  tooltipStyle,
+} from './styles';
 
 interface SchemaBoxProps {
   sourcePeer: string;
@@ -210,12 +216,29 @@ const SchemaBox = ({
                     >
                       <RowWithCheckbox
                         label={
-                          <Label as='label' style={{ fontSize: 13 }}>
-                            {row.source}
-                          </Label>
+                          <Tooltip
+                            style={{
+                              ...tooltipStyle,
+                              display: row.canMirror ? 'none' : 'block',
+                            }}
+                            content={
+                              'This table must have a primary key or replica identity to be mirrored.'
+                            }
+                          >
+                            <Label
+                              as='label'
+                              style={{
+                                fontSize: 13,
+                                color: row.canMirror ? 'black' : 'gray',
+                              }}
+                            >
+                              {row.source}
+                            </Label>
+                          </Tooltip>
                         }
                         action={
                           <Checkbox
+                            disabled={!row.canMirror}
                             checked={row.selected}
                             onCheckedChange={(state: boolean) =>
                               handleTableSelect(state, row.source)
@@ -223,30 +246,31 @@ const SchemaBox = ({
                           />
                         }
                       />
-
-                      <div
-                        style={{
-                          width: '40%',
-                          display: row.selected ? 'block' : 'none',
-                        }}
-                        key={row.source}
-                      >
-                        <p style={{ fontSize: 12 }}>Target Table:</p>
-                        <TextField
-                          key={row.source}
+                      {row.canMirror && (
+                        <div
                           style={{
-                            fontSize: 12,
-                            marginTop: '0.5rem',
-                            cursor: 'pointer',
+                            width: '40%',
+                            display: row.selected ? 'block' : 'none',
                           }}
-                          variant='simple'
-                          placeholder={'Enter target table'}
-                          defaultValue={row.destination}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                            updateDestination(row.source, e.target.value)
-                          }
-                        />
-                      </div>
+                          key={row.source}
+                        >
+                          <p style={{ fontSize: 12 }}>Target Table:</p>
+                          <TextField
+                            key={row.source}
+                            style={{
+                              fontSize: 12,
+                              marginTop: '0.5rem',
+                              cursor: 'pointer',
+                            }}
+                            variant='simple'
+                            placeholder={'Enter target table'}
+                            defaultValue={row.destination}
+                            onChange={(
+                              e: React.ChangeEvent<HTMLInputElement>
+                            ) => updateDestination(row.source, e.target.value)}
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* COLUMN BOX */}
