@@ -81,19 +81,18 @@ func (swpp *SSHWrappedPostgresPool) connect() error {
 			return
 		}
 
+		host := swpp.poolConfig.ConnConfig.Host
 		err = retryWithBackoff(func() error {
 			err = swpp.Ping(swpp.ctx)
 			if err != nil {
-				host := swpp.poolConfig.ConnConfig.Host
-				slog.Error("Failed to ping pool", slog.Any("error", err), slog.Any("host", host))
+				slog.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
 				return err
 			}
 			return nil
 		}, 5, 5*time.Second)
 
 		if err != nil {
-			slog.Error("Failed to create pool",
-				slog.Any("error", err), slog.Any("host", swpp.poolConfig.ConnConfig.Host))
+			slog.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
 		}
 	})
 
