@@ -33,7 +33,6 @@ require (
 	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
 	go.temporal.io/api v1.26.0
 	go.temporal.io/sdk v1.25.1
-	go.uber.org/atomic v1.11.0
 	go.uber.org/automaxprocs v1.5.3
 	golang.org/x/sync v0.5.0
 	google.golang.org/api v0.154.0
@@ -70,6 +69,7 @@ require (
 	go.opentelemetry.io/otel v1.21.0 // indirect
 	go.opentelemetry.io/otel/metric v1.21.0 // indirect
 	go.opentelemetry.io/otel/trace v1.21.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 )
 
 require (
