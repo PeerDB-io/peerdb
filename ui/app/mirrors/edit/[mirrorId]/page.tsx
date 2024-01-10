@@ -19,7 +19,7 @@ function getMirrorStatusUrl(mirrorId: string) {
 
 async function getMirrorStatus(mirrorId: string) {
   const url = getMirrorStatusUrl(mirrorId);
-  const resp = await fetch(url);
+  const resp = await fetch(url, { cache: 'no-store' });
   const json = await resp.json();
   return json;
 }
