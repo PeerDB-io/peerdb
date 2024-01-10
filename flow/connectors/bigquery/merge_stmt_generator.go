@@ -53,11 +53,11 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 				colName, bqType, shortCol)
 		case qvalue.QValueKindHStore:
 			// PARSE_JSON doesn't work for HSTORE with \" in the value, so use SAFE.PARSE_JSON and coalesce with TO_JSON
-			castStmt = fmt.Sprintf("CAST(COALESCE("+
-				"SAFE.PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'))"+
+			castStmt = fmt.Sprintf("CASE WHEN `%s` IS NULL THEN NULL ELSE CAST(COALESCE("+
+				"SAFE.PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'), wide_number_mode=>'round')"+
 				",TO_JSON(JSON_VALUE(_peerdb_data, '$.%s'))"+
 				") AS %s) AS `%s`",
-				colName, colName, bqType, shortCol)
+				colName, colName, colName, bqType, shortCol)
 		// expecting data in BASE64 format
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",
