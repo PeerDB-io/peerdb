@@ -213,7 +213,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 		},
 	}
 
-	signal := connpostgres.NewSlotSignal()
+	signal := connpostgres.NewSnapshotSignal()
 
 	setupError := make(chan error)
 	go func() {

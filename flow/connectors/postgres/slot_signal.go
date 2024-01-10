@@ -1,23 +1,24 @@
 package connpostgres
 
-type SlotCreationResult struct {
+type SnapshotCreationResult struct {
 	SlotName     string
 	SnapshotName string
-	Err          error
 }
 
 // This struct contains two signals.
 // 1. SlotCreated - this can be waited on to ensure that the slot has been created.
 // 2. CloneComplete - which can be waited on to ensure that the clone has completed.
-type SlotSignal struct {
-	SlotCreated   chan SlotCreationResult
+type SnapshotSignal struct {
+	SlotCreated   chan SnapshotCreationResult
 	CloneComplete chan struct{}
+	Error         chan error
 }
 
-// NewSlotSignal returns a new SlotSignal.
-func NewSlotSignal() SlotSignal {
-	return SlotSignal{
-		SlotCreated:   make(chan SlotCreationResult, 1),
+// NewSnapshotSignal returns a new SlotSignal.
+func NewSnapshotSignal() SnapshotSignal {
+	return SnapshotSignal{
+		SlotCreated:   make(chan SnapshotCreationResult, 1),
 		CloneComplete: make(chan struct{}, 1),
+		Error:         make(chan error, 1),
 	}
 }
