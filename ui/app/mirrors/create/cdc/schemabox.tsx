@@ -246,31 +246,29 @@ const SchemaBox = ({
                           />
                         }
                       />
-                      {row.canMirror && (
-                        <div
-                          style={{
-                            width: '40%',
-                            display: row.selected ? 'block' : 'none',
-                          }}
+                      <div
+                        style={{
+                          width: '40%',
+                          display: row.selected ? 'block' : 'none',
+                        }}
+                        key={row.source}
+                      >
+                        <p style={{ fontSize: 12 }}>Target Table:</p>
+                        <TextField
                           key={row.source}
-                        >
-                          <p style={{ fontSize: 12 }}>Target Table:</p>
-                          <TextField
-                            key={row.source}
-                            style={{
-                              fontSize: 12,
-                              marginTop: '0.5rem',
-                              cursor: 'pointer',
-                            }}
-                            variant='simple'
-                            placeholder={'Enter target table'}
-                            defaultValue={row.destination}
-                            onChange={(
-                              e: React.ChangeEvent<HTMLInputElement>
-                            ) => updateDestination(row.source, e.target.value)}
-                          />
-                        </div>
-                      )}
+                          style={{
+                            fontSize: 12,
+                            marginTop: '0.5rem',
+                            cursor: 'pointer',
+                          }}
+                          variant='simple'
+                          placeholder={'Enter target table'}
+                          defaultValue={row.destination}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            updateDestination(row.source, e.target.value)
+                          }
+                        />
+                      </div>
                     </div>
 
                     {/* COLUMN BOX */}
