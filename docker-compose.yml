@@ -175,7 +175,7 @@ services:
       DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
       PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
       NEXTAUTH_SECRET: __changeme__
-      NEXTAUTH_URL: localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
     depends_on:
       - flow-api
 
