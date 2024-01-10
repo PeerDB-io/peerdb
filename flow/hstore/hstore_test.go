@@ -20,7 +20,7 @@ func TestHStoreHappy(t *testing.T) {
 
 func TestHStoreEscapedQuotes(t *testing.T) {
 	testCase := `"a\"b"=>"c\"d"`
-	expected := `{"a"b":"c"d"}`
+	expected := `{"a\"b":"c\"d"}`
 
 	result, err := ParseHstore(testCase)
 	if err != nil {
@@ -34,7 +34,7 @@ func TestHStoreEscapedQuotes(t *testing.T) {
 
 func TestHStoreEscapedBackslashes(t *testing.T) {
 	testCase := `"a\\b"=>"c\\d"`
-	expected := `{"a\b":"c\d"}`
+	expected := `{"a\\b":"c\\d"}`
 
 	result, err := ParseHstore(testCase)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestHStoreEscapedBackslashes(t *testing.T) {
 
 func TestHStoreNullCase(t *testing.T) {
 	testCase := `"a"=>NULL`
-	expected := `{"a":""}`
+	expected := `{"a":null}`
 
 	result, err := ParseHstore(testCase)
 	if err != nil {
@@ -62,7 +62,7 @@ func TestHStoreNullCase(t *testing.T) {
 
 func TestHStoreDisguisedSeparator(t *testing.T) {
 	testCase := `"=>"=>"a=>b"`
-	expected := `{"=>":"a=>b"}`
+	expected := `{"=\u003e":"a=\u003eb"}`
 
 	result, err := ParseHstore(testCase)
 	if err != nil {

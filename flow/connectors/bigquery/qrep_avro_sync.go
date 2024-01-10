@@ -110,28 +110,20 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	return numRecords, nil
 }
 
-func getTransformedColumns(srcSchema *model.QRecordSchema, syncedAtCol string, softDeleteCol string) []string {
-	transformedColumns := make([]string, 0, len(srcSchema.Fields))
-	for _, col := range srcSchema.Fields {
+func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol string, softDeleteCol string) []string {
+	transformedColumns := make([]string, 0, len(dstTableMetadata.Schema))
+	for _, col := range dstTableMetadata.Schema {
 		if col.Name == syncedAtCol || col.Name == softDeleteCol {
 			continue
 		}
 		switch col.Type {
-		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
+		case bigquery.GeographyFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("ST_GEOGFROMTEXT(`%s`) AS `%s`", col.Name, col.Name))
-		case qvalue.QValueKindJSON:
+		case bigquery.JSONFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("PARSE_JSON(`%s`,wide_number_mode=>'round') AS `%s`", col.Name, col.Name))
-		case qvalue.QValueKindHStore:
-			transformedColumns = append(transformedColumns,
-				fmt.Sprintf("CASE WHEN `%s` IS NULL THEN NULL ELSE COALESCE("+
-					"SAFE.PARSE_JSON(`%s`,wide_number_mode=>'round'),"+
-					"TO_JSON(JSON_VALUE(`%s`))"+
-					") AS `%s`",
-					col.Name, col.Name, col.Name, col.Name))
-
-		case qvalue.QValueKindDate:
+		case bigquery.DateFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("CAST(`%s` AS DATE) AS `%s`", col.Name, col.Name))
 		default:
@@ -182,12 +174,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	)
 	bqClient := s.connector.client
 
-	srcSchema, err := stream.Schema()
-	if err != nil {
-		return -1, fmt.Errorf("failed to get schema from stream")
-	}
-
-	transformedColumns := getTransformedColumns(srcSchema, syncedAtCol, softDeleteCol)
+	transformedColumns := getTransformedColumns(dstTableMetadata, syncedAtCol, softDeleteCol)
 	selector := strings.Join(transformedColumns, ", ")
 
 	if softDeleteCol != "" { // PeerDB column

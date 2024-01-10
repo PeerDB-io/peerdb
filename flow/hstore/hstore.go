@@ -3,10 +3,12 @@ This is in reference to PostgreSQL's hstore:
 https://github.com/postgres/postgres/blob/bea18b1c949145ba2ca79d4765dba3cc9494a480/contrib/hstore/hstore_io.c
 
 This package is an implementation based on the above code.
+It's simplified to only parse the subset which `hstore_out` outputs.
 */
 package hstore_util
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -184,8 +186,6 @@ func ParseHstore(s string) (string, error) {
 
 	// This is an over-estimate of the number of key/value pairs.
 	numPairsEstimate := strings.Count(s, ">")
-	// makes one allocation of strings for the entire Hstore, rather than one allocation per value.
-	valueStrings := make([]string, 0, numPairsEstimate)
 	result := make(hstore, numPairsEstimate)
 	first := true
 	for !p.atEnd() {
@@ -218,23 +218,16 @@ func ParseHstore(s string) (string, error) {
 			return "", err
 		}
 		if value.Valid {
-			valueStrings = append(valueStrings, value.String)
-			result[key] = &valueStrings[len(valueStrings)-1]
+			result[key] = &value.String
 		} else {
 			result[key] = nil
 		}
 	}
 
-	// Convert to JSON string
-	jsonString := "{"
-	for k, v := range result {
-		if v != nil {
-			jsonString += fmt.Sprintf("\"%s\":\"%s\",", k, *v)
-		} else {
-			jsonString += fmt.Sprintf("\"%s\":\"\",", k)
-		}
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return "", err
 	}
-	jsonString = strings.TrimSuffix(jsonString, ",")
-	jsonString += "}"
-	return jsonString, nil
+
+	return string(jsonBytes), nil
 }
