@@ -71,7 +71,7 @@ func (c *EventHubConnector) Close() error {
 
 	err = c.hubManager.Close(context.Background())
 	if err != nil {
-		slog.Error("failed to close event hub manager", slog.Any("error", err))
+		c.logger.Error("failed to close event hub manager", slog.Any("error", err))
 		allErrors = errors.Join(allErrors, err)
 	}
 
@@ -240,7 +240,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	lastCheckpoint, err := req.Records.GetLastCheckpoint()
 	if err != nil {
-		c.logger.Error("failed to get last checkpoint", err)
+		c.logger.Error("failed to get last checkpoint", slog.Any("error", err))
 		return nil, err
 	}
 
