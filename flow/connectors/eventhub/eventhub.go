@@ -132,9 +132,8 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
 
-	eventHubFlushTimeout :=
-		time.Duration(utils.GetEnvInt("PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS", 10)) *
-			time.Second
+	eventHubFlushTimeout := time.Duration(utils.GetEnvInt("PEERDB_EVENTHUB_FLUSH_TIMEOUT_SECONDS", 10)) *
+		time.Second
 
 	ticker := time.NewTicker(eventHubFlushTimeout)
 	defer ticker.Stop()
@@ -184,7 +183,7 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
-			topicName, err := NewScopedEventhub(record.GetTableName())
+			destination, err := NewScopedEventhub(record.GetTableName())
 			if err != nil {
 				log.WithFields(log.Fields{
 					"flowName": flowJobName,
@@ -192,7 +191,20 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
-			err = batchPerTopic.AddEvent(ctx, topicName, json, false)
+			// Scoped eventhub is of the form peer_name.eventhub_name.partition_column
+			// partition_column is the column in the table that is used to determine
+			// the partition key for the eventhub.
+			partitionColumn := destination.PartitionKeyColumn
+			partitionValue := record.GetItems().GetColumnValue(partitionColumn)
+			var partitionKey string
+			if partitionValue == nil {
+				partitionKey = ""
+			} else {
+				partitionKey = fmt.Sprintf("%v", partitionValue.Value)
+			}
+
+			destination.SetPartitionValue(partitionKey)
+			err = batchPerTopic.AddEvent(ctx, destination, json, false)
 			if err != nil {
 				log.WithFields(log.Fields{
 					"flowName": flowJobName,
@@ -309,7 +321,8 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 
 func (c *EventHubConnector) SetupNormalizedTables(
 	req *protos.SetupNormalizedTableBatchInput) (
-	*protos.SetupNormalizedTableBatchOutput, error) {
+	*protos.SetupNormalizedTableBatchOutput, error,
+) {
 	log.Infof("normalization for event hub is a no-op")
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: nil,

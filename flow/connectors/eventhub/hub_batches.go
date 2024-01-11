@@ -26,20 +26,20 @@ func NewHubBatches(manager *EventHubManager) *HubBatches {
 
 func (h *HubBatches) AddEvent(
 	ctx context.Context,
-	name ScopedEventhub,
+	destination ScopedEventhub,
 	event string,
 	// this is true when we are retrying to send the event after the batch size exceeded
 	// this should initially be false, and then true when we are retrying.
 	retryForBatchSizeExceed bool,
 ) error {
-	batch, ok := h.batch[name]
+	batch, ok := h.batch[destination]
 	if !ok || batch == nil {
-		newBatch, err := h.manager.CreateEventDataBatch(ctx, name)
+		newBatch, err := h.manager.CreateEventDataBatch(ctx, destination)
 		if err != nil {
 			return fmt.Errorf("failed to create event data batch: %v", err)
 		}
 		batch = newBatch
-		h.batch[name] = batch
+		h.batch[destination] = batch
 	}
 
 	err := tryAddEventToBatch(event, batch)
@@ -58,12 +58,12 @@ func (h *HubBatches) AddEvent(
 		// if the event is too large, send the current batch and
 		// delete it from the map, so that a new batch can be created
 		// for the event next time.
-		if err := h.sendBatch(ctx, name, batch); err != nil {
+		if err := h.sendBatch(ctx, destination, batch); err != nil {
 			return fmt.Errorf("failed to send batch: %v", err)
 		}
-		delete(h.batch, name)
+		delete(h.batch, destination)
 
-		return h.AddEvent(ctx, name, event, true)
+		return h.AddEvent(ctx, destination, event, true)
 	} else {
 		return fmt.Errorf("failed to add event to batch: %v", err)
 	}
