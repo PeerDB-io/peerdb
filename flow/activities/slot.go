@@ -8,6 +8,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors"
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
+	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
@@ -33,7 +34,7 @@ func (a *FlowableActivity) handleSlotInfo(
 		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
 	}
 
-	slotLagInMBThreshold := peerdbenv.PeerDBSlotLagMBAlertThreshold()
+	slotLagInMBThreshold := dynamicconf.PeerDBSlotLagMBAlertThreshold(ctx)
 	if (slotLagInMBThreshold > 0) && (slotInfo[0].LagInMb >= float32(slotLagInMBThreshold)) {
 		a.Alerter.AlertIf(ctx, fmt.Sprintf("%s-slot-lag-threshold-exceeded", peerName),
 			fmt.Sprintf(`%sSlot `+"`%s`"+` on peer `+"`%s`"+` has exceeded threshold size of %dMB, currently at %.2fMB!
@@ -42,7 +43,7 @@ cc: <!channel>`,
 	}
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
-	maxOpenConnectionsThreshold := peerdbenv.PeerDBOpenConnectionsAlertThreshold()
+	maxOpenConnectionsThreshold := dynamicconf.PeerDBOpenConnectionsAlertThreshold(ctx)
 	res, err := srcConn.GetOpenConnectionsForUser()
 	if err != nil {
 		slog.WarnContext(ctx, "warning: failed to get current open connections", slog.Any("error", err))

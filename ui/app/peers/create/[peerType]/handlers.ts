@@ -81,6 +81,7 @@ export const handleValidate = async (
       config,
       mode: 'validate',
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   if (!valid.valid) {
     setMessage({ ok: false, msg: valid.message });
@@ -118,6 +119,7 @@ export const handleCreate = async (
       config,
       mode: 'create',
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   if (!createdPeer.created) {
     setMessage({ ok: false, msg: createdPeer.message });

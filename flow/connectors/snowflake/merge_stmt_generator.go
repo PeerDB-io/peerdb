@@ -50,7 +50,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() (string, error) {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s,",
 					toVariantColumnName, columnName, targetColumnName))
-		case qvalue.QValueKindJSON:
+		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s,",
 					toVariantColumnName, columnName, targetColumnName))

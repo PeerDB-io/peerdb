@@ -262,6 +262,7 @@ export const fetchSchemas = async (peerName: string) => {
     body: JSON.stringify({
       peerName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   return schemasRes.schemas;
 };
@@ -278,6 +279,7 @@ export const fetchTables = async (
       peerName,
       schemaName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
 
   let tables: TableMapRow[] = [];
@@ -320,6 +322,7 @@ export const fetchColumns = async (
       schemaName,
       tableName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   setLoading(false);
   return columnsRes.columns;
@@ -332,6 +335,7 @@ export const fetchAllTables = async (peerName: string) => {
     body: JSON.stringify({
       peerName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   return tablesRes.tables;
 };
