@@ -13,9 +13,9 @@ dashmap = "5.0"
 futures = { version = "0.3.28", features = ["executor"] }
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
-pgwire = "0.18"
+pgwire = "0.19"
 pt = { path = "../pt" }
-rust_decimal = { version = "1.30.0", features = [ "tokio-pg" ] }
+rust_decimal = { version = "1.30.0", features = ["db-tokio-postgres"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_bytes = "0.11"

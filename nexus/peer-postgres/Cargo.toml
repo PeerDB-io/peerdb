@@ -8,13 +8,13 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-rust_decimal = { version = "1.30.0", features = [ "tokio-pg" ] }
+rust_decimal = { version = "1.30.0", features = ["db-tokio-postgres"] }
 bytes = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
-pgwire = "0.18"
+pgwire = "0.19"
 postgres-connection = { path = "../postgres-connection" }
 pt = { path = "../pt" }
 serde = { version = "1.0", features = ["derive"] }
