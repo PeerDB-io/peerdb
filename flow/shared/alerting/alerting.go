@@ -123,3 +123,13 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		return
 	}
 }
+
+func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
+	_, err := a.catalogPool.Exec(ctx,
+		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
+		flowName, info, "info")
+	if err != nil {
+		a.logger.WarnContext(ctx, "failed to insert flow info", slog.Any("error", err))
+		return
+	}
+}

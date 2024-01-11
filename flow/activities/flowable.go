@@ -361,6 +361,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
+	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
 	return res, nil
 }

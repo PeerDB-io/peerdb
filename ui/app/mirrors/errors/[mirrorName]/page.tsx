@@ -1,101 +1,156 @@
-import { AlertErr } from '@/app/dto/AlertDTO';
-import prisma from '@/app/utils/prisma';
+'use client';
+
+import {
+  MirrorLog,
+  MirrorLogsRequest,
+  MirrorLogsResponse,
+} from '@/app/dto/AlertDTO';
 import TimeLabel from '@/components/TimeComponent';
+import { Button } from '@/lib/Button';
+import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import AckButton from './ackbutton';
 
-type MirrorErrorProps = {
-  params: { mirrorName: string };
+const colorForErrorType = (errorType: string) => {
+  const errorUpper = errorType.toUpperCase();
+  if (errorUpper === 'ERROR') {
+    return '#F45156';
+  } else if (errorUpper === 'WARNING') {
+    return '#FFC107';
+  } else {
+    return '#4CAF50';
+  }
 };
 
-const MirrorError = async ({ params: { mirrorName } }: MirrorErrorProps) => {
-  const mirrorErrors: AlertErr[] = await prisma.flow_errors.findMany({
-    where: {
-      flow_name: mirrorName,
-      error_type: 'error',
-    },
-    orderBy: {
-      error_timestamp: 'desc',
-    },
-  });
+export default function MirrorError() {
+  const params = useParams<{ mirrorName: string }>();
+  const [mirrorErrors, setMirrorErrors] = useState<MirrorLog[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [params.mirrorName]);
+
+  useEffect(() => {
+    const req: MirrorLogsRequest = {
+      flowJobName: params.mirrorName,
+      page: currentPage,
+      numPerPage: 10,
+    };
+
+    const fetchData = async () => {
+      try {
+        const response = await fetch('/api/mirrors/errors', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(req),
+        });
+        const data: MirrorLogsResponse = await response.json();
+        const numPages = Math.ceil(data.total / req.numPerPage);
+        setMirrorErrors(data.errors);
+        setTotalPages(numPages);
+      } catch (error) {
+        console.error('Error fetching mirror errors:', error);
+      }
+    };
+
+    fetchData();
+  }, [currentPage, params.mirrorName]);
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
 
   return (
     <>
       <div style={{ padding: '2rem' }}>
-        <Label variant='title2'>Error Log</Label>
+        <Label variant='title2'>Logs</Label>
         <hr></hr>
         <div style={{ marginTop: '1rem' }}>
           <Label variant='body'>
             <b>Mirror name</b>:
           </Label>
-          <Label variant='body'>{mirrorName}</Label>
+          <Label variant='body'>{params.mirrorName}</Label>
 
           <div>
             <Label as='label' style={{ fontSize: 14, marginTop: '1rem' }}>
-              Here you can view error logs for your mirror and mark them as
-              acknowledged. Once all errors are acknowledged, we will show the
-              status for this mirror as Active.
-              <br></br>
-              This is purely for displaying mirror status and has{' '}
-              <b>no effect on the mirror</b>.
+              Here you can view logs for your mirror.
             </Label>
           </div>
 
-          <div
-            style={{
-              fontSize: 15,
-              marginTop: '1rem',
-              maxHeight: '50em',
-              overflow: 'scroll',
-              width: '100%',
-              border: '1px solid rgba(0,0,0,0.1)',
-              padding: '1rem',
-              borderRadius: '1rem',
+          <Table
+            header={
+              <TableRow style={{ textAlign: 'left' }}>
+                <TableCell>Type</TableCell>
+                <TableCell>
+                  <Label as='label' style={{ fontSize: 15 }}>
+                    Time
+                  </Label>
+                </TableCell>
+                <TableCell>Message</TableCell>
+                <TableCell></TableCell>
+              </TableRow>
+            }
+            toolbar={{
+              left: (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <Button variant='normalBorderless' onClick={handlePrevPage}>
+                    <Icon name='chevron_left' />
+                  </Button>
+                  <Button variant='normalBorderless' onClick={handleNextPage}>
+                    <Icon name='chevron_right' />
+                  </Button>
+                  <Label>{`${currentPage} of ${totalPages}`}</Label>
+                  <Button
+                    variant='normalBorderless'
+                    onClick={() => window.location.reload()}
+                  >
+                    <Icon name='refresh' />
+                  </Button>
+                </div>
+              ),
             }}
           >
-            <Table
-              header={
-                <TableRow style={{ textAlign: 'left' }}>
-                  <TableCell>Type</TableCell>
-                  <TableCell>
-                    <Label as='label' style={{ fontSize: 15 }}>
-                      Time
-                    </Label>
-                  </TableCell>
-                  <TableCell>Message</TableCell>
-                  <TableCell></TableCell>
-                </TableRow>
-              }
-            >
-              {mirrorErrors.map((mirrorError) => (
-                <TableRow key={mirrorError.id}>
-                  <TableCell style={{ color: '#F45156', width: '10%' }}>
-                    {mirrorError.error_type.toUpperCase()}
-                  </TableCell>
-                  <TableCell style={{ width: '20%' }}>
-                    <TimeLabel
-                      fontSize={14}
-                      timeVal={mirrorError.error_timestamp}
-                    />
-                  </TableCell>
-                  <TableCell style={{ width: '50%', fontSize: 13 }}>
-                    {mirrorError.error_message}
-                  </TableCell>
-                  <TableCell style={{ width: '20%', fontSize: 13 }}>
-                    <AckButton ack={mirrorError.ack} id={mirrorError.id} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </Table>
-          </div>
+            {mirrorErrors.map((mirrorError, idx) => (
+              <TableRow key={`${currentPage}_${idx}`}>
+                <TableCell
+                  style={{
+                    color: colorForErrorType(mirrorError.error_type),
+                    width: '10%',
+                  }}
+                >
+                  {mirrorError.error_type.toUpperCase()}
+                </TableCell>
+                <TableCell style={{ width: '20%' }}>
+                  <TimeLabel
+                    fontSize={14}
+                    timeVal={mirrorError.error_timestamp}
+                  />
+                </TableCell>
+                <TableCell style={{ width: '50%', fontSize: 13 }}>
+                  {mirrorError.error_message}
+                </TableCell>
+              </TableRow>
+            ))}
+          </Table>
         </div>
       </div>
       <ToastContainer />
     </>
   );
-};
-
-export default MirrorError;
+}
