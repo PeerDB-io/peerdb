@@ -42,8 +42,7 @@ func dynamicConfUint32(ctx context.Context, key string, defaultValue uint32) uin
 		return defaultValue
 	}
 
-	var result uint64
-	result, err = strconv.ParseUint(value.String, 10, 32)
+	result, err := strconv.ParseUint(value.String, 10, 32)
 	if err != nil {
 		slog.Error("Failed to parse uint32: %v", err)
 		return defaultValue
