@@ -142,6 +142,7 @@ func (c *EventHubConnector) processBatch(
 		select {
 		case record, ok := <-batch.GetRecords():
 			if !ok {
+				c.logger.Info("flushing batches because no more records")
 				err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
 				if err != nil {
 					return 0, err
@@ -164,13 +165,26 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
-			topicName, err := NewScopedEventhub(record.GetDestinationTableName())
+			destination, err := NewScopedEventhub(record.GetDestinationTableName())
 			if err != nil {
 				c.logger.Error("failed to get topic name", slog.Any("error", err))
 				return 0, err
 			}
 
-			err = batchPerTopic.AddEvent(ctx, topicName, json, false)
+			// Scoped eventhub is of the form peer_name.eventhub_name.partition_column
+			// partition_column is the column in the table that is used to determine
+			// the partition key for the eventhub.
+			partitionColumn := destination.PartitionKeyColumn
+			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
+			var partitionKey string
+			if partitionValue == nil {
+				partitionKey = ""
+			} else {
+				partitionKey = fmt.Sprintf("%v", partitionValue)
+			}
+
+			destination.SetPartitionValue(partitionKey)
+			err = batchPerTopic.AddEvent(ctx, destination, json, false)
 			if err != nil {
 				c.logger.Error("failed to add event to batch", slog.Any("error", err))
 				return 0, err
