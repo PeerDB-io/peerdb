@@ -175,8 +175,14 @@ func (c *EventHubConnector) processBatch(
 			// partition_column is the column in the table that is used to determine
 			// the partition key for the eventhub.
 			partitionColumn := destination.PartitionKeyColumn
-			columnValue := fmt.Sprintf("%v", record.GetItems().GetColumnValue(partitionColumn).Value)
-			destination.SetPartitionValue(columnValue)
+			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
+			partitionKey := fmt.Sprintf("%v", partitionValue)
+			if partitionValue == nil {
+				partitionKey = ""
+			}
+
+			destination.SetPartitionValue(partitionKey)
+			c.logger.Info("Partition value has been set", slog.String("destination", destination.ToString()))
 			err = batchPerTopic.AddEvent(ctx, destination, json, false)
 			if err != nil {
 				c.logger.Error("failed to add event to batch", slog.Any("error", err))
