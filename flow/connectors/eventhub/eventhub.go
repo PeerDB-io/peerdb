@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -14,7 +15,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"go.uber.org/atomic"
 )
 
 type EventHubConnector struct {
@@ -137,7 +137,7 @@ func (c *EventHubConnector) processBatch(
 	lastSeenLSN := int64(0)
 	lastUpdatedOffset := int64(0)
 
-	numRecords := atomic.NewUint32(0)
+	numRecords := atomic.Uint32{}
 	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
 		return fmt.Sprintf(
 			"processed %d records for flow %s",
@@ -160,7 +160,7 @@ func (c *EventHubConnector) processBatch(
 				return numRecords.Load(), nil
 			}
 
-			numRecords.Inc()
+			numRecords.Add(1)
 
 			recordLSN := record.GetCheckPointID()
 			if recordLSN > lastSeenLSN {
