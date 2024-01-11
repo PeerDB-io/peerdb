@@ -250,12 +250,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	hasRecords := !recordBatch.WaitAndCheckEmpty()
 	slog.InfoContext(ctx, fmt.Sprintf("the current sync flow has records: %v", hasRecords))
-	if a.CatalogPool != nil && hasRecords {
-		syncBatchID, err := dstConn.GetLastSyncBatchID(flowName)
-		if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
-			return nil, err
-		}
+	syncBatchID, err := dstConn.GetLastSyncBatchID(flowName)
+	if err != nil && conn.Destination.Type != protos.DBType_EVENTHUB {
+		return nil, err
+	}
 
+	if a.CatalogPool != nil && hasRecords {
 		err = monitoring.AddCDCBatchForFlow(ctx, a.CatalogPool, flowName,
 			monitoring.CDCBatchInfo{
 				BatchID:     syncBatchID + 1,
@@ -326,7 +326,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		ctx,
 		a.CatalogPool,
 		input.FlowConnectionConfigs.FlowJobName,
-		res.CurrentSyncBatchID,
+		syncBatchID+1,
 		uint32(numRecords),
 		pglogrepl.LSN(lastCheckpoint),
 	)
