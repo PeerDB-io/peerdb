@@ -256,7 +256,13 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	}
 
 	rowsSynced := int64(numRecords)
+	syncBatchID, err := c.GetLastSyncBatchID(req.FlowJobName)
+	if err != nil {
+		c.logger.Error("failed to get last sync batch id", slog.Any("error", err))
+	}
+
 	return &model.SyncResponse{
+		CurrentSyncBatchID:     syncBatchID,
 		LastSyncedCheckPointID: lastCheckpoint,
 		NumRecordsSynced:       rowsSynced,
 		TableNameRowsMapping:   make(map[string]uint32),
