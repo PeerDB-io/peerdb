@@ -63,7 +63,8 @@ func NewAlerter(catalogPool *pgxpool.Pool) (*Alerter, error) {
 // Only raises an alert if another alert with the same key hasn't been raised
 // in the past X minutes, where X is configurable and defaults to 15 minutes
 func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage string) {
-	if dynamicconf.PeerDBAlertingGapMinutesAsDuration(ctx) == 0 {
+	dur := dynamicconf.PeerDBAlertingGapMinutesAsDuration(ctx)
+	if dur == 0 {
 		a.logger.WarnContext(ctx, "Alerting disabled via environment variable, returning")
 		return
 	}
@@ -80,7 +81,7 @@ func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage str
 		return
 	}
 
-	if time.Since(createdTimestamp) >= dynamicconf.PeerDBAlertingGapMinutesAsDuration(ctx) {
+	if time.Since(createdTimestamp) >= dur {
 		a.AddAlertToCatalog(ctx, alertKey, alertMessage)
 		a.AlertToSlack(ctx, alertKey, alertMessage)
 	}
