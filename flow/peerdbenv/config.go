@@ -70,22 +70,6 @@ func PeerDBCatalogDatabase() string {
 	return getEnvString("PEERDB_CATALOG_DATABASE", "")
 }
 
-// PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
-func PeerDBSlotLagMBAlertThreshold() uint32 {
-	return getEnvUint32("PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", 5000)
-}
-
-// PEERDB_ALERTING_GAP_MINUTES, 0 disables all alerting entirely
-func PeerDBAlertingGapMinutesAsDuration() time.Duration {
-	why := int64(getEnvUint32("PEERDB_ALERTING_GAP_MINUTES", 15))
-	return time.Duration(why) * time.Minute
-}
-
-// PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD, 0 disables open connections alerting entirely
-func PeerDBOpenConnectionsAlertThreshold() uint32 {
-	return getEnvUint32("PEERDB_PGPEER_OPEN_CONNECTIONS_ALERT_THRESHOLD", 5)
-}
-
 // PEERDB_ENABLE_WAL_HEARTBEAT
 func PeerDBEnableWALHeartbeat() bool {
 	return getEnvBool("PEERDB_ENABLE_WAL_HEARTBEAT", false)
