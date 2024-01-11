@@ -28,12 +28,21 @@ type PeerFlowE2ETestSuitePG struct {
 	suffix    string
 }
 
+func (s PeerFlowE2ETestSuitePG) T() *testing.T {
+	return s.t
+}
+
+func (s PeerFlowE2ETestSuitePG) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
+func (s PeerFlowE2ETestSuitePG) Suffix() string {
+	return s.suffix
+}
+
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuitePG) {
-		err := e2e.TearDownPostgres(s.pool, s.suffix)
-		if err != nil {
-			require.Fail(s.t, "failed to drop Postgres schema", err)
-		}
+		e2e.TearDownPostgres(s)
 	})
 }
 

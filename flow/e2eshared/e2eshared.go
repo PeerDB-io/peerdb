@@ -12,10 +12,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type RowSource interface {
+type Suite interface {
 	T() *testing.T
 	Pool() *pgxpool.Pool
 	Suffix() string
+}
+
+type RowSource interface {
+	Suite
 	GetRows(table, cols string) (*model.QRecordBatch, error)
 }
 

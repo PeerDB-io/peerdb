@@ -29,13 +29,24 @@ type PeerFlowE2ETestSuiteSQLServer struct {
 	suffix     string
 }
 
+func (s PeerFlowE2ETestSuiteSQLServer) T() *testing.T {
+	return s.t
+}
+
+func (s PeerFlowE2ETestSuiteSQLServer) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
+func (s PeerFlowE2ETestSuiteSQLServer) Suffix() string {
+	return s.suffix
+}
+
 func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuiteSQLServer) {
-		err := e2e.TearDownPostgres(s.pool, s.suffix)
-		require.NoError(s.t, err)
+		e2e.TearDownPostgres(s)
 
 		if s.sqlsHelper != nil {
-			err = s.sqlsHelper.CleanUp()
+			err := s.sqlsHelper.CleanUp()
 			require.NoError(s.t, err)
 		}
 	})

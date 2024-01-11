@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -135,22 +137,26 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func TearDownPostgres(pool *pgxpool.Pool, suffix string) error {
-	// drop the e2e_test schema
+func TearDownPostgres[T e2eshared.Suite](s T) {
+	t := s.T()
+	t.Helper()
+	pool := s.Pool()
+	suffix := s.Suffix()
+
 	if pool != nil {
-		deadline := time.Now().Add(time.Minute)
+		t.Log("begin tearing down postgres schema", suffix)
+		deadline := time.Now().Add(2 * time.Minute)
 		for {
 			err := cleanPostgres(pool, suffix)
 			if err == nil {
 				pool.Close()
-				return nil
+				return
 			} else if time.Now().After(deadline) {
-				return err
+				require.Fail(t, "failed to teardown postgres schema", suffix)
 			}
 			time.Sleep(time.Second)
 		}
 	}
-	return nil
 }
 
 // GeneratePostgresPeer generates a postgres peer config for testing.

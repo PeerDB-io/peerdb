@@ -24,13 +24,22 @@ type PeerFlowE2ETestSuiteS3 struct {
 	suffix   string
 }
 
-func tearDownSuite(s PeerFlowE2ETestSuiteS3) {
-	err := e2e.TearDownPostgres(s.pool, s.suffix)
-	if err != nil {
-		require.Fail(s.t, "failed to drop Postgres schema", err)
-	}
+func (s PeerFlowE2ETestSuiteS3) T() *testing.T {
+	return s.t
+}
 
-	err = s.s3Helper.CleanUp()
+func (s PeerFlowE2ETestSuiteS3) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
+func (s PeerFlowE2ETestSuiteS3) Suffix() string {
+	return s.suffix
+}
+
+func tearDownSuite(s PeerFlowE2ETestSuiteS3) {
+	e2e.TearDownPostgres(s)
+
+	err := s.s3Helper.CleanUp()
 	if err != nil {
 		require.Fail(s.t, "failed to clean up s3", err)
 	}
