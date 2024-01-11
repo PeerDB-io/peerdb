@@ -1,5 +1,5 @@
-import { UTablesResponse } from '@/app/dto/PeersDTO';
-import { SchemaTablesResponse } from '@/grpc_generated/route';
+import { UTablesAllResponse } from '@/app/dto/PeersDTO';
+import { AllTablesResponse } from '@/grpc_generated/route';
 import { GetFlowHttpAddressFromEnv } from '@/rpc/http';
 
 export async function POST(request: Request) {
@@ -7,12 +7,12 @@ export async function POST(request: Request) {
   const { peerName } = body;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   try {
-    const tableList: SchemaTablesResponse = await fetch(
+    const tableList: AllTablesResponse = await fetch(
       `${flowServiceAddr}/v1/peers/tables/all?peer_name=${peerName}`
     ).then((res) => {
       return res.json();
     });
-    let response: UTablesResponse = {
+    let response: UTablesAllResponse = {
       tables: tableList.tables,
     };
     return new Response(JSON.stringify(response));
