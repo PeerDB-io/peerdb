@@ -292,15 +292,7 @@ func (s *SnowflakeAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage 
 	return nil
 }
 
-func (c *SnowflakeConnector) GetCopyTransformation(
-	dstTableName string,
-	syncedAtCol string,
-) (*CopyInfo, error) {
-	colNames, colTypes, colsErr := c.getColsFromTable(dstTableName)
-	if colsErr != nil {
-		return nil, fmt.Errorf("failed to get columns from destination table: %w", colsErr)
-	}
-
+func GetTransformSQL(colNames []string, colTypes []string, syncedAtCol string) (string, string) {
 	transformations := make([]string, 0, len(colNames))
 	columnOrder := make([]string, 0, len(colNames))
 	for idx, avroColName := range colNames {
@@ -337,6 +329,20 @@ func (c *SnowflakeConnector) GetCopyTransformation(
 	}
 	transformationSQL := strings.Join(transformations, ",")
 	columnsSQL := strings.Join(columnOrder, ",")
+
+	return transformationSQL, columnsSQL
+}
+
+func (c *SnowflakeConnector) GetCopyTransformation(
+	dstTableName string,
+	syncedAtCol string,
+) (*CopyInfo, error) {
+	colNames, colTypes, colsErr := c.getColsFromTable(dstTableName)
+	if colsErr != nil {
+		return nil, fmt.Errorf("failed to get columns from destination table: %w", colsErr)
+	}
+
+	transformationSQL, columnsSQL := GetTransformSQL(colNames, colTypes, syncedAtCol)
 	return &CopyInfo{transformationSQL, columnsSQL}, nil
 }
 
