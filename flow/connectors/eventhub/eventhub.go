@@ -176,13 +176,14 @@ func (c *EventHubConnector) processBatch(
 			// the partition key for the eventhub.
 			partitionColumn := destination.PartitionKeyColumn
 			partitionValue := record.GetItems().GetColumnValue(partitionColumn).Value
-			partitionKey := fmt.Sprintf("%v", partitionValue)
+			var partitionKey string
 			if partitionValue == nil {
 				partitionKey = ""
+			} else {
+				partitionKey = fmt.Sprintf("%v", partitionValue)
 			}
 
 			destination.SetPartitionValue(partitionKey)
-			c.logger.Info("Partition value has been set", slog.String("destination", destination.ToString()))
 			err = batchPerTopic.AddEvent(ctx, destination, json, false)
 			if err != nil {
 				c.logger.Error("failed to add event to batch", slog.Any("error", err))
