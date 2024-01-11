@@ -226,11 +226,9 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	var err error
 	batch := req.Records
-	var numRecords uint32
 
-	numRecords, err = c.processBatch(req.FlowJobName, batch)
+	numRecords, err := c.processBatch(req.FlowJobName, batch)
 	if err != nil {
 		c.logger.Error("failed to process batch", slog.Any("error", err))
 		return nil, err
