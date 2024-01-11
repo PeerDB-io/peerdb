@@ -10,7 +10,6 @@ import (
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"golang.org/x/sync/errgroup"
 )
 
 // multimap from ScopedEventhub to *azeventhubs.EventDataBatch
@@ -76,10 +75,14 @@ func (h *HubBatches) Len() int {
 }
 
 // ForEach calls the given function for each ScopedEventhub and batch pair
-func (h *HubBatches) ForEach(fn func(ScopedEventhub, *azeventhubs.EventDataBatch)) {
-	for destination, batch := range h.batch {
-		fn(destination, batch)
+func (h *HubBatches) ForEach(fn func(ScopedEventhub, *azeventhubs.EventDataBatch) error) error {
+	for name, batch := range h.batch {
+		err := fn(name, batch)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (h *HubBatches) sendBatch(
@@ -108,7 +111,6 @@ func (h *HubBatches) sendBatch(
 
 func (h *HubBatches) flushAllBatches(
 	ctx context.Context,
-	maxParallelism int64,
 	flowName string,
 ) error {
 	if h.Len() == 0 {
@@ -117,12 +119,13 @@ func (h *HubBatches) flushAllBatches(
 	}
 
 	var numEventsPushed int32
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(int(maxParallelism))
-	h.ForEach(func(destination ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
-		g.Go(func() error {
+	err := h.ForEach(
+		func(
+			destination ScopedEventhub,
+			eventBatch *azeventhubs.EventDataBatch,
+		) error {
 			numEvents := eventBatch.NumEvents()
-			err := h.sendBatch(gCtx, destination, eventBatch)
+			err := h.sendBatch(ctx, destination, eventBatch)
 			if err != nil {
 				return err
 			}
@@ -134,16 +137,17 @@ func (h *HubBatches) flushAllBatches(
 				slog.String("event hub topic ", destination.ToString()))
 			return nil
 		})
-	})
 
-	err := g.Wait()
+	h.Clear()
+
+	if err != nil {
+		return fmt.Errorf("failed to flushAllBatches: %v", err)
+	}
 	slog.Info("hub batches flush",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.Int("events sent", int(numEventsPushed)))
 
 	// clear the batches after flushing them.
-	h.Clear()
-
 	return err
 }
 

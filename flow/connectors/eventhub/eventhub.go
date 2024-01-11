@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
+	"go.uber.org/atomic"
 )
 
 type EventHubConnector struct {
@@ -123,7 +124,6 @@ func (c *EventHubConnector) SetLastOffset(jobName string, offset int64) error {
 func (c *EventHubConnector) processBatch(
 	flowJobName string,
 	batch *model.CDCRecordStream,
-	maxParallelism int64,
 ) (uint32, error) {
 	ctx := context.Background()
 	batchPerTopic := NewHubBatches(c.hubManager)
@@ -137,22 +137,30 @@ func (c *EventHubConnector) processBatch(
 	lastSeenLSN := int64(0)
 	lastUpdatedOffset := int64(0)
 
-	numRecords := 0
+	numRecords := atomic.NewUint32(0)
+	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
+		return fmt.Sprintf(
+			"processed %d records for flow %s",
+			numRecords.Load(), flowJobName,
+		)
+	})
+	defer shutdown()
+
 	for {
 		select {
 		case record, ok := <-batch.GetRecords():
 			if !ok {
 				c.logger.Info("flushing batches because no more records")
-				err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+				err := batchPerTopic.flushAllBatches(ctx, flowJobName)
 				if err != nil {
 					return 0, err
 				}
 
-				c.logger.Info("processBatch", slog.Int("Total records sent to event hub", numRecords))
-				return uint32(numRecords), nil
+				c.logger.Info("processBatch", slog.Int("Total records sent to event hub", int(numRecords.Load())))
+				return numRecords.Load(), nil
 			}
 
-			numRecords++
+			numRecords.Inc()
 
 			recordLSN := record.GetCheckPointID()
 			if recordLSN > lastSeenLSN {
@@ -190,12 +198,13 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
-			if numRecords%1000 == 0 {
-				c.logger.Error("processBatch", slog.Int("number of records processed for sending", numRecords))
+			curNumRecords := numRecords.Load()
+			if curNumRecords%1000 == 0 {
+				c.logger.Error("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
 			}
 
 		case <-ticker.C:
-			err := batchPerTopic.flushAllBatches(ctx, maxParallelism, flowJobName)
+			err := batchPerTopic.flushAllBatches(ctx, flowJobName)
 			if err != nil {
 				return 0, err
 			}
@@ -215,24 +224,11 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
-	maxParallelism := req.PushParallelism
-	if maxParallelism <= 0 {
-		maxParallelism = 10
-	}
-
 	var err error
 	batch := req.Records
 	var numRecords uint32
 
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf(
-			"processed %d records for flow %s",
-			numRecords, req.FlowJobName,
-		)
-	})
-	defer shutdown()
-
-	numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
+	numRecords, err = c.processBatch(req.FlowJobName, batch)
 	if err != nil {
 		c.logger.Error("failed to process batch", slog.Any("error", err))
 		return nil, err
