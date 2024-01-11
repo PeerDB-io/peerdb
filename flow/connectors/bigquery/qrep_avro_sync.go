@@ -110,9 +110,9 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	return numRecords, nil
 }
 
-func getTransformedColumns(dstTableMetadata *bigquery.TableMetadata, syncedAtCol string, softDeleteCol string) []string {
-	transformedColumns := make([]string, 0, len(dstTableMetadata.Schema))
-	for _, col := range dstTableMetadata.Schema {
+func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softDeleteCol string) []string {
+	transformedColumns := make([]string, 0, len(*dstSchema))
+	for _, col := range *dstSchema {
 		if col.Name == syncedAtCol || col.Name == softDeleteCol {
 			continue
 		}
@@ -174,7 +174,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	)
 	bqClient := s.connector.client
 
-	transformedColumns := getTransformedColumns(dstTableMetadata, syncedAtCol, softDeleteCol)
+	transformedColumns := getTransformedColumns(&dstTableMetadata.Schema, syncedAtCol, softDeleteCol)
 	selector := strings.Join(transformedColumns, ", ")
 
 	if softDeleteCol != "" { // PeerDB column

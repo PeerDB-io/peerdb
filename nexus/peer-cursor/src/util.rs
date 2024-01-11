@@ -1,13 +1,11 @@
-use std::sync::Arc;
-
 use futures::{stream, StreamExt};
 use pgwire::{
-    api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response},
+    api::results::{DataRowEncoder, QueryResponse, Response},
     error::{PgWireError, PgWireResult},
 };
 use value::Value;
 
-use crate::{Records, SchemaRef, SendableStream};
+use crate::{Records, Schema, SendableStream};
 
 fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()> {
     match value {
@@ -58,11 +56,10 @@ fn encode_value(value: &Value, builder: &mut DataRowEncoder) -> PgWireResult<()>
 }
 
 pub fn sendable_stream_to_query_response<'a>(
-    schema: SchemaRef,
+    schema: Schema,
     record_stream: SendableStream,
 ) -> PgWireResult<Response<'a>> {
-    let pg_schema: Arc<Vec<FieldInfo>> = Arc::new(schema.fields.clone());
-    let schema_copy = pg_schema.clone();
+    let schema_copy = schema.clone();
 
     let data_row_stream = record_stream
         .map(move |record_result| {
@@ -76,15 +73,11 @@ pub fn sendable_stream_to_query_response<'a>(
         })
         .boxed();
 
-    Ok(Response::Query(QueryResponse::new(
-        pg_schema,
-        data_row_stream,
-    )))
+    Ok(Response::Query(QueryResponse::new(schema, data_row_stream)))
 }
 
 pub fn records_to_query_response<'a>(records: Records) -> PgWireResult<Response<'a>> {
-    let pg_schema: Arc<Vec<FieldInfo>> = Arc::new(records.schema.fields.clone());
-    let schema_copy = pg_schema.clone();
+    let schema_copy = records.schema.clone();
 
     let data_row_stream = stream::iter(records.records)
         .map(move |record| {
@@ -97,7 +90,7 @@ pub fn records_to_query_response<'a>(records: Records) -> PgWireResult<Response<
         .boxed();
 
     Ok(Response::Query(QueryResponse::new(
-        pg_schema,
+        records.schema,
         data_row_stream,
     )))
 }

@@ -34,3 +34,9 @@ export const loaderContainer: CSSProperties = {
   justifyContent: 'center',
   height: '100%',
 };
+export const tooltipStyle: CSSProperties = {
+  width: '100%',
+  backgroundColor: 'white',
+  color: 'black',
+  padding: '0.5rem',
+};

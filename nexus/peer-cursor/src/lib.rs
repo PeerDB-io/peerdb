@@ -7,27 +7,22 @@ use value::Value;
 
 pub mod util;
 
-#[derive(Debug, Clone)]
-pub struct Schema {
-    pub fields: Vec<FieldInfo>,
-}
-
-pub type SchemaRef = Arc<Schema>;
+pub type Schema = Arc<Vec<FieldInfo>>;
 
 pub struct Record {
     pub values: Vec<Value>,
-    pub schema: SchemaRef,
+    pub schema: Schema,
 }
 
 pub trait RecordStream: Stream<Item = PgWireResult<Record>> {
-    fn schema(&self) -> SchemaRef;
+    fn schema(&self) -> Schema;
 }
 
-pub type SendableStream = Pin<Box<dyn RecordStream + Send>>;
+pub type SendableStream = Pin<Box<dyn RecordStream + Send + Sync>>;
 
 pub struct Records {
     pub records: Vec<Record>,
-    pub schema: SchemaRef,
+    pub schema: Schema,
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +45,7 @@ pub enum QueryOutput {
 pub trait QueryExecutor: Send + Sync {
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput>;
 
-    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>>;
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>>;
 
     async fn is_connection_valid(&self) -> anyhow::Result<bool>;
 }

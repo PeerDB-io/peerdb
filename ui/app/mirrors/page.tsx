@@ -13,8 +13,6 @@ import useSWR from 'swr';
 import { fetcher } from '../utils/swr';
 import { CDCFlows, QRepFlows } from './tables';
 
-export const dynamic = 'force-dynamic';
-
 export default function Mirrors() {
   const {
     data: flows,
