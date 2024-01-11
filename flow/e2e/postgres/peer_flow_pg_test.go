@@ -160,8 +160,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 		Destination:      s.peer,
 	}
 
-	flowConnConfig, err := connectionGen.GenerateFlowConnectionConfigs()
-	require.NoError(s.t, err)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
 
 	limits := peerflow.CDCFlowLimits{
 		ExitAfterRecords: 1,

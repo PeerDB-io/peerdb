@@ -46,7 +46,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 ) {
 	ehConfig, ok := m.peerConfig.Get(name.PeerName)
 	if !ok {
-		return nil, fmt.Errorf("eventhub '%s' not configured", name)
+		return nil, fmt.Errorf("eventhub '%s' not configured", name.Eventhub)
 	}
 
 	namespace := ehConfig.Namespace
@@ -118,15 +118,20 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 	return allErrors
 }
 
-func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (
+func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, destination ScopedEventhub) (
 	*azeventhubs.EventDataBatch, error,
 ) {
-	hub, err := m.GetOrCreateHubClient(ctx, name)
+	hub, err := m.GetOrCreateHubClient(ctx, destination)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := &azeventhubs.EventDataBatchOptions{}
+	opts := &azeventhubs.EventDataBatchOptions{
+		// Eventhubs internally does the routing
+		// to partition based on hash of the partition key.
+		// Same partition key is guaranteed to map to same partition.
+		PartitionKey: &destination.PartitionKeyValue,
+	}
 	batch, err := hub.NewEventDataBatch(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create event data batch: %v", err)

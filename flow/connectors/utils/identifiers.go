@@ -49,3 +49,10 @@ func IsLower(s string) bool {
 	}
 	return true
 }
+
+func RemoveSpacesTabsNewlines(s string) string {
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.ReplaceAll(s, "\t", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	return s
+}

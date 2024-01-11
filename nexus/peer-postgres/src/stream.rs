@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures::Stream;
-use peer_cursor::{Record, RecordStream, SchemaRef};
+use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::error::{PgWireError, PgWireResult};
 use postgres_inet::MaskedIpAddr;
 use rust_decimal::Decimal;
@@ -14,11 +14,11 @@ use uuid::Uuid;
 use value::{array::ArrayValue, Value};
 pub struct PgRecordStream {
     row_stream: Pin<Box<RowStream>>,
-    schema: SchemaRef,
+    schema: Schema,
 }
 
 impl PgRecordStream {
-    pub fn new(row_stream: RowStream, schema: SchemaRef) -> Self {
+    pub fn new(row_stream: RowStream, schema: Schema) -> Self {
         Self {
             row_stream: Box::pin(row_stream),
             schema,
@@ -277,7 +277,7 @@ impl Stream for PgRecordStream {
 }
 
 impl RecordStream for PgRecordStream {
-    fn schema(&self) -> SchemaRef {
+    fn schema(&self) -> Schema {
         self.schema.clone()
     }
 }

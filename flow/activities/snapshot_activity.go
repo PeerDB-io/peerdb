@@ -52,12 +52,22 @@ func (a *SnapshotActivity) SetupReplication(
 	replicationErr := make(chan error)
 	defer close(replicationErr)
 
+	closeConnectionForError := func(err error) {
+		slog.ErrorContext(ctx, "failed to setup replication", slog.Any("error", err))
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
+		connCloseErr := conn.Close()
+		if connCloseErr != nil {
+			slog.ErrorContext(ctx, "failed to close connection", slog.Any("error", connCloseErr))
+		}
+	}
+
 	// This now happens in a goroutine
 	go func() {
 		pgConn := conn.(*connpostgres.PostgresConnector)
 		err = pgConn.SetupReplication(slotSignal, config)
 		if err != nil {
-			slog.ErrorContext(ctx, "failed to setup replication", slog.Any("error", err))
+			closeConnectionForError(err)
 			replicationErr <- err
 			return
 		}
@@ -69,12 +79,12 @@ func (a *SnapshotActivity) SetupReplication(
 	case slotInfo = <-slotSignal.SlotCreated:
 		slog.InfoContext(ctx, fmt.Sprintf("slot '%s' created", slotInfo.SlotName))
 	case err := <-replicationErr:
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		closeConnectionForError(err)
 		return nil, fmt.Errorf("failed to setup replication: %w", err)
 	}
 
 	if slotInfo.Err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, slotInfo.Err)
+		closeConnectionForError(slotInfo.Err)
 		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
 	}
 

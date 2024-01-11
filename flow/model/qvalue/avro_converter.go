@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	hstore_util "github.com/PeerDB-io/peer-flow/hstore"
 	"github.com/google/uuid"
 	"github.com/linkedin/goavro/v2"
 )
@@ -156,7 +157,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindJSON:
 		return c.processJSON()
 	case QValueKindHStore:
-		return nil, fmt.Errorf("QValueKindHStore not supported")
+		return c.processHStore()
 	case QValueKindArrayFloat32:
 		return c.processArrayFloat32()
 	case QValueKindArrayFloat64:
@@ -265,6 +266,38 @@ func (c *QValueAvroConverter) processJSON() (interface{}, error) {
 
 	if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
 		slog.Warn("Truncating JSON value > 15MB for Snowflake!")
+		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+		return "", nil
+	}
+	return jsonString, nil
+}
+
+func (c *QValueAvroConverter) processHStore() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	hstoreString, ok := c.Value.Value.(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid HSTORE value %v", c.Value.Value)
+	}
+
+	jsonString, err := hstore_util.ParseHstore(hstoreString)
+	if err != nil {
+		return "", err
+	}
+
+	if c.Nullable {
+		if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
+			slog.Warn("Truncating HStore equivalent JSON value > 15MB for Snowflake!")
+			slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
+			return goavro.Union("string", ""), nil
+		}
+		return goavro.Union("string", jsonString), nil
+	}
+
+	if c.TargetDWH == QDWHTypeSnowflake && len(jsonString) > 15*1024*1024 {
+		slog.Warn("Truncating HStore equivalent JSON value > 15MB for Snowflake!")
 		slog.Warn("Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 		return "", nil
 	}

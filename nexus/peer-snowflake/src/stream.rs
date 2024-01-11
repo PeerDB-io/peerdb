@@ -1,8 +1,7 @@
 use crate::{auth::SnowflakeAuth, PartitionResult, ResultSet};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use futures::Stream;
-use peer_cursor::Schema;
-use peer_cursor::{Record, RecordStream, SchemaRef};
+use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
     api::{
         results::{FieldFormat, FieldInfo},
@@ -14,6 +13,7 @@ use secrecy::ExposeSecret;
 use serde::Deserialize;
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 use value::Value::{
@@ -40,7 +40,7 @@ pub(crate) enum SnowflakeDataType {
 }
 
 pub struct SnowflakeSchema {
-    schema: SchemaRef,
+    schema: Schema,
 }
 
 fn convert_field_type(field_type: &SnowflakeDataType) -> Type {
@@ -63,20 +63,20 @@ impl SnowflakeSchema {
     pub fn from_result_set(result_set: &ResultSet) -> Self {
         let fields = result_set.resultSetMetaData.rowType.clone();
 
-        let schema = SchemaRef::new(Schema {
-            fields: fields
+        let schema = Arc::new(
+            fields
                 .iter()
                 .map(|field| {
                     let datatype = convert_field_type(&field.r#type);
                     FieldInfo::new(field.name.clone(), None, None, datatype, FieldFormat::Text)
                 })
                 .collect(),
-        });
+        );
 
         Self { schema }
     }
 
-    pub fn schema(&self) -> SchemaRef {
+    pub fn schema(&self) -> Schema {
         self.schema.clone()
     }
 }
@@ -249,7 +249,7 @@ impl Stream for SnowflakeRecordStream {
 }
 
 impl RecordStream for SnowflakeRecordStream {
-    fn schema(&self) -> SchemaRef {
+    fn schema(&self) -> Schema {
         self.schema.schema()
     }
 }

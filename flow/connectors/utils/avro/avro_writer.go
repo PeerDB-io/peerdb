@@ -7,6 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -19,7 +20,6 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zstd"
 	"github.com/linkedin/goavro/v2"
-	uber_atomic "go.uber.org/atomic"
 )
 
 type (
@@ -128,8 +128,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 
 	colNames := schema.GetColumnNames()
 
-	var numRows uber_atomic.Uint32
-	numRows.Store(0)
+	numRows := atomic.Uint32{}
 
 	if p.ctx != nil {
 		shutdown := utils.HeartbeatRoutine(p.ctx, 30*time.Second, func() string {
@@ -164,7 +163,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 			return 0, fmt.Errorf("failed to write record to OCF: %w", err)
 		}
 
-		numRows.Inc()
+		numRows.Add(1)
 	}
 
 	return int(numRows.Load()), nil
