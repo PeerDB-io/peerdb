@@ -15,20 +15,20 @@ import (
 
 // multimap from ScopedEventhub to *azeventhubs.EventDataBatch
 type HubBatches struct {
-	batch   map[KeyedScopedEventhub]*azeventhubs.EventDataBatch
+	batch   map[ScopedEventhub]*azeventhubs.EventDataBatch
 	manager *EventHubManager
 }
 
 func NewHubBatches(manager *EventHubManager) *HubBatches {
 	return &HubBatches{
-		batch:   make(map[KeyedScopedEventhub]*azeventhubs.EventDataBatch),
+		batch:   make(map[ScopedEventhub]*azeventhubs.EventDataBatch),
 		manager: manager,
 	}
 }
 
 func (h *HubBatches) AddEvent(
 	ctx context.Context,
-	destination KeyedScopedEventhub,
+	destination ScopedEventhub,
 	event string,
 	// this is true when we are retrying to send the event after the batch size exceeded
 	// this should initially be false, and then true when we are retrying.
@@ -76,7 +76,7 @@ func (h *HubBatches) Len() int {
 }
 
 // ForEach calls the given function for each ScopedEventhub and batch pair
-func (h *HubBatches) ForEach(fn func(KeyedScopedEventhub, *azeventhubs.EventDataBatch)) {
+func (h *HubBatches) ForEach(fn func(ScopedEventhub, *azeventhubs.EventDataBatch)) {
 	for destination, batch := range h.batch {
 		fn(destination, batch)
 	}
@@ -84,7 +84,7 @@ func (h *HubBatches) ForEach(fn func(KeyedScopedEventhub, *azeventhubs.EventData
 
 func (h *HubBatches) sendBatch(
 	ctx context.Context,
-	tblName KeyedScopedEventhub,
+	tblName ScopedEventhub,
 	events *azeventhubs.EventDataBatch,
 ) error {
 	subCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -119,7 +119,7 @@ func (h *HubBatches) flushAllBatches(
 	var numEventsPushed int32
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(int(maxParallelism))
-	h.ForEach(func(destination KeyedScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
+	h.ForEach(func(destination ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
 		g.Go(func() error {
 			numEvents := eventBatch.NumEvents()
 			err := h.sendBatch(gCtx, destination, eventBatch)
@@ -149,7 +149,7 @@ func (h *HubBatches) flushAllBatches(
 
 // Clear removes all batches from the HubBatches
 func (h *HubBatches) Clear() {
-	h.batch = make(map[KeyedScopedEventhub]*azeventhubs.EventDataBatch)
+	h.batch = make(map[ScopedEventhub]*azeventhubs.EventDataBatch)
 }
 
 func tryAddEventToBatch(event string, batch *azeventhubs.EventDataBatch) error {
