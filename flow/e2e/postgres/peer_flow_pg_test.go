@@ -168,7 +168,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	}
 
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s(my_mood, my_null_mood) VALUES ('happy',null)
 			`, srcTableName))

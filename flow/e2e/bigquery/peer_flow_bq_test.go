@@ -815,7 +815,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 	// in a separate goroutine, wait for PeerFlowStatusQuery to finish setup
 	// and execute a transaction touching toast columns
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		/* test inserting various types*/
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 2, 'NaN'::double precision, '{NaN, Infinity, -Infinity}';
