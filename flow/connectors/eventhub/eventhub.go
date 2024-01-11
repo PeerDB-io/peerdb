@@ -9,7 +9,6 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -71,7 +70,7 @@ func (c *EventHubConnector) Close() error {
 
 	err = c.hubManager.Close(context.Background())
 	if err != nil {
-		slog.Error("failed to close event hub manager", slog.Any("error", err))
+		c.logger.Error("failed to close event hub manager", slog.Any("error", err))
 		allErrors = errors.Join(allErrors, err)
 	}
 
@@ -215,22 +214,13 @@ func (c *EventHubConnector) processBatch(
 }
 
 func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
+	var err error
+	batch := req.Records
+	var numRecords uint32
 	maxParallelism := req.PushParallelism
 	if maxParallelism <= 0 {
 		maxParallelism = 10
 	}
-
-	var err error
-	batch := req.Records
-	var numRecords uint32
-
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf(
-			"processed %d records for flow %s",
-			numRecords, req.FlowJobName,
-		)
-	})
-	defer shutdown()
 
 	numRecords, err = c.processBatch(req.FlowJobName, batch, maxParallelism)
 	if err != nil {
@@ -240,7 +230,7 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 
 	lastCheckpoint, err := req.Records.GetLastCheckpoint()
 	if err != nil {
-		c.logger.Error("failed to get last checkpoint", err)
+		c.logger.Error("failed to get last checkpoint", slog.Any("error", err))
 		return nil, err
 	}
 

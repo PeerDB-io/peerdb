@@ -749,11 +749,6 @@ fn parse_db_options(
             let conn_str = opts.get("metadata_db");
             let metadata_db = parse_metadata_db_info(conn_str.copied())?;
 
-            // metadata_db is required for eventhub group
-            if metadata_db.is_none() {
-                anyhow::bail!("metadata_db is required for eventhub group");
-            }
-
             // split comma separated list of columns and trim
             let unnest_columns = opts
                 .get("unnest_columns")
