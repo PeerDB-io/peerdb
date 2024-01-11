@@ -41,12 +41,12 @@ func NewEventHubManager(
 	}
 }
 
-func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedEventhub) (
+func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name KeyedScopedEventhub) (
 	*azeventhubs.ProducerClient, error,
 ) {
-	ehConfig, ok := m.peerConfig.Get(name.PeerName)
+	ehConfig, ok := m.peerConfig.Get(name.ScopedEventhub.PeerName)
 	if !ok {
-		return nil, fmt.Errorf("eventhub '%s' not configured", name)
+		return nil, fmt.Errorf("eventhub '%s' not configured", name.ScopedEventhub.Eventhub)
 	}
 
 	namespace := ehConfig.Namespace
@@ -83,7 +83,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 				MaxRetryDelay: 16 * time.Second,
 			},
 		}
-		hub, err := azeventhubs.NewProducerClient(namespace, name.Eventhub, m.creds, opts)
+		hub, err := azeventhubs.NewProducerClient(namespace, name.ScopedEventhub.Eventhub, m.creds, opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create eventhub client: %v", err)
 		}
@@ -105,7 +105,7 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 	var allErrors error
 
 	m.hubs.Range(func(key any, value any) bool {
-		name := key.(ScopedEventhub)
+		name := key.(KeyedScopedEventhub)
 		hub := value.(*azeventhubs.ProducerClient)
 		err := m.closeProducerClient(ctx, hub)
 		if err != nil {
@@ -118,15 +118,20 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 	return allErrors
 }
 
-func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, name ScopedEventhub) (
+func (m *EventHubManager) CreateEventDataBatch(ctx context.Context, destination KeyedScopedEventhub) (
 	*azeventhubs.EventDataBatch, error,
 ) {
-	hub, err := m.GetOrCreateHubClient(ctx, name)
+	hub, err := m.GetOrCreateHubClient(ctx, destination)
 	if err != nil {
 		return nil, err
 	}
 
-	opts := &azeventhubs.EventDataBatchOptions{}
+	opts := &azeventhubs.EventDataBatchOptions{
+		// Eventhubs internally does the routing
+		// to partition based on hash of the partition key.
+		// Same partition key is guaranteed to map to same partition.
+		PartitionKey: &destination.PartitionKey,
+	}
 	batch, err := hub.NewEventDataBatch(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create event data batch: %v", err)
