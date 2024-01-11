@@ -1,8 +1,9 @@
 import { alertConfigType } from '@/app/alert-config/validation';
 import prisma from '@/app/utils/prisma';
+import { alerting_config } from '@prisma/client';
 
 export async function GET() {
-  const configs = await prisma.alerting_config.findMany();
+  const configs: alerting_config[] = await prisma.alerting_config.findMany();
   const serializedConfigs = configs.map((config) => ({
     ...config,
     id: String(config.id),
