@@ -36,13 +36,13 @@ export default function MirrorError() {
     setCurrentPage(1);
   }, [params.mirrorName]);
 
-  const req: MirrorLogsRequest = {
-    flowJobName: params.mirrorName,
-    page: currentPage,
-    numPerPage: 10,
-  };
-
   useEffect(() => {
+    const req: MirrorLogsRequest = {
+      flowJobName: params.mirrorName,
+      page: currentPage,
+      numPerPage: 10,
+    };
+
     const fetchData = async () => {
       try {
         const response = await fetch('/api/mirrors/errors', {
