@@ -156,8 +156,10 @@ func (c *EventHubConnector) processBatch(
 					return 0, err
 				}
 
-				c.logger.Info("processBatch", slog.Int("Total records sent to event hub", int(numRecords.Load())))
-				return numRecords.Load(), nil
+				currNumRecords := numRecords.Load()
+
+				c.logger.Info("processBatch", slog.Int("Total records sent to event hub", int(currNumRecords)))
+				return currNumRecords, nil
 			}
 
 			numRecords.Add(1)

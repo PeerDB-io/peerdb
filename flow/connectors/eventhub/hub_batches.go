@@ -118,7 +118,7 @@ func (h *HubBatches) flushAllBatches(
 		return nil
 	}
 
-	var numEventsPushed int32
+	var numEventsPushed atomic.Int32
 	err := h.ForEach(
 		func(
 			destination ScopedEventhub,
@@ -130,7 +130,7 @@ func (h *HubBatches) flushAllBatches(
 				return err
 			}
 
-			atomic.AddInt32(&numEventsPushed, numEvents)
+			numEventsPushed.Add(numEvents)
 			slog.Info("flushAllBatches",
 				slog.String(string(shared.FlowNameKey), flowName),
 				slog.Int("events sent", int(numEvents)),
@@ -145,7 +145,7 @@ func (h *HubBatches) flushAllBatches(
 	}
 	slog.Info("hub batches flush",
 		slog.String(string(shared.FlowNameKey), flowName),
-		slog.Int("events sent", int(numEventsPushed)))
+		slog.Int("events sent", int(numEventsPushed.Load())))
 
 	// clear the batches after flushing them.
 	return err
