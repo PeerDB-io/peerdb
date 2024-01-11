@@ -5,8 +5,10 @@ import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
+import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
+import Link from 'next/link';
 import MirrorValues from './configValues';
 import TablePairs from './tablePairs';
 
@@ -30,8 +32,10 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
                 Status
               </Label>
             </div>
-            <div>
-              <Label>Active</Label>
+            <div className='cursor-pointer underline'>
+              <Link href={`/mirrors/errors/${mirrorConfig?.flowJobName}`}>
+                Active <Icon name='description' />
+              </Link>
             </div>
           </div>
           <div className='basis-1/4 md:basis-1/3'>

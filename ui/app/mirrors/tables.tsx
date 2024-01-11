@@ -3,9 +3,11 @@ import { DropDialog } from '@/components/DropDialog';
 import MirrorLink from '@/components/MirrorLink';
 import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
+import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
 export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
@@ -43,7 +45,7 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
           }}
           header={
             <TableRow>
-              {['Name', 'Source', 'Destination', 'Start Time', ''].map(
+              {['Name', 'Source', 'Destination', 'Start Time', 'Logs', ''].map(
                 (heading, index) => (
                   <TableCell as='th' key={index}>
                     <Label
@@ -80,6 +82,11 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: any }) {
               </TableCell>
               <TableCell>
                 <TimeLabel timeVal={flow.created_at} />
+              </TableCell>
+              <TableCell>
+                <Link href={`/mirrors/errors/${flow.name}`}>
+                  <Icon name='description' />
+                </Link>
               </TableCell>
               <TableCell>
                 <DropDialog

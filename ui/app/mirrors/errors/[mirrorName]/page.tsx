@@ -39,16 +39,10 @@ export default function MirrorError() {
   const req: MirrorLogsRequest = {
     flowJobName: params.mirrorName,
     page: currentPage,
-    numPerPage: 50,
+    numPerPage: 10,
   };
 
   useEffect(() => {
-    const req: MirrorLogsRequest = {
-      flowJobName: params.mirrorName,
-      page: currentPage,
-      numPerPage: 50,
-    };
-
     const fetchData = async () => {
       try {
         const response = await fetch('/api/mirrors/errors', {
@@ -59,8 +53,9 @@ export default function MirrorError() {
           body: JSON.stringify(req),
         });
         const data: MirrorLogsResponse = await response.json();
+        const numPages = Math.ceil(data.total / req.numPerPage);
         setMirrorErrors(data.errors);
-        setTotalPages(data.total);
+        setTotalPages(numPages);
       } catch (error) {
         console.error('Error fetching mirror errors:', error);
       }
@@ -84,7 +79,7 @@ export default function MirrorError() {
   return (
     <>
       <div style={{ padding: '2rem' }}>
-        <Label variant='title2'>Error Log</Label>
+        <Label variant='title2'>Logs</Label>
         <hr></hr>
         <div style={{ marginTop: '1rem' }}>
           <Label variant='body'>
@@ -94,78 +89,65 @@ export default function MirrorError() {
 
           <div>
             <Label as='label' style={{ fontSize: 14, marginTop: '1rem' }}>
-              Here you can view error logs for your mirror.
+              Here you can view logs for your mirror.
             </Label>
           </div>
 
-          <div
-            style={{
-              fontSize: 15,
-              marginTop: '1rem',
-              maxHeight: '50em',
-              overflow: 'scroll',
-              width: '100%',
-              border: '1px solid rgba(0,0,0,0.1)',
-              padding: '1rem',
-              borderRadius: '1rem',
+          <Table
+            header={
+              <TableRow style={{ textAlign: 'left' }}>
+                <TableCell>Type</TableCell>
+                <TableCell>
+                  <Label as='label' style={{ fontSize: 15 }}>
+                    Time
+                  </Label>
+                </TableCell>
+                <TableCell>Message</TableCell>
+                <TableCell></TableCell>
+              </TableRow>
+            }
+            toolbar={{
+              left: (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <Button variant='normalBorderless' onClick={handlePrevPage}>
+                    <Icon name='chevron_left' />
+                  </Button>
+                  <Button variant='normalBorderless' onClick={handleNextPage}>
+                    <Icon name='chevron_right' />
+                  </Button>
+                  <Label>{`${currentPage} of ${totalPages}`}</Label>
+                  <Button
+                    variant='normalBorderless'
+                    onClick={() => window.location.reload()}
+                  >
+                    <Icon name='refresh' />
+                  </Button>
+                </div>
+              ),
             }}
           >
-            <Table
-              header={
-                <TableRow style={{ textAlign: 'left' }}>
-                  <TableCell>Type</TableCell>
-                  <TableCell>
-                    <Label as='label' style={{ fontSize: 15 }}>
-                      Time
-                    </Label>
-                  </TableCell>
-                  <TableCell>Message</TableCell>
-                  <TableCell></TableCell>
-                </TableRow>
-              }
-              toolbar={{
-                left: (
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <Button variant='normalBorderless' onClick={handlePrevPage}>
-                      <Icon name='chevron_left' />
-                    </Button>
-                    <Button variant='normalBorderless' onClick={handleNextPage}>
-                      <Icon name='chevron_right' />
-                    </Button>
-                    <Label>{`${currentPage} of ${totalPages}`}</Label>
-                    <Button
-                      variant='normalBorderless'
-                      onClick={() => window.location.reload()}
-                    >
-                      <Icon name='refresh' />
-                    </Button>
-                  </div>
-                ),
-              }}
-            >
-              {mirrorErrors.map((mirrorError, idx) => (
-                <TableRow key={`mirror_log_${idx}`}>
-                  <TableCell
-                    style={{
-                      color: colorForErrorType(mirrorError.error_type),
-                      width: '10%',
-                    }}
-                  >
-                    {mirrorError.error_type.toUpperCase()}
-                  </TableCell>
-                  <TableCell style={{ width: '20%' }}>
-                    <TimeLabel
-                      fontSize={14}
-                      timeVal={mirrorError.error_timestamp}
-                    />
-                  </TableCell>
-                  <TableCell style={{ width: '50%', fontSize: 13 }}>
-                    {mirrorError.error_message}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </Table>
-          </div>
+            {mirrorErrors.map((mirrorError, idx) => (
+              <TableRow key={`${currentPage}_${idx}`}>
+                <TableCell
+                  style={{
+                    color: colorForErrorType(mirrorError.error_type),
+                    width: '10%',
+                  }}
+                >
+                  {mirrorError.error_type.toUpperCase()}
+                </TableCell>
+                <TableCell style={{ width: '20%' }}>
+                  <TimeLabel
+                    fontSize={14}
+                    timeVal={mirrorError.error_timestamp}
+                  />
+                </TableCell>
+                <TableCell style={{ width: '50%', fontSize: 13 }}>
+                  {mirrorError.error_message}
+                </TableCell>
+              </TableRow>
+            ))}
+          </Table>
         </div>
       </div>
       <ToastContainer />
