@@ -15,7 +15,10 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
     const flowServiceAddr = GetFlowHttpAddressFromEnv();
 
     const peerSlots: PeerSlotResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/slots/${peerName}`
+      `${flowServiceAddr}/v1/peers/slots/${peerName}`,
+      {
+        cache: 'no-store',
+      }
     ).then((res) => res.json());
 
     const slotArray = peerSlots.slotData;
@@ -42,7 +45,8 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
     const flowServiceAddr = GetFlowHttpAddressFromEnv();
 
     const peerStats: PeerStatResponse = await fetch(
-      `${flowServiceAddr}/v1/peers/stats/${peerName}`
+      `${flowServiceAddr}/v1/peers/stats/${peerName}`,
+      { cache: 'no-store' }
     ).then((res) => res.json());
 
     return peerStats.statData;

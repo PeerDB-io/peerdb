@@ -50,6 +50,7 @@ export default function MirrorError() {
           headers: {
             'Content-Type': 'application/json',
           },
+          cache: 'no-store',
           body: JSON.stringify(req),
         });
         const data: MirrorLogsResponse = await response.json();
