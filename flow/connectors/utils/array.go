@@ -16,3 +16,15 @@ func ArrayMinus(first []string, second []string) []string {
 	}
 	return result
 }
+
+func ArrayChunks[T any](slice []T, size int) [][]T {
+	var chunks [][]T
+
+	for size < len(slice) {
+		chunks = append(chunks, slice[:size])
+		slice = slice[size:]
+	}
+
+	// Add the last remaining values
+	return append(chunks, slice)
+}

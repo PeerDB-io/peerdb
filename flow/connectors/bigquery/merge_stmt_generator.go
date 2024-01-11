@@ -121,7 +121,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt() string {
+func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
 	// comma separated list of column names
 	columnCount := utils.TableSchemaColumns(m.normalizedTableSchema)
 	backtickColNames := make([]string, 0, columnCount)
@@ -178,6 +178,20 @@ func (m *mergeStmtGenerator) generateMergeStmt() string {
 	%s;
 	`, m.dstDatasetTable.string(), m.generateFlattenedCTE(), m.generateDeDupedCTE(),
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
+}
+
+func (m *mergeStmtGenerator) generateMergeStmts() []string {
+	// TODO (kaushik): This is so that the statement size for individual merge statements
+	// doesn't exceed the limit. We should make this configurable.
+	const batchSize = 8
+	partitions := utils.ArrayChunks(m.unchangedToastColumns, batchSize)
+
+	mergeStmts := make([]string, 0, len(partitions))
+	for _, partition := range partitions {
+		mergeStmts = append(mergeStmts, m.generateMergeStmt(partition))
+	}
+
+	return mergeStmts
 }
 
 /*
