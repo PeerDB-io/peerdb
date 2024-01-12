@@ -148,12 +148,22 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
 	}
 
+	datasetID := config.GetDatasetId()
+	datasetParts := strings.Split(datasetID, ".")
+	if len(datasetParts) > 2 {
+		return nil,
+			fmt.Errorf("invalid dataset ID: %s. Ensure that it is just a single string or string1.string2", datasetID)
+	}
+	if len(datasetParts) == 2 {
+		datasetID = datasetParts[1]
+		bqsa.ProjectID = datasetParts[0]
+	}
+
 	client, err := bqsa.CreateBigQueryClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
 
-	datasetID := config.GetDatasetId()
 	_, checkErr := client.Dataset(datasetID).Metadata(ctx)
 	if checkErr != nil {
 		slog.ErrorContext(ctx, "failed to get dataset metadata", slog.Any("error", checkErr))

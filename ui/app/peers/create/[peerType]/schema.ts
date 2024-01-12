@@ -227,10 +227,6 @@ export const bqSchema = z.object({
     })
     .min(1, { message: 'Dataset ID must be non-empty' })
     .max(1024, 'DatasetID must be less than 1025 characters')
-    .regex(
-      /^[\w]+$/,
-      'Dataset ID must only contain numbers, letters, and underscores'
-    ),
 });
 
 export const chSchema = z.object({
