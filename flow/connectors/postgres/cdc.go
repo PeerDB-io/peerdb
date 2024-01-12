@@ -263,8 +263,8 @@ func (p *PostgresCDCSource) consumeStream(
 
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
-			p.logger.Info(fmt.Sprintf("pushing the standby deadline to %s", time.Now().Add(standbyMessageTimeout)))
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
+			p.logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		return nil
 	}

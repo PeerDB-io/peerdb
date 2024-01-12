@@ -1446,7 +1446,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize delete", func() bool {
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize delete", func() bool {
 			pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, srcName, "id,c1,c2,t")
 			if err != nil {
 				return false
@@ -1621,7 +1621,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 		e2e.EnvNoError(s.t, env, err)
 		e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
-		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize transaction", func() bool {
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize transaction", func() bool {
 			pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, srcName, "id,c1,c2,t")
 			e2e.EnvNoError(s.t, env, err)
 			rows, err := s.GetRowsWhere(dstName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
@@ -1698,7 +1698,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			DELETE FROM %s WHERE id=1`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize delete", func() bool {
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize delete", func() bool {
 			pgRows, err := e2e.GetPgRows(s.pool, s.bqSuffix, tableName, "id,c1,c2,t")
 			if err != nil {
 				return false

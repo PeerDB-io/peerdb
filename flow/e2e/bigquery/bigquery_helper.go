@@ -155,7 +155,9 @@ func (b *BigQueryTestHelper) DropDataset(datasetName string) error {
 
 // RunCommand runs the given command.
 func (b *BigQueryTestHelper) RunCommand(command string) error {
-	_, err := b.client.Query(command).Read(context.Background())
+	q := b.client.Query(command)
+	q.DisableQueryCache = true
+	_, err := q.Read(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to run command: %w", err)
 	}
@@ -174,7 +176,9 @@ func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, non
 		command = fmt.Sprintf("SELECT COUNT(CASE WHEN " + nonNullCol +
 			" IS NOT NULL THEN 1 END) AS non_null_count FROM `" + dataset + "." + tableName + "`;")
 	}
-	it, err := b.client.Query(command).Read(context.Background())
+	q := b.client.Query(command)
+	q.DisableQueryCache = true
+	it, err := q.Read(context.Background())
 	if err != nil {
 		return 0, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -302,7 +306,9 @@ func bqSchemaToQRecordSchema(schema bigquery.Schema) (*model.QRecordSchema, erro
 }
 
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
-	it, err := b.client.Query(query).Read(context.Background())
+	q := b.client.Query(query)
+	q.DisableQueryCache = true
+	it, err := q.Read(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -355,10 +361,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 	}, nil
 }
 
-/*
-if the function errors or there are nulls, the function returns false
-else true
-*/
+// returns whether the function errors or there are nulls
 func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool, error) {
 	if len(ColName) == 0 {
 		return true, nil
@@ -366,7 +369,9 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, ColName []string) (bool
 	joinedString := strings.Join(ColName, " is null or ") + " is null"
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s` WHERE %s",
 		b.Config.DatasetId, tableName, joinedString)
-	it, err := b.client.Query(command).Read(context.Background())
+	q := b.client.Query(command)
+	q.DisableQueryCache = true
+	it, err := q.Read(context.Background())
 	if err != nil {
 		return false, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -398,7 +403,9 @@ func (b *BigQueryTestHelper) CheckDoubleValues(tableName string, ColName []strin
 	csep := strings.Join(ColName, ",")
 	command := fmt.Sprintf("SELECT %s FROM `%s.%s`",
 		csep, b.Config.DatasetId, tableName)
-	it, err := b.client.Query(command).Read(context.Background())
+	q := b.client.Query(command)
+	q.DisableQueryCache = true
+	it, err := q.Read(context.Background())
 	if err != nil {
 		return false, fmt.Errorf("failed to run command: %w", err)
 	}
