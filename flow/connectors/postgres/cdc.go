@@ -263,8 +263,8 @@ func (p *PostgresCDCSource) consumeStream(
 
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
-			p.logger.Info(fmt.Sprintf("pushing the standby deadline to %s", time.Now().Add(standbyMessageTimeout)))
 			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
+			p.logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		return nil
 	}
@@ -297,17 +297,19 @@ func (p *PostgresCDCSource) consumeStream(
 			}
 		}
 
-		if (cdcRecordsStorage.Len() >= int(req.MaxBatchSize)) && !p.commitLock {
-			return nil
-		}
+		if !p.commitLock {
+			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
+				return nil
+			}
 
-		if waitingForCommit && !p.commitLock {
-			p.logger.Info(fmt.Sprintf(
-				"[%s] commit received, returning currently accumulated records - %d",
-				p.flowJobName,
-				cdcRecordsStorage.Len()),
-			)
-			return nil
+			if waitingForCommit {
+				p.logger.Info(fmt.Sprintf(
+					"[%s] commit received, returning currently accumulated records - %d",
+					p.flowJobName,
+					cdcRecordsStorage.Len()),
+				)
+				return nil
+			}
 		}
 
 		// if we are past the next standby deadline (?)
@@ -340,9 +342,15 @@ func (p *PostgresCDCSource) consumeStream(
 		} else {
 			ctx, cancel = context.WithDeadline(p.ctx, nextStandbyMessageDeadline)
 		}
-
 		rawMsg, err := conn.ReceiveMessage(ctx)
 		cancel()
+
+		utils.RecordHeartbeatWithRecover(p.ctx, "consumeStream ReceiveMessage")
+		ctxErr := p.ctx.Err()
+		if ctxErr != nil {
+			return fmt.Errorf("consumeStream preempted: %w", ctxErr)
+		}
+
 		if err != nil && !p.commitLock {
 			if pgconn.Timeout(err) {
 				p.logger.Info(fmt.Sprintf("Stand-by deadline reached, returning currently accumulated records - %d",

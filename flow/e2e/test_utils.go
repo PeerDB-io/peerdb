@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,8 +16,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	conn_utils "github.com/PeerDB-io/peer-flow/connectors/utils"
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
+	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/logger"
@@ -36,13 +36,13 @@ import (
 func RegisterWorkflowsAndActivities(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	t.Helper()
 
-	conn, err := utils.GetCatalogConnectionPoolFromEnv()
+	conn, err := pgxpool.New(context.Background(), utils.GetPGConnectionString(GetTestPostgresConf()))
 	if err != nil {
 		t.Fatalf("unable to create catalog connection pool: %v", err)
 	}
 
-	// set a 300 second timeout for the workflow to execute a few runs.
-	env.SetTestTimeout(300 * time.Second)
+	// set a 5 minute timeout for the workflow to execute a few runs.
+	env.SetTestTimeout(5 * time.Minute)
 
 	env.RegisterWorkflow(peerflow.CDCFlowWorkflowWithConfig)
 	env.RegisterWorkflow(peerflow.SyncFlowWorkflow)
@@ -73,18 +73,17 @@ func EnvNoError(t *testing.T, env *testsuite.TestWorkflowEnvironment, err error)
 	t.Helper()
 
 	if err != nil {
-		t.Error(err.Error())
+		t.Error("UNEXPECTED ERROR", err.Error())
 		env.CancelWorkflow()
 		runtime.Goexit()
 	}
 }
 
-// See EnvNoError
-func EnvEqual[T comparable](t *testing.T, env *testsuite.TestWorkflowEnvironment, x T, y T) {
+func EnvTrue(t *testing.T, env *testsuite.TestWorkflowEnvironment, val bool) {
 	t.Helper()
 
-	if x != y {
-		t.Error("not equal", x, y)
+	if !val {
+		t.Error("UNEXPECTED FALSE")
 		env.CancelWorkflow()
 		runtime.Goexit()
 	}
@@ -129,13 +128,56 @@ func EnvEqualTables(env *testsuite.TestWorkflowEnvironment, suite e2eshared.RowS
 	EnvEqualRecordBatches(t, env, pgRows, rows)
 }
 
-func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
+func EnvWaitForEqualTables(
+	env *testsuite.TestWorkflowEnvironment,
+	suite e2eshared.RowSource,
+	reason string,
+	table string,
+	cols string,
+) {
+	suite.T().Helper()
+	EnvWaitForEqualTablesWithNames(env, suite, reason, table, table, cols)
+}
+
+func EnvWaitForEqualTablesWithNames(
+	env *testsuite.TestWorkflowEnvironment,
+	suite e2eshared.RowSource,
+	reason string,
+	srcTable string,
+	dstTable string,
+	cols string,
+) {
+	t := suite.T()
+	t.Helper()
+
+	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		t.Helper()
+
+		suffix := suite.Suffix()
+		pool := suite.Pool()
+		pgRows, err := GetPgRows(pool, suffix, srcTable, cols)
+		if err != nil {
+			return false
+		}
+
+		rows, err := suite.GetRows(dstTable, cols)
+		if err != nil {
+			return false
+		}
+
+		return e2eshared.CheckEqualRecordBatches(t, pgRows, rows)
+	})
+}
+
+func SetupCDCFlowStatusQuery(t *testing.T, env *testsuite.TestWorkflowEnvironment,
 	connectionGen FlowConnectionGenerationConfig,
 ) {
-	// wait for PeerFlowStatusQuery to finish setup
-	// sleep for 5 second to allow the workflow to start
-	time.Sleep(5 * time.Second)
+	t.Helper()
+	// errors expected while PeerFlowStatusQuery is setup
+	counter := 0
 	for {
+		time.Sleep(time.Second)
+		counter++
 		response, err := env.QueryWorkflow(
 			shared.CDCFlowStateQuery,
 			connectionGen.FlowJobName,
@@ -146,41 +188,16 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			if err != nil {
 				slog.Error(err.Error())
 			} else if state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
-				break
+				return
 			}
-		} else {
+		} else if counter > 15 {
+			t.Error("UNEXPECTED SETUP CDC TIMEOUT", err.Error())
+			env.CancelWorkflow()
+			runtime.Goexit()
+		} else if counter > 5 {
 			// log the error for informational purposes
 			slog.Error(err.Error())
 		}
-		time.Sleep(1 * time.Second)
-	}
-}
-
-func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
-	connectionGen FlowConnectionGenerationConfig,
-	minCount int,
-) {
-	// wait for PeerFlowStatusQuery to finish setup
-	// sleep for 5 second to allow the workflow to start
-	time.Sleep(5 * time.Second)
-	for {
-		response, err := env.QueryWorkflow(
-			shared.CDCFlowStateQuery,
-			connectionGen.FlowJobName,
-		)
-		if err == nil {
-			var state peerflow.CDCFlowWorkflowState
-			err = response.Get(&state)
-			if err != nil {
-				slog.Error(err.Error())
-			} else if len(state.NormalizeFlowStatuses) >= minCount {
-				break
-			}
-		} else {
-			// log the error for informational purposes
-			slog.Error(err.Error())
-		}
-		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -238,7 +255,7 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 	tblFieldStr := strings.Join(tblFields, ",")
 	var pgErr *pgconn.PgError
 	_, enumErr := pool.Exec(context.Background(), createMoodEnum)
-	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !conn_utils.IsUniqueError(pgErr) {
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !utils.IsUniqueError(pgErr) {
 		return enumErr
 	}
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
@@ -511,17 +528,35 @@ func (l *TStructuredLogger) Error(msg string, keyvals ...interface{}) {
 	l.logger.With(l.keyvalsToFields(keyvals)).Error(msg)
 }
 
+func CompareTableSchemas(x *protos.TableSchema, y *protos.TableSchema) bool {
+	return x.TableIdentifier == y.TableIdentifier ||
+		x.IsReplicaIdentityFull == y.IsReplicaIdentityFull ||
+		slices.Compare(x.PrimaryKeyColumns, y.PrimaryKeyColumns) == 0 ||
+		slices.Compare(x.ColumnNames, y.ColumnNames) == 0 ||
+		slices.Compare(x.ColumnTypes, y.ColumnTypes) == 0
+}
+
 func RequireEqualRecordBatches(t *testing.T, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, q, other))
 }
 
-// See EnvNoError
 func EnvEqualRecordBatches(t *testing.T, env *testsuite.TestWorkflowEnvironment, q *model.QRecordBatch, other *model.QRecordBatch) {
 	t.Helper()
+	EnvTrue(t, env, e2eshared.CheckEqualRecordBatches(t, q, other))
+}
 
-	if !e2eshared.CheckEqualRecordBatches(t, q, other) {
-		env.CancelWorkflow()
-		runtime.Goexit()
+func EnvWaitFor(t *testing.T, env *testsuite.TestWorkflowEnvironment, timeout time.Duration, reason string, f func() bool) {
+	t.Helper()
+	t.Log("WaitFor", reason, time.Now())
+
+	deadline := time.Now().Add(timeout)
+	for !f() {
+		if time.Now().After(deadline) {
+			t.Error("UNEXPECTED TIMEOUT", reason, time.Now())
+			env.CancelWorkflow()
+			runtime.Goexit()
+		}
+		time.Sleep(time.Second)
 	}
 }

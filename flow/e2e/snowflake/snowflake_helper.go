@@ -42,13 +42,13 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	var config protos.SnowflakeConfig
+	var config *protos.SnowflakeConfig
 	err = json.Unmarshal(content, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
-	peer := generateSFPeer(&config)
+	peer := generateSFPeer(config)
 	runID, err := shared.RandomUInt64()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
@@ -56,7 +56,7 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 
 	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
 
-	adminClient, err := connsnowflake.NewSnowflakeClient(context.Background(), &config)
+	adminClient, err := connsnowflake.NewSnowflakeClient(context.Background(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
@@ -66,13 +66,13 @@ func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	}
 
 	config.Database = testDatabaseName
-	testClient, err := connsnowflake.NewSnowflakeClient(context.Background(), &config)
+	testClient, err := connsnowflake.NewSnowflakeClient(context.Background(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
 
 	return &SnowflakeTestHelper{
-		Config:           &config,
+		Config:           config,
 		Peer:             peer,
 		adminClient:      adminClient,
 		testClient:       testClient,

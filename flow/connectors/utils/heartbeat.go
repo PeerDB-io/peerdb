@@ -30,7 +30,7 @@ func HeartbeatRoutine(
 			}
 		}
 	}()
-	return func() { shutdown <- struct{}{} }
+	return func() { close(shutdown) }
 }
 
 // if the functions are being called outside the context of a Temporal workflow,

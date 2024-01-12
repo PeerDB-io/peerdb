@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
+	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -134,16 +137,26 @@ func SetupPostgres(suffix string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func TearDownPostgres(pool *pgxpool.Pool, suffix string) error {
-	// drop the e2e_test schema
+func TearDownPostgres[T e2eshared.Suite](s T) {
+	t := s.T()
+	t.Helper()
+	pool := s.Pool()
+	suffix := s.Suffix()
+
 	if pool != nil {
-		err := cleanPostgres(pool, suffix)
-		if err != nil {
-			return err
+		t.Log("begin tearing down postgres schema", suffix)
+		deadline := time.Now().Add(2 * time.Minute)
+		for {
+			err := cleanPostgres(pool, suffix)
+			if err == nil {
+				pool.Close()
+				return
+			} else if time.Now().After(deadline) {
+				require.Fail(t, "failed to teardown postgres schema", suffix)
+			}
+			time.Sleep(time.Second)
 		}
-		pool.Close()
 	}
-	return nil
 }
 
 // GeneratePostgresPeer generates a postgres peer config for testing.
@@ -196,18 +209,19 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs() *protos
 		})
 	}
 
-	ret := &protos.FlowConnectionConfigs{}
-	ret.FlowJobName = c.FlowJobName
-	ret.TableMappings = tblMappings
-	ret.Source = GeneratePostgresPeer(c.PostgresPort)
-	ret.Destination = c.Destination
-	ret.CdcStagingPath = c.CdcStagingPath
-	ret.SoftDelete = c.SoftDelete
+	ret := &protos.FlowConnectionConfigs{
+		FlowJobName:        c.FlowJobName,
+		TableMappings:      tblMappings,
+		Source:             GeneratePostgresPeer(c.PostgresPort),
+		Destination:        c.Destination,
+		CdcStagingPath:     c.CdcStagingPath,
+		SoftDelete:         c.SoftDelete,
+		SyncedAtColName:    "_PEERDB_SYNCED_AT",
+		IdleTimeoutSeconds: 15,
+	}
 	if ret.SoftDelete {
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"
 	}
-	ret.SyncedAtColName = "_PEERDB_SYNCED_AT"
-	ret.IdleTimeoutSeconds = 10
 	return ret
 }
 

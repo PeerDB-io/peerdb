@@ -223,6 +223,12 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
 
+	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
+		jobName := input.FlowConnectionConfigs.FlowJobName
+		return fmt.Sprintf("transferring records for job - %s", jobName)
+	})
+	defer shutdown()
+
 	// start a goroutine to pull records from the source
 	recordBatch := model.NewCDCRecordStream()
 	startTime := time.Now()
@@ -282,12 +288,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		syncResponse.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
 		return syncResponse, nil
 	}
-
-	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
-		jobName := input.FlowConnectionConfigs.FlowJobName
-		return fmt.Sprintf("pushing records for job - %s", jobName)
-	})
-	defer shutdown()
 
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{

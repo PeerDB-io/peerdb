@@ -29,12 +29,21 @@ type PeerFlowE2ETestSuitePG struct {
 	suffix    string
 }
 
+func (s PeerFlowE2ETestSuitePG) T() *testing.T {
+	return s.t
+}
+
+func (s PeerFlowE2ETestSuitePG) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
+func (s PeerFlowE2ETestSuitePG) Suffix() string {
+	return s.suffix
+}
+
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite, func(s PeerFlowE2ETestSuitePG) {
-		err := e2e.TearDownPostgres(s.pool, s.suffix)
-		if err != nil {
-			require.Fail(s.t, "failed to drop Postgres schema", err)
-		}
+		e2e.TearDownPostgres(s)
 	})
 }
 
@@ -167,7 +176,7 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 	return rows.Err()
 }
 
-func (s PeerFlowE2ETestSuitePG) countRowsInQuery(query string) (int64, error) {
+func (s PeerFlowE2ETestSuitePG) RunInt64Query(query string) (int64, error) {
 	var count pgtype.Int8
 	err := s.pool.QueryRow(context.Background(), query).Scan(&count)
 	return count.Int64, err

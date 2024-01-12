@@ -216,7 +216,8 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: mirrorNameSearch,
+			SearchAttributes:    mirrorNameSearch,
+			WaitForCancellation: true,
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
@@ -242,8 +243,9 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			TaskQueue:        taskQueue,
-			SearchAttributes: mirrorNameSearch,
+			TaskQueue:           taskQueue,
+			SearchAttributes:    mirrorNameSearch,
+			WaitForCancellation: true,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
@@ -331,6 +333,10 @@ func CDCFlowWorkflowWithConfig(
 		// check and act on signals before a fresh flow starts.
 		w.receiveAndHandleSignalAsync(ctx, state)
 
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		if state.ActiveSignal == shared.PauseSignal {
 			startTime := time.Now()
 			state.CurrentFlowState = protos.FlowStatus_STATUS_PAUSED
@@ -343,6 +349,8 @@ func CDCFlowWorkflowWithConfig(
 				ok, _ := signalChan.ReceiveWithTimeout(ctx, 1*time.Minute, &signalVal)
 				if ok {
 					state.ActiveSignal = shared.FlowSignalHandler(state.ActiveSignal, signalVal, w.logger)
+				} else if err := ctx.Err(); err != nil {
+					return nil, err
 				}
 			}
 
@@ -386,7 +394,8 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: mirrorNameSearch,
+			SearchAttributes:    mirrorNameSearch,
+			WaitForCancellation: true,
 		}
 		syncCtx := workflow.WithChildOptions(ctx, childSyncFlowOpts)
 		syncFlowOptions.RelationMessageMapping = state.RelationMessageMapping
@@ -458,7 +467,8 @@ func CDCFlowWorkflowWithConfig(
 			RetryPolicy: &temporal.RetryPolicy{
 				MaximumAttempts: 20,
 			},
-			SearchAttributes: mirrorNameSearch,
+			SearchAttributes:    mirrorNameSearch,
+			WaitForCancellation: true,
 		}
 		normCtx := workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
 		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
