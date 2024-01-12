@@ -79,7 +79,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 }
 
 var QValueKindToClickhouseTypeMap = map[QValueKind]string{
-	QValueKindBoolean:     "BOOLEAN",
+	QValueKindBoolean:     "Bool",
 	QValueKindInt16:       "Int16",
 	QValueKindInt32:       "Int32",
 	QValueKindInt64:       "Int64",

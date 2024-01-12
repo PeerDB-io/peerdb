@@ -140,7 +140,7 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"deal_type VARCHAR",
 		"deal_id UUID",
 		"ethereum_transaction_id UUID",
-		// "ignore_price BOOLEAN DEFAULT false",
+		"ignore_price BOOLEAN DEFAULT false",
 		// "card_eth_value DOUBLE PRECISION",
 		// "paid_eth_price DOUBLE PRECISION",
 		// "card_bought_notified BOOLEAN DEFAULT false NOT NULL",
@@ -215,7 +215,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		// }
 
 		//	3.86487206688919
-		//    false,
 		//    1.2345,
 		//    1.2345,
 		//    false,
@@ -253,8 +252,8 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							1,
 							'dealType1',
 							'%s',
-							'%s'
-					
+							'%s',
+							false
 
 					)`,
 			id,
@@ -277,7 +276,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	// }
 
 	//price
-	// ignore_price,
+
 	// card_eth_value,
 	// paid_eth_price,
 	// card_bought_notified,
@@ -307,7 +306,8 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 			blockchain,
 			deal_type,
 			deal_id,
-			ethereum_transaction_id
+			ethereum_transaction_id,
+			ignore_price
 		
 
 	) VALUES %s;
@@ -411,7 +411,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
-			// {Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
+			{Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
 			// {Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
 			// {Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
 			// {Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},

@@ -16,7 +16,7 @@ var clickhouseTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"CHAR":          qvalue.QValueKindString,
 	"TEXT":          qvalue.QValueKindString,
 	"String":        qvalue.QValueKindString,
-	"BOOLEAN":       qvalue.QValueKindBoolean,
+	"Bool":          qvalue.QValueKindBoolean,
 	"DateTime":      qvalue.QValueKindTimestamp,
 	"TIMESTAMP":     qvalue.QValueKindTimestamp,
 	"DateTime64(6)": qvalue.QValueKindTimestamp,
