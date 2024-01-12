@@ -12,9 +12,16 @@ export async function POST(request: Request) {
 
   const mirrorErrors: MirrorLog[] = await prisma.flow_errors.findMany({
     where: {
-      flow_name: {
-        contains: alertReq.flowJobName,
-      },
+      OR: [
+        {
+          flow_name: {
+            contains: alertReq.flowJobName,
+          }
+        },
+        {
+          flow_name: alertReq.flowJobName,
+        }
+      ]
     },
     orderBy: {
       error_timestamp: 'desc',
