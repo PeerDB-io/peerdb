@@ -141,9 +141,9 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"deal_id UUID",
 		"ethereum_transaction_id UUID",
 		"ignore_price BOOLEAN DEFAULT false",
-		// "card_eth_value DOUBLE PRECISION",
-		// "paid_eth_price DOUBLE PRECISION",
-		// "card_bought_notified BOOLEAN DEFAULT false NOT NULL",
+		"card_eth_value DOUBLE PRECISION",
+		"paid_eth_price DOUBLE PRECISION",
+		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
 		// "address NUMERIC",
 		// "account_id UUID",
 		// "asset_id NUMERIC NOT NULL",
@@ -215,9 +215,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		// }
 
 		//	3.86487206688919
-		//    1.2345,
-		//    1.2345,
-		//    false,
 		//    12345,
 		//    '%s',
 		//    12345,
@@ -253,8 +250,11 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							'dealType1',
 							'%s',
 							'%s',
-							false
-
+							false,
+							1.2345,
+						   	1.2345,
+						   	false
+					
 					)`,
 			id,
 			uuid.New().String(),
@@ -277,9 +277,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 
 	//price
 
-	// card_eth_value,
-	// paid_eth_price,
-	// card_bought_notified,
 	// address,
 	// account_id,
 	// asset_id,
@@ -307,7 +304,11 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 			deal_type,
 			deal_id,
 			ethereum_transaction_id,
-			ignore_price
+			ignore_price,
+			card_eth_value,
+			paid_eth_price,
+			card_bought_notified
+		
 		
 
 	) VALUES %s;
@@ -412,9 +413,9 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
-			// {Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
-			// {Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
-			// {Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
+			{Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
+			{Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
+			{Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
 			// {Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
 			// {Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
 			// {Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
