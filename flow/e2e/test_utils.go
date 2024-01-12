@@ -135,11 +135,11 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"ownerable_type VARCHAR",
 		"ownerable_id UUID",
 		"user_nonce INTEGER",
-		// "transfer_type INTEGER DEFAULT 0 NOT NULL",
-		// "blockchain INTEGER NOT NULL",
-		// "deal_type VARCHAR",
-		// "deal_id UUID",
-		// "ethereum_transaction_id UUID",
+		"transfer_type INTEGER DEFAULT 0 NOT NULL",
+		"blockchain INTEGER NOT NULL",
+		"deal_type VARCHAR",
+		"deal_id UUID",
+		"ethereum_transaction_id UUID",
 		// "ignore_price BOOLEAN DEFAULT false",
 		// "card_eth_value DOUBLE PRECISION",
 		// "paid_eth_price DOUBLE PRECISION",
@@ -215,11 +215,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		// }
 
 		//	3.86487206688919
-		//    0,
-		//    1,
-		//    'dealType1',
-		//    '%s',
-		//    '%s',
 		//    false,
 		//    1.2345,
 		//    1.2345,
@@ -253,15 +248,20 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							E'\\\\xDEADBEEF',
 							'type1',
 							'%s',
-							1	
-
+							1,	
+							0,
+							1,
+							'dealType1',
+							'%s',
+							'%s'
+					
 
 					)`,
 			id,
 			uuid.New().String(),
 			uuid.New().String(),
-			// uuid.New().String(),
-			// uuid.New().String(),
+			uuid.New().String(),
+			uuid.New().String(),
 			// uuid.New().String(),
 			// uuid.New().String(),
 			// geoValues
@@ -277,11 +277,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	// }
 
 	//price
-	// transfer_type,
-	// blockchain,
-	// deal_type,
-	// deal_id,
-	// ethereum_transaction_id,
 	// ignore_price,
 	// card_eth_value,
 	// paid_eth_price,
@@ -307,7 +302,13 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 			transaction_hash,
 			ownerable_type,
 			ownerable_id,
-			user_nonce
+			user_nonce,
+			transfer_type,
+			blockchain,
+			deal_type,
+			deal_id,
+			ethereum_transaction_id
+		
 
 	) VALUES %s;
 `, suffix,
@@ -405,11 +406,11 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
-			// {Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
-			// {Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
-			// {Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
-			// {Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
-			// {Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
 			// {Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
 			// {Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
 			// {Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
