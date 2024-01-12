@@ -138,11 +138,8 @@ func (c *EventHubConnector) processBatch(
 	lastUpdatedOffset := int64(0)
 
 	numRecords := atomic.Uint32{}
-	shutdown := utils.HeartbeatRoutine(c.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf(
-			"processed %d records for flow %s",
-			numRecords.Load(), flowJobName,
-		)
+	shutdown := utils.HeartbeatRoutine(c.ctx, func() string {
+		return fmt.Sprintf("processed %d records for flow %s", numRecords.Load(), flowJobName)
 	})
 	defer shutdown()
 

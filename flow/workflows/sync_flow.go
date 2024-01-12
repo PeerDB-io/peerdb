@@ -65,7 +65,7 @@ func (s *SyncFlowExecution) executeSyncFlow(
 
 	startFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 72 * time.Hour,
-		HeartbeatTimeout:    30 * time.Second,
+		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
 	})
 

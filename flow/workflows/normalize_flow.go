@@ -48,7 +48,7 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 
 	normalizeFlowCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,
-		HeartbeatTimeout:    5 * time.Minute,
+		HeartbeatTimeout:    time.Minute,
 	})
 
 	startNormalizeInput := &protos.StartNormalizeInput{

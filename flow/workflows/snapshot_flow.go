@@ -287,7 +287,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 	sessionOpts := &workflow.SessionOptions{
 		CreationTimeout:  5 * time.Minute,
 		ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
-		HeartbeatTimeout: time.Hour * 24 * 365 * 100, // 100 years
+		HeartbeatTimeout: time.Hour,
 	}
 
 	sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)

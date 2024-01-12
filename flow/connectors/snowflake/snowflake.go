@@ -441,6 +441,7 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 			return nil, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 		}
 		tableExistsMapping[tableIdentifier] = false
+		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("created table %s", tableIdentifier))
 	}
 
 	return &protos.SetupNormalizedTableBatchOutput{

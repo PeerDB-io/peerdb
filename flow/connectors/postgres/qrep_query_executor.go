@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/geo"
@@ -83,7 +82,7 @@ func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetc
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
 
 	if !qe.testEnv {
-		shutdown := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
+		shutdown := utils.HeartbeatRoutine(qe.ctx, func() string {
 			return fmt.Sprintf("running '%s'", q)
 		})
 		defer shutdown()
