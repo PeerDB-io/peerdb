@@ -134,7 +134,7 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		// "price NUMERIC",
 		"ownerable_type VARCHAR",
 		"ownerable_id UUID",
-		// "user_nonce INTEGER",
+		"user_nonce INTEGER",
 		// "transfer_type INTEGER DEFAULT 0 NOT NULL",
 		// "blockchain INTEGER NOT NULL",
 		// "deal_type VARCHAR",
@@ -215,7 +215,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		// }
 
 		//	3.86487206688919
-		//    1,
 		//    0,
 		//    1,
 		//    'dealType1',
@@ -253,7 +252,9 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP,
 							E'\\\\xDEADBEEF',
 							'type1',
-							'%s'
+							'%s',
+							1	
+
 
 					)`,
 			id,
@@ -276,7 +277,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	// }
 
 	//price
-	// user_nonce,
 	// transfer_type,
 	// blockchain,
 	// deal_type,
@@ -306,7 +306,9 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 			"from",
 			transaction_hash,
 			ownerable_type,
-			ownerable_id
+			ownerable_id,
+			user_nonce
+
 	) VALUES %s;
 `, suffix,
 		tableName,
@@ -402,7 +404,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 			//{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
-			// {Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
 			// {Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
 			// {Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
 			// {Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},

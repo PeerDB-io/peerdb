@@ -8,7 +8,7 @@ import (
 
 var clickhouseTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"INT":           qvalue.QValueKindInt32,
-	"BIGINT":        qvalue.QValueKindInt64,
+	"Int64":         qvalue.QValueKindInt64,
 	"FLOAT":         qvalue.QValueKindFloat64,
 	"DOUBLE":        qvalue.QValueKindFloat64,
 	"REAL":          qvalue.QValueKindFloat64,
