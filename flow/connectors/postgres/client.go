@@ -30,11 +30,11 @@ const (
 	createRawTableBatchIDIndexSQL  = "CREATE INDEX IF NOT EXISTS %s_batchid_idx ON %s.%s(_peerdb_batch_id)"
 	createRawTableDstTableIndexSQL = "CREATE INDEX IF NOT EXISTS %s_dst_table_idx ON %s.%s(_peerdb_destination_table_name)"
 
-	getLastOffsetSQL                   = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
-	setLastOffsetSQL                   = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1) WHERE mirror_job_name=$2"
-	getLastSyncBatchID_SQL             = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
-	getLastSyncAndNormalizeBatchID_SQL = "SELECT sync_batch_id,normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
-	createNormalizedTableSQL           = "CREATE TABLE IF NOT EXISTS %s(%s)"
+	getLastOffsetSQL            = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
+	setLastOffsetSQL            = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1) WHERE mirror_job_name=$2"
+	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
+	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
+	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 
 	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j VALUES ($1,$2,$3,$4)
 	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset), sync_batch_id=EXCLUDED.sync_batch_id`
@@ -445,24 +445,21 @@ func (c *PostgresConnector) GetLastSyncBatchID(jobName string) (int64, error) {
 	return result.Int64, nil
 }
 
-func (c *PostgresConnector) GetLastSyncAndNormalizeBatchID(jobName string) (*model.SyncAndNormalizeBatchID, error) {
-	var syncResult, normalizeResult pgtype.Int8
+func (c *PostgresConnector) GetLastNormalizeBatchID(jobName string) (int64, error) {
+	var result pgtype.Int8
 	err := c.pool.QueryRow(c.ctx, fmt.Sprintf(
-		getLastSyncAndNormalizeBatchID_SQL,
+		getLastNormalizeBatchID_SQL,
 		c.metadataSchema,
 		mirrorJobsTableIdentifier,
-	), jobName).Scan(&syncResult, &normalizeResult)
+	), jobName).Scan(&result)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			c.logger.Info("No row found, returning 0")
-			return &model.SyncAndNormalizeBatchID{}, nil
+			return 0, nil
 		}
-		return nil, fmt.Errorf("error while reading result row: %w", err)
+		return 0, fmt.Errorf("error while reading result row: %w", err)
 	}
-	return &model.SyncAndNormalizeBatchID{
-		SyncBatchID:      syncResult.Int64,
-		NormalizeBatchID: normalizeResult.Int64,
-	}, nil
+	return result.Int64, nil
 }
 
 func (c *PostgresConnector) jobMetadataExists(jobName string) (bool, error) {

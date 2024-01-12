@@ -197,7 +197,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	activity.RecordHeartbeat(ctx, "initialized table schema")
 	slog.InfoContext(ctx, "pulling records...")
 	tblNameMapping := make(map[string]model.NameAndExclude)
 	for _, v := range input.FlowConnectionConfigs.TableMappings {
@@ -286,6 +285,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		}
 
 		return &model.SyncResponse{
+			CurrentSyncBatchID:     -1,
 			RelationMessageMapping: <-recordBatch.RelationMessageMapping,
 			TableSchemaDeltas:      tableSchemaDeltas,
 		}, nil
@@ -379,26 +379,22 @@ func (a *FlowableActivity) StartNormalize(
 		}
 		defer connectors.CloseConnector(dstConn)
 
-		lastSyncBatchID, err := dstConn.GetLastSyncBatchID(input.FlowConnectionConfigs.FlowJobName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get last sync batch ID: %v", err)
-		}
-
 		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
-			lastSyncBatchID)
+			input.SyncBatchID)
 		return nil, err
 	} else if err != nil {
 		return nil, err
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 2*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, 15*time.Second, func() string {
 		return fmt.Sprintf("normalizing records from batch for job - %s", input.FlowConnectionConfigs.FlowJobName)
 	})
 	defer shutdown()
 
 	res, err := dstConn.NormalizeRecords(&model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
+		SyncBatchID:            input.SyncBatchID,
 		SoftDelete:             input.FlowConnectionConfigs.SoftDelete,
 		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        input.FlowConnectionConfigs.SyncedAtColName,
@@ -423,10 +419,8 @@ func (a *FlowableActivity) StartNormalize(
 	}
 
 	// log the number of batches normalized
-	if res != nil {
-		slog.InfoContext(ctx, fmt.Sprintf("normalized records from batch %d to batch %d\n",
-			res.StartBatchID, res.EndBatchID))
-	}
+	slog.InfoContext(ctx, fmt.Sprintf("normalized records from batch %d to batch %d\n",
+		res.StartBatchID, res.EndBatchID))
 
 	return res, nil
 }
