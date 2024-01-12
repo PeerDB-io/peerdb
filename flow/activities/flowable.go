@@ -223,7 +223,7 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	go a.recordSlotSizePeriodically(errCtx, srcConn, slotNameForMetrics, input.FlowConnectionConfigs.Source.Name)
 
-	shutdown := utils.HeartbeatRoutine(ctx, 10*time.Second, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, func() string {
 		jobName := input.FlowConnectionConfigs.FlowJobName
 		return fmt.Sprintf("transferring records for job - %s", jobName)
 	})
