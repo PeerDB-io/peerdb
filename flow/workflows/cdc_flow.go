@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -17,6 +18,8 @@ import (
 )
 
 const (
+	CDCFlowStatusQuery     = "q-cdc-flow-status"
+	CDCNormFlowStatusQuery = "q-norm-flow-status"
 	maxSyncFlowsPerCDCFlow = 32
 )
 
@@ -28,7 +31,7 @@ type CDCFlowLimits struct {
 	// Maximum number of rows in a sync flow batch.
 	MaxBatchSize int
 	// Rows synced after which we can say a test is done.
-	ExitAfterRecords int
+	ExitAfterRecords int64
 }
 
 type CDCFlowWorkflowState struct {
@@ -37,7 +40,7 @@ type CDCFlowWorkflowState struct {
 	// Accumulates status for sync flows spawned.
 	SyncFlowStatuses []*model.SyncResponse
 	// Accumulates status for sync flows spawned.
-	NormalizeFlowStatuses []*model.NormalizeResponse
+	NormalizeFlowStatuses []model.NormalizeResponse
 	// Current signalled state of the peer flow.
 	ActiveSignal shared.CDCFlowSignal
 	// Errors encountered during child sync flow executions.
@@ -165,7 +168,7 @@ func CDCFlowWorkflowWithConfig(
 		limits.TotalSyncFlows = maxSyncFlowsPerCDCFlow
 	}
 
-	err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
+	err := workflow.SetQueryHandler(ctx, CDCFlowStatusQuery, func(jobName string) (CDCFlowWorkflowState, error) {
 		return *state, nil
 	})
 	if err != nil {
@@ -327,7 +330,43 @@ func CDCFlowWorkflowWithConfig(
 	})
 
 	currentSyncFlowNum := 0
-	totalRecordsSynced := 0
+	totalRecordsSynced := int64(0)
+
+	normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
+	if err != nil {
+		return state, err
+	}
+
+	childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
+		WorkflowID:        normalizeFlowID,
+		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 20,
+		},
+		SearchAttributes: mirrorNameSearch,
+	}
+	normCtx := workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
+	childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
+		normCtx,
+		NormalizeFlowWorkflow,
+		cfg,
+	)
+
+	finishNormalize := func() {
+		childNormalizeFlowFuture.SignalChildWorkflow(ctx, "Sync", true)
+		var childNormalizeFlowRes *model.NormalizeFlowResponse
+		if err := childNormalizeFlowFuture.Get(ctx, &childNormalizeFlowRes); err != nil {
+			w.logger.Error("failed to execute normalize flow: ", err)
+			var panicErr *temporal.PanicError
+			if errors.As(err, &panicErr) {
+				w.logger.Error("PANIC", panicErr.Error(), panicErr.StackTrace())
+			}
+			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
+		} else {
+			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, childNormalizeFlowRes.Errors...)
+			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes.Results...)
+		}
+	}
 
 	for {
 		// check and act on signals before a fresh flow starts.
@@ -359,6 +398,7 @@ func CDCFlowWorkflowWithConfig(
 
 		// check if the peer flow has been shutdown
 		if state.ActiveSignal == shared.ShutdownSignal {
+			finishNormalize()
 			w.logger.Info("peer flow has been shutdown")
 			state.CurrentFlowState = protos.FlowStatus_STATUS_TERMINATED
 			return state, nil
@@ -377,13 +417,14 @@ func CDCFlowWorkflowWithConfig(
 		currentSyncFlowNum++
 
 		// check if total records synced have been completed
-		if totalRecordsSynced == limits.ExitAfterRecords {
+		if totalRecordsSynced >= limits.ExitAfterRecords {
 			w.logger.Warn("All the records have been synced successfully, so ending the flow")
 			break
 		}
 
 		syncFlowID, err := GetChildWorkflowID(ctx, "sync-flow", cfg.FlowJobName)
 		if err != nil {
+			finishNormalize()
 			return state, err
 		}
 
@@ -411,10 +452,11 @@ func CDCFlowWorkflowWithConfig(
 			w.logger.Error("failed to execute sync flow: ", err)
 			state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 		} else {
+			childNormalizeFlowFuture.SignalChildWorkflow(ctx, "Sync", false)
 			state.SyncFlowStatuses = append(state.SyncFlowStatuses, childSyncFlowRes)
 			if childSyncFlowRes != nil {
 				state.RelationMessageMapping = childSyncFlowRes.RelationMessageMapping
-				totalRecordsSynced += int(childSyncFlowRes.NumRecordsSynced)
+				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
 			}
 		}
 
@@ -456,37 +498,10 @@ func CDCFlowWorkflowWithConfig(
 			}
 		}
 
-		normalizeFlowID, err := GetChildWorkflowID(ctx, "normalize-flow", cfg.FlowJobName)
-		if err != nil {
-			return state, err
-		}
-
-		childNormalizeFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        normalizeFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 20,
-			},
-			SearchAttributes:    mirrorNameSearch,
-			WaitForCancellation: true,
-		}
-		normCtx := workflow.WithChildOptions(ctx, childNormalizeFlowOpts)
-		childNormalizeFlowFuture := workflow.ExecuteChildWorkflow(
-			normCtx,
-			NormalizeFlowWorkflow,
-			cfg,
-		)
-
-		var childNormalizeFlowRes *model.NormalizeResponse
-		if err := childNormalizeFlowFuture.Get(normCtx, &childNormalizeFlowRes); err != nil {
-			w.logger.Error("failed to execute normalize flow: ", err)
-			state.NormalizeFlowErrors = append(state.NormalizeFlowErrors, err.Error())
-		} else {
-			state.NormalizeFlowStatuses = append(state.NormalizeFlowStatuses, childNormalizeFlowRes)
-		}
 		cdcPropertiesSelector.Select(ctx)
 	}
 
+	finishNormalize()
 	state.TruncateProgress(w.logger)
 	return nil, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflowWithConfig, cfg, limits, state)
 }

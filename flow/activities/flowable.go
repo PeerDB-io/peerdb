@@ -429,10 +429,8 @@ func (a *FlowableActivity) StartNormalize(
 	}
 
 	// log the number of batches normalized
-	if res != nil {
-		slog.InfoContext(ctx, fmt.Sprintf("normalized records from batch %d to batch %d\n",
-			res.StartBatchID, res.EndBatchID))
-	}
+	slog.InfoContext(ctx, fmt.Sprintf("normalized records from batch %d to batch %d\n",
+		res.StartBatchID, res.EndBatchID))
 
 	return res, nil
 }
