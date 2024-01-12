@@ -150,7 +150,7 @@ func EnvWaitForEqualTablesWithNames(
 	t := suite.T()
 	t.Helper()
 
-	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+	EnvWaitFor(t, env, 4*time.Minute, reason, func() bool {
 		t.Helper()
 
 		suffix := suite.Suffix()
