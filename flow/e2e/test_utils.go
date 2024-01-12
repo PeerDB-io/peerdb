@@ -145,14 +145,14 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"paid_eth_price DOUBLE PRECISION",
 		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
 		// "address NUMERIC",
-		// "account_id UUID",
+		"account_id UUID",
 		// "asset_id NUMERIC NOT NULL",
-		// "status INTEGER",
-		// "transaction_id UUID",
-		// "settled_at TIMESTAMP",
-		// "reference_id VARCHAR",
-		// "settle_at TIMESTAMP",
-		// "settlement_delay_reason INTEGER",
+		"status INTEGER",
+		"transaction_id UUID",
+		"settled_at TIMESTAMP",
+		"reference_id VARCHAR",
+		"settle_at TIMESTAMP",
+		"settlement_delay_reason INTEGER",
 		// "f1 text[]",
 		// "f2 bigint[]",
 		// "f3 int[]",
@@ -216,14 +216,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 
 		//	3.86487206688919
 		//    12345,
-		//    '%s',
 		//    12345,
-		//    1,
-		//    '%s',
-		//    CURRENT_TIMESTAMP,
-		//    'refID',
-		//    CURRENT_TIMESTAMP,
-		//    1,
 		//    ARRAY['text1', 'text2'],
 		//    ARRAY[123, 456],
 		//    ARRAY[789, 012],
@@ -253,16 +246,23 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							false,
 							1.2345,
 						   	1.2345,
-						   	false
-					
+						   	false,
+							'%s',
+							1,
+							'%s',
+							CURRENT_TIMESTAMP,
+							'refID',
+							CURRENT_TIMESTAMP,
+							1
+										   
 					)`,
 			id,
 			uuid.New().String(),
 			uuid.New().String(),
 			uuid.New().String(),
 			uuid.New().String(),
-			// uuid.New().String(),
-			// uuid.New().String(),
+			uuid.New().String(),
+			uuid.New().String(),
 			// geoValues
 		)
 		rows = append(rows, row)
@@ -278,14 +278,9 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	//price
 
 	// address,
-	// account_id,
 	// asset_id,
-	// status,
-	// transaction_id,
-	// settled_at,
-	// reference_id,
-	// settle_at,
-	// settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
+
+	//f1, f2, f3, f4, f5, f6, f7, f8
 	// %s
 
 	insertQuery := fmt.Sprintf(`
@@ -307,7 +302,14 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 			ignore_price,
 			card_eth_value,
 			paid_eth_price,
-			card_bought_notified
+			card_bought_notified,
+			account_id,
+			status,
+			transaction_id,
+			settled_at,
+			reference_id,
+			settle_at,
+			settlement_delay_reason			
 		
 		
 
@@ -417,14 +419,14 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
 			{Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
 			// {Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
-			// {Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
 			// {Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
-			// {Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
-			// {Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
-			// {Name: "settled_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			// {Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
-			// {Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			// {Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
+			{Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "settled_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
+			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
+			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
 			// {Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
 			// {Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
 			// {Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
