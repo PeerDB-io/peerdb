@@ -216,6 +216,7 @@ func (c *ClickhouseConnector) createStage(stageName string, config *protos.QRepC
 }
 
 func (c *ClickhouseConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
+	fmt.Printf("\n********************* qrep createExternalStage 1*********************\n config:%+v, stageName: %+v", config, stageName)
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
 	if err != nil {
 		c.logger.Error("failed to get AWS secrets", slog.Any("error", err))

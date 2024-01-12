@@ -61,6 +61,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 		}, nil
 	case QValueKindNumeric:
 		return &QValueKindAvroSchema{
+			//AvroLogicalSchema: "long",
 			AvroLogicalSchema: map[string]interface{}{
 				"type":        "bytes",
 				"logicalType": "decimal",
@@ -70,9 +71,10 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		return &QValueKindAvroSchema{
-			AvroLogicalSchema: map[string]string{
-				"type": "string",
-			},
+			AvroLogicalSchema: "long",
+			// map[string]string{
+			// 	"type": "string",
+			// },
 		}, nil
 	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
 		return &QValueKindAvroSchema{
@@ -150,6 +152,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		if err != nil || t == nil {
 			return t, err
 		}
+		fmt.Println("********************** in ToAvroValue:timestamp 1 c.TargetDWH %+v", c.TargetDWH)
 		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
@@ -157,6 +160,17 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 				return t.(string), nil
 			}
 		}
+
+		if c.TargetDWH == QDWHTypeClickhouse {
+			fmt.Printf("\n********************** in ToAvroValue() timstamp 2 clickhouse")
+			if c.Nullable {
+				return c.processNullableUnion("long", t.(int64))
+			} else {
+				fmt.Printf("\n********************** in ToAvroValue() timstamp 3 clickhouse nullable")
+				return t.(int64), nil
+			}
+		}
+
 		if c.Nullable {
 			return goavro.Union("long.timestamp-micros", t.(int64)), nil
 		} else {
@@ -187,6 +201,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		return nil, fmt.Errorf("QValueKindStruct not supported")
 	case QValueKindNumeric:
 		return c.processNumeric()
+		//return c.processNullableUnion("double", c.Value.Value)
 	case QValueKindBytes, QValueKindBit:
 		return c.processBytes()
 	case QValueKindJSON:
@@ -223,6 +238,16 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 	}
 
 	ret := t.UnixMicro()
+
+	// fmt.Printf("\n****************** time in UnixMicro %+v", ret)
+	// fmt.Printf("\n****************** time in UnixNano %+v", t.UnixNano())
+	// fmt.Printf("\n****************** time.Millisecond %+v", time.Millisecond)
+	// fmt.Printf("\n****************** time in Millisecond %+v", (t.UnixNano() / int64(time.Millisecond)))
+
+	// if c.TargetDWH == QDWHTypeClickhouse {
+	// 	ret = t.UnixNano() / int64(time.Millisecond)
+
+	// }
 	// Snowflake has issues with avro timestamp types, returning as string form of the int64
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == QDWHTypeSnowflake {

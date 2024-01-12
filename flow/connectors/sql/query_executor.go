@@ -104,6 +104,7 @@ func (g *GenericSQLQueryExecutor) RecreateSchema(schemaName string) error {
 }
 
 func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schemaName string, tableName string) error {
+	fmt.Printf("\n *********************** in query_executor.CreateTable g: %+v, \nschema: %+v, \nschemaName: %+v, \ntableName: %+v \n", g, schema, schemaName, tableName)
 	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		dbType, ok := g.qvalueKindToDBType[field.Type]
@@ -114,6 +115,11 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 	}
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", schemaName, tableName, strings.Join(fields, ", "))
+
+	if strings.Contains(tableName, "_ch_") {
+		command += " ENGINE = MergeTree() ORDER BY id"
+	}
+
 	fmt.Printf("creating table %s.%s with command %s\n", schemaName, tableName, command)
 
 	_, err := g.db.ExecContext(g.ctx, command)
@@ -142,6 +148,8 @@ func (g *GenericSQLQueryExecutor) CountNonNullRows(
 }
 
 func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.QField, error) {
+	fmt.Printf("\n********************************** in columnTypeToQField ct: %+v %+v", ct.DatabaseTypeName(), g.dbtypeToQValueKind)
+
 	qvKind, ok := g.dbtypeToQValueKind[ct.DatabaseTypeName()]
 	if !ok {
 		return model.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
@@ -157,15 +165,20 @@ func (g *GenericSQLQueryExecutor) columnTypeToQField(ct *sql.ColumnType) (model.
 }
 
 func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBatch, error) {
+	fmt.Printf("\n********************** in processRows 1")
 	dbColTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, err
 	}
 
+	fmt.Printf("\n********************** in processRows 2 dbColTypes %+v", dbColTypes)
+
 	// Convert dbColTypes to QFields
 	qfields := make([]model.QField, len(dbColTypes))
+	fmt.Printf("\n********************** in processRows 3 qfields %+v", qfields)
 	for i, ct := range dbColTypes {
 		qfield, err := g.columnTypeToQField(ct)
+		fmt.Printf("\n********************** in processRows 4 %d qfield %+v %err %+v", i, qfield, err)
 		if err != nil {
 			g.logger.Error(fmt.Sprintf("failed to convert column type %v", ct),
 				slog.Any("error", err))
@@ -269,6 +282,7 @@ func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
 	query string, args ...interface{},
 ) (*model.QRecordBatch, error) {
 	rows, err := g.db.QueryxContext(g.ctx, query, args...)
+	fmt.Printf("\n**************************** ExecuteAndProcessQuery rows: %+v", rows)
 	if err != nil {
 		return nil, err
 	}

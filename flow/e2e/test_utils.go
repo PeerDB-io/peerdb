@@ -128,49 +128,51 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
 		`"from" TIMESTAMP NOT NULL`,
-		"price NUMERIC",
+		// "price NUMERIC",
 		"created_at TIMESTAMP NOT NULL",
 		"updated_at TIMESTAMP NOT NULL",
 		"transaction_hash BYTEA",
-		"ownerable_type VARCHAR",
-		"ownerable_id UUID",
-		"user_nonce INTEGER",
-		"transfer_type INTEGER DEFAULT 0 NOT NULL",
-		"blockchain INTEGER NOT NULL",
-		"deal_type VARCHAR",
-		"deal_id UUID",
-		"ethereum_transaction_id UUID",
-		"ignore_price BOOLEAN DEFAULT false",
-		"card_eth_value DOUBLE PRECISION",
-		"paid_eth_price DOUBLE PRECISION",
-		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
-		"address NUMERIC",
-		"account_id UUID",
-		"asset_id NUMERIC NOT NULL",
-		"status INTEGER",
-		"transaction_id UUID",
-		"settled_at TIMESTAMP",
-		"reference_id VARCHAR",
-		"settle_at TIMESTAMP",
-		"settlement_delay_reason INTEGER",
-		"f1 text[]",
-		"f2 bigint[]",
-		"f3 int[]",
-		"f4 varchar[]",
-		"f5 jsonb",
-		"f6 jsonb",
-		"f7 jsonb",
-		"f8 smallint",
+		// "ownerable_type VARCHAR",
+		// "ownerable_id UUID",
+		// "user_nonce INTEGER",
+		// "transfer_type INTEGER DEFAULT 0 NOT NULL",
+		// "blockchain INTEGER NOT NULL",
+		// "deal_type VARCHAR",
+		// "deal_id UUID",
+		// "ethereum_transaction_id UUID",
+		// "ignore_price BOOLEAN DEFAULT false",
+		// "card_eth_value DOUBLE PRECISION",
+		// "paid_eth_price DOUBLE PRECISION",
+		// "card_bought_notified BOOLEAN DEFAULT false NOT NULL",
+		// "address NUMERIC",
+		// "account_id UUID",
+		// "asset_id NUMERIC NOT NULL",
+		// "status INTEGER",
+		// "transaction_id UUID",
+		// "settled_at TIMESTAMP",
+		// "reference_id VARCHAR",
+		// "settle_at TIMESTAMP",
+		// "settlement_delay_reason INTEGER",
+		// "f1 text[]",
+		// "f2 bigint[]",
+		// "f3 int[]",
+		// "f4 varchar[]",
+		// "f5 jsonb",
+		// "f6 jsonb",
+		// "f7 jsonb",
+		// "f8 smallint",
 	}
-	if strings.Contains(tableName, "sf") {
-		tblFields = append(tblFields, "geometry_point geometry(point)",
-			"geography_point geography(point)",
-			"geometry_linestring geometry(linestring)",
-			"geography_linestring geography(linestring)",
-			"geometry_polygon geometry(polygon)",
-			"geography_polygon geography(polygon)")
-	}
+	// if strings.Contains(tableName, "sf") {
+	// 	tblFields = append(tblFields, "geometry_point geometry(point)",
+	// 		"geography_point geography(point)",
+	// 		"geometry_linestring geometry(linestring)",
+	// 		"geography_linestring geography(linestring)",
+	// 		"geometry_polygon geometry(polygon)",
+	// 		"geography_polygon geography(polygon)")
+	// }
 	tblFieldStr := strings.Join(tblFields, ",")
+
+	fmt.Printf("\n**************************************** create source table: %s\n", tblFieldStr)
 
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
@@ -204,78 +206,141 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	for i := 0; i < rowCount-1; i++ {
 		id := uuid.New().String()
 		ids = append(ids, id)
-		geoValues := ""
-		if strings.Contains(tableName, "sf") {
-			geoValues = `,'POINT(1 2)','POINT(40.7128 -74.0060)',
-			'LINESTRING(0 0, 1 1, 2 2)',
-			'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
-			'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'`
-		}
+		// geoValues := ""
+		// if strings.Contains(tableName, "sf") {
+		// 	geoValues = `,'POINT(1 2)','POINT(40.7128 -74.0060)',
+		// 	'LINESTRING(0 0, 1 1, 2 2)',
+		// 	'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)',
+		// 	'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'`
+		// }
+
+		// 	3.86487206688919,
+		//    'type1',
+		//    '%s',
+		//    1,
+		//    0,
+		//    1,
+		//    'dealType1',
+		//    '%s',
+		//    '%s',
+		//    false,
+		//    1.2345,
+		//    1.2345,
+		//    false,
+		//    12345,
+		//    '%s',
+		//    12345,
+		//    1,
+		//    '%s',
+		//    CURRENT_TIMESTAMP,
+		//    'refID',
+		//    CURRENT_TIMESTAMP,
+		//    1,
+		//    ARRAY['text1', 'text2'],
+		//    ARRAY[123, 456],
+		//    ARRAY[789, 012],
+		//    ARRAY['varchar1', 'varchar2'],
+		//    '{"key": 8.5}',
+		//    '[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
+		//    '{"key": "value"}',
+		//    15
+		//    %s
+
 		row := fmt.Sprintf(`
 					(
-							'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
-							CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
-							1, 0, 1, 'dealType1',
-							'%s', '%s', false, 1.2345,
-							1.2345, false, 12345, '%s',
-							12345, 1, '%s', CURRENT_TIMESTAMP, 'refID',
-							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
-							ARRAY['varchar1', 'varchar2'], '{"key": 8.5}',
-							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15 %s
+							'%s',
+							'%s',
+							CURRENT_TIMESTAMP,
+							CURRENT_TIMESTAMP,
+							CURRENT_TIMESTAMP,
+							E'\\\\xDEADBEEF'
+
 					)`,
-			id, uuid.New().String(), uuid.New().String(),
-			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)
+			id,
+			uuid.New().String(),
+			// uuid.New().String(),
+			// uuid.New().String(),
+			// uuid.New().String(),
+			// uuid.New().String(),
+			// uuid.New().String(),
+			// geoValues
+		)
 		rows = append(rows, row)
 	}
 
-	geoColumns := ""
-	if strings.Contains(tableName, "sf") {
-		geoColumns = ",geometry_point, geography_point," +
-			"geometry_linestring, geography_linestring," +
-			"geometry_polygon, geography_polygon"
-	}
+	// geoColumns := ""
+	// if strings.Contains(tableName, "sf") {
+	// 	geoColumns = ",geometry_point, geography_point," +
+	// 		"geometry_linestring, geography_linestring," +
+	// 		"geometry_polygon, geography_polygon"
+	// }
+
+	// price,
+	// ownerable_type,
+	// ownerable_id,
+	// user_nonce,
+	// transfer_type,
+	// blockchain,
+	// deal_type,
+	// deal_id,
+	// ethereum_transaction_id,
+	// ignore_price,
+	// card_eth_value,
+	// paid_eth_price,
+	// card_bought_notified,
+	// address,
+	// account_id,
+	// asset_id,
+	// status,
+	// transaction_id,
+	// settled_at,
+	// reference_id,
+	// settle_at,
+	// settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
+	// %s
+
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO e2e_test_%s.%s (
-					id, card_id, "from", price, created_at,
-					updated_at, transaction_hash, ownerable_type, ownerable_id,
-					user_nonce, transfer_type, blockchain, deal_type,
-					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
-					paid_eth_price, card_bought_notified, address, account_id,
-					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
-					%s
+					id,
+					card_id,
+					created_at,
+					updated_at,
+					"from",
+					transaction_hash
 			) VALUES %s;
-	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
+	`, suffix,
+		tableName,
+		//geoColumns,
+		strings.Join(rows, ",")))
 	if err != nil {
 		return err
 	}
 
 	// add a row where all the nullable fields are null
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO e2e_test_%s.%s (
-			id, "from", created_at, updated_at,
-			transfer_type, blockchain, card_bought_notified, asset_id
-	) VALUES (
-			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
-			0, 1, false, 12345
-	);
-	`, suffix, tableName, uuid.New().String()))
-	if err != nil {
-		return err
-	}
+	// _, err = pool.Exec(context.Background(), fmt.Sprintf(`
+	// INSERT INTO e2e_test_%s.%s (
+	// 		id, "from", created_at, updated_at,
+	// 		transfer_type, blockchain, card_bought_notified, asset_id
+	// ) VALUES (
+	// 		'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+	// 		0, 1, false, 12345
+	// );
+	// `, suffix, tableName, uuid.New().String()))
+	// if err != nil {
+	// 	return err
+	// }
 
 	// generate a 20 MB json and update id[0]'s col f5 to it
-	v, err := generate20MBJson()
-	if err != nil {
-		return err
-	}
-	_, err = pool.Exec(context.Background(), fmt.Sprintf(`
-		UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
-	`, suffix, tableName), v, ids[0])
-	if err != nil {
-		return err
-	}
+	// v, err := generate20MBJson()
+	// if err != nil {
+	// 	return err
+	// }
+	// _, err = pool.Exec(context.Background(), fmt.Sprintf(`
+	// 	UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
+	// `, suffix, tableName), v, ids[0])
+	// if err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
@@ -327,39 +392,39 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
+			// {Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "created_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "updated_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "transaction_hash", Type: qvalue.QValueKindBytes, Nullable: true},
-			{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
-			{Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
-			{Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
-			{Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
-			{Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
-			{Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
-			{Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "settled_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
-			{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
-			{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
+			// {Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
+			// {Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
+			// {Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
+			// {Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
+			// {Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
+			// {Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
+			// {Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
+			// {Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
+			// {Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
+			// {Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
+			// {Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
+			// {Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
+			// {Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
+			// {Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
+			// {Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
+			// {Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
+			// {Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
+			// {Name: "settled_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
+			// {Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
+			// {Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
+			// {Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
+			// {Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
+			// {Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
+			// {Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
+			// {Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
+			// {Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
+			// {Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
+			// {Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
+			// {Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
 		},
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"os"
 
 	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peer-flow/e2e"
@@ -31,7 +30,10 @@ type ClickhouseTestHelper struct {
 }
 
 func NewClickhouseTestHelper() (*ClickhouseTestHelper, error) {
-	jsonPath := os.Getenv("TEST_CF_CREDS")
+	fmt.Printf("\n******************** NewClickhouseTestHelper 1")
+	//jsonPath := os.Getenv("TEST_CF_CREDS")
+	jsonPath := "./ch.json"
+	fmt.Printf("\n******************** NewClickhouseTestHelper 2 jsonPath %+v", jsonPath)
 	if jsonPath == "" {
 		return nil, fmt.Errorf("TEST_CF_CREDS env var not set")
 	}

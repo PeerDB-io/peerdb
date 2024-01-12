@@ -32,6 +32,7 @@ type SnowflakeTestHelper struct {
 
 func NewSnowflakeTestHelper() (*SnowflakeTestHelper, error) {
 	jsonPath := os.Getenv("TEST_SF_CREDS")
+	fmt.Printf("\n****************************** jsonPath %+v", jsonPath)
 	if jsonPath == "" {
 		return nil, fmt.Errorf("TEST_SF_CREDS env var not set")
 	}
@@ -139,6 +140,7 @@ func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(query string) (*model.QReco
 }
 
 func (s *SnowflakeTestHelper) CreateTable(tableName string, schema *model.QRecordSchema) error {
+	fmt.Printf("\n******************* CreateTable %+v %+v", tableName, schema)
 	return s.testClient.CreateTable(schema, s.testSchemaName, tableName)
 }
 

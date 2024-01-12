@@ -122,16 +122,18 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	if err != nil {
 		return 0, err
 	}
-
+	fmt.Printf("\n**************************** in qrep_avro_sync.go SyncQRepRecords 0 avroSchema: %+v", avroSchema)
 	avroFile, err := s.writeToAvroFile(stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, err
 	}
 
+	fmt.Printf("\n************ in qrep_avro_sync.go ch.writeToAvroFile 1 file uploaded %+v", avroFile)
+
 	//TODO: avro file cleanup
 	//defer avroFile.Cleanup()
 
-	avroFileUrl := "https://avro-clickhouse.s3.us-east-2.amazonaws.com" + avroFile.FilePath
+	avroFileUrl := "https://avro-clickhouse.s3.us-east-2.amazonaws.com/" + avroFile.FilePath
 
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
 
@@ -139,9 +141,16 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
+	fmt.Printf("\n************ in qrep_avro_sync.go ch.writeToAvroFile 2 %v", awsCreds)
+
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s', 'Avro')", config.DestinationTableIdentifier, avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
 
+	fmt.Printf("\n************ in qrep_avro_sync.go ch.writeToAvroFile 3 query: %+v", query)
+
 	_, err = s.connector.database.Exec(query)
+
+	fmt.Printf("\n************ in qrep_avro_sync.go ch.writeToAvroFile 4 err: %+v", err)
+
 	if err != nil {
 		return 0, err
 	}

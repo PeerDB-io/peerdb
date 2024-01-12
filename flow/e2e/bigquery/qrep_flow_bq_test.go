@@ -10,10 +10,13 @@ import (
 )
 
 func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {
+	fmt.Printf("\n**************************************** setupSourceTable 1")
 	err := e2e.CreateSourceTableQRep(s.pool, s.bqSuffix, tableName)
 	require.NoError(s.t, err)
+	fmt.Printf("\n**************************************** setupSourceTable 2, created table")
 	err = e2e.PopulateSourceTable(s.pool, s.bqSuffix, tableName, rowCount)
 	require.NoError(s.t, err)
+	fmt.Printf("\n**************************************** setupSourceTable 3, populated table")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) setupBQDestinationTable(dstTable string) {

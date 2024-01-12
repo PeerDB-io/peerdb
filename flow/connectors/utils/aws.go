@@ -90,6 +90,7 @@ func NewS3BucketAndPrefix(s3Path string) (*S3BucketAndPrefix, error) {
 }
 
 func CreateS3Client(s3Creds S3PeerCredentials) (*s3.S3, error) {
+	fmt.Printf("\n********************* utils.CreateS3Client 1*********************\n s3Creds:%+v", s3Creds)
 	awsSecrets, err := GetAWSSecrets(s3Creds)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get AWS secrets: %w", err)

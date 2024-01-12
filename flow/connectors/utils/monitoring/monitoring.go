@@ -145,6 +145,7 @@ func InitializeQRepRun(
 	partitions []*protos.QRepPartition,
 ) error {
 	flowJobName := config.GetFlowJobName()
+	fmt.Printf("\n************************** InitializeQRepRun")
 	_, err := pool.Exec(ctx,
 		"INSERT INTO peerdb_stats.qrep_runs(flow_name,run_uuid) VALUES($1,$2) ON CONFLICT DO NOTHING",
 		flowJobName, runUUID)
