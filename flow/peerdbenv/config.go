@@ -72,7 +72,7 @@ func PeerDBCatalogDatabase() string {
 
 // PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD, 0 disables slot lag alerting entirely
 func PeerDBSlotLagMBAlertThreshold() uint32 {
-	return getEnvUint32("PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", 5000)
+	return getEnvUint32("PEERDB_SLOT_LAG_MB_ALERT_THRESHOLD", 5000*100)
 }
 
 // PEERDB_ALERTING_GAP_MINUTES, 0 disables all alerting entirely
