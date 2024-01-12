@@ -23,8 +23,6 @@ type mergeStmtGenerator struct {
 	normalizeBatchID int64
 	// the schema of the table to merge into
 	normalizedTableSchema *protos.TableSchema
-	// array of toast column combinations that are unchanged
-	unchangedToastColumns []string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
 	// map for shorter columns
@@ -139,7 +137,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
 	insertValuesSQL := shortCsep + ",CURRENT_TIMESTAMP"
 
-	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames)
+	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames, unchangedToastColumns)
 	if m.peerdbCols.SoftDelete {
 		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(",`%s`", m.peerdbCols.SoftDeleteColName)
 		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
@@ -180,11 +178,11 @@ func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) s
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 
-func (m *mergeStmtGenerator) generateMergeStmts() []string {
+func (m *mergeStmtGenerator) generateMergeStmts(allUnchangedToastColas []string) []string {
 	// TODO (kaushik): This is so that the statement size for individual merge statements
 	// doesn't exceed the limit. We should make this configurable.
 	const batchSize = 8
-	partitions := utils.ArrayChunks(m.unchangedToastColumns, batchSize)
+	partitions := utils.ArrayChunks(allUnchangedToastColas, batchSize)
 
 	mergeStmts := make([]string, 0, len(partitions))
 	for _, partition := range partitions {
@@ -209,17 +207,17 @@ and updating the other columns (not the unchanged toast columns)
 6. Repeat steps 1-5 for each unique unchanged toast column group.
 7. Return the list of generated update statements.
 */
-func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string) []string {
+func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastColumns []string) []string {
 	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
 	// weird way of doing it but avoids prealloc lint
 	updateStmts := make([]string, 0, func() int {
 		if handleSoftDelete {
-			return 2 * len(m.unchangedToastColumns)
+			return 2 * len(unchangedToastColumns)
 		}
-		return len(m.unchangedToastColumns)
+		return len(unchangedToastColumns)
 	}())
 
-	for _, cols := range m.unchangedToastColumns {
+	for _, cols := range unchangedToastColumns {
 		unchangedColsArray := strings.Split(cols, ",")
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols))

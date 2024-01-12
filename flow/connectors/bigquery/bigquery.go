@@ -587,6 +587,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		c.datasetID, rawTableName, distinctTableNames))
 
 	for _, tableName := range distinctTableNames {
+		unchangedToastColumns := tableNametoUnchangedToastCols[tableName]
 		dstDatasetTable, _ := c.convertToDatasetTable(tableName)
 		mergeGen := &mergeStmtGenerator{
 			rawDatasetTable: &datasetTable{
@@ -598,7 +599,6 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			normalizedTableSchema: c.tableNameSchemaMapping[tableName],
 			syncBatchID:           batchIDs.SyncBatchID,
 			normalizeBatchID:      batchIDs.NormalizeBatchID,
-			unchangedToastColumns: tableNametoUnchangedToastCols[tableName],
 			peerdbCols: &protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
 				SyncedAtColName:   req.SyncedAtColName,
@@ -607,7 +607,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			shortColumn: map[string]string{},
 		}
 		// normalize anything between last normalized batch id to last sync batchid
-		mergeStmts := mergeGen.generateMergeStmts()
+		mergeStmts := mergeGen.generateMergeStmts(unchangedToastColumns)
 		for i, mergeStmt := range mergeStmts {
 			c.logger.Info(fmt.Sprintf("running merge statement [%d/%d] for table %s..",
 				i+1, len(mergeStmts), tableName))
