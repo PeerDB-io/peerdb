@@ -16,12 +16,12 @@ export async function POST(request: Request) {
         {
           flow_name: {
             contains: alertReq.flowJobName,
-          }
+          },
         },
         {
           flow_name: alertReq.flowJobName,
-        }
-      ]
+        },
+      ],
     },
     orderBy: {
       error_timestamp: 'desc',
