@@ -87,20 +87,23 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	rows, err := peerPool.Query(ctx, `SELECT DISTINCT ON (t.relname)
     t.relname,
     CASE
-        WHEN c.constraint_type = 'PRIMARY KEY' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
+        WHEN con.contype = 'p' OR t.relreplident = 'i' OR t.relreplident = 'f' THEN true
         ELSE false
     END AS can_mirror
 	FROM
-		information_schema.table_constraints c
-	RIGHT JOIN
-		pg_class t ON c.table_name = t.relname
+		pg_class t
+	LEFT JOIN
+		pg_namespace n ON t.relnamespace = n.oid
+	LEFT JOIN
+		pg_constraint con ON con.conrelid = t.oid AND con.contype = 'p'
 	WHERE
-		t.relnamespace::regnamespace::text = $1
+		n.nspname = $1
 	AND
-    	t.relkind = 'r'
+		t.relkind = 'r'
 	ORDER BY
     t.relname,
-    can_mirror DESC;`, req.SchemaName)
+    can_mirror DESC;
+`, req.SchemaName)
 	if err != nil {
 		return &protos.SchemaTablesResponse{Tables: nil}, err
 	}
@@ -169,39 +172,28 @@ func (h *FlowRequestHandler) GetColumns(
 
 	defer peerPool.Close()
 	rows, err := peerPool.Query(ctx, `
-		SELECT
-			cols.column_name,
-			cols.data_type,
-			CASE
-				WHEN constraint_type = 'PRIMARY KEY' THEN true
-				ELSE false
-			END AS is_primary_key
-		FROM
-			information_schema.columns cols
-		LEFT JOIN
-			(
-				SELECT
-					kcu.column_name,
-					tc.constraint_type
-				FROM
-					information_schema.key_column_usage kcu
-				JOIN
-					information_schema.table_constraints tc
-				ON
-					kcu.constraint_name = tc.constraint_name
-					AND kcu.constraint_schema = tc.constraint_schema
-				WHERE
-					tc.constraint_type = 'PRIMARY KEY'
-					AND kcu.table_schema = $1
-					AND kcu.table_name = $2
-			) AS pk
-		ON
-			cols.column_name = pk.column_name
-		WHERE
-			cols.table_schema = $3
-			AND cols.table_name = $4
-		ORDER BY cols.ordinal_position;
-	`, req.SchemaName, req.TableName, req.SchemaName, req.TableName)
+	SELECT
+    cols.column_name,
+    cols.data_type,
+    CASE
+        WHEN con.contype = 'p' AND cols.ordinal_position = ANY(con.conkey) THEN true
+        ELSE false
+    END AS is_primary_key
+	FROM
+		information_schema.columns cols
+	JOIN
+		pg_class tbl ON cols.table_name = tbl.relname
+	JOIN
+		pg_namespace n ON tbl.relnamespace = n.oid
+	LEFT JOIN
+		pg_constraint con ON con.conrelid = tbl.oid
+			AND con.contype = 'p'
+	WHERE
+		n.nspname = $1
+		AND cols.table_name = $2
+	ORDER BY
+    cols.ordinal_position;
+	`, req.SchemaName, req.TableName)
 	if err != nil {
 		return &protos.TableColumnsResponse{Columns: nil}, err
 	}
