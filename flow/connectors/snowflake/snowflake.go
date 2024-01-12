@@ -652,6 +652,9 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 				},
 			}
 			mergeStatement, err := mergeGen.generateMergeStmt()
+			if err != nil {
+				return err
+			}
 
 			startTime := time.Now()
 			c.logger.Info("[merge] merging records...", slog.String("destTable", tableName))

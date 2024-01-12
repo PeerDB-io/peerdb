@@ -119,7 +119,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
+func (m *mergeStmtGenerator) generateMergeStmt(_unchangedToastColumns []string) string {
 	// comma separated list of column names
 	columnCount := utils.TableSchemaColumns(m.normalizedTableSchema)
 	backtickColNames := make([]string, 0, columnCount)

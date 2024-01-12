@@ -5,35 +5,30 @@ on:
     branches: [main]
     paths: [flow/**]
 
+permissions:
+  contents: read
+
 jobs:
-  golangci-lint:
-    permissions:
-      checks: write
-      contents: read
-      pull-requests: write
-    strategy:
-      matrix:
-        runner: [ubicloud-standard-4-ubuntu-2204-arm]
-    runs-on: ${{ matrix.runner }}
+  golangci:
+    name: lint
+    runs-on: [ubicloud-standard-4-ubuntu-2204-arm]
     steps:
-      - name: checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
+      - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@v1.28.1
-
       - name: setup protos
         run: |
           ./generate_protos.sh
-
-      - name: golangci-lint
-        uses: reviewdog/action-golangci-lint@v2
+      - name: install lib-geos
+        run: |
+          sudo apt-get update
+          sudo apt-get install libgeos-dev
+      - uses: actions/setup-go@v5
         with:
-          workdir: ./flow
-          reporter: github-pr-review
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          golangci_lint_flags: "--timeout 10m"
-          fail_on_error: true
-        env:
-          REVIEWDOG_TOKEN: ${{ secrets.REVIEWDOG_TOKEN }}
+          go-version: "1.21"
+          cache: false
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.55
+          working-directory: ./flow
+          args: --timeout=10m
