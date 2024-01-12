@@ -12,7 +12,6 @@ func TestGenerateUpdateStatement(t *testing.T) {
 	allCols := []string{"col1", "col2", "col3"}
 	unchangedToastCols := []string{""}
 	m := &mergeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
 		shortColumn: map[string]string{
 			"col1": "_c0",
 			"col2": "_c1",
@@ -35,7 +34,7 @@ func TestGenerateUpdateStatement(t *testing.T) {
 			"`synced_at`=CURRENT_TIMESTAMP",
 	}
 
-	result := m.generateUpdateStatements(allCols)
+	result := m.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -51,7 +50,6 @@ func TestGenerateUpdateStatement_WithSoftDelete(t *testing.T) {
 	allCols := []string{"col1", "col2", "col3"}
 	unchangedToastCols := []string{""}
 	m := &mergeStmtGenerator{
-		unchangedToastColumns: unchangedToastCols,
 		shortColumn: map[string]string{
 			"col1": "_c0",
 			"col2": "_c1",
@@ -79,7 +77,7 @@ func TestGenerateUpdateStatement_WithSoftDelete(t *testing.T) {
 			"`col3`=_d._c2,`synced_at`=CURRENT_TIMESTAMP,`deleted`=TRUE",
 	}
 
-	result := m.generateUpdateStatements(allCols)
+	result := m.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -100,7 +98,6 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 			"col2": "_c1",
 			"col3": "_c2",
 		},
-		unchangedToastColumns: unchangedToastCols,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        false,
 			SoftDeleteColName: "deleted",
@@ -123,7 +120,7 @@ func TestGenerateUpdateStatement_WithUnchangedToastCols(t *testing.T) {
 			"`col2`=_d._c1,`synced_at`=CURRENT_TIMESTAMP",
 	}
 
-	result := m.generateUpdateStatements(allCols)
+	result := m.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
@@ -144,7 +141,6 @@ func TestGenerateUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *testing.
 			"col2": "_c1",
 			"col3": "_c2",
 		},
-		unchangedToastColumns: unchangedToastCols,
 		peerdbCols: &protos.PeerDBColumns{
 			SoftDelete:        true,
 			SoftDeleteColName: "deleted",
@@ -180,7 +176,7 @@ func TestGenerateUpdateStatement_WithUnchangedToastColsAndSoftDelete(t *testing.
 			"`col2`=_d._c1,`synced_at`=CURRENT_TIMESTAMP,`deleted`=TRUE",
 	}
 
-	result := m.generateUpdateStatements(allCols)
+	result := m.generateUpdateStatements(allCols, unchangedToastCols)
 
 	for i := range expected {
 		expected[i] = utils.RemoveSpacesTabsNewlines(expected[i])
