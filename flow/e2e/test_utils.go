@@ -128,12 +128,12 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
 		`"from" TIMESTAMP NOT NULL`,
-		// "price NUMERIC",
 		"created_at TIMESTAMP NOT NULL",
 		"updated_at TIMESTAMP NOT NULL",
 		"transaction_hash BYTEA",
-		// "ownerable_type VARCHAR",
-		// "ownerable_id UUID",
+		// "price NUMERIC",
+		"ownerable_type VARCHAR",
+		"ownerable_id UUID",
 		// "user_nonce INTEGER",
 		// "transfer_type INTEGER DEFAULT 0 NOT NULL",
 		// "blockchain INTEGER NOT NULL",
@@ -214,9 +214,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		// 	'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'`
 		// }
 
-		// 	3.86487206688919,
-		//    'type1',
-		//    '%s',
+		//	3.86487206688919
 		//    1,
 		//    0,
 		//    1,
@@ -253,12 +251,14 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP,
 							CURRENT_TIMESTAMP,
 							CURRENT_TIMESTAMP,
-							E'\\\\xDEADBEEF'
+							E'\\\\xDEADBEEF',
+							'type1',
+							'%s'
 
 					)`,
 			id,
 			uuid.New().String(),
-			// uuid.New().String(),
+			uuid.New().String(),
 			// uuid.New().String(),
 			// uuid.New().String(),
 			// uuid.New().String(),
@@ -275,9 +275,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	// 		"geometry_polygon, geography_polygon"
 	// }
 
-	// price,
-	// ownerable_type,
-	// ownerable_id,
+	//price
 	// user_nonce,
 	// transfer_type,
 	// blockchain,
@@ -299,19 +297,25 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	// settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8
 	// %s
 
-	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO e2e_test_%s.%s (
-					id,
-					card_id,
-					created_at,
-					updated_at,
-					"from",
-					transaction_hash
-			) VALUES %s;
-	`, suffix,
+	insertQuery := fmt.Sprintf(`
+	INSERT INTO e2e_test_%s.%s (
+			id,
+			card_id,
+			created_at,
+			updated_at,
+			"from",
+			transaction_hash,
+			ownerable_type,
+			ownerable_id
+	) VALUES %s;
+`, suffix,
 		tableName,
-		//geoColumns,
-		strings.Join(rows, ",")))
+		// geoColumns,
+		strings.Join(rows, ","))
+
+	fmt.Printf("\n******************* PopulateSourceTable insertSql: %s \n\n", insertQuery)
+
+	_, err := pool.Exec(context.Background(), insertQuery)
 	if err != nil {
 		return err
 	}
@@ -392,12 +396,12 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			// {Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "created_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "updated_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "transaction_hash", Type: qvalue.QValueKindBytes, Nullable: true},
-			// {Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
-			// {Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
+			//{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
+			{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
+			{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
 			// {Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
 			// {Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
 			// {Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
