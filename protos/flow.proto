@@ -134,6 +134,7 @@ message StartFlowInput {
 
 message StartNormalizeInput {
   FlowConnectionConfigs flow_connection_configs = 1;
+  int64 SyncBatchID = 2;
 }
 
 message GetLastSyncedIDInput {

@@ -353,6 +353,8 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return &model.SyncResponse{
 			LastSyncedCheckPointID: 0,
 			NumRecordsSynced:       0,
+			TableSchemaDeltas:      tableSchemaDeltas,
+			RelationMessageMapping: <-req.Records.RelationMessageMapping,
 		}, nil
 	}
 
@@ -425,28 +427,29 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		}, nil
 	}
 
-	batchIDs, err := c.GetLastSyncAndNormalizeBatchID(req.FlowJobName)
+	normBatchID, err := c.GetLastNormalizeBatchID(req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
+
 	// normalize has caught up with sync, chill until more records are loaded.
-	if batchIDs.NormalizeBatchID >= batchIDs.SyncBatchID {
+	if normBatchID >= req.SyncBatchID {
 		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
-			batchIDs.SyncBatchID, batchIDs.NormalizeBatchID))
+			req.SyncBatchID, normBatchID))
 		return &model.NormalizeResponse{
 			Done:         false,
-			StartBatchID: batchIDs.NormalizeBatchID,
-			EndBatchID:   batchIDs.SyncBatchID,
+			StartBatchID: normBatchID,
+			EndBatchID:   req.SyncBatchID,
 		}, nil
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
-		req.FlowJobName, batchIDs.SyncBatchID, batchIDs.NormalizeBatchID)
+		req.FlowJobName, req.SyncBatchID, normBatchID)
 	if err != nil {
 		return nil, err
 	}
 	unchangedToastColsMap, err := c.getTableNametoUnchangedCols(req.FlowJobName,
-		batchIDs.SyncBatchID, batchIDs.NormalizeBatchID)
+		req.SyncBatchID, normBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +488,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		}
 		normalizeStatements := normalizeStmtGen.generateNormalizeStatements()
 		for _, normalizeStatement := range normalizeStatements {
-			mergeStatementsBatch.Queue(normalizeStatement, batchIDs.NormalizeBatchID, batchIDs.SyncBatchID, destinationTableName).Exec(
+			mergeStatementsBatch.Queue(normalizeStatement, normBatchID, req.SyncBatchID, destinationTableName).Exec(
 				func(ct pgconn.CommandTag) error {
 					totalRowsAffected += int(ct.RowsAffected())
 					return nil
@@ -502,7 +505,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 
 	// updating metadata with new normalizeBatchID
-	err = c.updateNormalizeMetadata(req.FlowJobName, batchIDs.SyncBatchID, normalizeRecordsTx)
+	err = c.updateNormalizeMetadata(req.FlowJobName, req.SyncBatchID, normalizeRecordsTx)
 	if err != nil {
 		return nil, err
 	}
@@ -514,8 +517,8 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 
 	return &model.NormalizeResponse{
 		Done:         true,
-		StartBatchID: batchIDs.NormalizeBatchID + 1,
-		EndBatchID:   batchIDs.SyncBatchID,
+		StartBatchID: normBatchID + 1,
+		EndBatchID:   req.SyncBatchID,
 	}, nil
 }
 
@@ -710,7 +713,8 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 
 // ReplayTableSchemaDelta changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
-func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
+func (c *PostgresConnector) ReplayTableSchemaDeltas(
+	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {
