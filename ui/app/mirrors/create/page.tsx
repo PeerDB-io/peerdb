@@ -69,7 +69,7 @@ export default function CreateMirrors() {
     BETWEEN {{.start}} AND {{.end}}`);
 
   useEffect(() => {
-    fetch('/api/peers')
+    fetch('/api/peers', { cache: 'no-store' })
       .then((res) => res.json())
       .then((res) => {
         setPeers(res);

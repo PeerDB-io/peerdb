@@ -38,9 +38,9 @@ jobs:
         run: |
           ./generate_protos.sh
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: ">=1.21.0"
+          go-version: "1.21"
           cache-dependency-path: flow/go.sum
 
       - name: install gotestsum
@@ -126,4 +126,3 @@ jobs:
           PEERDB_CATALOG_USER: postgres
           PEERDB_CATALOG_PASSWORD: postgres
           PEERDB_CATALOG_DATABASE: postgres
-          PEERDB_CDC_IDLE_TIMEOUT_SECONDS: 10

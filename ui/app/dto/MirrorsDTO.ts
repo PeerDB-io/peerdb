@@ -20,6 +20,7 @@ export type TableMapRow = {
   partitionKey: string;
   exclude: string[];
   selected: boolean;
+  canMirror: boolean;
 };
 
 export type SyncStatusRow = {

@@ -7,6 +7,7 @@ import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
+import { Tooltip } from '@/lib/Tooltip';
 import {
   Dispatch,
   SetStateAction,
@@ -17,7 +18,12 @@ import {
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
-import { expandableStyle, schemaBoxStyle, tableBoxStyle } from './styles';
+import {
+  expandableStyle,
+  schemaBoxStyle,
+  tableBoxStyle,
+  tooltipStyle,
+} from './styles';
 
 interface SchemaBoxProps {
   sourcePeer: string;
@@ -210,12 +216,29 @@ const SchemaBox = ({
                     >
                       <RowWithCheckbox
                         label={
-                          <Label as='label' style={{ fontSize: 13 }}>
-                            {row.source}
-                          </Label>
+                          <Tooltip
+                            style={{
+                              ...tooltipStyle,
+                              display: row.canMirror ? 'none' : 'block',
+                            }}
+                            content={
+                              'This table must have a primary key or replica identity to be mirrored.'
+                            }
+                          >
+                            <Label
+                              as='label'
+                              style={{
+                                fontSize: 13,
+                                color: row.canMirror ? 'black' : 'gray',
+                              }}
+                            >
+                              {row.source}
+                            </Label>
+                          </Tooltip>
                         }
                         action={
                           <Checkbox
+                            disabled={!row.canMirror}
                             checked={row.selected}
                             onCheckedChange={(state: boolean) =>
                               handleTableSelect(state, row.source)
@@ -223,7 +246,6 @@ const SchemaBox = ({
                           />
                         }
                       />
-
                       <div
                         style={{
                           width: '40%',

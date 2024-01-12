@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use peer_cursor::{QueryExecutor, QueryOutput, Schema, SchemaRef};
+use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use pgwire::{
     api::results::{FieldFormat, FieldInfo},
     error::{PgWireError, PgWireResult},
@@ -30,7 +30,7 @@ impl PostgresQueryExecutor {
         })
     }
 
-    pub async fn schema_from_query(&self, query: &str) -> anyhow::Result<SchemaRef> {
+    pub async fn schema_from_query(&self, query: &str) -> anyhow::Result<Schema> {
         let prepared = self.client.prepare_typed(query, &[]).await?;
 
         let fields: Vec<FieldInfo> = prepared
@@ -42,7 +42,7 @@ impl PostgresQueryExecutor {
             })
             .collect();
 
-        Ok(Arc::new(Schema { fields }))
+        Ok(Arc::new(fields))
     }
 }
 
@@ -113,7 +113,7 @@ impl QueryExecutor for PostgresQueryExecutor {
         }
     }
 
-    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<SchemaRef>> {
+    async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>> {
         match stmt {
             Statement::Query(_query) => {
                 let schema = self

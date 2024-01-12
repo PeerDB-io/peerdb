@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/activities"
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
+	conn_utils "github.com/PeerDB-io/peer-flow/connectors/utils"
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/catalog"
 	"github.com/PeerDB-io/peer-flow/e2eshared"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -24,6 +26,8 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared/alerting"
 	peerflow "github.com/PeerDB-io/peer-flow/workflows"
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
@@ -141,9 +145,7 @@ func SetupCDCFlowStatusQuery(env *testsuite.TestWorkflowEnvironment,
 			err = response.Get(&state)
 			if err != nil {
 				slog.Error(err.Error())
-			}
-
-			if *state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
+			} else if state.CurrentFlowState == protos.FlowStatus_STATUS_RUNNING {
 				break
 			}
 		} else {
@@ -171,9 +173,7 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 			err = response.Get(&state)
 			if err != nil {
 				slog.Error(err.Error())
-			}
-
-			if state >= minCount {
+			} else if state >= minCount {
 				break
 			}
 		} else {
@@ -185,6 +185,8 @@ func NormalizeFlowCountQuery(env *testsuite.TestWorkflowEnvironment,
 }
 
 func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) error {
+	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
+
 	tblFields := []string{
 		"id UUID NOT NULL PRIMARY KEY",
 		"card_id UUID",
@@ -223,6 +225,7 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 		"f7 jsonb",
 		"f8 smallint",
 		"my_date DATE",
+		"my_mood mood",
 	}
 	if strings.Contains(tableName, "sf") || strings.Contains(tableName, "bq") {
 		tblFields = append(tblFields, `"geometryPoint" geometry(point)`,
@@ -233,7 +236,11 @@ func CreateTableForQRep(pool *pgxpool.Pool, suffix string, tableName string) err
 			"geography_polygon geography(polygon)")
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-
+	var pgErr *pgconn.PgError
+	_, enumErr := pool.Exec(context.Background(), createMoodEnum)
+	if errors.As(enumErr, &pgErr) && pgErr.Code != pgerrcode.DuplicateObject && !conn_utils.IsUniqueError(pgErr) {
+		return enumErr
+	}
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
 			%s
@@ -283,7 +290,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP, 1, ARRAY['text1', 'text2'], ARRAY[123, 456], ARRAY[789, 012],
 							ARRAY['varchar1', 'varchar2'], '{"key": -8.02139037433155}',
 							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-							'{"key": "value"}', 15, CURRENT_DATE %s
+							'{"key": "value"}', 15, CURRENT_DATE, 'happy' %s
 					)`,
 			id, uuid.New().String(), uuid.New().String(),
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), geoValues)
@@ -304,7 +311,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
 					paid_eth_price, card_bought_notified, address, account_id,
 					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, my_date
+					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, my_date, my_mood
 					%s
 			) VALUES %s;
 	`, suffix, tableName, geoColumns, strings.Join(rows, ",")))
@@ -426,6 +433,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
 			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
 			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
+			{Name: "my_mood", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
 			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
 			{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},

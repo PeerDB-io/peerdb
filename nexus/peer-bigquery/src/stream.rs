@@ -1,6 +1,7 @@
 use std::{
     pin::Pin,
     str::FromStr,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -9,7 +10,7 @@ use futures::Stream;
 use gcp_bigquery_client::model::{
     field_type::FieldType, query_response::ResultSet, table_field_schema::TableFieldSchema,
 };
-use peer_cursor::{Record, RecordStream, Schema, SchemaRef};
+use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
     api::{
         results::{FieldFormat, FieldInfo},
@@ -22,7 +23,7 @@ use value::Value;
 
 #[derive(Debug)]
 pub struct BqSchema {
-    schema: SchemaRef,
+    schema: Schema,
     fields: Vec<TableFieldSchema>,
 }
 
@@ -68,15 +69,15 @@ impl BqSchema {
             .as_ref()
             .expect("Schema fields are not present");
 
-        let schema = SchemaRef::new(Schema {
-            fields: fields
+        let schema = Arc::new(
+            fields
                 .iter()
                 .map(|field| {
                     let datatype = convert_field_type(&field.r#type);
                     FieldInfo::new(field.name.clone(), None, None, datatype, FieldFormat::Text)
                 })
                 .collect(),
-        });
+        );
 
         Self {
             schema,
@@ -84,7 +85,7 @@ impl BqSchema {
         }
     }
 
-    pub fn schema(&self) -> SchemaRef {
+    pub fn schema(&self) -> Schema {
         self.schema.clone()
     }
 }
@@ -192,7 +193,7 @@ impl Stream for BqRecordStream {
 }
 
 impl RecordStream for BqRecordStream {
-    fn schema(&self) -> SchemaRef {
+    fn schema(&self) -> Schema {
         self.schema.schema()
     }
 }

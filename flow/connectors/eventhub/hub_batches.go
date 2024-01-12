@@ -10,7 +10,6 @@ import (
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	"github.com/PeerDB-io/peer-flow/shared"
-	"golang.org/x/sync/errgroup"
 )
 
 // multimap from ScopedEventhub to *azeventhubs.EventDataBatch
@@ -28,20 +27,20 @@ func NewHubBatches(manager *EventHubManager) *HubBatches {
 
 func (h *HubBatches) AddEvent(
 	ctx context.Context,
-	name ScopedEventhub,
+	destination ScopedEventhub,
 	event string,
 	// this is true when we are retrying to send the event after the batch size exceeded
 	// this should initially be false, and then true when we are retrying.
 	retryForBatchSizeExceed bool,
 ) error {
-	batch, ok := h.batch[name]
+	batch, ok := h.batch[destination]
 	if !ok || batch == nil {
-		newBatch, err := h.manager.CreateEventDataBatch(ctx, name)
+		newBatch, err := h.manager.CreateEventDataBatch(ctx, destination)
 		if err != nil {
 			return fmt.Errorf("failed to create event data batch: %v", err)
 		}
 		batch = newBatch
-		h.batch[name] = batch
+		h.batch[destination] = batch
 	}
 
 	err := tryAddEventToBatch(event, batch)
@@ -60,12 +59,12 @@ func (h *HubBatches) AddEvent(
 		// if the event is too large, send the current batch and
 		// delete it from the map, so that a new batch can be created
 		// for the event next time.
-		if err := h.sendBatch(ctx, name, batch); err != nil {
+		if err := h.sendBatch(ctx, destination, batch); err != nil {
 			return fmt.Errorf("failed to send batch: %v", err)
 		}
-		delete(h.batch, name)
+		delete(h.batch, destination)
 
-		return h.AddEvent(ctx, name, event, true)
+		return h.AddEvent(ctx, destination, event, true)
 	} else {
 		return fmt.Errorf("failed to add event to batch: %v", err)
 	}
@@ -76,10 +75,14 @@ func (h *HubBatches) Len() int {
 }
 
 // ForEach calls the given function for each ScopedEventhub and batch pair
-func (h *HubBatches) ForEach(fn func(ScopedEventhub, *azeventhubs.EventDataBatch)) {
+func (h *HubBatches) ForEach(fn func(ScopedEventhub, *azeventhubs.EventDataBatch) error) error {
 	for name, batch := range h.batch {
-		fn(name, batch)
+		err := fn(name, batch)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (h *HubBatches) sendBatch(
@@ -108,7 +111,6 @@ func (h *HubBatches) sendBatch(
 
 func (h *HubBatches) flushAllBatches(
 	ctx context.Context,
-	maxParallelism int64,
 	flowName string,
 ) error {
 	if h.Len() == 0 {
@@ -116,34 +118,36 @@ func (h *HubBatches) flushAllBatches(
 		return nil
 	}
 
-	var numEventsPushed int32
-	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(int(maxParallelism))
-	h.ForEach(func(tblName ScopedEventhub, eventBatch *azeventhubs.EventDataBatch) {
-		g.Go(func() error {
+	var numEventsPushed atomic.Int32
+	err := h.ForEach(
+		func(
+			destination ScopedEventhub,
+			eventBatch *azeventhubs.EventDataBatch,
+		) error {
 			numEvents := eventBatch.NumEvents()
-			err := h.sendBatch(gCtx, tblName, eventBatch)
+			err := h.sendBatch(ctx, destination, eventBatch)
 			if err != nil {
 				return err
 			}
 
-			atomic.AddInt32(&numEventsPushed, numEvents)
+			numEventsPushed.Add(numEvents)
 			slog.Info("flushAllBatches",
 				slog.String(string(shared.FlowNameKey), flowName),
 				slog.Int("events sent", int(numEvents)),
-				slog.String("event hub topic ", tblName.ToString()))
+				slog.String("event hub topic ", destination.ToString()))
 			return nil
 		})
-	})
 
-	err := g.Wait()
-	slog.Info("hub batches flush",
-		slog.String(string(shared.FlowNameKey), flowName),
-		slog.Int("events sent", int(numEventsPushed)))
-
-	// clear the batches after flushing them.
 	h.Clear()
 
+	if err != nil {
+		return fmt.Errorf("failed to flushAllBatches: %v", err)
+	}
+	slog.Info("hub batches flush",
+		slog.String(string(shared.FlowNameKey), flowName),
+		slog.Int("events sent", int(numEventsPushed.Load())))
+
+	// clear the batches after flushing them.
 	return err
 }
 

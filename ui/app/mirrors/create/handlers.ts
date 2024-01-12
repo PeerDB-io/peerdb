@@ -2,6 +2,7 @@ import { UCreateMirrorResponse } from '@/app/dto/MirrorsDTO';
 import {
   UColumnsResponse,
   USchemasResponse,
+  UTablesAllResponse,
   UTablesResponse,
 } from '@/app/dto/PeersDTO';
 import {
@@ -261,6 +262,7 @@ export const fetchSchemas = async (peerName: string) => {
     body: JSON.stringify({
       peerName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   return schemasRes.schemas;
 };
@@ -277,26 +279,28 @@ export const fetchTables = async (
       peerName,
       schemaName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
 
-  let tables = [];
-  const tableNames = tablesRes.tables;
-  if (tableNames) {
-    for (const tableName of tableNames) {
+  let tables: TableMapRow[] = [];
+  const tableRes = tablesRes.tables;
+  if (tableRes) {
+    for (const tableObject of tableRes) {
       // setting defaults:
       // for bigquery, tables are not schema-qualified
       const dstName =
         peerType != undefined && dBTypeToJSON(peerType) == 'BIGQUERY'
-          ? tableName
-          : `${schemaName}.${tableName}`;
+          ? tableObject.tableName
+          : `${schemaName}.${tableObject.tableName}`;
 
       tables.push({
         schema: schemaName,
-        source: `${schemaName}.${tableName}`,
+        source: `${schemaName}.${tableObject.tableName}`,
         destination: dstName,
         partitionKey: '',
         exclude: [],
         selected: false,
+        canMirror: tableObject.canMirror,
       });
     }
   }
@@ -318,6 +322,7 @@ export const fetchColumns = async (
       schemaName,
       tableName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   setLoading(false);
   return columnsRes.columns;
@@ -325,11 +330,12 @@ export const fetchColumns = async (
 
 export const fetchAllTables = async (peerName: string) => {
   if (peerName?.length === 0) return [];
-  const tablesRes: UTablesResponse = await fetch('/api/peers/tables/all', {
+  const tablesRes: UTablesAllResponse = await fetch('/api/peers/tables/all', {
     method: 'POST',
     body: JSON.stringify({
       peerName,
     }),
+    cache: 'no-store',
   }).then((res) => res.json());
   return tablesRes.tables;
 };

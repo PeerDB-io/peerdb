@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/dynamicconf"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -63,7 +63,8 @@ func NewAlerter(catalogPool *pgxpool.Pool) (*Alerter, error) {
 // Only raises an alert if another alert with the same key hasn't been raised
 // in the past X minutes, where X is configurable and defaults to 15 minutes
 func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage string) {
-	if peerdbenv.PeerDBAlertingGapMinutesAsDuration() == 0 {
+	dur := dynamicconf.PeerDBAlertingGapMinutesAsDuration(ctx)
+	if dur == 0 {
 		a.logger.WarnContext(ctx, "Alerting disabled via environment variable, returning")
 		return
 	}
@@ -80,7 +81,7 @@ func (a *Alerter) AlertIf(ctx context.Context, alertKey string, alertMessage str
 		return
 	}
 
-	if time.Since(createdTimestamp) >= peerdbenv.PeerDBAlertingGapMinutesAsDuration() {
+	if time.Since(createdTimestamp) >= dur {
 		a.AddAlertToCatalog(ctx, alertKey, alertMessage)
 		a.AlertToSlack(ctx, alertKey, alertMessage)
 	}
@@ -120,6 +121,16 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		flowName, errorWithStack, "error")
 	if err != nil {
 		a.logger.WarnContext(ctx, "failed to insert flow error", slog.Any("error", err))
+		return
+	}
+}
+
+func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
+	_, err := a.catalogPool.Exec(ctx,
+		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
+		flowName, info, "info")
+	if err != nil {
+		a.logger.WarnContext(ctx, "failed to insert flow info", slog.Any("error", err))
 		return
 	}
 }

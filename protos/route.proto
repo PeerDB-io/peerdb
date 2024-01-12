@@ -114,7 +114,12 @@ message SchemaTablesRequest {
 }
 
 message SchemaTablesResponse {
-  repeated string tables = 1;
+  repeated TableResponse tables = 1;
+}
+
+message TableResponse {
+  string table_name = 1;
+  bool can_mirror = 2;
 }
 
 message AllTablesResponse {

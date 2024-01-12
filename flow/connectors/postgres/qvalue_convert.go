@@ -111,6 +111,8 @@ func qValueKindToPostgresType(qvalueKind string) string {
 		return "BYTEA"
 	case qvalue.QValueKindJSON:
 		return "JSONB"
+	case qvalue.QValueKindHStore:
+		return "HSTORE"
 	case qvalue.QValueKindUUID:
 		return "UUID"
 	case qvalue.QValueKindTime:
@@ -335,12 +337,6 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		default:
 			return qvalue.QValue{}, fmt.Errorf("failed to parse array string: %v", value)
 		}
-	case qvalue.QValueKindHStore:
-		hstoreVal, err := value.(pgtype.Hstore).HstoreValue()
-		if err != nil {
-			return qvalue.QValue{}, fmt.Errorf("failed to parse hstore: %w", err)
-		}
-		val = qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: hstoreVal}
 	case qvalue.QValueKindPoint:
 		xCoord := value.(pgtype.Point).P.X
 		yCoord := value.(pgtype.Point).P.Y
@@ -399,6 +395,8 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 		qValueKind = qvalue.QValueKindGeometry
 	case "geography":
 		qValueKind = qvalue.QValueKindGeography
+	case "hstore":
+		qValueKind = qvalue.QValueKindHStore
 	default:
 		qValueKind = qvalue.QValueKindString
 	}

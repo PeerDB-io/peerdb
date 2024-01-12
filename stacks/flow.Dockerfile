@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.2
 
-FROM golang:1.21.3-bookworm AS builder
+FROM golang:1.21-bookworm AS builder
 RUN apt-get update && apt-get install -y gcc libgeos-dev
 WORKDIR /root/flow
 
@@ -19,7 +19,7 @@ ENV CGO_ENABLED=1
 RUN go build -ldflags="-s -w" -o /root/peer-flow .
 
 FROM debian:bookworm-slim AS flow-base
-RUN apt-get update && apt-get install -y ca-certificates gcc libgeos-dev
+RUN apt-get update && apt-get install -y ca-certificates libgeos-c1v5
 WORKDIR /root
 COPY --from=builder /root/peer-flow .
 

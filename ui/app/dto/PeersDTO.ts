@@ -4,6 +4,7 @@ import {
   S3Config,
   SnowflakeConfig,
 } from '@/grpc_generated/peers';
+import { TableResponse } from '@/grpc_generated/route';
 
 export type UValidatePeerResponse = {
   valid: boolean;
@@ -20,6 +21,10 @@ export type USchemasResponse = {
 };
 
 export type UTablesResponse = {
+  tables: TableResponse[];
+};
+
+export type UTablesAllResponse = {
   tables: string[];
 };
 

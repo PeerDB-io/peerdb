@@ -23,8 +23,6 @@ type mergeStmtGenerator struct {
 	normalizeBatchID int64
 	// the schema of the table to merge into
 	normalizedTableSchema *protos.TableSchema
-	// array of toast column combinations that are unchanged
-	unchangedToastColumns []string
 	// _PEERDB_IS_DELETED and _SYNCED_AT columns
 	peerdbCols *protos.PeerDBColumns
 	// map for shorter columns
@@ -47,7 +45,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		var castStmt string
 		shortCol := m.shortColumn[colName]
 		switch qvalue.QValueKind(colType) {
-		case qvalue.QValueKindJSON:
+		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
 			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
 				colName, bqType, shortCol)
@@ -58,7 +56,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
 			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
-				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element) AS `%s`",
+				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
 				bqType, colName, shortCol)
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
 			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
@@ -121,7 +119,7 @@ func (m *mergeStmtGenerator) generateDeDupedCTE() string {
 }
 
 // generateMergeStmt generates a merge statement.
-func (m *mergeStmtGenerator) generateMergeStmt() string {
+func (m *mergeStmtGenerator) generateMergeStmt(unchangedToastColumns []string) string {
 	// comma separated list of column names
 	columnCount := utils.TableSchemaColumns(m.normalizedTableSchema)
 	backtickColNames := make([]string, 0, columnCount)
@@ -139,8 +137,7 @@ func (m *mergeStmtGenerator) generateMergeStmt() string {
 	insertColumnsSQL := csep + fmt.Sprintf(", `%s`", m.peerdbCols.SyncedAtColName)
 	insertValuesSQL := shortCsep + ",CURRENT_TIMESTAMP"
 
-	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames,
-		m.unchangedToastColumns, m.peerdbCols)
+	updateStatementsforToastCols := m.generateUpdateStatements(pureColNames, unchangedToastColumns)
 	if m.peerdbCols.SoftDelete {
 		softDeleteInsertColumnsSQL := insertColumnsSQL + fmt.Sprintf(",`%s`", m.peerdbCols.SoftDeleteColName)
 		softDeleteInsertValuesSQL := insertValuesSQL + ",TRUE"
@@ -181,6 +178,20 @@ func (m *mergeStmtGenerator) generateMergeStmt() string {
 		pkeySelectSQL, insertColumnsSQL, insertValuesSQL, updateStringToastCols, deletePart)
 }
 
+func (m *mergeStmtGenerator) generateMergeStmts(allUnchangedToastColas []string) []string {
+	// TODO (kaushik): This is so that the statement size for individual merge statements
+	// doesn't exceed the limit. We should make this configurable.
+	const batchSize = 8
+	partitions := utils.ArrayChunks(allUnchangedToastColas, batchSize)
+
+	mergeStmts := make([]string, 0, len(partitions))
+	for _, partition := range partitions {
+		mergeStmts = append(mergeStmts, m.generateMergeStmt(partition))
+	}
+
+	return mergeStmts
+}
+
 /*
 This function takes an array of unique unchanged toast column groups and an array of all column names,
 and returns suitable UPDATE statements as part of a MERGE operation.
@@ -196,15 +207,18 @@ and updating the other columns (not the unchanged toast columns)
 6. Repeat steps 1-5 for each unique unchanged toast column group.
 7. Return the list of generated update statements.
 */
-func (m *mergeStmtGenerator) generateUpdateStatements(
-	allCols []string,
-	unchangedToastCols []string,
-	peerdbCols *protos.PeerDBColumns,
-) []string {
-	updateStmts := make([]string, 0, len(unchangedToastCols))
+func (m *mergeStmtGenerator) generateUpdateStatements(allCols []string, unchangedToastColumns []string) []string {
+	handleSoftDelete := m.peerdbCols.SoftDelete && (m.peerdbCols.SoftDeleteColName != "")
+	// weird way of doing it but avoids prealloc lint
+	updateStmts := make([]string, 0, func() int {
+		if handleSoftDelete {
+			return 2 * len(unchangedToastColumns)
+		}
+		return len(unchangedToastColumns)
+	}())
 
-	for _, cols := range unchangedToastCols {
-		unchangedColsArray := strings.Split(cols, ", ")
+	for _, cols := range unchangedToastColumns {
+		unchangedColsArray := strings.Split(cols, ",")
 		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols))
 		for _, colName := range otherCols {
@@ -212,14 +226,14 @@ func (m *mergeStmtGenerator) generateUpdateStatements(
 		}
 
 		// set the synced at column to the current timestamp
-		if peerdbCols.SyncedAtColName != "" {
+		if m.peerdbCols.SyncedAtColName != "" {
 			tmpArray = append(tmpArray, fmt.Sprintf("`%s`=CURRENT_TIMESTAMP",
-				peerdbCols.SyncedAtColName))
+				m.peerdbCols.SyncedAtColName))
 		}
 		// set soft-deleted to false, tackles insert after soft-delete
-		if peerdbCols.SoftDeleteColName != "" {
+		if handleSoftDelete {
 			tmpArray = append(tmpArray, fmt.Sprintf("`%s`=FALSE",
-				peerdbCols.SoftDeleteColName))
+				m.peerdbCols.SoftDeleteColName))
 		}
 
 		ssep := strings.Join(tmpArray, ",")
@@ -231,9 +245,9 @@ func (m *mergeStmtGenerator) generateUpdateStatements(
 		// generates update statements for the case where updates and deletes happen in the same branch
 		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
 		// and then set soft-delete to true.
-		if peerdbCols.SoftDelete && (peerdbCols.SoftDeleteColName != "") {
+		if handleSoftDelete {
 			tmpArray = append(tmpArray[:len(tmpArray)-1],
-				fmt.Sprintf("`%s`=TRUE", peerdbCols.SoftDeleteColName))
+				fmt.Sprintf("`%s`=TRUE", m.peerdbCols.SoftDeleteColName))
 			ssep := strings.Join(tmpArray, ",")
 			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
 			_rt=2 AND _ut='%s'
