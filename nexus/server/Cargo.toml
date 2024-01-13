@@ -47,10 +47,10 @@ peer-cursor = { path = "../peer-cursor" }
 peer-postgres = { path = "../peer-postgres" }
 peer-snowflake = { path = "../peer-snowflake" }
 peerdb-parser = { path = "../parser" }
-pgwire = "0.19"
+pgwire = "0.18"
 prost = "0.12"
 pt = { path = "../pt" }
-sqlparser.workspace = true
+sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", features = ["visitor"] }
 serde_json = "1.0"
 rand = "0.8"
 time = "0.3"
