@@ -638,6 +638,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 
 	if rowsSynced == 0 {
 		slog.InfoContext(ctx, fmt.Sprintf("no records to push for partition %s\n", partition.PartitionId))
+		pullCancel()
 	} else {
 		wg.Wait()
 		if goroutineErr != nil {
@@ -654,11 +655,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 	}
 
 	err = monitoring.UpdateEndTimeForPartition(ctx, a.CatalogPool, runUUID, partition)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
