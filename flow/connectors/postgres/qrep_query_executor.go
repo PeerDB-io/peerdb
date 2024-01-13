@@ -84,6 +84,7 @@ func (qe *QRepQueryExecutor) executeQueryInTx(tx pgx.Tx, cursorName string, fetc
 
 	if !qe.testEnv {
 		shutdown := utils.HeartbeatRoutine(qe.ctx, 1*time.Minute, func() string {
+			qe.logger.Info(fmt.Sprintf("still running '%s'...", q))
 			return fmt.Sprintf("running '%s'", q)
 		})
 		defer shutdown()

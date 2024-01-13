@@ -626,7 +626,7 @@ func (a *FlowableActivity) replicateQRepPartition(ctx context.Context,
 		}
 	}
 
-	shutdown := utils.HeartbeatRoutine(ctx, 5*time.Minute, func() string {
+	shutdown := utils.HeartbeatRoutine(ctx, 1*time.Minute, func() string {
 		return fmt.Sprintf("syncing partition - %s: %d of %d total.", partition.PartitionId, idx, total)
 	})
 	defer shutdown()
