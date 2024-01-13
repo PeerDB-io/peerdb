@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 catalog = { path = "../catalog" }
 peer-cursor = { path = "../peer-cursor" }
-sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git" }
+sqlparser.workspace = true
 value = { path = "../value" }
 tracing = "0.1"
 secrecy = { version = "0.8.0" }
