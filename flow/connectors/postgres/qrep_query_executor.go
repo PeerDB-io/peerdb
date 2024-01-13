@@ -168,27 +168,36 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	numRows := 0
 	const heartBeatNumRows = 5000
 
+	ctx := qe.ctx
+
 	// Iterate over the rows
 	for rows.Next() {
-		record, err := mapRowToQRecord(rows, fieldDescriptions, qe.customTypeMap)
-		if err != nil {
-			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
-			stream.Records <- model.QRecordOrError{
-				Err: fmt.Errorf("failed to map row to QRecord: %w", err),
+		select {
+		case <-ctx.Done():
+			qe.logger.Info("Context canceled, exiting processRowsStream early")
+			return numRows, ctx.Err()
+		default:
+			// Process the row as before
+			record, err := mapRowToQRecord(rows, fieldDescriptions, qe.customTypeMap)
+			if err != nil {
+				qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
+				stream.Records <- model.QRecordOrError{
+					Err: fmt.Errorf("failed to map row to QRecord: %w", err),
+				}
+				return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
 			}
-			return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
-		}
 
-		stream.Records <- model.QRecordOrError{
-			Record: record,
-			Err:    nil,
-		}
+			stream.Records <- model.QRecordOrError{
+				Record: record,
+				Err:    nil,
+			}
 
-		if numRows%heartBeatNumRows == 0 {
-			qe.recordHeartbeat("cursor: %s - fetched %d records", cursorName, numRows)
-		}
+			if numRows%heartBeatNumRows == 0 {
+				qe.recordHeartbeat("cursor: %s - fetched %d records", cursorName, numRows)
+			}
 
-		numRows++
+			numRows++
+		}
 	}
 
 	qe.recordHeartbeat("cursor %s - fetch completed - %d records", cursorName, numRows)
