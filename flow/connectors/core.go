@@ -71,6 +71,11 @@ type CDCSyncConnector interface {
 	// CreateRawTable creates a raw table for the connector with a given name and a fixed schema.
 	CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error)
 
+	// ReplayTableSchemaDelta changes a destination table to match the schema at source
+	// This could involve adding or dropping multiple columns.
+	// Connectors which are non-normalizing should implement this as a nop.
+	ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
+
 	// SetupNormalizedTables sets up the normalized table on the connector.
 	SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
 		*protos.SetupNormalizedTableBatchOutput, error)
@@ -89,10 +94,6 @@ type CDCNormalizeConnector interface {
 	// NormalizeRecords merges records pushed earlier into the destination table.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	NormalizeRecords(req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
-
-	// ReplayTableSchemaDelta changes a destination table to match the schema at source
-	// This could involve adding or dropping multiple columns.
-	ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type QRepPullConnector interface {

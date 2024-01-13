@@ -82,22 +82,6 @@ func (s *SyncFlowExecution) executeSyncFlow(
 	if err := fStartFlow.Get(startFlowCtx, &syncRes); err != nil {
 		return nil, fmt.Errorf("failed to flow: %w", err)
 	}
-
-	replayTableSchemaDeltaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Minute,
-		WaitForCancellation: true,
-	})
-	replayTableSchemaInput := &protos.ReplayTableSchemaDeltaInput{
-		FlowConnectionConfigs: config,
-		TableSchemaDeltas:     syncRes.TableSchemaDeltas,
-	}
-
-	fReplayTableSchemaDelta := workflow.ExecuteActivity(replayTableSchemaDeltaCtx,
-		flowable.ReplayTableSchemaDeltas, replayTableSchemaInput)
-	if err := fReplayTableSchemaDelta.Get(replayTableSchemaDeltaCtx, nil); err != nil {
-		return nil, fmt.Errorf("failed to replay schema delta: %w", err)
-	}
-
 	return syncRes, nil
 }
 

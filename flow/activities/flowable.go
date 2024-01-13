@@ -278,16 +278,24 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 			return nil, fmt.Errorf("failed in pull records when: %w", err)
 		}
 		slog.InfoContext(ctx, "no records to push")
-		syncResponse := &model.SyncResponse{}
-		syncResponse.RelationMessageMapping = <-recordBatch.RelationMessageMapping
-		syncResponse.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
-		return syncResponse, nil
+		tableSchemaDeltas := recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
+
+		err := dstConn.ReplayTableSchemaDeltas(flowName, tableSchemaDeltas)
+		if err != nil {
+			return nil, fmt.Errorf("failed to sync schema: %w", err)
+		}
+
+		return &model.SyncResponse{
+			RelationMessageMapping: <-recordBatch.RelationMessageMapping,
+			TableSchemaDeltas:      tableSchemaDeltas,
+		}, nil
 	}
 
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
 		Records:         recordBatch,
 		FlowJobName:     input.FlowConnectionConfigs.FlowJobName,
+		TableMappings:   input.FlowConnectionConfigs.TableMappings,
 		StagingPath:     input.FlowConnectionConfigs.CdcStagingPath,
 		PushBatchSize:   input.FlowConnectionConfigs.PushBatchSize,
 		PushParallelism: input.FlowConnectionConfigs.PushParallelism,
@@ -351,8 +359,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
-	res.TableSchemaDeltas = recordBatch.WaitForSchemaDeltas(input.FlowConnectionConfigs.TableMappings)
-	res.RelationMessageMapping = <-recordBatch.RelationMessageMapping
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
@@ -425,27 +431,6 @@ func (a *FlowableActivity) StartNormalize(
 	}
 
 	return res, nil
-}
-
-func (a *FlowableActivity) ReplayTableSchemaDeltas(
-	ctx context.Context,
-	input *protos.ReplayTableSchemaDeltaInput,
-) error {
-	dest, err := connectors.GetCDCNormalizeConnector(ctx, input.FlowConnectionConfigs.Destination)
-	if errors.Is(err, connectors.ErrUnsupportedFunctionality) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	defer connectors.CloseConnector(dest)
-
-	err = dest.ReplayTableSchemaDeltas(input.FlowConnectionConfigs.FlowJobName, input.TableSchemaDeltas)
-	if err != nil {
-		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
-		return fmt.Errorf("failed to replay table schema deltas: %w", err)
-	}
-
-	return nil
 }
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.

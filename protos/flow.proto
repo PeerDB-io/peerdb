@@ -372,11 +372,6 @@ message TableSchemaDelta {
   repeated DeltaAddedColumn added_columns = 3;
 }
 
-message ReplayTableSchemaDeltaInput {
-  FlowConnectionConfigs flow_connection_configs = 1;
-  repeated TableSchemaDelta table_schema_deltas = 2;
-}
-
 message QRepFlowState {
   QRepPartition last_partition = 1;
   uint64 num_partitions_processed = 2;
