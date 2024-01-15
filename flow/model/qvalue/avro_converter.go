@@ -29,7 +29,7 @@ type QValueKindAvroSchema struct {
 //
 // Please note that for QValueKindNumeric and QValueKindETime, RespectNull is always
 // set to false, regardless of the nullable value passed in.
-func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvroSchema, error) {
+func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool, targetDWH QDWHType) (*QValueKindAvroSchema, error) {
 	switch kind {
 	case QValueKindString, QValueKindUUID:
 		return &QValueKindAvroSchema{
@@ -70,11 +70,16 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 			},
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
+		if targetDWH == QDWHTypeClickhouse {
+			return &QValueKindAvroSchema{
+				AvroLogicalSchema: "long",
+			}, nil
+		}
 		return &QValueKindAvroSchema{
-			AvroLogicalSchema: "long",
-			// map[string]string{
-			// 	"type": "string",
-			// },
+			//AvroLogicalSchema: "long",
+			map[string]string{
+				"type": "string",
+			},
 		}, nil
 	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
 		return &QValueKindAvroSchema{

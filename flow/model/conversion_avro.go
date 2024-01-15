@@ -70,11 +70,12 @@ type QRecordAvroSchemaDefinition struct {
 func GetAvroSchemaDefinition(
 	dstTableName string,
 	qRecordSchema *QRecordSchema,
+	targetDWH qvalue.QDWHType,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := []QRecordAvroField{}
 	nullableFields := make(map[string]struct{})
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, qField.Nullable)
+		avroType, err := qvalue.GetAvroSchemaFromQValueKind(qField.Type, qField.Nullable, targetDWH)
 		if err != nil {
 			return nil, err
 		}
