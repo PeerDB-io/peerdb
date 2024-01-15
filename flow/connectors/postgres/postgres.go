@@ -28,7 +28,6 @@ type PostgresConnector struct {
 	pool               *SSHWrappedPostgresPool
 	replConfig         *pgxpool.Config
 	replPool           *SSHWrappedPostgresPool
-	tableSchemaMapping map[string]*protos.TableSchema
 	customTypesMapping map[uint32]string
 	metadataSchema     string
 	logger             slog.Logger
@@ -465,7 +464,7 @@ func (c *PostgresConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 		normalizeStmtGen := &normalizeStmtGenerator{
 			rawTableName:          rawTableIdentifier,
 			dstTableName:          destinationTableName,
-			normalizedTableSchema: c.tableSchemaMapping[destinationTableName],
+			normalizedTableSchema: req.TableNameSchemaMapping[destinationTableName],
 			unchangedToastColumns: unchangedToastColsMap[destinationTableName],
 			peerdbCols: &protos.PeerDBColumns{
 				SoftDeleteColName: req.SoftDeleteColName,
@@ -699,12 +698,6 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
 	}, nil
-}
-
-// InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
-func (c *PostgresConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.tableSchemaMapping = req
-	return nil
 }
 
 // ReplayTableSchemaDelta changes a destination table to match the schema at source

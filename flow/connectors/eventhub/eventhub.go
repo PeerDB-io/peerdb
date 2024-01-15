@@ -18,13 +18,12 @@ import (
 )
 
 type EventHubConnector struct {
-	ctx          context.Context
-	config       *protos.EventHubGroupConfig
-	pgMetadata   *metadataStore.PostgresMetadataStore
-	tableSchemas map[string]*protos.TableSchema
-	creds        *azidentity.DefaultAzureCredential
-	hubManager   *EventHubManager
-	logger       slog.Logger
+	ctx        context.Context
+	config     *protos.EventHubGroupConfig
+	pgMetadata *metadataStore.PostgresMetadataStore
+	creds      *azidentity.DefaultAzureCredential
+	hubManager *EventHubManager
+	logger     slog.Logger
 }
 
 // NewEventHubConnector creates a new EventHubConnector.
@@ -80,11 +79,6 @@ func (c *EventHubConnector) Close() error {
 }
 
 func (c *EventHubConnector) ConnectionActive() error {
-	return nil
-}
-
-func (c *EventHubConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.tableSchemas = req
 	return nil
 }
 

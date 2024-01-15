@@ -197,11 +197,6 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	}
 	defer connectors.CloseConnector(dstConn)
 
-	slog.InfoContext(ctx, "initializing table schema...")
-	err = dstConn.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
-	}
 	activity.RecordHeartbeat(ctx, "initialized table schema")
 	slog.InfoContext(ctx, "pulling records...")
 	tblNameMapping := make(map[string]model.NameAndExclude)
@@ -398,17 +393,12 @@ func (a *FlowableActivity) StartNormalize(
 	})
 	defer shutdown()
 
-	slog.InfoContext(ctx, "initializing table schema...")
-	err = dstConn.InitializeTableSchema(input.FlowConnectionConfigs.TableNameSchemaMapping)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize table schema: %w", err)
-	}
-
 	res, err := dstConn.NormalizeRecords(&model.NormalizeRecordsRequest{
-		FlowJobName:       input.FlowConnectionConfigs.FlowJobName,
-		SoftDelete:        input.FlowConnectionConfigs.SoftDelete,
-		SoftDeleteColName: input.FlowConnectionConfigs.SoftDeleteColName,
-		SyncedAtColName:   input.FlowConnectionConfigs.SyncedAtColName,
+		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
+		SoftDelete:             input.FlowConnectionConfigs.SoftDelete,
+		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
+		SyncedAtColName:        input.FlowConnectionConfigs.SyncedAtColName,
+		TableNameSchemaMapping: input.FlowConnectionConfigs.TableNameSchemaMapping,
 	})
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
