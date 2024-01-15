@@ -175,6 +175,13 @@ func (c *EventHubConnector) processBatch(
 				return 0, err
 			}
 
+			ehConfig, ok := c.hubManager.peerConfig.Get(destination.PeerName)
+			if !ok {
+				c.logger.Error("failed to get eventhub config", slog.Any("error", err))
+				return 0, err
+			}
+
+			numPartitions := ehConfig.PartitionCount
 			// Scoped eventhub is of the form peer_name.eventhub_name.partition_column
 			// partition_column is the column in the table that is used to determine
 			// the partition key for the eventhub.
@@ -186,7 +193,7 @@ func (c *EventHubConnector) processBatch(
 			} else {
 				partitionKey = fmt.Sprintf("%v", partitionValue)
 			}
-
+			partitionKey = utils.HashedPartitionKey(partitionKey, numPartitions)
 			destination.SetPartitionValue(partitionKey)
 			err = batchPerTopic.AddEvent(ctx, destination, json, false)
 			if err != nil {
@@ -196,7 +203,7 @@ func (c *EventHubConnector) processBatch(
 
 			curNumRecords := numRecords.Load()
 			if curNumRecords%1000 == 0 {
-				c.logger.Error("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
+				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
 			}
 
 		case <-ticker.C:

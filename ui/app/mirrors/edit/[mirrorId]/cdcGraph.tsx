@@ -1,28 +1,28 @@
 'use client';
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
-import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
+import { timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
 
 function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
   let [aggregateType, setAggregateType] = useState('hour');
-  const initialCount: [string, number][] = [];
-  let [counts, setCounts] = useState(initialCount);
 
-  useEffect(() => {
-    let rows = syncs.map((sync) => ({
+  const graphValues = useMemo(() => {
+    const rows = syncs.map((sync) => ({
       timestamp: sync.startTime,
       count: sync.numRows,
     }));
-
-    let counts = aggregateCountsByInterval(rows, aggregateType);
-    counts = counts.slice(0, 29);
-    counts = counts.reverse();
-    setCounts(counts);
-  }, [aggregateType, syncs]);
+    let timedRowCounts = aggregateCountsByInterval(rows, aggregateType);
+    timedRowCounts = timedRowCounts.slice(0, 29);
+    timedRowCounts = timedRowCounts.reverse();
+    return timedRowCounts.map((count) => ({
+      name: count[0],
+      'Rows synced at a point in time': count[1],
+    }));
+  }, [syncs, aggregateType]);
 
   return (
     <div>
@@ -40,10 +40,7 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
       </div>
       <BarChart
         className='mt-3'
-        data={counts.map((count) => ({
-          name: formatGraphLabel(new Date(count[0]), aggregateType),
-          'Rows synced at a point in time': count[1],
-        }))}
+        data={graphValues}
         index='name'
         categories={['Rows synced at a point in time']}
       />
