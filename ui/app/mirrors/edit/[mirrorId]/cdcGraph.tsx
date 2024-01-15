@@ -10,11 +10,11 @@ import aggregateCountsByInterval from './aggregatedCountsByInterval';
 function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
   let [aggregateType, setAggregateType] = useState('hour');
 
-  const graphValues = useMemo(()=>{
+  const graphValues = useMemo(() => {
     const rows = syncs.map((sync) => ({
       timestamp: sync.startTime,
       count: sync.numRows,
-  }));
+    }));
     let timedRowCounts = aggregateCountsByInterval(rows, aggregateType);
     timedRowCounts = timedRowCounts.slice(0, 29);
     timedRowCounts = timedRowCounts.reverse();
@@ -22,7 +22,7 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
       name: count[0],
       'Rows synced at a point in time': count[1],
     }));
-  },[syncs,aggregateType])
+  }, [syncs, aggregateType]);
 
   return (
     <div>

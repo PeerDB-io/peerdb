@@ -70,10 +70,11 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedRows = useMemo(() => {
-    const shownRows = allRows.filter((row: TableCloneSummary) =>
-      row.cloneTableSummary.tableName
-        ?.toLowerCase()
-        .includes(searchQuery.toLowerCase())
+    const shownRows = allRows.filter(
+      (row: TableCloneSummary) =>
+        row.cloneTableSummary.tableName
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase())
     );
     shownRows.sort((a, b) => {
       const aValue = a[sortField];
