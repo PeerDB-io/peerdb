@@ -60,6 +60,11 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool, targetDWH QDWHT
 			AvroLogicalSchema: "bytes",
 		}, nil
 	case QValueKindNumeric:
+		if targetDWH == QDWHTypeClickhouse {
+			return &QValueKindAvroSchema{
+				AvroLogicalSchema: "double",
+			}, nil
+		}
 		return &QValueKindAvroSchema{
 			//AvroLogicalSchema: "long",
 			AvroLogicalSchema: map[string]interface{}{
@@ -279,6 +284,15 @@ func (c *QValueAvroConverter) processNullableUnion(
 func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 	if c.Value.Value == nil && c.Nullable {
 		return nil, nil
+	}
+
+	if c.TargetDWH == QDWHTypeClickhouse {
+		bigNum, ok := c.Value.Value.(*big.Rat)
+		if !ok {
+			return nil, fmt.Errorf("invalid Numeric value: expected float64, got %T", c.Value.Value)
+		}
+		num, ok := bigNum.Float64()
+		return goavro.Union("double", num), nil
 	}
 
 	num, ok := c.Value.Value.(*big.Rat)

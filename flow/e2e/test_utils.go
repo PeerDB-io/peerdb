@@ -131,7 +131,7 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"created_at TIMESTAMP NOT NULL",
 		"updated_at TIMESTAMP NOT NULL",
 		"transaction_hash BYTEA",
-		// "price NUMERIC",
+		"price NUMERIC",
 		"ownerable_type VARCHAR",
 		"ownerable_id UUID",
 		"user_nonce INTEGER",
@@ -144,9 +144,9 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"card_eth_value DOUBLE PRECISION",
 		"paid_eth_price DOUBLE PRECISION",
 		"card_bought_notified BOOLEAN DEFAULT false NOT NULL",
-		// "address NUMERIC",
+		"address NUMERIC",
 		"account_id UUID",
-		// "asset_id NUMERIC NOT NULL",
+		"asset_id NUMERIC NOT NULL",
 		"status INTEGER",
 		"transaction_id UUID",
 		"settled_at TIMESTAMP",
@@ -214,9 +214,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		// 	'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'`
 		// }
 
-		//	3.86487206688919
-		//    12345,
-		//    12345,
 		//    ARRAY['text1', 'text2'],
 		//    ARRAY[123, 456],
 		//    ARRAY[789, 012],
@@ -253,7 +250,11 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP,
 							'refID',
 							CURRENT_TIMESTAMP,
-							1
+							1,
+							3.86487206688919,
+							12345,
+							12345
+					
 										   
 					)`,
 			id,
@@ -274,11 +275,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	// 		"geometry_linestring, geography_linestring," +
 	// 		"geometry_polygon, geography_polygon"
 	// }
-
-	//price
-
-	// address,
-	// asset_id,
 
 	//f1, f2, f3, f4, f5, f6, f7, f8
 	// %s
@@ -309,7 +305,12 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 			settled_at,
 			reference_id,
 			settle_at,
-			settlement_delay_reason			
+			settlement_delay_reason,
+			price,
+			address,
+			asset_id
+		
+			
 		
 		
 
@@ -405,7 +406,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "created_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "updated_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "transaction_hash", Type: qvalue.QValueKindBytes, Nullable: true},
-			//{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
+			{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
@@ -418,9 +419,9 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
 			{Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
 			{Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
-			// {Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
+			{Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
-			// {Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
+			{Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
 			{Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
 			{Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "settled_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
