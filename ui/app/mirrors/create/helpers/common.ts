@@ -39,7 +39,6 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   syncedAtColName: '',
   initialSnapshotOnly: false,
   idleTimeoutSeconds: 60,
-  forcePkeyChecks: false,
 };
 
 export const blankQRepSetting = {

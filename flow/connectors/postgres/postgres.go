@@ -788,6 +788,16 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, err
 		}
 
+		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
+			RelId: relID,
+		}
+
+		if !req.CheckConstraints {
+			msg := fmt.Sprintf("[no-constriants] ensured pullability table %s", tableName)
+			utils.RecordHeartbeatWithRecover(c.ctx, msg)
+			continue
+		}
+
 		replicaIdentity, replErr := c.getReplicaIdentityType(schemaTable)
 		if replErr != nil {
 			return nil, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, replErr)
@@ -799,13 +809,11 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
+		// this is ok for replica identity idex as we populate the primary key columns
 		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
-		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
-			RelId: relID,
-		}
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
 

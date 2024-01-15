@@ -140,6 +140,7 @@ message EnsurePullabilityBatchInput {
   peerdb_peers.Peer peer_connection_config = 1;
   string flow_job_name = 2;
   repeated string source_table_identifiers = 3;
+  bool check_constraints = 4;
 }
 
 message PostgresTableIdentifier {

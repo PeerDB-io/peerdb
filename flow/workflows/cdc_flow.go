@@ -206,7 +206,6 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		additionalTablesWorkflowCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
 		additionalTablesWorkflowCfg.DoInitialCopy = true
 		additionalTablesWorkflowCfg.InitialCopyOnly = true
-		additionalTablesWorkflowCfg.ForcePkeyChecks = true
 		additionalTablesWorkflowCfg.TableMappings = flowConfigUpdate.AdditionalTables
 		additionalTablesWorkflowCfg.FlowJobName = fmt.Sprintf("%s_additional_tables_%s", cfg.FlowJobName,
 			strings.ToLower(shared.RandomString(8)))
