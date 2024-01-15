@@ -43,7 +43,7 @@ func getAvroSchema(
 	dstTableName string,
 	schema *model.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema)
+	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}

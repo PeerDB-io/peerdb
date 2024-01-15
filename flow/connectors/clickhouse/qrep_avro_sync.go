@@ -237,7 +237,7 @@ func (s *ClickhouseAvroSyncMethod) getAvroSchema(
 	dstTableName string,
 	schema *model.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema)
+	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, qvalue.QDWHTypeClickhouse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
