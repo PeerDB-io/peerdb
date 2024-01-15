@@ -556,7 +556,7 @@ func (p *PostgresCDCSource) processMessage(batch *model.CDCRecordStream, xld pgl
 		// TODO (kaushik): consider persistent state for a mirror job
 		// to be stored somewhere in temporal state. We might need to persist
 		// the state of the relation message somewhere
-		p.logger.Info(fmt.Sprintf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
+		p.logger.Debug(fmt.Sprintf("RelationMessage => RelationID: %d, Namespace: %s, RelationName: %s, Columns: %v",
 			msg.RelationID, msg.Namespace, msg.RelationName, msg.Columns))
 		if p.relationMessageMapping[msg.RelationID] == nil {
 			p.relationMessageMapping[msg.RelationID] = convertRelationMessageToProto(msg)

@@ -387,8 +387,8 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 	}
 
 	// Support a Query for the current status of the qrep flow.
-	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (*protos.FlowStatus, error) {
-		return &state.CurrentFlowState, nil
+	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+		return state.CurrentFlowStatus, nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
@@ -396,7 +396,7 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 
 	// Support an Update for the current status of the qrep flow.
 	err = workflow.SetUpdateHandler(ctx, shared.FlowStatusUpdate, func(status *protos.FlowStatus) error {
-		state.CurrentFlowState = *status
+		state.CurrentFlowStatus = *status
 		return nil
 	})
 	if err != nil {
@@ -427,15 +427,7 @@ func QRepFlowWorkflow(
 
 	err := setWorkflowQueries(ctx, state)
 	if err != nil {
-		return fmt.Errorf("failed to set `%s` query handler: %w", shared.QRepFlowStateQuery, err)
-	}
-
-	// Support a Query for the current status of the arep flow.
-	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (*protos.FlowStatus, error) {
-		return &state.CurrentFlowStatus, nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
+		return err
 	}
 
 	// Support an Update for the current status of the qrep flow.

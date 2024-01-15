@@ -177,10 +177,11 @@ func (s *SetupFlowExecution) fetchTableSchemaAndSetupNormalizedTables(
 	sort.Strings(sourceTables)
 
 	tableSchemaInput := &protos.GetTableSchemaBatchInput{
-		PeerConnectionConfig:    flowConnectionConfigs.Source,
-		TableIdentifiers:        sourceTables,
-		FlowName:                s.cdcFlowName,
-		SkipPkeyAndReplicaCheck: flowConnectionConfigs.InitialSnapshotOnly,
+		PeerConnectionConfig: flowConnectionConfigs.Source,
+		TableIdentifiers:     sourceTables,
+		FlowName:             s.cdcFlowName,
+		SkipPkeyAndReplicaCheck: flowConnectionConfigs.InitialSnapshotOnly &&
+			!flowConnectionConfigs.ForcePkeyChecks,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.GetTableSchema, tableSchemaInput)
