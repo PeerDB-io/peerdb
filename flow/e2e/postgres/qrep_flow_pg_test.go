@@ -219,7 +219,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 
 	slog.Info("signaling clone complete after waiting for 2 seconds", flowLog)
 	time.Sleep(2 * time.Second)
-	signal.CloneComplete <- struct{}{}
+	close(signal.CloneComplete)
 
 	require.NoError(s.t, <-setupError)
 	slog.Info("successfully setup replication", flowLog)
