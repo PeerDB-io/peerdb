@@ -44,7 +44,9 @@ function aggregateCountsByInterval(
     } else if (interval === '15min') {
       N = 15;
     }
-    const date = roundUpToNearestNMinutes(timestamp, N);
+
+    const currTs = new Date(timestamp);
+    const date = roundUpToNearestNMinutes(currTs, N);
     const formattedTimestamp = moment(date).format(timeUnit);
 
     if (!aggregatedCounts[formattedTimestamp]) {
