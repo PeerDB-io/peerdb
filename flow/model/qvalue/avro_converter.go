@@ -162,11 +162,9 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		}
 
 		if c.TargetDWH == QDWHTypeClickhouse {
-			fmt.Printf("\n********************** in ToAvroValue() timstamp 2 clickhouse")
 			if c.Nullable {
 				return c.processNullableUnion("long", t.(int64))
 			} else {
-				fmt.Printf("\n********************** in ToAvroValue() timstamp 3 clickhouse nullable")
 				return t.(int64), nil
 			}
 		}
@@ -238,11 +236,6 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 	}
 
 	ret := t.UnixMicro()
-
-	// fmt.Printf("\n****************** time in UnixMicro %+v", ret)
-	// fmt.Printf("\n****************** time in UnixNano %+v", t.UnixNano())
-	// fmt.Printf("\n****************** time.Millisecond %+v", time.Millisecond)
-	// fmt.Printf("\n****************** time in Millisecond %+v", (t.UnixNano() / int64(time.Millisecond)))
 
 	// if c.TargetDWH == QDWHTypeClickhouse {
 	// 	ret = t.UnixNano() / int64(time.Millisecond)

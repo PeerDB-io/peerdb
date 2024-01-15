@@ -50,7 +50,6 @@ func (s PeerFlowE2ETestSuiteSF) compareTableContentsSF(tableName string, selecto
 	fmt.Printf("running query on snowflake: %s\n", sfSelQuery)
 
 	sfRows, err := s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
-	fmt.Printf("\n**************************** in comparTableContentsSF sfRows\n\n%+v\n\n", sfRows)
 	require.NoError(s.t, err)
 
 	require.True(s.t, pgRows.Equals(sfRows), "rows from source and destination tables are not equal")

@@ -216,7 +216,6 @@ func (c *ClickhouseConnector) createStage(stageName string, config *protos.QRepC
 }
 
 func (c *ClickhouseConnector) createExternalStage(stageName string, config *protos.QRepConfig) (string, error) {
-	fmt.Printf("\n********************* qrep createExternalStage 1*********************\n config:%+v, stageName: %+v", config, stageName)
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
 	if err != nil {
 		c.logger.Error("failed to get AWS secrets", slog.Any("error", err))
@@ -323,7 +322,6 @@ func (c *ClickhouseConnector) getColsFromTable(tableName string) (*model.ColumnI
 
 // dropStage drops the stage for the given job.
 func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
-	fmt.Printf("\n********************* qrep drop stage 1*********************\n stagingPath:%+v, job: %+v", stagingPath, job)
 	//stageName := c.getStageNameForJob(job)
 
 	// if s3 we need to delete the contents of the bucket

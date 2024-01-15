@@ -172,8 +172,6 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 	// }
 	tblFieldStr := strings.Join(tblFields, ",")
 
-	fmt.Printf("\n**************************************** create source table: %s\n", tblFieldStr)
-
 	_, err := pool.Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
 			%s
@@ -320,8 +318,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		tableName,
 		// geoColumns,
 		strings.Join(rows, ","))
-
-	fmt.Printf("\n******************* PopulateSourceTable insertSql: %s \n\n", insertQuery)
 
 	_, err := pool.Exec(context.Background(), insertQuery)
 	if err != nil {

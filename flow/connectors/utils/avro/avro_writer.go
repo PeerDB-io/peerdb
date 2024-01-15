@@ -120,16 +120,13 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 }
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (int, error) {
-	fmt.Printf("\n**************************************** writeRecordsToOCFWriter 1")
 	schema, err := p.stream.Schema()
 	if err != nil {
 		slog.Error("failed to get schema from stream", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
-	fmt.Printf("\n**************************************** writeRecordsToOCFWriter 2 schema: %+v", schema)
 
 	colNames := schema.GetColumnNames()
-	fmt.Printf("\n**************************************** writeRecordsToOCFWriter 3 colNames: %+v", colNames)
 
 	var numRows uber_atomic.Uint32
 
@@ -164,8 +161,6 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ocfWriter *goavro.OCFWriter) (
 			slog.Error("failed to convert QRecord to Avro compatible map: ", slog.Any("error", err))
 			return 0, fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 		}
-
-		fmt.Printf("\n *********************** in writeRecordsToOCFWriter avroMap %+v  \n", avroMap)
 
 		err = ocfWriter.Append([]interface{}{avroMap})
 		if err != nil {
