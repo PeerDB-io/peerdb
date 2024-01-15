@@ -153,14 +153,14 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"reference_id VARCHAR",
 		"settle_at TIMESTAMP",
 		"settlement_delay_reason INTEGER",
-		// "f1 text[]",
-		// "f2 bigint[]",
-		// "f3 int[]",
-		// "f4 varchar[]",
-		// "f5 jsonb",
-		// "f6 jsonb",
-		// "f7 jsonb",
-		// "f8 smallint",
+		"f1 text[]",
+		"f2 bigint[]",
+		"f3 int[]",
+		"f4 varchar[]",
+		"f5 jsonb",
+		"f6 jsonb",
+		"f7 jsonb",
+		"f8 smallint",
 	}
 	// if strings.Contains(tableName, "sf") {
 	// 	tblFields = append(tblFields, "geometry_point geometry(point)",
@@ -214,14 +214,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		// 	'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'`
 		// }
 
-		//    ARRAY['text1', 'text2'],
-		//    ARRAY[123, 456],
-		//    ARRAY[789, 012],
-		//    ARRAY['varchar1', 'varchar2'],
-		//    '{"key": 8.5}',
-		//    '[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
-		//    '{"key": "value"}',
-		//    15
 		//    %s
 
 		row := fmt.Sprintf(`
@@ -253,7 +245,16 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							1,
 							3.86487206688919,
 							12345,
-							12345
+							12345,
+							ARRAY['text1', 'text2'],
+							ARRAY[123, 456],
+							ARRAY[789, 012],
+							ARRAY['varchar1', 'varchar2'],
+							'{"key": 8.5}',
+							'[{"key1": "value1", "key2": "value2", "key3": "value3"}]',
+							'{"key": "value"}',
+							15
+		
 					
 										   
 					)`,
@@ -276,7 +277,6 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	// 		"geometry_polygon, geography_polygon"
 	// }
 
-	//f1, f2, f3, f4, f5, f6, f7, f8
 	// %s
 
 	insertQuery := fmt.Sprintf(`
@@ -308,7 +308,15 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 			settlement_delay_reason,
 			price,
 			address,
-			asset_id
+			asset_id,
+			f1,
+			f2,
+			f3,
+			f4,
+			f5,
+			f6,
+			f7,
+			f8
 		
 			
 		
@@ -428,14 +436,14 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
-			// {Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
-			// {Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
-			// {Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
-			// {Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
-			// {Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
-			// {Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
-			// {Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
-			// {Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
+			{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
+			{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
+			{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
+			{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
+			{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
+			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
+			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
+			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
 		},
 	}
 }
