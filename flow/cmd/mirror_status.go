@@ -334,28 +334,6 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 	return false, nil
 }
 
-func (h *FlowRequestHandler) getCloneTableFlowNames(ctx context.Context, flowJobName string) ([]string, error) {
-	q := "SELECT flow_name FROM peerdb_stats.qrep_runs WHERE flow_name ILIKE $1"
-	rows, err := h.pool.Query(ctx, q, "clone_"+flowJobName+"_%")
-	if err != nil {
-		return nil, fmt.Errorf("unable to getCloneTableFlowNames: %w", err)
-	}
-	defer rows.Close()
-
-	flowNames := []string{}
-	for rows.Next() {
-		var name pgtype.Text
-		if err := rows.Scan(&name); err != nil {
-			return nil, fmt.Errorf("unable to scan flow row: %w", err)
-		}
-		if name.Valid {
-			flowNames = append(flowNames, name.String)
-		}
-	}
-
-	return flowNames, nil
-}
-
 func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
 	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
 	if err != nil {
