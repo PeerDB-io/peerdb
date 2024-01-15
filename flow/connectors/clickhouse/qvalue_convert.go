@@ -34,6 +34,7 @@ var clickhouseTypeToQValueKindMap = map[string]qvalue.QValueKind{
 	"VARIANT":       qvalue.QValueKindJSON,
 	"GEOMETRY":      qvalue.QValueKindGeometry,
 	"GEOGRAPHY":     qvalue.QValueKindGeography,
+	"Array(String)": qvalue.QValueKindArrayString,
 }
 
 func qValueKindToClickhouseType(colType qvalue.QValueKind) (string, error) {

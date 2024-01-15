@@ -178,7 +178,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 	fmt.Printf("\n********************** in processRows 3 qfields %+v", qfields)
 	for i, ct := range dbColTypes {
 		qfield, err := g.columnTypeToQField(ct)
-		fmt.Printf("\n********************** in processRows 4 %d qfield %+v %err %+v", i, qfield, err)
+		//fmt.Printf("\n********************** in processRows 4 %d qfield %+v %err %+v", i, qfield, err)
 		if err != nil {
 			g.logger.Error(fmt.Sprintf("failed to convert column type %v", ct),
 				slog.Any("error", err))
@@ -243,6 +243,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 
 		qValues := make([]qvalue.QValue, len(values))
 		for i, val := range values {
+			fmt.Printf("\n**************************** in processRows 5: %d val %+v", i, val)
 			qv, err := toQValue(qfields[i].Type, val)
 			if err != nil {
 				g.logger.Error("failed to convert value", slog.Any("error", err))
@@ -328,6 +329,7 @@ func (g *GenericSQLQueryExecutor) CheckNull(schema string, tableName string, col
 }
 
 func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
+	fmt.Printf("\n********************** toQValue")
 	switch kind {
 	case qvalue.QValueKindInt32:
 		if v, ok := val.(*sql.NullInt32); ok {
@@ -475,6 +477,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 }
 
 func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
+	fmt.Printf("\n********************** toQValueArray")
 	var result interface{}
 	switch kind {
 	case qvalue.QValueKindArrayFloat32:
@@ -534,6 +537,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 		}
 
 	case qvalue.QValueKindArrayString:
+		fmt.Printf("\n******************** QValueKindArrayString value1 %+v %T", &value, value)
 		switch v := value.(type) {
 		case []string:
 			result = v

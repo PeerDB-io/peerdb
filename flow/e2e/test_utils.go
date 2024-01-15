@@ -153,7 +153,7 @@ func CreateSourceTableQRep(pool *pgxpool.Pool, suffix string, tableName string) 
 		"reference_id VARCHAR",
 		"settle_at TIMESTAMP",
 		"settlement_delay_reason INTEGER",
-		// "f1 text[]",
+		"f1 text[]",
 		// "f2 bigint[]",
 		// "f3 int[]",
 		// "f4 varchar[]",
@@ -217,7 +217,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 		//	3.86487206688919
 		//    12345,
 		//    12345,
-		//    ARRAY['text1', 'text2'],
+
 		//    ARRAY[123, 456],
 		//    ARRAY[789, 012],
 		//    ARRAY['varchar1', 'varchar2'],
@@ -253,7 +253,8 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 							CURRENT_TIMESTAMP,
 							'refID',
 							CURRENT_TIMESTAMP,
-							1
+							1,
+							ARRAY['text1', 'text2']
 										   
 					)`,
 			id,
@@ -280,7 +281,7 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 	// address,
 	// asset_id,
 
-	//f1, f2, f3, f4, f5, f6, f7, f8
+	//f2, f3, f4, f5, f6, f7, f8
 	// %s
 
 	insertQuery := fmt.Sprintf(`
@@ -309,7 +310,8 @@ func PopulateSourceTable(pool *pgxpool.Pool, suffix string, tableName string, ro
 			settled_at,
 			reference_id,
 			settle_at,
-			settlement_delay_reason			
+			settlement_delay_reason,
+			f1			
 		
 		
 
@@ -427,7 +429,7 @@ func GetOwnersSchema() *model.QRecordSchema {
 			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
 			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
 			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
-			// {Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
+			{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
 			// {Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
 			// {Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
 			// {Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},

@@ -131,6 +131,7 @@ func (s PeerFlowE2ETestSuiteCH) compareTableContentsCH(tableName string, selecto
 	// read rows from source table
 	pgQueryExecutor := connpostgres.NewQRepQueryExecutor(s.pool, context.Background(), "testflow", "testpart")
 	pgQueryExecutor.SetTestEnv(true)
+	fmt.Printf("\n****************** compareTableContentsCH fetching pg rows")
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", selector, s.pgSuffix, tableName),
 	)
@@ -146,6 +147,7 @@ func (s PeerFlowE2ETestSuiteCH) compareTableContentsCH(tableName string, selecto
 	}
 	fmt.Printf("running query on clickhouse: %s\n", chSelQuery)
 
+	fmt.Printf("\n****************** compareTableContentsCH fetching ch rows")
 	chRows, err := s.chHelper.ExecuteAndProcessQuery(chSelQuery)
 	fmt.Printf("\n**************************** in comparTableContentsCH pgRows\n\n%+v\n\n", pgRows)
 	fmt.Printf("\n**************************** in comparTableContentsCH CHRows\n\n%+v\n\n", chRows)
