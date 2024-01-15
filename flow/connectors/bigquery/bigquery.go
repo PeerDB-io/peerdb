@@ -492,6 +492,7 @@ func (c *BigQueryConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		return nil, err
 	}
 
+	c.logger.Info(fmt.Sprintf("pushed %d records to %s.%s", res.NumRecordsSynced, c.datasetID, rawTableName))
 	return res, nil
 }
 
@@ -510,28 +511,16 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	avroSync := NewQRepAvroSyncMethod(c, req.StagingPath, req.FlowJobName)
 	rawTableMetadata, err := c.client.Dataset(c.datasetID).Table(rawTableName).Metadata(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get metadata of destination table: %v", err)
+		return nil, fmt.Errorf("failed to get metadata of destination table: %w", err)
 	}
 
-	numRecords, err := avroSync.SyncRecords(rawTableName, req.FlowJobName,
-		req.Records, rawTableMetadata, syncBatchID, streamRes.Stream)
+	res, err := avroSync.SyncRecords(req, rawTableName,
+		rawTableMetadata, syncBatchID, streamRes.Stream, streamReq.TableMapping)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sync records via avro : %v", err)
+		return nil, fmt.Errorf("failed to sync records via avro: %w", err)
 	}
 
-	c.logger.Info(fmt.Sprintf("pushed %d records to %s.%s", numRecords, c.datasetID, rawTableName))
-
-	lastCP, err := req.Records.GetLastCheckpoint()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
-	}
-
-	return &model.SyncResponse{
-		LastSyncedCheckPointID: lastCP,
-		NumRecordsSynced:       int64(numRecords),
-		CurrentSyncBatchID:     syncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-	}, nil
+	return res, nil
 }
 
 // NormalizeRecords normalizes raw table to destination table.

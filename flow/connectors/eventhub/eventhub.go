@@ -256,6 +256,8 @@ func (c *EventHubConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		LastSyncedCheckPointID: lastCheckpoint,
 		NumRecordsSynced:       rowsSynced,
 		TableNameRowsMapping:   make(map[string]uint32),
+		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
@@ -284,6 +286,11 @@ func (c *EventHubConnector) CreateRawTable(req *protos.CreateRawTableInput) (*pr
 	return &protos.CreateRawTableOutput{
 		TableIdentifier: "n/a",
 	}, nil
+}
+
+func (c *EventHubConnector) ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+	c.logger.Info("ReplayTableSchemaDeltas for event hub is a no-op")
+	return nil
 }
 
 func (c *EventHubConnector) SetupNormalizedTables(

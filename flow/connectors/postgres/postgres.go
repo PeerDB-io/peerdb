@@ -343,6 +343,12 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		}
 	}
 
+	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
+	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
+
 	if len(records) == 0 {
 		return &model.SyncResponse{
 			LastSyncedCheckPointID: 0,
@@ -399,6 +405,8 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 		NumRecordsSynced:       int64(len(records)),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      tableSchemaDeltas,
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 
@@ -705,6 +713,10 @@ func (c *PostgresConnector) SetupNormalizedTables(req *protos.SetupNormalizedTab
 func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
+	if len(schemaDeltas) == 0 {
+		return nil
+	}
+
 	// Postgres is cool and supports transactional DDL. So we use a transaction.
 	tableSchemaModifyTx, err := c.pool.Begin(c.ctx)
 	if err != nil {

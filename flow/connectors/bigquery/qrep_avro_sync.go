@@ -35,22 +35,22 @@ func NewQRepAvroSyncMethod(connector *BigQueryConnector, gcsBucket string,
 }
 
 func (s *QRepAvroSyncMethod) SyncRecords(
+	req *model.SyncRecordsRequest,
 	rawTableName string,
-	flowJobName string,
-	records *model.CDCRecordStream,
 	dstTableMetadata *bigquery.TableMetadata,
 	syncBatchID int64,
 	stream *model.QRecordStream,
-) (int, error) {
+	tableNameRowsMapping map[string]uint32,
+) (*model.SyncResponse, error) {
 	activity.RecordHeartbeat(s.connector.ctx, time.Minute,
 		fmt.Sprintf("Flow job %s: Obtaining Avro schema"+
 			" for destination table %s and sync batch ID %d",
-			flowJobName, rawTableName, syncBatchID),
+			req.FlowJobName, rawTableName, syncBatchID),
 	)
 	// You will need to define your Avro schema as a string
 	avroSchema, err := DefineAvroSchema(rawTableName, dstTableMetadata, "", "")
 	if err != nil {
-		return 0, fmt.Errorf("failed to define Avro schema: %w", err)
+		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}
 
 	stagingTable := fmt.Sprintf("%s_%s_staging", rawTableName, fmt.Sprint(syncBatchID))
@@ -58,9 +58,9 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		&datasetTable{
 			dataset: s.connector.datasetID,
 			table:   stagingTable,
-		}, stream, flowJobName)
+		}, stream, req.FlowJobName)
 	if err != nil {
-		return -1, fmt.Errorf("failed to push to avro stage: %v", err)
+		return nil, fmt.Errorf("failed to push to avro stage: %v", err)
 	}
 
 	bqClient := s.connector.client
@@ -68,20 +68,26 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	insertStmt := fmt.Sprintf("INSERT INTO `%s.%s` SELECT * FROM `%s.%s`;",
 		datasetID, rawTableName, datasetID, stagingTable)
 
-	lastCP, err := records.GetLastCheckpoint()
+	lastCP, err := req.Records.GetLastCheckpoint()
 	if err != nil {
-		return -1, fmt.Errorf("failed to get last checkpoint: %v", err)
+		return nil, fmt.Errorf("failed to get last checkpoint: %v", err)
 	}
-	updateMetadataStmt, err := s.connector.getUpdateMetadataStmt(flowJobName, lastCP, syncBatchID)
+	updateMetadataStmt, err := s.connector.getUpdateMetadataStmt(req.FlowJobName, lastCP, syncBatchID)
 	if err != nil {
-		return -1, fmt.Errorf("failed to update metadata: %v", err)
+		return nil, fmt.Errorf("failed to update metadata: %v", err)
 	}
 
 	activity.RecordHeartbeat(s.connector.ctx, time.Minute,
 		fmt.Sprintf("Flow job %s: performing insert and update transaction"+
 			" for destination table %s and sync batch ID %d",
-			flowJobName, rawTableName, syncBatchID),
+			req.FlowJobName, rawTableName, syncBatchID),
 	)
+
+	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
+	err = s.connector.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
 
 	stmts := []string{
 		"BEGIN TRANSACTION;",
@@ -91,7 +97,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 	_, err = bqClient.Query(strings.Join(stmts, "\n")).Read(s.connector.ctx)
 	if err != nil {
-		return -1, fmt.Errorf("failed to execute statements in a transaction: %v", err)
+		return nil, fmt.Errorf("failed to execute statements in a transaction: %v", err)
 	}
 
 	// drop the staging table
@@ -104,10 +110,17 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	slog.Info(fmt.Sprintf("loaded stage into %s.%s", datasetID, rawTableName),
-		slog.String(string(shared.FlowNameKey), flowJobName),
+		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
 
-	return numRecords, nil
+	return &model.SyncResponse{
+		LastSyncedCheckPointID: lastCP,
+		NumRecordsSynced:       int64(numRecords),
+		CurrentSyncBatchID:     syncBatchID,
+		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      tableSchemaDeltas,
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
+	}, nil
 }
 
 func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softDeleteCol string) []string {

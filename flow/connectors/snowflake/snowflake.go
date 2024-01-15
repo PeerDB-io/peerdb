@@ -451,6 +451,10 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
+	if len(schemaDeltas) == 0 {
+		return nil
+	}
+
 	tableSchemaModifyTx, err := c.database.Begin()
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification: %w",
@@ -569,6 +573,12 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
+	tableSchemaDeltas := req.Records.WaitForSchemaDeltas(req.TableMappings)
+	err = c.ReplayTableSchemaDeltas(req.FlowJobName, tableSchemaDeltas)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
+	}
+
 	lastCheckpoint, err := req.Records.GetLastCheckpoint()
 	if err != nil {
 		return nil, err
@@ -579,6 +589,8 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		NumRecordsSynced:       int64(numRecords),
 		CurrentSyncBatchID:     syncBatchID,
 		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      tableSchemaDeltas,
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
 }
 

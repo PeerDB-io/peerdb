@@ -496,6 +496,8 @@ type SyncRecordsRequest struct {
 	FlowJobName string
 	// SyncMode to use for pushing raw records
 	SyncMode protos.QRepSyncMode
+	// source:destination mappings
+	TableMappings []*protos.TableMapping
 	// Staging path for AVRO files in CDC
 	StagingPath string
 	// PushBatchSize is the number of records to push in a batch for EventHub.

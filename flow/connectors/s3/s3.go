@@ -228,7 +228,14 @@ func (c *S3Connector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncRes
 		LastSyncedCheckPointID: lastCheckpoint,
 		NumRecordsSynced:       int64(numRecords),
 		TableNameRowsMapping:   tableNameRowsMapping,
+		TableSchemaDeltas:      req.Records.WaitForSchemaDeltas(req.TableMappings),
+		RelationMessageMapping: <-req.Records.RelationMessageMapping,
 	}, nil
+}
+
+func (c *S3Connector) ReplayTableSchemaDeltas(flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+	c.logger.Info("ReplayTableSchemaDeltas for S3 is a no-op")
+	return nil
 }
 
 func (c *S3Connector) SetupNormalizedTables(req *protos.SetupNormalizedTableBatchInput) (
