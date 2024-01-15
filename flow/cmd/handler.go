@@ -442,10 +442,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 	if err != nil {
 		return nil, err
 	}
-	isCDCFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
 
 	if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
 		currState == protos.FlowStatus_STATUS_RUNNING {
@@ -462,13 +458,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 		)
 	} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
 		currState == protos.FlowStatus_STATUS_PAUSED {
-		if isCDCFlow && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-			err = h.attemptCDCFlowConfigUpdate(ctx, workflowID,
-				req.FlowConfigUpdate.GetCdcFlowConfigUpdate())
-			if err != nil {
-				return nil, err
-			}
-		}
 		err = h.temporalClient.SignalWorkflow(
 			ctx,
 			workflowID,

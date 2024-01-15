@@ -385,14 +385,3 @@ func (h *FlowRequestHandler) updateWorkflowStatus(
 	}
 	return nil
 }
-
-func (h *FlowRequestHandler) attemptCDCFlowConfigUpdate(ctx context.Context,
-	workflowID string, cdcFlowConfigUpdate *protos.CDCFlowConfigUpdate,
-) error {
-	_, err := h.temporalClient.UpdateWorkflow(ctx, workflowID, "",
-		shared.CDCFlowConfigUpdate, cdcFlowConfigUpdate)
-	if err != nil {
-		return fmt.Errorf("failed to update config in CDC workflow with ID %s: %w", workflowID, err)
-	}
-	return nil
-}
