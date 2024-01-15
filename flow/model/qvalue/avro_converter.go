@@ -71,10 +71,10 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, nullable bool) (*QValueKindAvr
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
 		return &QValueKindAvroSchema{
-			AvroLogicalSchema: "long",
-			// map[string]string{
-			// 	"type": "string",
-			// },
+			//AvroLogicalSchema: "long",
+			map[string]string{
+				"type": "string",
+			},
 		}, nil
 	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
 		return &QValueKindAvroSchema{
@@ -152,7 +152,6 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		if err != nil || t == nil {
 			return t, err
 		}
-		fmt.Println("********************** in ToAvroValue:timestamp 1 c.TargetDWH %+v", c.TargetDWH)
 		if c.TargetDWH == QDWHTypeSnowflake {
 			if c.Nullable {
 				return c.processNullableUnion("string", t.(string))
