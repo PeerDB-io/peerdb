@@ -80,11 +80,10 @@ const (
 )
 
 type SnowflakeConnector struct {
-	ctx                context.Context
-	database           *sql.DB
-	tableSchemaMapping map[string]*protos.TableSchema
-	metadataSchema     string
-	logger             slog.Logger
+	ctx            context.Context
+	database       *sql.DB
+	metadataSchema string
+	logger         slog.Logger
 }
 
 // creating this to capture array results from snowflake.
@@ -149,11 +148,10 @@ func NewSnowflakeConnector(ctx context.Context,
 
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &SnowflakeConnector{
-		ctx:                ctx,
-		database:           database,
-		tableSchemaMapping: nil,
-		metadataSchema:     metadataSchema,
-		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
+		ctx:            ctx,
+		database:       database,
+		metadataSchema: metadataSchema,
+		logger:         *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -448,11 +446,6 @@ func (c *SnowflakeConnector) SetupNormalizedTables(
 	}, nil
 }
 
-func (c *SnowflakeConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.tableSchemaMapping = req
-	return nil
-}
-
 // ReplayTableSchemaDeltas changes a destination table to match the schema at source
 // This could involve adding or dropping multiple columns.
 func (c *SnowflakeConnector) ReplayTableSchemaDeltas(flowJobName string,
@@ -641,7 +634,7 @@ func (c *SnowflakeConnector) NormalizeRecords(req *model.NormalizeRecordsRequest
 				dstTableName:          tableName,
 				syncBatchID:           batchIDs.SyncBatchID,
 				normalizeBatchID:      batchIDs.NormalizeBatchID,
-				normalizedTableSchema: c.tableSchemaMapping[tableName],
+				normalizedTableSchema: req.TableNameSchemaMapping[tableName],
 				unchangedToastColumns: tableNametoUnchangedToastCols[tableName],
 				peerdbCols: &protos.PeerDBColumns{
 					SoftDelete:        req.SoftDelete,

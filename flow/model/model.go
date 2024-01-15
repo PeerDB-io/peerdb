@@ -505,10 +505,11 @@ type SyncRecordsRequest struct {
 }
 
 type NormalizeRecordsRequest struct {
-	FlowJobName       string
-	SoftDelete        bool
-	SoftDeleteColName string
-	SyncedAtColName   string
+	FlowJobName            string
+	SoftDelete             bool
+	SoftDeleteColName      string
+	SyncedAtColName        string
+	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type SyncResponse struct {

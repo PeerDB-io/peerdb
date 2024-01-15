@@ -58,14 +58,13 @@ type BigQueryServiceAccount struct {
 
 // BigQueryConnector is a Connector implementation for BigQuery.
 type BigQueryConnector struct {
-	ctx                    context.Context
-	bqConfig               *protos.BigqueryConfig
-	client                 *bigquery.Client
-	storageClient          *storage.Client
-	tableNameSchemaMapping map[string]*protos.TableSchema
-	datasetID              string
-	catalogPool            *pgxpool.Pool
-	logger                 slog.Logger
+	ctx           context.Context
+	bqConfig      *protos.BigqueryConfig
+	client        *bigquery.Client
+	storageClient *storage.Client
+	datasetID     string
+	catalogPool   *pgxpool.Pool
+	logger        slog.Logger
 }
 
 // Create BigQueryServiceAccount from BigqueryConfig
@@ -209,12 +208,6 @@ func (c *BigQueryConnector) ConnectionActive() error {
 func (c *BigQueryConnector) NeedsSetupMetadataTables() bool {
 	_, err := c.client.Dataset(c.datasetID).Table(MirrorJobsTable).Metadata(c.ctx)
 	return err != nil
-}
-
-// InitializeTableSchema initializes the schema for a table, implementing the Connector interface.
-func (c *BigQueryConnector) InitializeTableSchema(req map[string]*protos.TableSchema) error {
-	c.tableNameSchemaMapping = req
-	return nil
 }
 
 func (c *BigQueryConnector) waitForTableReady(datasetTable *datasetTable) error {
@@ -596,7 +589,7 @@ func (c *BigQueryConnector) NormalizeRecords(req *model.NormalizeRecordsRequest)
 			},
 			dstTableName:          tableName,
 			dstDatasetTable:       dstDatasetTable,
-			normalizedTableSchema: c.tableNameSchemaMapping[tableName],
+			normalizedTableSchema: req.TableNameSchemaMapping[tableName],
 			syncBatchID:           batchIDs.SyncBatchID,
 			normalizeBatchID:      batchIDs.NormalizeBatchID,
 			peerdbCols: &protos.PeerDBColumns{

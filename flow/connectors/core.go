@@ -68,9 +68,6 @@ type CDCSyncConnector interface {
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(jobName string) (int64, error)
 
-	// InitializeTableSchema initializes the table schema of all the destination tables for the connector.
-	InitializeTableSchema(req map[string]*protos.TableSchema) error
-
 	// CreateRawTable creates a raw table for the connector with a given name and a fixed schema.
 	CreateRawTable(req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error)
 
@@ -88,9 +85,6 @@ type CDCSyncConnector interface {
 
 type CDCNormalizeConnector interface {
 	Connector
-
-	// InitializeTableSchema initializes the table schema of all the destination tables for the connector.
-	InitializeTableSchema(req map[string]*protos.TableSchema) error
 
 	// NormalizeRecords merges records pushed earlier into the destination table.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
