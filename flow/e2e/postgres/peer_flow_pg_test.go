@@ -221,7 +221,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	}
 
 	go func() {
-		e2e.SetupCDCFlowStatusQuery(env, connectionGen)
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
 		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
 			INSERT INTO %s SELECT 2,2,b'1',
 			true,'s','test','1.1.10.2'::cidr,
