@@ -231,14 +231,14 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 	errGroup.Go(func() error {
 		return srcConn.PullRecords(a.CatalogPool, &model.PullRecordsRequest{
 			FlowJobName:           flowName,
-			SrcTableIDNameMapping: input.FlowConnectionConfigs.SrcTableIdNameMapping,
+			SrcTableIDNameMapping: input.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
 			LastOffset:            input.LastSyncState.Checkpoint,
 			MaxBatchSize:          uint32(input.SyncFlowOptions.BatchSize),
 			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
 				int(input.FlowConnectionConfigs.IdleTimeoutSeconds),
 			),
-			TableNameSchemaMapping:      input.FlowConnectionConfigs.TableNameSchemaMapping,
+			TableNameSchemaMapping:      input.TableNameSchemaMapping,
 			OverridePublicationName:     input.FlowConnectionConfigs.PublicationName,
 			OverrideReplicationSlotName: input.FlowConnectionConfigs.ReplicationSlotName,
 			RelationMessageMapping:      input.RelationMessageMapping,
@@ -293,12 +293,10 @@ func (a *FlowableActivity) StartFlow(ctx context.Context,
 
 	syncStartTime := time.Now()
 	res, err := dstConn.SyncRecords(&model.SyncRecordsRequest{
-		Records:         recordBatch,
-		FlowJobName:     input.FlowConnectionConfigs.FlowJobName,
-		TableMappings:   input.FlowConnectionConfigs.TableMappings,
-		StagingPath:     input.FlowConnectionConfigs.CdcStagingPath,
-		PushBatchSize:   input.FlowConnectionConfigs.PushBatchSize,
-		PushParallelism: input.FlowConnectionConfigs.PushParallelism,
+		Records:       recordBatch,
+		FlowJobName:   input.FlowConnectionConfigs.FlowJobName,
+		TableMappings: input.FlowConnectionConfigs.TableMappings,
+		StagingPath:   input.FlowConnectionConfigs.CdcStagingPath,
 	})
 	if err != nil {
 		slog.Warn("failed to push records", slog.Any("error", err))
@@ -404,7 +402,7 @@ func (a *FlowableActivity) StartNormalize(
 		SoftDelete:             input.FlowConnectionConfigs.SoftDelete,
 		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
 		SyncedAtColName:        input.FlowConnectionConfigs.SyncedAtColName,
-		TableNameSchemaMapping: input.FlowConnectionConfigs.TableNameSchemaMapping,
+		TableNameSchemaMapping: input.TableNameSchemaMapping,
 	})
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)

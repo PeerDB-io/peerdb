@@ -2,7 +2,7 @@ import { CDCConfig } from '../../../dto/MirrorsDTO';
 import { MirrorSetting } from './common';
 export const cdcSettings: MirrorSetting[] = [
   {
-    label: 'Initial Copy',
+    label: 'Initial Snapshot',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,
@@ -117,7 +117,7 @@ export const cdcSettings: MirrorSetting[] = [
     type: 'switch',
   },
   {
-    label: 'Initial Copy Only',
+    label: 'Initial Snapshot Only',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
         ...curr,

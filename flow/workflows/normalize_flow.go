@@ -31,18 +31,20 @@ func NewNormalizeFlowExecution(ctx workflow.Context, state *NormalizeFlowState) 
 
 func NormalizeFlowWorkflow(ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
+	options *protos.NormalizeFlowOptions,
 ) (*model.NormalizeResponse, error) {
 	s := NewNormalizeFlowExecution(ctx, &NormalizeFlowState{
 		CDCFlowName: config.FlowJobName,
 		Progress:    []string{},
 	})
 
-	return s.executeNormalizeFlow(ctx, config)
+	return s.executeNormalizeFlow(ctx, config, options)
 }
 
 func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	ctx workflow.Context,
 	config *protos.FlowConnectionConfigs,
+	options *protos.NormalizeFlowOptions,
 ) (*model.NormalizeResponse, error) {
 	s.logger.Info("executing normalize flow - ", s.CDCFlowName)
 
@@ -52,7 +54,8 @@ func (s *NormalizeFlowExecution) executeNormalizeFlow(
 	})
 
 	startNormalizeInput := &protos.StartNormalizeInput{
-		FlowConnectionConfigs: config,
+		FlowConnectionConfigs:  config,
+		TableNameSchemaMapping: options.TableNameSchemaMapping,
 	}
 	fStartNormalize := workflow.ExecuteActivity(normalizeFlowCtx, flowable.StartNormalize, startNormalizeInput)
 

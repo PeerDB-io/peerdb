@@ -19,8 +19,9 @@ import (
 )
 
 type SnapshotFlowExecution struct {
-	config *protos.FlowConnectionConfigs
-	logger log.Logger
+	config                 *protos.FlowConnectionConfigs
+	logger                 log.Logger
+	tableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 // ensurePullability ensures that the source peer is pullable.
@@ -46,7 +47,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		PeerConnectionConfig:        s.config.Source,
 		FlowJobName:                 flowName,
 		TableNameMapping:            tblNameMapping,
-		DoInitialCopy:               s.config.DoInitialCopy,
+		DoInitialSnapshot:           s.config.DoInitialSnapshot,
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
 	}
@@ -138,7 +139,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 	from := "*"
 	if len(mapping.Exclude) != 0 {
-		for _, v := range s.config.TableNameSchemaMapping {
+		for _, v := range s.tableNameSchemaMapping {
 			if v.TableIdentifier == srcName {
 				colNames := utils.TableSchemaColumnNames(v)
 				for i, colName := range colNames {
@@ -260,7 +261,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 
 	replCtx := ctx
 
-	if !config.DoInitialCopy {
+	if !config.DoInitialSnapshot {
 		_, err := se.setupReplication(replCtx)
 		if err != nil {
 			return fmt.Errorf("failed to setup replication: %w", err)
@@ -273,7 +274,7 @@ func SnapshotFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionCon
 		return nil
 	}
 
-	if config.InitialCopyOnly {
+	if config.InitialSnapshotOnly {
 		slotInfo := &protos.SetupReplicationOutput{
 			SlotName:     "peerdb_initial_copy_only",
 			SnapshotName: "", // empty snapshot name indicates that we should not use a snapshot

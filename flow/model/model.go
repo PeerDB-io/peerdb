@@ -512,10 +512,6 @@ type SyncRecordsRequest struct {
 	TableMappings []*protos.TableMapping
 	// Staging path for AVRO files in CDC
 	StagingPath string
-	// PushBatchSize is the number of records to push in a batch for EventHub.
-	PushBatchSize int64
-	// PushParallelism is the number of batches in Event Hub to push in parallel.
-	PushParallelism int64
 }
 
 type NormalizeRecordsRequest struct {

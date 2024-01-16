@@ -150,16 +150,8 @@ export const handleCreateCDC = async (
   config['tableMappings'] = tableNameMapping as TableMapping[];
   config['flowJobName'] = flowJobName;
 
-  if (config.destination?.type == DBType.POSTGRES) {
-    config.cdcSyncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
-    config.snapshotSyncMode = QRepSyncMode.QREP_SYNC_MODE_MULTI_INSERT;
-  } else {
-    config.cdcSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
-    config.snapshotSyncMode = QRepSyncMode.QREP_SYNC_MODE_STORAGE_AVRO;
-  }
-
-  if (config.doInitialCopy == false && config.initialCopyOnly == true) {
-    notify('Initial Copy Only cannot be true if Initial Copy is false.');
+  if (config.doInitialSnapshot == false && config.initialSnapshotOnly == true) {
+    notify('Initial Snapshot Only cannot be true if Initial Snapshot is false.');
     return;
   }
 

@@ -75,6 +75,8 @@ func (s *SyncFlowExecution) executeSyncFlow(
 		LastSyncState:          dstSyncState,
 		SyncFlowOptions:        opts,
 		RelationMessageMapping: relationMessageMapping,
+		SrcTableIdNameMapping:  opts.SrcTableIdNameMapping,
+		TableNameSchemaMapping: opts.TableNameSchemaMapping,
 	}
 	fStartFlow := workflow.ExecuteActivity(startFlowCtx, flowable.StartFlow, startFlowInput)
 

@@ -48,7 +48,9 @@ type CDCFlowWorkflowState struct {
 	// Needed to support schema changes.
 	RelationMessageMapping model.RelationMessageMapping
 	// current workflow state
-	CurrentFlowState protos.FlowStatus
+	CurrentFlowState       protos.FlowStatus
+	SrcTableIdNameMapping  map[uint32]string
+	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type SignalProps struct {
@@ -57,7 +59,7 @@ type SignalProps struct {
 }
 
 // returns a new empty PeerFlowState
-func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
+func NewCDCFlowWorkflowState(numTables int) *CDCFlowWorkflowState {
 	return &CDCFlowWorkflowState{
 		Progress:              []string{"started"},
 		SyncFlowStatuses:      nil,
@@ -72,7 +74,9 @@ func NewCDCFlowWorkflowState() *CDCFlowWorkflowState {
 				RelationName: "protobuf_workaround",
 			},
 		},
-		CurrentFlowState: protos.FlowStatus_STATUS_SETUP,
+		CurrentFlowState:       protos.FlowStatus_STATUS_SETUP,
+		SrcTableIdNameMapping:  make(map[uint32]string, numTables),
+		TableNameSchemaMapping: make(map[string]*protos.TableSchema, numTables),
 	}
 }
 
@@ -152,7 +156,7 @@ func CDCFlowWorkflowWithConfig(
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if state == nil {
-		state = NewCDCFlowWorkflowState()
+		state = NewCDCFlowWorkflowState(len(cfg.TableMappings))
 	}
 
 	if cfg == nil {
@@ -221,9 +225,12 @@ func CDCFlowWorkflowWithConfig(
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
-		if err := setupFlowFuture.Get(setupFlowCtx, &cfg); err != nil {
+		var setupFlowOutput *protos.SetupFlowOutput
+		if err := setupFlowFuture.Get(setupFlowCtx, &setupFlowOutput); err != nil {
 			return state, fmt.Errorf("failed to execute child workflow: %w", err)
 		}
+		state.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
+		state.TableNameSchemaMapping = setupFlowOutput.TableNameSchemaMapping
 		state.CurrentFlowState = protos.FlowStatus_STATUS_SNAPSHOT
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
@@ -269,14 +276,14 @@ func CDCFlowWorkflowWithConfig(
 					CurrentName: oldName,
 					NewName:     newName,
 					// oldName is what was used for the TableNameSchema mapping
-					TableSchema: cfg.TableNameSchemaMapping[oldName],
+					TableSchema: state.TableNameSchemaMapping[oldName],
 				})
 				mapping.DestinationTableIdentifier = newName
 				// TableNameSchemaMapping is referring to the _resync tables, not the actual names
-				correctedTableNameSchemaMapping[newName] = cfg.TableNameSchemaMapping[oldName]
+				correctedTableNameSchemaMapping[newName] = state.TableNameSchemaMapping[oldName]
 			}
 
-			cfg.TableNameSchemaMapping = correctedTableNameSchemaMapping
+			state.TableNameSchemaMapping = correctedTableNameSchemaMapping
 			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 12 * time.Hour,
 				HeartbeatTimeout:    1 * time.Hour,
@@ -291,14 +298,19 @@ func CDCFlowWorkflowWithConfig(
 		state.Progress = append(state.Progress, "executed setup flow and snapshot flow")
 
 		// if initial_copy_only is opted for, we end the flow here.
-		if cfg.InitialCopyOnly {
-			return nil, nil
+		if cfg.InitialSnapshotOnly {
+			return state, nil
 		}
 	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{
-		BatchSize:          int32(limits.MaxBatchSize),
-		IdleTimeoutSeconds: 0,
+		BatchSize:              int32(limits.MaxBatchSize),
+		IdleTimeoutSeconds:     0,
+		SrcTableIdNameMapping:  state.SrcTableIdNameMapping,
+		TableNameSchemaMapping: state.TableNameSchemaMapping,
+	}
+	normalizeFlowOptions := &protos.NormalizeFlowOptions{
+		TableNameSchemaMapping: state.TableNameSchemaMapping,
 	}
 
 	// add a signal to change CDC properties
@@ -451,7 +463,7 @@ func CDCFlowWorkflowWithConfig(
 				state.SyncFlowErrors = append(state.SyncFlowErrors, err.Error())
 			} else {
 				for i := range modifiedSrcTables {
-					cfg.TableNameSchemaMapping[modifiedDstTables[i]] = getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
+					state.TableNameSchemaMapping[modifiedDstTables[i]] = getModifiedSchemaRes.TableNameSchemaMapping[modifiedSrcTables[i]]
 				}
 			}
 		}
@@ -475,6 +487,7 @@ func CDCFlowWorkflowWithConfig(
 			normCtx,
 			NormalizeFlowWorkflow,
 			cfg,
+			normalizeFlowOptions,
 		)
 
 		var childNormalizeFlowRes *model.NormalizeResponse
