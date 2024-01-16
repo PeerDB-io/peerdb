@@ -134,6 +134,7 @@ func (s PeerFlowE2ETestSuiteCH) compareTableContentsCH(tableName string, selecto
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", selector, s.pgSuffix, tableName),
 	)
+	fmt.Printf("\n**************************** in comparTableContentsCH pgRows\n\n%+v\n\n", pgRows)
 	require.NoError(s.t, err)
 
 	// read rows from destination table
@@ -144,10 +145,10 @@ func (s PeerFlowE2ETestSuiteCH) compareTableContentsCH(tableName string, selecto
 	} else {
 		chSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
 	}
-	fmt.Printf("running query on clickhouse: %s\n", chSelQuery)
+	fmt.Printf("\n*******************************************running ExecuteAndProcessQuery on clickhouse: %s\n", chSelQuery)
 
 	chRows, err := s.chHelper.ExecuteAndProcessQuery(chSelQuery)
-	fmt.Printf("\n**************************** in comparTableContentsCH pgRows\n\n%+v\n\n", pgRows)
+
 	fmt.Printf("\n**************************** in comparTableContentsCH CHRows\n\n%+v\n\n", chRows)
 	require.NoError(s.t, err)
 
