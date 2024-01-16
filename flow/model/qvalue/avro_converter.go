@@ -31,7 +31,7 @@ type AvroSchemaNumeric struct {
 //
 // For example, QValueKindInt64 would return an AvroLogicalSchema of "long". Unsupported QValueKinds
 // will return an error.
-func GetAvroSchemaFromQValueKind(kind QValueKind) (interface{}, error) {
+func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType) (interface{}, error) {
 	switch kind {
 	case QValueKindString, QValueKindUUID:
 		return "string", nil
@@ -48,6 +48,9 @@ func GetAvroSchemaFromQValueKind(kind QValueKind) (interface{}, error) {
 	case QValueKindBytes, QValueKindBit:
 		return "bytes", nil
 	case QValueKindNumeric:
+		if targetDWH == QDWHTypeClickhouse {
+			return "double", nil
+		}
 		return AvroSchemaNumeric{
 			Type:        "bytes",
 			LogicalType: "decimal",
@@ -55,6 +58,9 @@ func GetAvroSchemaFromQValueKind(kind QValueKind) (interface{}, error) {
 			Scale:       9,
 		}, nil
 	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
+		if targetDWH == QDWHTypeClickhouse {
+			return "long", nil
+		}
 		return "string", nil
 	case QValueKindHStore, QValueKindJSON, QValueKindStruct:
 		return "string", nil
@@ -120,6 +126,14 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 				return c.processNullableUnion("string", t.(string))
 			} else {
 				return t.(string), nil
+			}
+		}
+
+		if c.TargetDWH == QDWHTypeClickhouse {
+			if c.Nullable {
+				return c.processNullableUnion("long", t.(int64))
+			} else {
+				return t.(int64), nil
 			}
 		}
 		if c.Nullable {
@@ -231,6 +245,15 @@ func (c *QValueAvroConverter) processNumeric() (interface{}, error) {
 func (c *QValueAvroConverter) processBytes() (interface{}, error) {
 	if c.Value.Value == nil && c.Nullable {
 		return nil, nil
+	}
+
+	if c.TargetDWH == QDWHTypeClickhouse {
+		bigNum, ok := c.Value.Value.(*big.Rat)
+		if !ok {
+			return nil, fmt.Errorf("invalid Numeric value: expected float64, got %T", c.Value.Value)
+		}
+		num, ok := bigNum.Float64()
+		return goavro.Union("double", num), nil
 	}
 
 	byteData, ok := c.Value.Value.([]byte)

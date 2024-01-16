@@ -115,6 +115,10 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", schemaName, tableName, strings.Join(fields, ", "))
 
+	//TODO: this looks brittle, think if CreateTable should move to clickhouse specific implementation
+	if strings.Contains(tableName, "_ch_") {
+		command += " ENGINE = MergeTree() ORDER BY id"
+	}
 	_, err := g.db.ExecContext(g.ctx, command)
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)

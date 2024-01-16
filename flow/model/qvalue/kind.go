@@ -78,6 +78,39 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindArrayString:  "VARIANT",
 }
 
+var QValueKindToClickhouseTypeMap = map[QValueKind]string{
+	QValueKindBoolean:     "Bool",
+	QValueKindInt16:       "Int16",
+	QValueKindInt32:       "Int32",
+	QValueKindInt64:       "Int64",
+	QValueKindFloat32:     "Float32",
+	QValueKindFloat64:     "Float64",
+	QValueKindNumeric:     "Float64",
+	QValueKindString:      "String",
+	QValueKindJSON:        "String",
+	QValueKindTimestamp:   "DateTime64(6)",
+	QValueKindTimestampTZ: "TIMESTAMP",
+	QValueKindTime:        "TIME",
+	QValueKindDate:        "DATE",
+	QValueKindBit:         "Boolean",
+	QValueKindBytes:       "String",
+	QValueKindStruct:      "String",
+	QValueKindUUID:        "String",
+	QValueKindTimeTZ:      "String",
+	QValueKindInvalid:     "String",
+	QValueKindHStore:      "String",
+	QValueKindGeography:   "GEOGRAPHY",
+	QValueKindGeometry:    "GEOMETRY",
+	QValueKindPoint:       "GEOMETRY",
+
+	// array types will be mapped to VARIANT
+	QValueKindArrayFloat32: "Array(Float32)",
+	QValueKindArrayFloat64: "Array(Float64)",
+	QValueKindArrayInt32:   "Array(Int32)",
+	QValueKindArrayInt64:   "Array(Int64)",
+	QValueKindArrayString:  "Array(String)",
+}
+
 func (kind QValueKind) ToDWHColumnType(dwhType QDWHType) (string, error) {
 	if dwhType != QDWHTypeSnowflake {
 		return "", fmt.Errorf("unsupported DWH type: %v", dwhType)
