@@ -1,6 +1,6 @@
 'use client';
 import { SyncStatusRow } from '@/app/dto/MirrorsDTO';
-import { timeOptions } from '@/app/utils/graph';
+import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useMemo, useState } from 'react';
@@ -12,14 +12,14 @@ function CdcGraph({ syncs }: { syncs: SyncStatusRow[] }) {
 
   const graphValues = useMemo(() => {
     const rows = syncs.map((sync) => ({
-      timestamp: sync.startTime,
+      timestamp: sync.endTime,
       count: sync.numRows,
     }));
     let timedRowCounts = aggregateCountsByInterval(rows, aggregateType);
     timedRowCounts = timedRowCounts.slice(0, 29);
     timedRowCounts = timedRowCounts.reverse();
     return timedRowCounts.map((count) => ({
-      name: count[0],
+      name: formatGraphLabel(new Date(count[0]), aggregateType),
       'Rows synced at a point in time': count[1],
     }));
   }, [syncs, aggregateType]);

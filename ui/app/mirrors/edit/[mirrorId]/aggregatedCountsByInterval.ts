@@ -1,7 +1,7 @@
 import moment from 'moment';
 
 type timestampType = {
-  timestamp: Date;
+  timestamp: Date | null;
   count: number;
 };
 
@@ -45,7 +45,7 @@ function aggregateCountsByInterval(
       N = 15;
     }
 
-    const currTs = new Date(timestamp);
+    const currTs = new Date(timestamp ?? 0);
     const date = roundUpToNearestNMinutes(currTs, N);
     const formattedTimestamp = moment(date).format(timeUnit);
 
@@ -66,6 +66,9 @@ function aggregateCountsByInterval(
   }
   if (interval === '5min') {
     currentTimestamp = roundUpToNearestNMinutes(currentTimestamp, 5);
+  }
+  if (interval === '1min') {
+    currentTimestamp = roundUpToNearestNMinutes(currentTimestamp, 1);
   }
 
   while (intervals.length < 30) {
