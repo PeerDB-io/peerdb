@@ -117,7 +117,7 @@ func (s PeerFlowE2ETestSuiteCH) setupSourceTable(tableName string, numRows int) 
 
 func (s PeerFlowE2ETestSuiteCH) setupCHDestinationTable(dstTable string) {
 	schema := e2e.GetOwnersSchema()
-	//TODO: write your own table creation logic for ch or modify the one in chHelper()
+
 	err := s.chHelper.CreateTable(dstTable, schema)
 	// fail if table creation fails
 	if err != nil {
@@ -134,7 +134,6 @@ func (s PeerFlowE2ETestSuiteCH) compareTableContentsCH(tableName string, selecto
 	pgRows, err := pgQueryExecutor.ExecuteAndProcessQuery(
 		fmt.Sprintf("SELECT %s FROM e2e_test_%s.%s ORDER BY id", selector, s.pgSuffix, tableName),
 	)
-	fmt.Printf("\n**************************** in comparTableContentsCH pgRows\n\n%+v\n\n", pgRows)
 	require.NoError(s.t, err)
 
 	// read rows from destination table
@@ -145,11 +144,9 @@ func (s PeerFlowE2ETestSuiteCH) compareTableContentsCH(tableName string, selecto
 	} else {
 		chSelQuery = fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, selector, qualifiedTableName)
 	}
-	fmt.Printf("\n*******************************************running ExecuteAndProcessQuery on clickhouse: %s\n", chSelQuery)
 
 	chRows, err := s.chHelper.ExecuteAndProcessQuery(chSelQuery)
 
-	fmt.Printf("\n**************************** in comparTableContentsCH CHRows\n\n%+v\n\n", chRows)
 	require.NoError(s.t, err)
 
 	require.True(s.t, pgRows.Equals(chRows), "rows from source and destination tables are not equal")
@@ -195,11 +192,8 @@ func (s PeerFlowE2ETestSuiteCH) compareTableContentsCH(tableName string, selecto
 // }
 
 func (s PeerFlowE2ETestSuiteCH) Test_Complete_QRep_Flow_Avro_CH_S3() {
-	fmt.Printf("\n**************************************** Test_Complete_QRep_Flow_Avro_CH_S3 1")
 	env := e2e.NewTemporalTestWorkflowEnvironment()
-	fmt.Printf("\n**************************************** Test_Complete_QRep_Flow_Avro_CH_S3 2")
 	e2e.RegisterWorkflowsAndActivities(env, s.t)
-	fmt.Printf("\n**************************************** Test_Complete_QRep_Flow_Avro_CH_S3 3")
 	numRows := 10
 
 	tblName := "test_qrep_flow_avro_ch_s3"

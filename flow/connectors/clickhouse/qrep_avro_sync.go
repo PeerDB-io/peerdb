@@ -60,9 +60,6 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	//TODO: avro file cleanup
-	//defer avroFile.Cleanup()
-
 	avroFileUrl := "https://avro-clickhouse.s3.us-east-2.amazonaws.com" + avroFile.FilePath
 
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
