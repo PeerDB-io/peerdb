@@ -32,7 +32,6 @@ const (
 	QValueKindGeography   QValueKind = "geography"
 	QValueKindGeometry    QValueKind = "geometry"
 	QValueKindPoint       QValueKind = "point"
-	QValueKindMoney       QValueKind = "money"
 
 	// network types
 	QValueKindCIDR    QValueKind = "cidr"
