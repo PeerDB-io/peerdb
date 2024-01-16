@@ -226,6 +226,18 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 				Valid:    true,
 			}
 
+		case qvalue.QValueKindArrayDate, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ:
+			v, ok := qValue.Value.([]time.Time)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayDate value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[time.Time]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
 		case qvalue.QValueKindArrayInt32:
 			v, ok := qValue.Value.([]int32)
 			if !ok {
@@ -273,7 +285,17 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
 				Valid:    true,
 			}
-
+		case qvalue.QValueKindArrayBoolean:
+			v, ok := qValue.Value.([]bool)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayBoolean value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[bool]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
 		case qvalue.QValueKindJSON:
 			v, ok := qValue.Value.(string)
 			if !ok {

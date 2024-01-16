@@ -74,7 +74,7 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType) (interface
 			Type:  "array",
 			Items: "double",
 		}, nil
-	case QValueKindArrayInt32:
+	case QValueKindArrayInt32, QValueKindArrayInt16:
 		return AvroSchemaArray{
 			Type:  "array",
 			Items: "int",
@@ -83,6 +83,21 @@ func GetAvroSchemaFromQValueKind(kind QValueKind, targetDWH QDWHType) (interface
 		return AvroSchemaArray{
 			Type:  "array",
 			Items: "long",
+		}, nil
+	case QValueKindArrayBoolean:
+		return AvroSchemaArray{
+			Type:  "array",
+			Items: "boolean",
+		}, nil
+	case QValueKindArrayDate:
+		return AvroSchemaArray{
+			Type:  "array",
+			Items: "string",
+		}, nil
+	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
+		return AvroSchemaArray{
+			Type:  "array",
+			Items: "string",
 		}, nil
 	case QValueKindArrayString:
 		return AvroSchemaArray{
@@ -116,7 +131,7 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 	case QValueKindInvalid:
 		// we will attempt to convert invalid to a string
 		return c.processNullableUnion("string", c.Value.Value)
-	case QValueKindTime, QValueKindTimeTZ, QValueKindDate, QValueKindTimestamp, QValueKindTimestampTZ:
+	case QValueKindTime, QValueKindTimeTZ, QValueKindTimestamp, QValueKindTimestampTZ:
 		t, err := c.processGoTime()
 		if err != nil || t == nil {
 			return t, err
@@ -141,7 +156,26 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		} else {
 			return t.(int64), nil
 		}
-	case QValueKindString:
+	case QValueKindDate:
+		t, err := c.processGoDate()
+		if err != nil || t == nil {
+			return t, err
+		}
+		if c.TargetDWH == QDWHTypeSnowflake {
+			if c.Nullable {
+				return c.processNullableUnion("string", t.(string))
+			} else {
+				return t.(string), nil
+			}
+		}
+
+		if c.Nullable {
+			return goavro.Union("int.date", t), nil
+		} else {
+			return t, nil
+		}
+
+	case QValueKindString, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		if c.TargetDWH == QDWHTypeSnowflake && c.Value.Value != nil &&
 			(len(c.Value.Value.(string)) > 15*1024*1024) {
 			slog.Warn("Truncating TEXT value > 15MB for Snowflake!")
@@ -176,12 +210,30 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		return c.processArrayFloat32()
 	case QValueKindArrayFloat64:
 		return c.processArrayFloat64()
+	case QValueKindArrayInt16:
+		return c.processArrayInt16()
 	case QValueKindArrayInt32:
 		return c.processArrayInt32()
 	case QValueKindArrayInt64:
 		return c.processArrayInt64()
 	case QValueKindArrayString:
 		return c.processArrayString()
+	case QValueKindArrayBoolean:
+		return c.processArrayBoolean()
+	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
+		arrayTime, err := c.processArrayTime()
+		if err != nil || arrayTime == nil {
+			return arrayTime, err
+		}
+
+		return arrayTime, nil
+	case QValueKindArrayDate:
+		arrayDate, err := c.processArrayDate()
+		if err != nil || arrayDate == nil {
+			return arrayDate, err
+		}
+
+		return arrayDate, nil
 	case QValueKindUUID:
 		return c.processUUID()
 	case QValueKindGeography, QValueKindGeometry, QValueKindPoint:
@@ -208,6 +260,25 @@ func (c *QValueAvroConverter) processGoTime() (interface{}, error) {
 		return fmt.Sprint(ret), nil
 	}
 	return ret, nil
+}
+
+func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	t, ok := c.Value.Value.(time.Time)
+	if !ok {
+		return nil, fmt.Errorf("invalid Time value")
+	}
+
+	// Snowflake has issues with avro timestamp types, returning as string form of the int64
+	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+	if c.TargetDWH == QDWHTypeSnowflake {
+		ret := t.UnixMicro()
+		return fmt.Sprint(ret), nil
+	}
+	return t, nil
 }
 
 func (c *QValueAvroConverter) processNullableUnion(
@@ -298,6 +369,79 @@ func (c *QValueAvroConverter) processJSON() (interface{}, error) {
 	return jsonString, nil
 }
 
+func (c *QValueAvroConverter) processArrayBoolean() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayData, ok := c.Value.Value.([]bool)
+	if !ok {
+		return nil, fmt.Errorf("invalid Boolean array value")
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", arrayData), nil
+	}
+
+	return arrayData, nil
+}
+
+func (c *QValueAvroConverter) processArrayTime() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayTime, ok := c.Value.Value.([]time.Time)
+	if !ok {
+		return nil, fmt.Errorf("invalid Timestamp array value")
+	}
+
+	transformedTimeArr := make([]interface{}, 0, len(arrayTime))
+	for _, t := range arrayTime {
+		// Snowflake has issues with avro timestamp types, returning as string form of the int64
+		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+		if c.TargetDWH == QDWHTypeSnowflake {
+			ret := t.UnixMicro()
+			transformedTimeArr = append(transformedTimeArr, fmt.Sprint(ret))
+		} else {
+			transformedTimeArr = append(transformedTimeArr, t)
+		}
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", transformedTimeArr), nil
+	}
+
+	return transformedTimeArr, nil
+}
+
+func (c *QValueAvroConverter) processArrayDate() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayDate, ok := c.Value.Value.([]time.Time)
+	if !ok {
+		return nil, fmt.Errorf("invalid Date array value")
+	}
+
+	transformedTimeArr := make([]interface{}, 0, len(arrayDate))
+	for _, t := range arrayDate {
+		ret := t.UnixMicro()
+		if c.TargetDWH == QDWHTypeSnowflake {
+			transformedTimeArr = append(transformedTimeArr, fmt.Sprint(ret))
+		} else {
+			transformedTimeArr = append(transformedTimeArr, t)
+		}
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", transformedTimeArr), nil
+	}
+
+	return transformedTimeArr, nil
+}
+
 func (c *QValueAvroConverter) processHStore() (interface{}, error) {
 	if c.Value.Value == nil && c.Nullable {
 		return nil, nil
@@ -372,6 +516,23 @@ func (c *QValueAvroConverter) processGeospatial() (interface{}, error) {
 		return goavro.Union("string", geoString), nil
 	}
 	return geoString, nil
+}
+
+func (c *QValueAvroConverter) processArrayInt16() (interface{}, error) {
+	if c.Value.Value == nil && c.Nullable {
+		return nil, nil
+	}
+
+	arrayData, ok := c.Value.Value.([]int16)
+	if !ok {
+		return nil, fmt.Errorf("invalid Int16 array value")
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", arrayData), nil
+	}
+
+	return arrayData, nil
 }
 
 func (c *QValueAvroConverter) processArrayInt32() (interface{}, error) {

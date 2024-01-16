@@ -676,8 +676,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
 		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 GEOMETRY(POINT), c43 GEOGRAPHY(POINT),
-		c44 GEOGRAPHY(POLYGON), c45 GEOGRAPHY(LINESTRING), c46 GEOMETRY(LINESTRING), c47 GEOMETRY(POLYGON), 
-		c48 mood, c49 HSTORE);
+		c44 GEOGRAPHY(POLYGON), c45 GEOGRAPHY(LINESTRING), c46 GEOMETRY(LINESTRING), c47 GEOMETRY(POLYGON),
+		c48 mood, c49 HSTORE, c50 DATE[], c51 TIMESTAMPTZ[], c52 TIMESTAMP[], c53 BOOLEAN[]);
 	`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -712,7 +712,11 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,xmlcomment('hello'),
 		'POINT(1 2)','POINT(40.7128 -74.0060)','POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
 		'LINESTRING(-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831)','LINESTRING(0 0, 1 1, 2 2)',
-		'POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))', 'happy','"a"=>"a\"quote\"", "b"=>NULL';
+		'POLYGON((-74.0060 40.7128, -73.9352 40.7306, -73.9123 40.7831, -74.0060 40.7128))', 'happy','"a"=>"a\"quote\"", "b"=>NULL',
+		'{2020-01-01, 2020-01-02}'::date[],
+		'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
+		'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
+		'{true, false}'::boolean[];;
 		`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 	}()
@@ -731,6 +735,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 		"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
 		"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49",
+		"c50", "c51", "c52", "c53",
 	})
 	if err != nil {
 		s.t.Log(err)

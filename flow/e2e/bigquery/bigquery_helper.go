@@ -233,7 +233,7 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 		}
 
 		firstElement := v[0]
-		switch firstElement.(type) {
+		switch et := firstElement.(type) {
 		case int, int32:
 			var arr []int32
 			for _, val := range v {
@@ -264,10 +264,30 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 				arr = append(arr, val.(string))
 			}
 			return qvalue.QValue{Kind: qvalue.QValueKindArrayString, Value: arr}, nil
+		case time.Time:
+			var arr []time.Time
+			for _, val := range v {
+				arr = append(arr, val.(time.Time))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayTimestamp, Value: arr}, nil
+		case civil.Date:
+			var arr []civil.Date
+			for _, val := range v {
+				arr = append(arr, val.(civil.Date))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayDate, Value: arr}, nil
+		case bool:
+			var arr []bool
+
+			for _, val := range v {
+				arr = append(arr, val.(bool))
+			}
+			return qvalue.QValue{Kind: qvalue.QValueKindArrayBoolean, Value: arr}, nil
+		default:
+			// If type is unsupported, return error
+			return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", et)
 		}
 
-		// If type is unsupported, return error
-		return qvalue.QValue{}, fmt.Errorf("bqHelper unsupported type %T", v)
 	case nil:
 		return qvalue.QValue{Kind: qvalue.QValueKindInvalid, Value: nil}, nil
 	default:

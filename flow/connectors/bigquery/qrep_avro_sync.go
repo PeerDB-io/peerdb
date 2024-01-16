@@ -136,9 +136,6 @@ func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softD
 		case bigquery.JSONFieldType:
 			transformedColumns = append(transformedColumns,
 				fmt.Sprintf("PARSE_JSON(`%s`,wide_number_mode=>'round') AS `%s`", col.Name, col.Name))
-		case bigquery.DateFieldType:
-			transformedColumns = append(transformedColumns,
-				fmt.Sprintf("CAST(`%s` AS DATE) AS `%s`", col.Name, col.Name))
 		default:
 			transformedColumns = append(transformedColumns, fmt.Sprintf("`%s`", col.Name))
 		}
@@ -290,9 +287,9 @@ func DefineAvroSchema(dstTableName string,
 func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	considerRepeated := func(typ string, repeated bool) interface{} {
 		if repeated {
-			return map[string]interface{}{
-				"type":  "array",
-				"items": typ,
+			return qvalue.AvroSchemaArray{
+				Type:  "array",
+				Items: typ,
 			}
 		} else {
 			return typ
@@ -309,17 +306,32 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	case bigquery.FloatFieldType:
 		return considerRepeated("double", bqField.Repeated), nil
 	case bigquery.BooleanFieldType:
-		return "boolean", nil
+		return considerRepeated("boolean", bqField.Repeated), nil
 	case bigquery.TimestampFieldType:
-		return map[string]string{
+		timestampSchema := map[string]string{
 			"type":        "long",
 			"logicalType": "timestamp-micros",
-		}, nil
+		}
+		if bqField.Repeated {
+			return map[string]interface{}{
+				"type":  "array",
+				"items": timestampSchema,
+			}, nil
+		}
+		return timestampSchema, nil
 	case bigquery.DateFieldType:
-		return map[string]string{
-			"type":        "long",
-			"logicalType": "timestamp-micros",
-		}, nil
+		dateSchema := map[string]string{
+			"type":        "int",
+			"logicalType": "date",
+		}
+		if bqField.Repeated {
+			return map[string]interface{}{
+				"type":  "array",
+				"items": dateSchema,
+			}, nil
+		}
+		return dateSchema, nil
+
 	case bigquery.TimeFieldType:
 		return map[string]string{
 			"type":        "long",
