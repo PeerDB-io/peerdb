@@ -85,6 +85,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindArrayFloat64:     "VARIANT",
 	QValueKindArrayInt32:       "VARIANT",
 	QValueKindArrayInt64:       "VARIANT",
+	QValueKindArrayInt16:       "VARIANT",
 	QValueKindArrayString:      "VARIANT",
 	QValueKindArrayDate:        "VARIANT",
 	QValueKindArrayTimestamp:   "VARIANT",

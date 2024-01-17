@@ -61,7 +61,7 @@ func (q QValue) Equals(other QValue) bool {
 		return compareNumericArrays(q.Value, other.Value)
 	case QValueKindArrayFloat64:
 		return compareNumericArrays(q.Value, other.Value)
-	case QValueKindArrayInt32:
+	case QValueKindArrayInt32, QValueKindArrayInt16:
 		return compareNumericArrays(q.Value, other.Value)
 	case QValueKindArrayInt64:
 		return compareNumericArrays(q.Value, other.Value)
@@ -281,6 +281,12 @@ func compareNumericArrays(value1, value2 interface{}) bool {
 	// Helper function to convert a value to float64
 	convertToFloat64 := func(val interface{}) []float64 {
 		switch v := val.(type) {
+		case []int16:
+			result := make([]float64, len(v))
+			for i, value := range v {
+				result[i] = float64(value)
+			}
+			return result
 		case []int32:
 			result := make([]float64, len(v))
 			for i, value := range v {

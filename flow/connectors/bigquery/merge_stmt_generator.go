@@ -53,7 +53,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE() string {
 		case qvalue.QValueKindBytes, qvalue.QValueKindBit:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",
 				colName, shortCol)
-		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
+		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64, qvalue.QValueKindArrayInt16,
 			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString,
 			qvalue.QValueKindArrayBoolean, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ,
 			qvalue.QValueKindArrayDate:

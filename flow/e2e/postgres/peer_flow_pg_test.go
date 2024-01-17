@@ -202,7 +202,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		c29 SMALLINT,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,
 		c40 UUID, c42 INT[], c43 FLOAT[], c44 TEXT[],
-		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[]);
+		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[]);
 	`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -235,7 +235,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 			'{2020-01-01, 2020-01-02}'::date[],
 			'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
 			'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
-			'{true, false}'::boolean[];
+			'{true, false}'::boolean[],
+			'{1,2}'::smallint[];
 			`, srcTableName))
 		e2e.EnvNoError(s.t, env, err)
 
@@ -255,7 +256,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		"c1", "c2", "c4",
 		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
 		"c21", "c29", "c33", "c34", "c35", "c36",
-		"c7", "c8", "c32", "c42", "c43", "c44", "c46", "c47", "c48", "c49",
+		"c7", "c8", "c32", "c42", "c43", "c44", "c46", "c47", "c48", "c49", "c50",
 	}
 	err = s.comparePGTables(srcTableName, dstTableName, strings.Join(allCols, ","))
 	require.NoError(s.t, err)

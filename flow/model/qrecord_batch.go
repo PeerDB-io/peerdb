@@ -238,6 +238,18 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 				Valid:    true,
 			}
 
+		case qvalue.QValueKindArrayInt16:
+			v, ok := qValue.Value.([]int16)
+			if !ok {
+				src.err = fmt.Errorf("invalid ArrayInt16 value")
+				return nil, src.err
+			}
+			values[i] = pgtype.Array[int16]{
+				Elements: v,
+				Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
+				Valid:    true,
+			}
+
 		case qvalue.QValueKindArrayInt32:
 			v, ok := qValue.Value.([]int32)
 			if !ok {

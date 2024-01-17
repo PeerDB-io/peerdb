@@ -401,8 +401,7 @@ func (c *QValueAvroConverter) processArrayTime() (interface{}, error) {
 		// Snowflake has issues with avro timestamp types, returning as string form of the int64
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 		if c.TargetDWH == QDWHTypeSnowflake {
-			ret := t.UnixMicro()
-			transformedTimeArr = append(transformedTimeArr, fmt.Sprint(ret))
+			transformedTimeArr = append(transformedTimeArr, t.String())
 		} else {
 			transformedTimeArr = append(transformedTimeArr, t)
 		}
@@ -427,9 +426,8 @@ func (c *QValueAvroConverter) processArrayDate() (interface{}, error) {
 
 	transformedTimeArr := make([]interface{}, 0, len(arrayDate))
 	for _, t := range arrayDate {
-		ret := t.UnixMicro()
 		if c.TargetDWH == QDWHTypeSnowflake {
-			transformedTimeArr = append(transformedTimeArr, fmt.Sprint(ret))
+			transformedTimeArr = append(transformedTimeArr, t.Format("2006-01-02"))
 		} else {
 			transformedTimeArr = append(transformedTimeArr, t)
 		}
@@ -528,11 +526,17 @@ func (c *QValueAvroConverter) processArrayInt16() (interface{}, error) {
 		return nil, fmt.Errorf("invalid Int16 array value")
 	}
 
-	if c.Nullable {
-		return goavro.Union("array", arrayData), nil
+	// cast to int32
+	int32Data := make([]int32, 0, len(arrayData))
+	for _, v := range arrayData {
+		int32Data = append(int32Data, int32(v))
 	}
 
-	return arrayData, nil
+	if c.Nullable {
+		return goavro.Union("array", int32Data), nil
+	}
+
+	return int32Data, nil
 }
 
 func (c *QValueAvroConverter) processArrayInt32() (interface{}, error) {
