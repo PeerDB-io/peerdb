@@ -153,9 +153,9 @@ func (c *QValueAvroConverter) ToAvroValue() (interface{}, error) {
 		}
 		if c.Nullable {
 			return goavro.Union("long.timestamp-micros", t.(int64)), nil
-		} else {
-			return t.(int64), nil
 		}
+		return t.(int64), nil
+
 	case QValueKindDate:
 		t, err := c.processGoDate()
 		if err != nil || t == nil {
@@ -269,7 +269,7 @@ func (c *QValueAvroConverter) processGoDate() (interface{}, error) {
 
 	t, ok := c.Value.Value.(time.Time)
 	if !ok {
-		return nil, fmt.Errorf("invalid Time value")
+		return nil, fmt.Errorf("invalid Time value for Date")
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form of the int64
