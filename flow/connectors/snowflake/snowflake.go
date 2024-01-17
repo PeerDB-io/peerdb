@@ -58,6 +58,8 @@ const (
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
+	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+	 WHERE TABLE_SCHEMA=? AND TABLE_NAME=? ORDER BY ORDINAL_POSITION`
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
@@ -65,6 +67,8 @@ const (
 	 WHERE MIRROR_JOB_NAME=?`
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET NORMALIZE_BATCH_ID=? WHERE MIRROR_JOB_NAME=?"
 
+	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
+	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
 	checkIfJobMetadataExistsSQL     = "SELECT TO_BOOLEAN(COUNT(1)) FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	getLastOffsetSQL                = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	setLastOffsetSQL                = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
@@ -72,14 +76,14 @@ const (
 	getLastSyncNormalizeBatchID_SQL = "SELECT SYNC_BATCH_ID, NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
 	dropTableIfExistsSQL            = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL            = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
+	checkSchemaExistsSQL            = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME=?"
 )
 
 type SnowflakeConnector struct {
-	ctx                    context.Context
-	database               *sql.DB
-	logger                 slog.Logger
-	informationSchemaCache *SnowflakeInformationSchemaCache
-	metadataSchema         string
+	ctx            context.Context
+	database       *sql.DB
+	metadataSchema string
+	logger         slog.Logger
 }
 
 // creating this to capture array results from snowflake.
@@ -143,16 +147,11 @@ func NewSnowflakeConnector(ctx context.Context,
 	}
 
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-	logger := *slog.With(slog.String(string(shared.FlowNameKey), flowName))
-
-	informationSchemaCache := NewSnowflakeInformationSchemaCache(ctx, database, logger, snowflakeProtoConfig.Database)
-
 	return &SnowflakeConnector{
-		ctx:                    ctx,
-		database:               database,
-		metadataSchema:         metadataSchema,
-		logger:                 logger,
-		informationSchemaCache: informationSchemaCache,
+		ctx:            ctx,
+		database:       database,
+		metadataSchema: metadataSchema,
+		logger:         *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
 }
 
@@ -224,7 +223,7 @@ func (c *SnowflakeConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.informationSchemaCache.TableSchemaForTable(tableName)
+		tableSchema, err := c.getTableSchemaForTable(strings.ToUpper(tableName))
 		if err != nil {
 			return nil, err
 		}
@@ -234,6 +233,49 @@ func (c *SnowflakeConnector) GetTableSchema(
 
 	return &protos.GetTableSchemaBatchOutput{
 		TableNameSchemaMapping: res,
+	}, nil
+}
+
+func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
+	schemaTable, err := utils.ParseSchemaTable(tableName)
+	if err != nil {
+		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+	}
+	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, schemaTable.Schema, schemaTable.Table)
+	if err != nil {
+		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
+	}
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			c.logger.Error("error while closing rows for reading schema of table",
+				slog.String("tableName", tableName),
+				slog.Any("error", err))
+		}
+	}()
+
+	var columnName, columnType pgtype.Text
+	columnNames := make([]string, 0, 8)
+	columnTypes := make([]string, 0, 8)
+	for rows.Next() {
+		err = rows.Scan(&columnName, &columnType)
+		if err != nil {
+			return nil, fmt.Errorf("error reading row for schema of table %s: %w", tableName, err)
+		}
+		genericColType, err := snowflakeTypeToQValueKind(columnType.String)
+		if err != nil {
+			// we use string for invalid types
+			genericColType = qvalue.QValueKindString
+		}
+
+		columnNames = append(columnNames, columnName.String)
+		columnTypes = append(columnTypes, string(genericColType))
+	}
+
+	return &protos.TableSchema{
+		TableIdentifier: tableName,
+		ColumnNames:     columnNames,
+		ColumnTypes:     columnTypes,
 	}, nil
 }
 
@@ -707,12 +749,14 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 		}
 	}()
 
-	metadataSchemaExists, err := c.informationSchemaCache.SchemaExists(c.metadataSchema)
+	row := syncFlowCleanupTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, c.metadataSchema)
+	var schemaExists pgtype.Bool
+	err = row.Scan(&schemaExists)
 	if err != nil {
 		return fmt.Errorf("unable to check if internal schema exists: %w", err)
 	}
 
-	if metadataSchemaExists {
+	if schemaExists.Bool {
 		_, err = syncFlowCleanupTx.ExecContext(c.ctx, fmt.Sprintf(dropTableIfExistsSQL, c.metadataSchema,
 			getRawTableIdentifier(jobName)))
 		if err != nil {
@@ -739,7 +783,12 @@ func (c *SnowflakeConnector) SyncFlowCleanup(jobName string) error {
 }
 
 func (c *SnowflakeConnector) checkIfTableExists(schemaIdentifier string, tableIdentifier string) (bool, error) {
-	return c.informationSchemaCache.TableExists(schemaIdentifier, tableIdentifier)
+	var result pgtype.Bool
+	err := c.database.QueryRowContext(c.ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier).Scan(&result)
+	if err != nil {
+		return false, fmt.Errorf("error while reading result row: %w", err)
+	}
+	return result.Bool, nil
 }
 
 func generateCreateTableSQLForNormalizedTable(
@@ -861,12 +910,15 @@ func (c *SnowflakeConnector) updateNormalizeMetadata(flowJobName string, normali
 }
 
 func (c *SnowflakeConnector) createPeerDBInternalSchema(createSchemaTx *sql.Tx) error {
-	metaSchemaExists, err := c.informationSchemaCache.SchemaExists(c.metadataSchema)
+	// check if the internal schema exists
+	row := createSchemaTx.QueryRowContext(c.ctx, checkSchemaExistsSQL, c.metadataSchema)
+	var schemaExists pgtype.Bool
+	err := row.Scan(&schemaExists)
 	if err != nil {
-		return fmt.Errorf("unable to check if internal schema exists: %w", err)
+		return fmt.Errorf("error while reading result row: %w", err)
 	}
 
-	if metaSchemaExists {
+	if schemaExists.Bool {
 		c.logger.Info(fmt.Sprintf("internal schema %s already exists", c.metadataSchema))
 		return nil
 	}
