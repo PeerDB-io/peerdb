@@ -10,7 +10,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -281,23 +280,38 @@ func (c *SnowflakeConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
 }
 
 func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []string, error) {
-	schema, err := c.informationSchemaCache.TableSchemaForTable(tableName)
+	// parse the table name to get the schema and table name
+	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get schema for table %s: %w", tableName, err)
+		return nil, nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	colNames := schema.ColumnNames
-	colTypes := schema.ColumnTypes
+	//nolint:gosec
+	queryString := fmt.Sprintf(`
+	SELECT column_name, data_type
+	FROM information_schema.columns
+	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
+	ORDER BY ordinal_position
+	`, strings.ToUpper(schemaTable.Table), strings.ToUpper(schemaTable.Schema))
 
-	dwhColTypes := make([]string, len(colTypes))
-	for i, colType := range colTypes {
-		dwhColTypes[i], err = qValueKindToSnowflakeType(qvalue.QValueKind(colType))
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to convert column type %s to DWH type: %w", colType, err)
+	rows, err := c.database.QueryContext(c.ctx, queryString)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	var colName, colType pgtype.Text
+	colNames := make([]string, 0, 8)
+	colTypes := make([]string, 0, 8)
+	for rows.Next() {
+		if err := rows.Scan(&colName, &colType); err != nil {
+			return nil, nil, fmt.Errorf("failed to scan row: %w", err)
 		}
+		colNames = append(colNames, colName.String)
+		colTypes = append(colTypes, colType.String)
 	}
 
-	return colNames, dwhColTypes, nil
+	return colNames, colTypes, nil
 }
 
 // dropStage drops the stage for the given job.
