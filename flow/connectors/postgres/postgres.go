@@ -283,7 +283,10 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 	for record := range req.Records.GetRecords() {
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
-			itemsJSON, err := typedRecord.Items.ToJSONForPostgres()
+			itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
+				UnnestColumns: map[string]struct{}{},
+				HStoreAsJSON:  false,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
 			}
@@ -300,11 +303,17 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.UpdateRecord:
-			newItemsJSON, err := typedRecord.NewItems.ToJSONForPostgres()
+			newItemsJSON, err := typedRecord.NewItems.ToJSONWithOptions(&model.ToJSONOptions{
+				UnnestColumns: map[string]struct{}{},
+				HStoreAsJSON:  false,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 			}
-			oldItemsJSON, err := typedRecord.OldItems.ToJSONForPostgres()
+			oldItemsJSON, err := typedRecord.OldItems.ToJSONWithOptions(&model.ToJSONOptions{
+				UnnestColumns: map[string]struct{}{},
+				HStoreAsJSON:  false,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
 			}
@@ -321,7 +330,10 @@ func (c *PostgresConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.S
 			})
 			tableNameRowsMapping[typedRecord.DestinationTableName] += 1
 		case *model.DeleteRecord:
-			itemsJSON, err := typedRecord.Items.ToJSONForPostgres()
+			itemsJSON, err := typedRecord.Items.ToJSONWithOptions(&model.ToJSONOptions{
+				UnnestColumns: map[string]struct{}{},
+				HStoreAsJSON:  false,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 			}
