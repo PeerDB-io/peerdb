@@ -14,7 +14,12 @@ import (
 // https://avro.apache.org/docs/1.11.0/spec.html
 type AvroSchemaArray struct {
 	Type  string `json:"type"`
-	Items interface{}
+	Items string `json:"items"`
+}
+
+type AvroSchemaComplexArray struct {
+	Type  string          `json:"type"`
+	Items AvroSchemaField `json:"items"`
 }
 
 type AvroSchemaNumeric struct {
@@ -22,6 +27,18 @@ type AvroSchemaNumeric struct {
 	LogicalType string `json:"logicalType"`
 	Precision   int    `json:"precision"`
 	Scale       int    `json:"scale"`
+}
+
+type AvroSchemaRecord struct {
+	Type   string            `json:"type"`
+	Name   string            `json:"name"`
+	Fields []AvroSchemaField `json:"fields"`
+}
+
+type AvroSchemaField struct {
+	Name        string      `json:"name"`
+	Type        interface{} `json:"type"`
+	LogicalType string      `json:"logicalType,omitempty"`
 }
 
 // GetAvroSchemaFromQValueKind returns the Avro schema for a given QValueKind.
