@@ -59,7 +59,7 @@ const (
 	 _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
 	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-	 WHERE TABLE_SCHEMA=? AND TABLE_NAME=? ORDER BY ORDINAL_POSITION`
+	 WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
 
 	insertJobMetadataSQL = "INSERT INTO %s.%s VALUES (?,?,?,?)"
 
@@ -223,7 +223,7 @@ func (c *SnowflakeConnector) GetTableSchema(
 ) (*protos.GetTableSchemaBatchOutput, error) {
 	res := make(map[string]*protos.TableSchema)
 	for _, tableName := range req.TableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(strings.ToUpper(tableName))
+		tableSchema, err := c.getTableSchemaForTable(tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -237,45 +237,24 @@ func (c *SnowflakeConnector) GetTableSchema(
 }
 
 func (c *SnowflakeConnector) getTableSchemaForTable(tableName string) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tableName)
+	colNames, colTypes, err := c.getColsFromTable(tableName)
 	if err != nil {
-		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
+		return nil, err
 	}
-	rows, err := c.database.QueryContext(c.ctx, getTableSchemaSQL, schemaTable.Schema, schemaTable.Table)
-	if err != nil {
-		return nil, fmt.Errorf("error querying Snowflake peer for schema of table %s: %w", tableName, err)
-	}
-	defer func() {
-		err = rows.Close()
-		if err != nil {
-			c.logger.Error("error while closing rows for reading schema of table",
-				slog.String("tableName", tableName),
-				slog.Any("error", err))
-		}
-	}()
 
-	var columnName, columnType pgtype.Text
-	columnNames := make([]string, 0, 8)
-	columnTypes := make([]string, 0, 8)
-	for rows.Next() {
-		err = rows.Scan(&columnName, &columnType)
-		if err != nil {
-			return nil, fmt.Errorf("error reading row for schema of table %s: %w", tableName, err)
-		}
-		genericColType, err := snowflakeTypeToQValueKind(columnType.String)
+	for i, sfType := range colTypes {
+		genericColType, err := snowflakeTypeToQValueKind(sfType)
 		if err != nil {
 			// we use string for invalid types
 			genericColType = qvalue.QValueKindString
 		}
-
-		columnNames = append(columnNames, columnName.String)
-		columnTypes = append(columnTypes, string(genericColType))
+		colTypes[i] = string(genericColType)
 	}
 
 	return &protos.TableSchema{
 		TableIdentifier: tableName,
-		ColumnNames:     columnNames,
-		ColumnTypes:     columnTypes,
+		ColumnNames:     colNames,
+		ColumnTypes:     colTypes,
 	}, nil
 }
 
