@@ -135,9 +135,7 @@ func (c *ClickhouseConnector) createQRepMetadataTable() error { // createMetadat
 		ORDER BY partitionID;
 	`
 	queryString := fmt.Sprintf(schemaStatement, qRepMetadataTableName)
-	//_, err := createMetadataTableTx.Exec(queryString)
 	_, err := c.database.Exec(queryString)
-	//_, err := c.database.Exec("select * from tasks;")
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to create table %s", qRepMetadataTableName),
 			slog.Any("error", err))

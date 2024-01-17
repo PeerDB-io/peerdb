@@ -15,11 +15,6 @@ import (
 	"go.temporal.io/sdk/activity"
 )
 
-// type CopyInfo struct {
-// 	transformationSQL string
-// 	columnsSQL        string
-// }
-
 type ClickhouseAvroSyncMethod struct {
 	config    *protos.QRepConfig
 	connector *ClickhouseConnector
@@ -121,28 +116,6 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	return avroFile, nil
 }
 
-// func (s *ClickhouseAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage string) error {
-// 	if avroFile.StorageLocation != avro.AvroLocalStorage {
-// 		s.connector.logger.Info("no file to put to stage")
-// 		return nil
-// 	}
-
-// 	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
-// 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
-
-// 	shutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
-// 		return fmt.Sprintf("putting file to stage %s", stage)
-// 	})
-// 	defer shutdown()
-
-// 	if _, err := s.connector.database.Exec(putCmd); err != nil {
-// 		return fmt.Errorf("failed to put file to stage: %w", err)
-// 	}
-
-// 	s.connector.logger.Info(fmt.Sprintf("put file %s to stage %s", avroFile.FilePath, stage))
-// 	return nil
-// }
-
 func (s *ClickhouseAvroSyncMethod) insertMetadata(
 	partition *protos.QRepPartition,
 	flowJobName string,
@@ -157,12 +130,8 @@ func (s *ClickhouseAvroSyncMethod) insertMetadata(
 	}
 
 	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
-		// s.connector.logger.Error("failed to execute metadata insert statement "+insertMetadataStmt,
-		// slog.Any("error", err), partitionLog)
 		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
 	}
-
-	// s.connector.logger.Info("inserted metadata for partition", partitionLog)
 
 	return nil
 }
@@ -174,7 +143,7 @@ type ClickhouseAvroWriteHandler struct {
 	copyOpts     []string
 }
 
-// NewSnowflakeAvroWriteHandler creates a new SnowflakeAvroWriteHandler
+// NewClickhouseAvroWriteHandler creates a new ClickhouseAvroWriteHandler
 func NewClickhouseAvroWriteHandler(
 	connector *ClickhouseConnector,
 	dstTableName string,

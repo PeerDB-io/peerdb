@@ -12,36 +12,12 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-// type tableNameComponents struct {
-// 	schemaIdentifier string
-// 	tableIdentifier  string
-// }
-
 type ClickhouseConnector struct {
 	ctx                context.Context
 	database           *sql.DB
 	tableSchemaMapping map[string]*protos.TableSchema
 	logger             slog.Logger
 }
-
-// // creating this to capture array results from clicknhouse.
-// type ArrayString []string
-
-// func (a *ArrayString) Scan(src interface{}) error {
-// 	switch v := src.(type) {
-// 	case string:
-// 		return json.Unmarshal([]byte(v), a)
-// 	case []byte:
-// 		return json.Unmarshal(v, a)
-// 	default:
-// 		return errors.New("invalid type")
-// 	}
-// }
-
-// type UnchangedToastColumnResult struct {
-// 	TableName             string
-// 	UnchangedToastColumns ArrayString
-// }
 
 func NewClickhouseConnector(ctx context.Context,
 	clickhouseProtoConfig *protos.ClickhouseConfig,
@@ -103,13 +79,3 @@ func (c *ClickhouseConnector) ConnectionActive() error {
 	err := c.database.PingContext(c.ctx)
 	return err
 }
-
-// // parseTableName parses a table name into schema and table name.
-// func parseTableName(tableName string) (*tableNameComponents, error) {
-// 	schemaIdentifier, tableIdentifier, hasDot := strings.Cut(tableName, ".")
-// 	if !hasDot || strings.ContainsRune(tableIdentifier, '.') {
-// 		return nil, fmt.Errorf("invalid table name: %s", tableName)
-// 	}
-
-// 	return &tableNameComponents{schemaIdentifier, tableIdentifier}, nil
-// }
