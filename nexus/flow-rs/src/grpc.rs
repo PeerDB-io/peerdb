@@ -114,7 +114,7 @@ impl FlowGrpcClient {
             requested_flow_state: state.into(),
             source_peer: Some(workflow_details.source_peer),
             destination_peer: Some(workflow_details.destination_peer),
-            flow_config_update
+            flow_config_update,
         };
         let response = self.client.flow_state_change(state_change_req).await?;
         let state_change_response = response.into_inner();

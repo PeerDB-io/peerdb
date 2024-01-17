@@ -793,7 +793,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		if !req.CheckConstraints {
-			msg := fmt.Sprintf("[no-constriants] ensured pullability table %s", tableName)
+			msg := fmt.Sprintf("[no-constraints] ensured pullability table %s", tableName)
 			utils.RecordHeartbeatWithRecover(c.ctx, msg)
 			continue
 		}
@@ -809,7 +809,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
-		// this is ok for replica identity idex as we populate the primary key columns
+		// this is ok for replica identity index as we populate the primary key columns
 		if len(pKeyCols) == 0 && !(replicaIdentity == ReplicaIdentityFull) {
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
@@ -947,7 +947,7 @@ func (c *PostgresConnector) GetOpenConnectionsForUser() (*protos.GetOpenConnecti
 
 func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublicationInput) error {
 	// don't modify custom publications
-	if req == nil || req.PublicationName != "" || len(req.AdditionalTables) == 0 {
+	if req == nil || len(req.AdditionalTables) == 0 {
 		return nil
 	}
 
@@ -955,8 +955,25 @@ func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublic
 	for _, additionalTableMapping := range req.AdditionalTables {
 		additionalSrcTables = append(additionalSrcTables, additionalTableMapping.SourceTableIdentifier)
 	}
-	additionalSrcTablesString := strings.Join(additionalSrcTables, ",")
 
+	// just check if we have all the tables already in the publication
+	if req.PublicationName != "" {
+		rows, err := c.pool.Query(c.ctx,
+			"SELECT tablename FROM pg_publication_tables WHERE pubname=$1", req.PublicationName)
+		if err != nil {
+			return fmt.Errorf("failed to check tables in publication: %w", err)
+		}
+
+		tableNames, err := pgx.CollectRows[string](rows, pgx.RowTo)
+		if err != nil {
+			return fmt.Errorf("failed to check tables in publication: %w", err)
+		}
+		if len(utils.ArrayMinus(tableNames, additionalSrcTables)) > 0 {
+			return fmt.Errorf("some additional tables not present in custom publication")
+		}
+	}
+
+	additionalSrcTablesString := strings.Join(additionalSrcTables, ",")
 	_, err := c.pool.Exec(c.ctx, fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s",
 		c.getDefaultPublicationName(req.FlowJobName), additionalSrcTablesString))
 	if err != nil {

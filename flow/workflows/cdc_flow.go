@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
@@ -55,10 +54,6 @@ type CDCFlowWorkflowState struct {
 	TableNameSchemaMapping map[string]*protos.TableSchema
 	// flow config update request, set to nil after processed
 	FlowConfigUpdates []*protos.CDCFlowConfigUpdate
-	// maintaining a copy of SrcTableIdNameMapping and TableNameSchemaMapping from protos.FlowConnectionConfigs
-	// ideally it shouldn't even be in the config, since it is set dynamically in SetupFlow and should be only in state
-	SrcTableIdNameMapping  map[uint32]string
-	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type SignalProps struct {
@@ -158,27 +153,6 @@ func (w *CDCFlowWorkflowExecution) receiveAndHandleSignalAsync(ctx workflow.Cont
 	}
 }
 
-func additionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
-	additionalTableMappings []*protos.TableMapping,
-) bool {
-	currentSrcTables := make([]string, 0, len(currentTableMappings))
-	currentDstTables := make([]string, 0, len(currentTableMappings))
-	additionalSrcTables := make([]string, 0, len(additionalTableMappings))
-	additionalDstTables := make([]string, 0, len(additionalTableMappings))
-
-	for _, currentTableMapping := range currentTableMappings {
-		currentSrcTables = append(currentSrcTables, currentTableMapping.SourceTableIdentifier)
-		currentDstTables = append(currentDstTables, currentTableMapping.DestinationTableIdentifier)
-	}
-	for _, additionalTableMapping := range additionalTableMappings {
-		currentSrcTables = append(currentSrcTables, additionalTableMapping.SourceTableIdentifier)
-		currentDstTables = append(currentDstTables, additionalTableMapping.DestinationTableIdentifier)
-	}
-
-	return utils.ArraysHaveOverlap[string](currentSrcTables, additionalSrcTables) ||
-		utils.ArraysHaveOverlap[string](currentDstTables, additionalDstTables)
-}
-
 func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs, state *CDCFlowWorkflowState,
 	limits *CDCFlowLimits, mirrorNameSearch *map[string]interface{},
@@ -187,7 +161,7 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		if len(flowConfigUpdate.AdditionalTables) == 0 {
 			continue
 		}
-		if additionalTablesHasOverlap(cfg.TableMappings, flowConfigUpdate.AdditionalTables) {
+		if shared.AdditionalTablesHasOverlap(cfg.TableMappings, flowConfigUpdate.AdditionalTables) {
 			return fmt.Errorf("duplicate source/destination tables found in additionalTables")
 		}
 
@@ -204,8 +178,8 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		}
 
 		additionalTablesWorkflowCfg := proto.Clone(cfg).(*protos.FlowConnectionConfigs)
-		additionalTablesWorkflowCfg.DoInitialCopy = true
-		additionalTablesWorkflowCfg.InitialCopyOnly = true
+		additionalTablesWorkflowCfg.DoInitialSnapshot = true
+		additionalTablesWorkflowCfg.InitialSnapshotOnly = true
 		additionalTablesWorkflowCfg.TableMappings = flowConfigUpdate.AdditionalTables
 		additionalTablesWorkflowCfg.FlowJobName = fmt.Sprintf("%s_additional_tables_%s", cfg.FlowJobName,
 			strings.ToLower(shared.RandomString(8)))
@@ -240,10 +214,10 @@ func (w *CDCFlowWorkflowExecution) processCDCFlowConfigUpdates(ctx workflow.Cont
 		}
 
 		for tableID, tableName := range res.SrcTableIdNameMapping {
-			cfg.SrcTableIdNameMapping[tableID] = tableName
+			state.SrcTableIdNameMapping[tableID] = tableName
 		}
 		for tableName, tableSchema := range res.TableNameSchemaMapping {
-			cfg.TableNameSchemaMapping[tableName] = tableSchema
+			state.TableNameSchemaMapping[tableName] = tableSchema
 		}
 		cfg.TableMappings = append(cfg.TableMappings, flowConfigUpdate.AdditionalTables...)
 		// finished processing, wipe it
