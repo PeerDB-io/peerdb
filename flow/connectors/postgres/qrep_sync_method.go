@@ -85,10 +85,10 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 
 		if syncedAtCol != "" {
 			updateSyncedAtStmt := fmt.Sprintf(
-				`UPDATE %s SET "%s" = CURRENT_TIMESTAMP WHERE "%s" IS NULL;`,
+				`UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL;`,
 				pgx.Identifier{dstTableName.Schema, dstTableName.Table}.Sanitize(),
-				syncedAtCol,
-				syncedAtCol,
+				QuoteIdentifier(syncedAtCol),
+				QuoteIdentifier(syncedAtCol),
 			)
 			_, err = tx.Exec(context.Background(), updateSyncedAtStmt)
 			if err != nil {
@@ -137,22 +137,23 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		selectStrArray := make([]string, 0)
 		for _, col := range schema.GetColumnNames() {
 			_, ok := upsertMatchCols[col]
+			quotedCol := QuoteIdentifier(col)
 			if !ok {
-				setClauseArray = append(setClauseArray, fmt.Sprintf(`"%s" = EXCLUDED."%s"`, col, col))
+				setClauseArray = append(setClauseArray, fmt.Sprintf(`%s = EXCLUDED.%s`, quotedCol, quotedCol))
 			}
-			selectStrArray = append(selectStrArray, fmt.Sprintf(`"%s"`, col))
+			selectStrArray = append(selectStrArray, quotedCol)
 		}
 		setClauseArray = append(setClauseArray,
-			fmt.Sprintf(`"%s" = CURRENT_TIMESTAMP`, syncedAtCol))
+			fmt.Sprintf(`%s = CURRENT_TIMESTAMP`, QuoteIdentifier(syncedAtCol)))
 		setClause := strings.Join(setClauseArray, ",")
 		selectSQL := strings.Join(selectStrArray, ",")
 
 		// Step 2.3: Perform the upsert operation, ON CONFLICT UPDATE
 		upsertStmt := fmt.Sprintf(
-			`INSERT INTO %s (%s, "%s") SELECT %s, CURRENT_TIMESTAMP FROM %s ON CONFLICT (%s) DO UPDATE SET %s;`,
+			`INSERT INTO %s (%s, %s) SELECT %s, CURRENT_TIMESTAMP FROM %s ON CONFLICT (%s) DO UPDATE SET %s;`,
 			dstTableIdentifier.Sanitize(),
 			selectSQL,
-			syncedAtCol,
+			QuoteIdentifier(syncedAtCol),
 			selectSQL,
 			stagingTableIdentifier.Sanitize(),
 			strings.Join(writeMode.UpsertKeyColumns, ", "),

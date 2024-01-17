@@ -46,65 +46,64 @@ func (n *normalizeStmtGenerator) generateFallbackStatements() []string {
 	columnCount := utils.TableSchemaColumns(n.normalizedTableSchema)
 	columnNames := make([]string, 0, columnCount)
 	flattenedCastsSQLArray := make([]string, 0, columnCount)
-	primaryKeyColumnCasts := make(map[string]string)
+	primaryKeyColumnCasts := make(map[string]string, len(n.normalizedTableSchema.PrimaryKeyColumns))
 	utils.IterColumns(n.normalizedTableSchema, func(columnName, genericColumnType string) {
-		columnNames = append(columnNames, fmt.Sprintf("\"%s\"", columnName))
+		quotedCol := QuoteIdentifier(columnName)
+		stringCol := QuoteLiteral(columnName)
+		columnNames = append(columnNames, quotedCol)
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if qvalue.QValueKind(genericColumnType).IsArray() {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS \"%s\"",
-					strings.Trim(columnName, "\""), pgType, columnName))
+				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s AS %s",
+					stringCol, pgType, quotedCol))
 		} else {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
-				strings.Trim(columnName, "\""), pgType, columnName))
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
+				stringCol, pgType, quotedCol))
 		}
 		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, columnName) {
-			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 		}
 	})
-	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
+	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
 	parsedDstTable, _ := utils.ParseSchemaTable(n.dstTableName)
 
-	insertColumnsSQL := strings.TrimSuffix(strings.Join(columnNames, ","), ",")
+	insertColumnsSQL := strings.Join(columnNames, ",")
 	updateColumnsSQLArray := make([]string, 0, utils.TableSchemaColumns(n.normalizedTableSchema))
 	utils.IterColumns(n.normalizedTableSchema, func(columnName, _ string) {
-		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`"%s"=EXCLUDED."%s"`, columnName, columnName))
+		quotedCol := QuoteIdentifier(columnName)
+		updateColumnsSQLArray = append(updateColumnsSQLArray, fmt.Sprintf(`%s=EXCLUDED.%s`, quotedCol, quotedCol))
 	})
-	updateColumnsSQL := strings.TrimSuffix(strings.Join(updateColumnsSQLArray, ","), ",")
+	updateColumnsSQL := strings.Join(updateColumnsSQLArray, ",")
 	deleteWhereClauseArray := make([]string, 0, len(n.normalizedTableSchema.PrimaryKeyColumns))
 	for columnName, columnCast := range primaryKeyColumnCasts {
-		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf(`%s."%s"=%s AND `,
-			parsedDstTable.String(), columnName, columnCast))
+		deleteWhereClauseArray = append(deleteWhereClauseArray, fmt.Sprintf(`%s.%s=%s`,
+			parsedDstTable.String(), QuoteIdentifier(columnName), columnCast))
 	}
-	deleteWhereClauseSQL := strings.TrimSuffix(strings.Join(deleteWhereClauseArray, ""), "AND ")
-	deletePart := fmt.Sprintf(
-		"DELETE FROM %s USING",
-		parsedDstTable.String())
+	deleteWhereClauseSQL := strings.Join(deleteWhereClauseArray, " AND ")
 
+	deleteUpdate := ""
 	if n.peerdbCols.SoftDelete {
-		deletePart = fmt.Sprintf(`UPDATE %s SET "%s"=TRUE`,
-			parsedDstTable.String(), n.peerdbCols.SoftDeleteColName)
+		deleteUpdate = fmt.Sprintf(`UPDATE %s SET %s=TRUE`,
+			parsedDstTable.String(), QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
 		if n.peerdbCols.SyncedAtColName != "" {
-			deletePart = fmt.Sprintf(`%s,"%s"=CURRENT_TIMESTAMP`,
-				deletePart, n.peerdbCols.SyncedAtColName)
+			deleteUpdate += fmt.Sprintf(`,%s=CURRENT_TIMESTAMP`, QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		}
-		deletePart += " FROM"
 	}
 	fallbackUpsertStatement := fmt.Sprintf(fallbackUpsertStatementSQL,
-		strings.TrimSuffix(strings.Join(maps.Values(primaryKeyColumnCasts), ","), ","), n.metadataSchema,
+		strings.Join(maps.Values(primaryKeyColumnCasts), ","), n.metadataSchema,
 		n.rawTableName, parsedDstTable.String(), insertColumnsSQL, flattenedCastsSQL,
 		strings.Join(n.normalizedTableSchema.PrimaryKeyColumns, ","), updateColumnsSQL)
 	fallbackDeleteStatement := fmt.Sprintf(fallbackDeleteStatementSQL,
 		strings.Join(maps.Values(primaryKeyColumnCasts), ","), n.metadataSchema,
-		n.rawTableName, deletePart, deleteWhereClauseSQL)
+		n.rawTableName, parsedDstTable.String(), deleteUpdate, deleteWhereClauseSQL)
 
 	return []string{fallbackUpsertStatement, fallbackDeleteStatement}
 }
 
 func (n *normalizeStmtGenerator) generateMergeStatement() string {
-	columnNames := utils.TableSchemaColumnNames(n.normalizedTableSchema)
-	for i, columnName := range columnNames {
-		columnNames[i] = fmt.Sprintf("\"%s\"", columnName)
+	quotedColumnNames := utils.TableSchemaColumnNames(n.normalizedTableSchema)
+	for i, columnName := range quotedColumnNames {
+		quotedColumnNames[i] = QuoteIdentifier(columnName)
 	}
 
 	flattenedCastsSQLArray := make([]string, 0, utils.TableSchemaColumns(n.normalizedTableSchema))
@@ -113,38 +112,41 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 	primaryKeyColumnCasts := make(map[string]string)
 	primaryKeySelectSQLArray := make([]string, 0, len(n.normalizedTableSchema.PrimaryKeyColumns))
 	utils.IterColumns(n.normalizedTableSchema, func(columnName, genericColumnType string) {
+		quotedCol := QuoteIdentifier(columnName)
+		stringCol := QuoteLiteral(columnName)
 		pgType := qValueKindToPostgresType(genericColumnType)
 		if qvalue.QValueKind(genericColumnType).IsArray() {
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
-				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>'%s')::JSON))::%s AS \"%s\"",
-					strings.Trim(columnName, "\""), pgType, columnName))
+				fmt.Sprintf("ARRAY(SELECT * FROM JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s AS %s",
+					stringCol, pgType, quotedCol))
 		} else {
-			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>'%s')::%s AS \"%s\"",
-				strings.Trim(columnName, "\""), pgType, columnName))
+			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("(_peerdb_data->>%s)::%s AS %s",
+				stringCol, pgType, quotedCol))
 		}
 		if slices.Contains(n.normalizedTableSchema.PrimaryKeyColumns, columnName) {
-			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>'%s')::%s", columnName, pgType)
+			primaryKeyColumnCasts[columnName] = fmt.Sprintf("(_peerdb_data->>%s)::%s", stringCol, pgType)
 			primaryKeySelectSQLArray = append(primaryKeySelectSQLArray, fmt.Sprintf("src.%s=dst.%s",
-				columnName, columnName))
+				quotedCol, quotedCol))
 		}
 	})
-	flattenedCastsSQL := strings.TrimSuffix(strings.Join(flattenedCastsSQLArray, ","), ",")
-	insertValuesSQLArray := make([]string, 0, len(columnNames))
-	for _, columnName := range columnNames {
-		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("src.%s", columnName))
+	flattenedCastsSQL := strings.Join(flattenedCastsSQLArray, ",")
+	insertValuesSQLArray := make([]string, 0, len(quotedColumnNames)+2)
+	for _, quotedCol := range quotedColumnNames {
+		insertValuesSQLArray = append(insertValuesSQLArray, fmt.Sprintf("src.%s", quotedCol))
 	}
 
-	updateStatementsforToastCols := n.generateUpdateStatements(columnNames)
+	updateStatementsforToastCols := n.generateUpdateStatements(quotedColumnNames)
 	// append synced_at column
-	columnNames = append(columnNames, fmt.Sprintf(`"%s"`, n.peerdbCols.SyncedAtColName))
-	insertColumnsSQL := strings.Join(columnNames, ",")
-	// fill in synced_at column
-	insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
-	insertValuesSQL := strings.TrimSuffix(strings.Join(insertValuesSQLArray, ","), ",")
+	if n.peerdbCols.SyncedAtColName != "" {
+		quotedColumnNames = append(quotedColumnNames, QuoteIdentifier(n.peerdbCols.SyncedAtColName))
+		insertValuesSQLArray = append(insertValuesSQLArray, "CURRENT_TIMESTAMP")
+	}
+	insertColumnsSQL := strings.Join(quotedColumnNames, ",")
+	insertValuesSQL := strings.Join(insertValuesSQLArray, ",")
 
 	if n.peerdbCols.SoftDelete {
-		softDeleteInsertColumnsSQL := strings.TrimSuffix(strings.Join(append(columnNames,
-			fmt.Sprintf(`"%s"`, n.peerdbCols.SoftDeleteColName)), ","), ",")
+		softDeleteInsertColumnsSQL := strings.Join(
+			append(quotedColumnNames, QuoteIdentifier(n.peerdbCols.SoftDeleteColName)), ",")
 		softDeleteInsertValuesSQL := strings.Join(append(insertValuesSQLArray, "TRUE"), ",")
 
 		updateStatementsforToastCols = append(updateStatementsforToastCols,
@@ -153,13 +155,12 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 	}
 	updateStringToastCols := strings.Join(updateStatementsforToastCols, "\n")
 
-	deletePart := "DELETE"
+	conflictPart := "DELETE"
 	if n.peerdbCols.SoftDelete {
 		colName := n.peerdbCols.SoftDeleteColName
-		deletePart = fmt.Sprintf(`UPDATE SET "%s"=TRUE`, colName)
+		conflictPart = fmt.Sprintf(`UPDATE SET %s=TRUE`, QuoteIdentifier(colName))
 		if n.peerdbCols.SyncedAtColName != "" {
-			deletePart = fmt.Sprintf(`%s,"%s"=CURRENT_TIMESTAMP`,
-				deletePart, n.peerdbCols.SyncedAtColName)
+			conflictPart += fmt.Sprintf(`,%s=CURRENT_TIMESTAMP`, QuoteIdentifier(n.peerdbCols.SyncedAtColName))
 		}
 	}
 
@@ -174,13 +175,13 @@ func (n *normalizeStmtGenerator) generateMergeStatement() string {
 		insertColumnsSQL,
 		insertValuesSQL,
 		updateStringToastCols,
-		deletePart,
+		conflictPart,
 	)
 
 	return mergeStmt
 }
 
-func (n *normalizeStmtGenerator) generateUpdateStatements(allCols []string) []string {
+func (n *normalizeStmtGenerator) generateUpdateStatements(quotedCols []string) []string {
 	handleSoftDelete := n.peerdbCols.SoftDelete && (n.peerdbCols.SoftDeleteColName != "")
 	// weird way of doing it but avoids prealloc lint
 	updateStmts := make([]string, 0, func() int {
@@ -191,43 +192,42 @@ func (n *normalizeStmtGenerator) generateUpdateStatements(allCols []string) []st
 	}())
 
 	for _, cols := range n.unchangedToastColumns {
-		unquotedUnchangedColsArray := strings.Split(cols, ",")
-		unchangedColsArray := make([]string, 0, len(unquotedUnchangedColsArray))
-		for _, unchangedToastCol := range unquotedUnchangedColsArray {
-			unchangedColsArray = append(unchangedColsArray, fmt.Sprintf(`"%s"`, unchangedToastCol))
+		unchangedColsArray := strings.Split(cols, ",")
+		for i, unchangedToastCol := range unchangedColsArray {
+			unchangedColsArray[i] = QuoteIdentifier(unchangedToastCol)
 		}
-		otherCols := utils.ArrayMinus(allCols, unchangedColsArray)
+		otherCols := utils.ArrayMinus(quotedCols, unchangedColsArray)
 		tmpArray := make([]string, 0, len(otherCols))
 		for _, colName := range otherCols {
 			tmpArray = append(tmpArray, fmt.Sprintf("%s=src.%s", colName, colName))
 		}
 		// set the synced at column to the current timestamp
 		if n.peerdbCols.SyncedAtColName != "" {
-			tmpArray = append(tmpArray, fmt.Sprintf(`"%s"=CURRENT_TIMESTAMP`,
-				n.peerdbCols.SyncedAtColName))
+			tmpArray = append(tmpArray, fmt.Sprintf(`%s=CURRENT_TIMESTAMP`,
+				QuoteIdentifier(n.peerdbCols.SyncedAtColName)))
 		}
 		// set soft-deleted to false, tackles insert after soft-delete
 		if handleSoftDelete {
-			tmpArray = append(tmpArray, fmt.Sprintf(`"%s"=FALSE`,
-				n.peerdbCols.SoftDeleteColName))
+			tmpArray = append(tmpArray, fmt.Sprintf(`%s=FALSE`,
+				QuoteIdentifier(n.peerdbCols.SoftDeleteColName)))
 		}
 
+		quotedCols := QuoteLiteral(cols)
 		ssep := strings.Join(tmpArray, ",")
 		updateStmt := fmt.Sprintf(`WHEN MATCHED AND
-			src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns='%s'
-			THEN UPDATE SET %s`, cols, ssep)
+			src._peerdb_record_type!=2 AND _peerdb_unchanged_toast_columns=%s
+			THEN UPDATE SET %s`, quotedCols, ssep)
 		updateStmts = append(updateStmts, updateStmt)
 
 		// generates update statements for the case where updates and deletes happen in the same branch
 		// the backfill has happened from the pull side already, so treat the DeleteRecord as an update
 		// and then set soft-delete to true.
 		if handleSoftDelete {
-			tmpArray = append(tmpArray[:len(tmpArray)-1],
-				fmt.Sprintf(`"%s"=TRUE`, n.peerdbCols.SoftDeleteColName))
+			tmpArray[len(tmpArray)-1] = fmt.Sprintf(`%s=TRUE`, QuoteIdentifier(n.peerdbCols.SoftDeleteColName))
 			ssep := strings.Join(tmpArray, ", ")
 			updateStmt := fmt.Sprintf(`WHEN MATCHED AND
-			src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns='%s'
-			THEN UPDATE SET %s `, cols, ssep)
+			src._peerdb_record_type=2 AND _peerdb_unchanged_toast_columns=%s
+			THEN UPDATE SET %s`, quotedCols, ssep)
 			updateStmts = append(updateStmts, updateStmt)
 		}
 	}

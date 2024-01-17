@@ -116,7 +116,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 	}
 
 	if exists.Bool {
-		return fmt.Errorf("enum comparison failed: rows are not equal\n")
+		return fmt.Errorf("enum comparison failed: rows are not equal")
 	}
 	return nil
 }
