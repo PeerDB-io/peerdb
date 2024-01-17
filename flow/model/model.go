@@ -304,7 +304,7 @@ func (r *RecordItems) ToJSONWithOptions(options *ToJSONOptions) (string, error) 
 
 func (r *RecordItems) ToJSON() (string, error) {
 	unnestCols := make([]string, 0)
-	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols, false))
+	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols, true))
 }
 
 type InsertRecord struct {
