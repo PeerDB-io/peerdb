@@ -663,6 +663,15 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 		s3Config := s3ConfigObject.S3Config
 		encodedConfig, encodingErr = proto.Marshal(s3Config)
+	case protos.DBType_CLICKHOUSE:
+		chConfigObject, ok := config.(*protos.Peer_ClickhouseConfig)
+
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+
+		chConfig := chConfigObject.ClickhouseConfig
+		encodedConfig, encodingErr = proto.Marshal(chConfig)
 	default:
 		return wrongConfigResponse, nil
 	}
