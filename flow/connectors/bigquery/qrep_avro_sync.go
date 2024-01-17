@@ -313,9 +313,9 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 			"logicalType": "timestamp-micros",
 		}
 		if bqField.Repeated {
-			return map[string]interface{}{
-				"type":  "array",
-				"items": timestampSchema,
+			return qvalue.AvroSchemaArray{
+				Type:  "array",
+				Items: timestampSchema,
 			}, nil
 		}
 		return timestampSchema, nil
@@ -325,9 +325,9 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 			"logicalType": "date",
 		}
 		if bqField.Repeated {
-			return map[string]interface{}{
-				"type":  "array",
-				"items": dateSchema,
+			return qvalue.AvroSchemaArray{
+				Type:  "array",
+				Items: dateSchema,
 			}, nil
 		}
 		return dateSchema, nil

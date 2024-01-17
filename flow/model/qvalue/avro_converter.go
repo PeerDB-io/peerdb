@@ -14,7 +14,7 @@ import (
 // https://avro.apache.org/docs/1.11.0/spec.html
 type AvroSchemaArray struct {
 	Type  string `json:"type"`
-	Items string `json:"items"`
+	Items interface{}
 }
 
 type AvroSchemaNumeric struct {
