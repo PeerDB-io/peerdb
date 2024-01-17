@@ -106,7 +106,7 @@ func (c *SnowflakeInformationSchemaCache) SchemaExists(schemaName string) (bool,
 		}
 	}
 
-	// If a schema doesn't exist in the cache, lets fall back to the database.
+	// If a schema doesn't exist in the cache, fall back to the database.
 	row := c.database.QueryRowContext(c.ctx, schemaExistsSQL, schemaName)
 
 	var exists bool
@@ -260,9 +260,9 @@ func (c *SnowflakeInformationSchemaCache) cacheAllTablesInSchema(schemaName stri
 			return fmt.Errorf("error reading row for schema of table %s: %w", schemaName, err)
 		}
 
-		genericColType, err := snowflakeTypeToQValueKind(columnType.String)
+		colType, err := snowflakeTypeToQValueKind(columnType.String)
 		if err != nil {
-			genericColType = qvalue.QValueKindString
+			colType = qvalue.QValueKindString
 		}
 
 		if _, ok := cs[tableName.String]; !ok {
@@ -274,7 +274,7 @@ func (c *SnowflakeInformationSchemaCache) cacheAllTablesInSchema(schemaName stri
 		}
 
 		cs[tableName.String].ColumnNames = append(cs[tableName.String].ColumnNames, columnName.String)
-		cs[tableName.String].ColumnTypes = append(cs[tableName.String].ColumnTypes, string(genericColType))
+		cs[tableName.String].ColumnTypes = append(cs[tableName.String].ColumnTypes, string(colType))
 	}
 
 	for _, tblSchema := range cs {

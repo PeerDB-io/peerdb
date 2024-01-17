@@ -10,6 +10,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -285,7 +286,18 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []str
 		return nil, nil, fmt.Errorf("failed to get schema for table %s: %w", tableName, err)
 	}
 
-	return schema.ColumnNames, schema.ColumnTypes, nil
+	colNames := schema.ColumnNames
+	colTypes := schema.ColumnTypes
+
+	dwhColTypes := make([]string, len(colTypes))
+	for i, colType := range colTypes {
+		dwhColTypes[i], err = qValueKindToSnowflakeType(qvalue.QValueKind(colType))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to convert column type %s to DWH type: %w", colType, err)
+		}
+	}
+
+	return colNames, dwhColTypes, nil
 }
 
 // dropStage drops the stage for the given job.
