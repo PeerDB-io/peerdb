@@ -18,10 +18,12 @@ import (
 )
 
 const (
-	schemaExistsSQL      = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE UPPER(SCHEMA_NAME)=?"
-	tableExistsSQL       = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_SCHEMA)=? and UPPER(TABLE_NAME)=?`
-	tableSchemaSQL       = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
-	tableSchemasInSchema = `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE UPPER(TABLE_SCHEMA)=? ORDER BY TABLE_NAME, ORDINAL_POSITION`
+	schemaExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE UPPER(SCHEMA_NAME)=?"
+	tableExistsSQL  = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_SCHEMA)=? and UPPER(TABLE_NAME)=?`
+	tableSchemaSQL  = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
+	tableSchemasInSchema = `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE UPPER(TABLE_SCHEMA)=? ORDER BY TABLE_NAME, ORDINAL_POSITION`
 )
 
 type informationSchemaCache struct {
@@ -34,7 +36,7 @@ func newInformationSchemaCache() *informationSchemaCache {
 	schemaExistsCache := expirable.NewLRU[string, bool](100_000, nil, time.Hour*1)
 	tableExistsCache := expirable.NewLRU[string, bool](100_000, nil, time.Hour*1)
 
-	tsCacheExpiry := peerdbenv.PeerDBSnowflakeTableSchemaCacheSeconds() * time.Second
+	tsCacheExpiry := peerdbenv.PeerDBSnowflakeTableSchemaCacheSeconds()
 	tableSchemaCache := expirable.NewLRU[string, *protos.TableSchema](100_000, nil, tsCacheExpiry)
 
 	return &informationSchemaCache{
@@ -44,8 +46,10 @@ func newInformationSchemaCache() *informationSchemaCache {
 	}
 }
 
-var cache *informationSchemaCache
-var cacheInit sync.Once
+var (
+	cache     *informationSchemaCache
+	cacheInit sync.Once
+)
 
 type SnowflakeInformationSchemaCache struct {
 	ctx      context.Context
