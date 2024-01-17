@@ -146,6 +146,22 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 
 		var err error
 		switch v.Kind {
+		case qvalue.QValueKindBit, qvalue.QValueKindBytes:
+			bitVal, ok := v.Value.([]byte)
+			if !ok {
+				return nil, errors.New("expected []byte value")
+			}
+
+			// convert to binary string because
+			// json.Marshal stores byte arrays as
+			// base64
+			binStr := ""
+			for _, b := range bitVal {
+				binStr += fmt.Sprintf("%08b", b)
+			}
+
+			jsonStruct[col] = binStr
+
 		case qvalue.QValueKindString, qvalue.QValueKindJSON:
 			strVal, ok := v.Value.(string)
 			if !ok {
@@ -184,6 +200,16 @@ func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 			if err != nil {
 				return nil, err
 			}
+		case qvalue.QValueKindArrayDate:
+			dateArr, ok := v.Value.([]time.Time)
+			if !ok {
+				return nil, errors.New("expected []time.Time value")
+			}
+			formattedDateArr := make([]string, 0, len(dateArr))
+			for _, val := range dateArr {
+				formattedDateArr = append(formattedDateArr, val.Format("2006-01-02"))
+			}
+			jsonStruct[col] = formattedDateArr
 		case qvalue.QValueKindNumeric:
 			bigRat, ok := v.Value.(*big.Rat)
 			if !ok {

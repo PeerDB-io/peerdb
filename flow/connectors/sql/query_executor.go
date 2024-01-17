@@ -432,6 +432,8 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 					kind = qvalue.QValueKindArrayFloat32
 				case float64:
 					kind = qvalue.QValueKindArrayFloat64
+				case int16:
+					kind = qvalue.QValueKindArrayInt16
 				case int32:
 					kind = qvalue.QValueKindArrayInt32
 				case int64:
@@ -447,13 +449,12 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		return qvalue.QValue{Kind: qvalue.QValueKindJSON, Value: vstring}, nil
 
 	case qvalue.QValueKindHStore:
-		// TODO fix this.
 		return qvalue.QValue{Kind: qvalue.QValueKindHStore, Value: val}, nil
 
 	case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64,
+		qvalue.QValueKindArrayInt16,
 		qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64,
 		qvalue.QValueKindArrayString:
-		// TODO fix this.
 		return toQValueArray(kind, val)
 	}
 
@@ -490,6 +491,20 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 			result = float64Array
 		default:
 			return qvalue.QValue{}, fmt.Errorf("failed to parse array float64: %v", value)
+		}
+
+	case qvalue.QValueKindArrayInt16:
+		switch v := value.(type) {
+		case []int16:
+			result = v
+		case []interface{}:
+			int16Array := make([]int16, len(v))
+			for i, val := range v {
+				int16Array[i] = val.(int16)
+			}
+			result = int16Array
+		default:
+			return qvalue.QValue{}, fmt.Errorf("failed to parse array int16: %v", value)
 		}
 
 	case qvalue.QValueKindArrayInt32:
