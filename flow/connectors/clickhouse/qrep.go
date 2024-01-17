@@ -77,6 +77,7 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 }
 
 func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
+	//nolint:gosec
 	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
 	rows, err := c.database.Query(queryString)
 	if err != nil {
@@ -93,6 +94,7 @@ func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnTyp
 }
 
 func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error) {
+	//nolint:gosec
 	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, partitionID)
 
 	row := c.database.QueryRow(queryString)
@@ -120,7 +122,7 @@ func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig)
 	return nil
 }
 
-func (c *ClickhouseConnector) createQRepMetadataTable() error { //createMetadataTableTx *sql.Tx
+func (c *ClickhouseConnector) createQRepMetadataTable() error { // createMetadataTableTx *sql.Tx
 	// Define the schema
 	schemaStatement := `
 	CREATE TABLE IF NOT EXISTS %s (
@@ -136,7 +138,6 @@ func (c *ClickhouseConnector) createQRepMetadataTable() error { //createMetadata
 	//_, err := createMetadataTableTx.Exec(queryString)
 	_, err := c.database.Exec(queryString)
 	//_, err := c.database.Exec("select * from tasks;")
-
 	if err != nil {
 		c.logger.Error(fmt.Sprintf("failed to create table %s", qRepMetadataTableName),
 			slog.Any("error", err))
@@ -160,7 +161,6 @@ func (c *ClickhouseConnector) CleanupQRepFlow(config *protos.QRepConfig) error {
 
 // dropStage drops the stage for the given job.
 func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
-
 	// if s3 we need to delete the contents of the bucket
 	if strings.HasPrefix(stagingPath, "s3://") {
 		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
@@ -194,6 +194,6 @@ func (c *ClickhouseConnector) dropStage(stagingPath string, job string) error {
 		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
 	}
 
-	c.logger.Info(fmt.Sprintf("Dropped stage"))
+	c.logger.Info(fmt.Sprintf("Dropped stage %s", stagingPath))
 	return nil
 }

@@ -115,8 +115,6 @@ func (g *GenericSQLQueryExecutor) CreateTable(schema *model.QRecordSchema, schem
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", schemaName, tableName, strings.Join(fields, ", "))
 
-	//TODO: For Reviewer: this looks brittle(as we depend on table name having _ch_ and always order by id!), we may need to move CreateTable to clickhouse specific implementation
-	//but as this is just for tests currently so may be its fine to leave it here. Please comment
 	if strings.Contains(tableName, "_ch_") {
 		command += " ENGINE = MergeTree() ORDER BY id"
 	}

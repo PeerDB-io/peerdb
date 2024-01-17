@@ -15,10 +15,10 @@ import (
 	"go.temporal.io/sdk/activity"
 )
 
-type CopyInfo struct {
-	transformationSQL string
-	columnsSQL        string
-}
+// type CopyInfo struct {
+// 	transformationSQL string
+// 	columnsSQL        string
+// }
 
 type ClickhouseAvroSyncMethod struct {
 	config    *protos.QRepConfig
@@ -43,7 +43,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 ) (int, error) {
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
-	//s.config.StagingPath = "s3://avro-clickhouse"
+	// s.config.StagingPath = "s3://avro-clickhouse"
 
 	schema, err := stream.Schema()
 	if err != nil {
@@ -61,14 +61,18 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 	}
 
 	s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
+	if err != nil {
+		return 0, err
+	}
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
 	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com%s", s3o.Bucket, awsCreds.Region, avroFile.FilePath)
 
 	if err != nil {
 		return 0, err
 	}
-
-	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s', 'Avro')", config.DestinationTableIdentifier, avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
+	//nolint:gosec
+	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM s3('%s','%s','%s', 'Avro')",
+		config.DestinationTableIdentifier, avroFileUrl, awsCreds.AccessKeyID, awsCreds.SecretAccessKey)
 
 	_, err = s.connector.database.Exec(query)
 	if err != nil {
@@ -109,7 +113,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 		return nil, fmt.Errorf("failed to parse staging path: %w", err)
 	}
 
-	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
+	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, flowJobName, partitionID)           // s.config.FlowJobName
 	avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{}) ///utils.S3PeerCredentials{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
@@ -117,27 +121,27 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	return avroFile, nil
 }
 
-func (s *ClickhouseAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage string) error {
-	if avroFile.StorageLocation != avro.AvroLocalStorage {
-		s.connector.logger.Info("no file to put to stage")
-		return nil
-	}
+// func (s *ClickhouseAvroSyncMethod) putFileToStage(avroFile *avro.AvroFile, stage string) error {
+// 	if avroFile.StorageLocation != avro.AvroLocalStorage {
+// 		s.connector.logger.Info("no file to put to stage")
+// 		return nil
+// 	}
 
-	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
-	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
+// 	activity.RecordHeartbeat(s.connector.ctx, "putting file to stage")
+// 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
 
-	shutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
-		return fmt.Sprintf("putting file to stage %s", stage)
-	})
-	defer shutdown()
+// 	shutdown := utils.HeartbeatRoutine(s.connector.ctx, 10*time.Second, func() string {
+// 		return fmt.Sprintf("putting file to stage %s", stage)
+// 	})
+// 	defer shutdown()
 
-	if _, err := s.connector.database.Exec(putCmd); err != nil {
-		return fmt.Errorf("failed to put file to stage: %w", err)
-	}
+// 	if _, err := s.connector.database.Exec(putCmd); err != nil {
+// 		return fmt.Errorf("failed to put file to stage: %w", err)
+// 	}
 
-	s.connector.logger.Info(fmt.Sprintf("put file %s to stage %s", avroFile.FilePath, stage))
-	return nil
-}
+// 	s.connector.logger.Info(fmt.Sprintf("put file %s to stage %s", avroFile.FilePath, stage))
+// 	return nil
+// }
 
 func (s *ClickhouseAvroSyncMethod) insertMetadata(
 	partition *protos.QRepPartition,
@@ -153,12 +157,12 @@ func (s *ClickhouseAvroSyncMethod) insertMetadata(
 	}
 
 	if _, err := s.connector.database.Exec(insertMetadataStmt); err != nil {
-		//s.connector.logger.Error("failed to execute metadata insert statement "+insertMetadataStmt,
-		//slog.Any("error", err), partitionLog)
+		// s.connector.logger.Error("failed to execute metadata insert statement "+insertMetadataStmt,
+		// slog.Any("error", err), partitionLog)
 		return fmt.Errorf("failed to execute metadata insert statement: %v", err)
 	}
 
-	//s.connector.logger.Info("inserted metadata for partition", partitionLog)
+	// s.connector.logger.Info("inserted metadata for partition", partitionLog)
 
 	return nil
 }

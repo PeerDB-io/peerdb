@@ -12,11 +12,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-//nolint:stylecheck
-type tableNameComponents struct {
-	schemaIdentifier string
-	tableIdentifier  string
-}
+// type tableNameComponents struct {
+// 	schemaIdentifier string
+// 	tableIdentifier  string
+// }
 
 type ClickhouseConnector struct {
 	ctx                context.Context
@@ -71,14 +70,12 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 	}
 
 	if err := conn.PingContext(ctx); err != nil {
-		fmt.Printf("\nerror in pinging %+v\n", err.Error())
 		return nil, fmt.Errorf("failed to ping to Clickhouse peer: %w", err)
 	}
 
 	// Execute USE database command to select a specific database
 	_, err = conn.Exec(fmt.Sprintf("USE %s", config.Database))
 	if err != nil {
-		fmt.Printf("\nerror in selecing database %+v\n", err.Error())
 		return nil, fmt.Errorf("failed in selecting db in Clickhouse peer: %w", err)
 	}
 

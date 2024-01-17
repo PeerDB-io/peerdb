@@ -253,6 +253,9 @@ func (c *QValueAvroConverter) processBytes() (interface{}, error) {
 			return nil, fmt.Errorf("invalid Numeric value: expected float64, got %T", c.Value.Value)
 		}
 		num, ok := bigNum.Float64()
+		if !ok {
+			return nil, fmt.Errorf("not able to convert bigNum to float64 %+v", bigNum)
+		}
 		return goavro.Union("double", num), nil
 	}
 
