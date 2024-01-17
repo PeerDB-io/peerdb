@@ -31,11 +31,6 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	tblSchema, err := c.getTableSchema(destTable)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
-	}
-	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 	done, err := c.isPartitionSynced(partition.PartitionId)
 	if err != nil {
 		return 0, fmt.Errorf("failed to check if partition %s is synced: %w", partition.PartitionId, err)
@@ -45,6 +40,12 @@ func (c *ClickhouseConnector) SyncQRepRecords(
 		c.logger.Info("Partition has already been synced", flowLog)
 		return 0, nil
 	}
+
+	tblSchema, err := c.getTableSchema(destTable)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
+	}
+	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
 	avroSync := NewClickhouseAvroSyncMethod(config, c)
 
@@ -76,13 +77,7 @@ func (c *ClickhouseConnector) createMetadataInsertStatement(
 }
 
 func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnType, error) {
-	//nolint:gosec
-	queryString := fmt.Sprintf(`
-	SELECT *
-	FROM %s
-	LIMIT 0
-	`, tableName)
-
+	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
 	rows, err := c.database.Query(queryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
@@ -98,12 +93,7 @@ func (c *ClickhouseConnector) getTableSchema(tableName string) ([]*sql.ColumnTyp
 }
 
 func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error) {
-	//nolint:gosec
-	queryString := fmt.Sprintf(`
-		SELECT COUNT(*)
-		FROM %s
-		WHERE partitionID = '%s'
-	`, qRepMetadataTableName, partitionID) //c.metadataSchema
+	queryString := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE partitionID = '%s'`, qRepMetadataTableName, partitionID)
 
 	row := c.database.QueryRow(queryString)
 
@@ -111,13 +101,10 @@ func (c *ClickhouseConnector) isPartitionSynced(partitionID string) (bool, error
 	if err := row.Scan(&count); err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
-
-	//return count.Int64 > 0, nil
 	return count > 0, nil
 }
 
 func (c *ClickhouseConnector) SetupQRepMetadataTables(config *protos.QRepConfig) error {
-
 	err := c.createQRepMetadataTable() //(createMetadataTablesTx)
 	if err != nil {
 		return err

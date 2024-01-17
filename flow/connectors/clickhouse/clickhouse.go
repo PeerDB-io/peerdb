@@ -3,17 +3,11 @@ package connclickhouse
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-
-	//_ "github.com/ClickHouse/clickhouse-go"
-
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -31,24 +25,24 @@ type ClickhouseConnector struct {
 	logger             slog.Logger
 }
 
-// creating this to capture array results from clicknhouse.
-type ArrayString []string
+// // creating this to capture array results from clicknhouse.
+// type ArrayString []string
 
-func (a *ArrayString) Scan(src interface{}) error {
-	switch v := src.(type) {
-	case string:
-		return json.Unmarshal([]byte(v), a)
-	case []byte:
-		return json.Unmarshal(v, a)
-	default:
-		return errors.New("invalid type")
-	}
-}
+// func (a *ArrayString) Scan(src interface{}) error {
+// 	switch v := src.(type) {
+// 	case string:
+// 		return json.Unmarshal([]byte(v), a)
+// 	case []byte:
+// 		return json.Unmarshal(v, a)
+// 	default:
+// 		return errors.New("invalid type")
+// 	}
+// }
 
-type UnchangedToastColumnResult struct {
-	TableName             string
-	UnchangedToastColumns ArrayString
-}
+// type UnchangedToastColumnResult struct {
+// 	TableName             string
+// 	UnchangedToastColumns ArrayString
+// }
 
 func NewClickhouseConnector(ctx context.Context,
 	clickhouseProtoConfig *protos.ClickhouseConfig,
@@ -60,9 +54,8 @@ func NewClickhouseConnector(ctx context.Context,
 
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	return &ClickhouseConnector{
-		ctx:      ctx,
-		database: database,
-		//database:           conn,
+		ctx:                ctx,
+		database:           database,
 		tableSchemaMapping: nil,
 		logger:             *slog.With(slog.String(string(shared.FlowNameKey), flowName)),
 	}, nil
@@ -76,20 +69,19 @@ func connect(ctx context.Context, config *protos.ClickhouseConfig) (*sql.DB, err
 
 	conn, err := sql.Open("clickhouse", dsn)
 	if err != nil {
-		fmt.Printf("\nclickhouse error in connecting %+v\n", err.Error())
-		return nil, err
+		return nil, fmt.Errorf("failed to open connection to Clickhouse peer: %w", err)
 	}
 
 	if err := conn.PingContext(ctx); err != nil {
 		fmt.Printf("\nerror in pinging %+v\n", err.Error())
-		return nil, err
+		return nil, fmt.Errorf("failed to ping to Clickhouse peer: %w", err)
 	}
 
 	// Execute USE database command to select a specific database
 	_, err = conn.Exec(fmt.Sprintf("USE %s", config.Database))
 	if err != nil {
 		fmt.Printf("\nerror in selecing database %+v\n", err.Error())
-		return nil, err
+		return nil, fmt.Errorf("failed in selecting db in Clickhouse peer: %w", err)
 	}
 
 	return conn, nil
@@ -117,12 +109,12 @@ func (c *ClickhouseConnector) ConnectionActive() error {
 	return err
 }
 
-// parseTableName parses a table name into schema and table name.
-func parseTableName(tableName string) (*tableNameComponents, error) {
-	schemaIdentifier, tableIdentifier, hasDot := strings.Cut(tableName, ".")
-	if !hasDot || strings.ContainsRune(tableIdentifier, '.') {
-		return nil, fmt.Errorf("invalid table name: %s", tableName)
-	}
+// // parseTableName parses a table name into schema and table name.
+// func parseTableName(tableName string) (*tableNameComponents, error) {
+// 	schemaIdentifier, tableIdentifier, hasDot := strings.Cut(tableName, ".")
+// 	if !hasDot || strings.ContainsRune(tableIdentifier, '.') {
+// 		return nil, fmt.Errorf("invalid table name: %s", tableName)
+// 	}
 
-	return &tableNameComponents{schemaIdentifier, tableIdentifier}, nil
-}
+// 	return &tableNameComponents{schemaIdentifier, tableIdentifier}, nil
+// }

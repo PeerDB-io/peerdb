@@ -12,7 +12,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
-	_ "github.com/snowflakedb/gosnowflake"
 	"go.temporal.io/sdk/activity"
 )
 
