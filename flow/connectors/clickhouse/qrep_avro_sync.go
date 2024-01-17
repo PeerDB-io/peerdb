@@ -44,6 +44,7 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 ) (int, error) {
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
+	//s.config.StagingPath = "s3://avro-clickhouse"
 
 	schema, err := stream.Schema()
 	if err != nil {
@@ -60,9 +61,9 @@ func (s *ClickhouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	avroFileUrl := "https://avro-clickhouse.s3.us-east-2.amazonaws.com" + avroFile.FilePath
-
+	s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 	awsCreds, err := utils.GetAWSSecrets(utils.S3PeerCredentials{})
+	avroFileUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com%s", s3o.Bucket, awsCreds.Region, avroFile.FilePath)
 
 	if err != nil {
 		return 0, err
@@ -110,7 +111,7 @@ func (s *ClickhouseAvroSyncMethod) writeToAvroFile(
 	}
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
-	avroFile, err := ocfWriter.WriteRecordsToS3("avro-clickhouse", s3AvroFileKey, utils.S3PeerCredentials{}) ///utils.S3PeerCredentials{})
+	avroFile, err := ocfWriter.WriteRecordsToS3(s3o.Bucket, s3AvroFileKey, utils.S3PeerCredentials{}) ///utils.S3PeerCredentials{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
 	}
