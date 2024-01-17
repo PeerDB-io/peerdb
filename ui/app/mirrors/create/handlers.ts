@@ -151,7 +151,9 @@ export const handleCreateCDC = async (
   config['flowJobName'] = flowJobName;
 
   if (config.doInitialSnapshot == false && config.initialSnapshotOnly == true) {
-    notify('Initial Snapshot Only cannot be true if Initial Snapshot is false.');
+    notify(
+      'Initial Snapshot Only cannot be true if Initial Snapshot is false.'
+    );
     return;
   }
 
