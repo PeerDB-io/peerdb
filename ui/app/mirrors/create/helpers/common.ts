@@ -28,7 +28,7 @@ export const blankCDCSetting: FlowConnectionConfigs = {
   srcTableIdNameMapping: {},
   tableNameSchemaMapping: {},
   metadataPeer: undefined,
-  maxBatchSize: 100000,
+  maxBatchSize: 1000000,
   doInitialCopy: true,
   publicationName: '',
   snapshotNumRowsPerPartition: 500000,

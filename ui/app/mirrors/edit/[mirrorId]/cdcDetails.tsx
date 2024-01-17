@@ -5,7 +5,6 @@ import PeerButton from '@/components/PeerComponent';
 import TimeLabel from '@/components/TimeComponent';
 import { FlowConnectionConfigs } from '@/grpc_generated/flow';
 import { dBTypeFromJSON } from '@/grpc_generated/peers';
-import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import moment from 'moment';
 import Link from 'next/link';
@@ -18,8 +17,13 @@ type props = {
   createdAt?: Date;
 };
 function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
-  let lastSyncedAt = moment(syncs[0]?.startTime).fromNow();
-  let rowsSynced = syncs.reduce((acc, sync) => acc + sync.numRows, 0);
+  let lastSyncedAt = moment(syncs[0]?.endTime).fromNow();
+  let rowsSynced = syncs.reduce((acc, sync) => {
+    if (sync.endTime !== null) {
+      return acc + sync.numRows;
+    }
+    return acc;
+  }, 0);
 
   const tablesSynced = mirrorConfig?.tableMappings;
   return (
@@ -32,9 +36,17 @@ function CdcDetails({ syncs, createdAt, mirrorConfig }: props) {
                 Status
               </Label>
             </div>
-            <div className='cursor-pointer underline'>
+            <div
+              style={{
+                padding: '0.2rem',
+                width: 'fit-content',
+                borderRadius: '1rem',
+                border: '1px solid rgba(0,0,0,0.1)',
+                cursor: 'pointer',
+              }}
+            >
               <Link href={`/mirrors/errors/${mirrorConfig?.flowJobName}`}>
-                Active <Icon name='description' />
+                <Label> Active </Label>
               </Link>
             </div>
           </div>
