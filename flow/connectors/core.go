@@ -246,9 +246,7 @@ func GetConnector(ctx context.Context, peer *protos.Peer) (Connector, error) {
 	// case protos.DBType_EVENTHUB:
 	// 	return connsqlserver.NewSQLServerConnector(ctx, config.GetSqlserverConfig())
 	case protos.DBType_CLICKHOUSE:
-		fmt.Println(" case matched CLICKHOUSE")
 		clickhouseConfig := peer.GetClickhouseConfig()
-		fmt.Println("clickhouseConfig", clickhouseConfig)
 		if clickhouseConfig == nil {
 			return nil, fmt.Errorf("missing clickhouse config for %s peer %s", peer.Type.String(), peer.Name)
 		}
