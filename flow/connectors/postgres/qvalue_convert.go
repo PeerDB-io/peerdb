@@ -137,6 +137,12 @@ func qValueKindToPostgresType(qvalueKind string) string {
 		return "DOUBLE PRECISION[]"
 	case qvalue.QValueKindArrayString:
 		return "TEXT[]"
+	case qvalue.QValueKindGeography:
+		return "GEOGRAPHY"
+	case qvalue.QValueKindGeometry:
+		return "GEOMETRY"
+	case qvalue.QValueKindPoint:
+		return "POINT"
 	default:
 		return "TEXT"
 	}

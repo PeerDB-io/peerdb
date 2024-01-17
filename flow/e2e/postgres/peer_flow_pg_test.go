@@ -84,7 +84,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
-			value TEXT NOT NULL
+			value TEXT NOT NULL,
 			myh HSTORE NOT NULL
 		);
 	`, srcTableName))
@@ -130,6 +130,60 @@ func (s PeerFlowE2ETestSuitePG) Test_Simple_Flow_PG() {
 	require.Contains(s.t, err.Error(), "continue as new")
 
 	err = s.comparePGTables(srcTableName, dstTableName, "id,key,value")
+	require.NoError(s.t, err)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
+	env := e2e.NewTemporalTestWorkflowEnvironment()
+	e2e.RegisterWorkflowsAndActivities(s.t, env)
+
+	srcTableName := s.attachSchemaSuffix("test_geospatial_pg")
+	dstTableName := s.attachSchemaSuffix("test_geospatial_pg_dst")
+
+	_, err := s.pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			gg geography NOT NULL,
+			gm geometry NOT NULL
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_geo_flow_pg"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		PostgresPort:     e2e.PostgresPort,
+		Destination:      s.peer,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs()
+
+	limits := peerflow.CDCFlowLimits{
+		ExitAfterRecords: 1,
+		MaxBatchSize:     100,
+	}
+
+	go func() {
+		e2e.SetupCDCFlowStatusQuery(s.t, env, connectionGen)
+		// insert 1 row into the source table
+		_, err = s.pool.Exec(context.Background(), fmt.Sprintf(`
+			INSERT INTO %s(gg, gm) VALUES ('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))','LINESTRING(0 0, 1 1, 2 2)')
+			`, srcTableName))
+		e2e.EnvNoError(s.t, env, err)
+
+		s.t.Log("Inserted 1 row into the source table")
+	}()
+
+	env.ExecuteWorkflow(peerflow.CDCFlowWorkflowWithConfig, flowConnConfig, &limits, nil)
+
+	// Verify workflow completes without error
+	require.True(s.t, env.IsWorkflowCompleted())
+	err = env.GetWorkflowError()
+
+	// allow only continue as new error
+	require.Contains(s.t, err.Error(), "continue as new")
+
+	err = s.comparePGTables(srcTableName, dstTableName, "id,gg,gm")
 	require.NoError(s.t, err)
 }
 
