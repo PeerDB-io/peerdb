@@ -45,7 +45,7 @@ message FlowConnectionConfigs {
   // currently, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
   repeated TableMapping table_mappings = 4;
   uint32 max_batch_size = 5;
-  int64 idle_timeout_seconds = 6;
+  uint64 idle_timeout_seconds = 6;
   string cdc_staging_path = 7;
   string publication_name = 8;
   string replication_slot_name = 9;
@@ -98,9 +98,9 @@ message CreateTablesFromExistingOutput {
 }
 
 message SyncFlowOptions {
-  int32 batch_size = 1;
+  uint32 batch_size = 1;
   map<uint32, RelationMessage> relation_message_mapping = 2;
-  int64 idle_timeout_seconds = 3;
+  uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
   map<string, TableSchema> table_name_schema_mapping = 5;
 }
@@ -111,7 +111,6 @@ message NormalizeFlowOptions {
 
 message LastSyncState {
   int64 checkpoint = 1;
-  google.protobuf.Timestamp last_synced_at = 2;
 }
 
 message StartFlowInput {

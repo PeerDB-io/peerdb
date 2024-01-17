@@ -70,7 +70,7 @@ pub struct FlowJob {
     pub resync: bool,
     pub soft_delete_col_name: Option<String>,
     pub synced_at_col_name: Option<String>,
-    pub initial_copy_only: bool,
+    pub initial_snapshot_only: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]

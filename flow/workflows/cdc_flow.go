@@ -26,7 +26,7 @@ type CDCFlowLimits struct {
 	// This is typically non-zero for testing purposes.
 	TotalSyncFlows int
 	// Maximum number of rows in a sync flow batch.
-	MaxBatchSize int
+	MaxBatchSize uint32
 	// Rows synced after which we can say a test is done.
 	ExitAfterRecords int
 }
@@ -48,14 +48,15 @@ type CDCFlowWorkflowState struct {
 	// Needed to support schema changes.
 	RelationMessageMapping model.RelationMessageMapping
 	// current workflow state
-	CurrentFlowState       protos.FlowStatus
+	CurrentFlowState protos.FlowStatus
+	// moved from config here, set by SetupFlow
 	SrcTableIdNameMapping  map[uint32]string
 	TableNameSchemaMapping map[string]*protos.TableSchema
 }
 
 type SignalProps struct {
-	BatchSize   int32
-	IdleTimeout int64
+	BatchSize   uint32
+	IdleTimeout uint64
 }
 
 // returns a new empty PeerFlowState
@@ -155,12 +156,11 @@ func CDCFlowWorkflowWithConfig(
 	limits *CDCFlowLimits,
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
-	if state == nil {
-		state = NewCDCFlowWorkflowState(len(cfg.TableMappings))
-	}
-
 	if cfg == nil {
 		return nil, fmt.Errorf("invalid connection configs")
+	}
+	if state == nil {
+		state = NewCDCFlowWorkflowState(len(cfg.TableMappings))
 	}
 
 	w := NewCDCFlowWorkflowExecution(ctx)
@@ -304,7 +304,7 @@ func CDCFlowWorkflowWithConfig(
 	}
 
 	syncFlowOptions := &protos.SyncFlowOptions{
-		BatchSize:              int32(limits.MaxBatchSize),
+		BatchSize:              limits.MaxBatchSize,
 		IdleTimeoutSeconds:     0,
 		SrcTableIdNameMapping:  state.SrcTableIdNameMapping,
 		TableNameSchemaMapping: state.TableNameSchemaMapping,
@@ -319,14 +319,12 @@ func CDCFlowWorkflowWithConfig(
 	cdcPropertiesSelector.AddReceive(cdcPropertiesSignalChannel, func(c workflow.ReceiveChannel, more bool) {
 		var cdcSignal SignalProps
 		c.Receive(ctx, &cdcSignal)
+		// only modify for options since SyncFlow uses it
 		if cdcSignal.BatchSize > 0 {
 			syncFlowOptions.BatchSize = cdcSignal.BatchSize
-			cfg.MaxBatchSize = uint32(cdcSignal.BatchSize)
-			limits.MaxBatchSize = int(cdcSignal.BatchSize)
 		}
 		if cdcSignal.IdleTimeout > 0 {
 			syncFlowOptions.IdleTimeoutSeconds = cdcSignal.IdleTimeout
-			cfg.IdleTimeoutSeconds = cdcSignal.IdleTimeout
 		}
 
 		slog.Info("CDC Signal received. Parameters on signal reception:", slog.Int("BatchSize", int(cfg.MaxBatchSize)),

@@ -131,10 +131,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		},
 	}
 
-	maxBatchSize := int(cfg.MaxBatchSize)
+	maxBatchSize := cfg.MaxBatchSize
 	if maxBatchSize == 0 {
 		maxBatchSize = 1_000_000
-		cfg.MaxBatchSize = uint32(maxBatchSize)
 	}
 
 	limits := &peerflow.CDCFlowLimits{

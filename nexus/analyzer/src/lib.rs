@@ -332,7 +332,7 @@ impl<'a> StatementAnalyzer for PeerDDLAnalyzer<'a> {
                             resync,
                             soft_delete_col_name,
                             synced_at_col_name,
-                            initial_copy_only,
+                            initial_snapshot_only: initial_copy_only,
                         };
 
                         if initial_copy_only && !do_initial_copy {
