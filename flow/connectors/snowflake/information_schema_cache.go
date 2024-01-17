@@ -18,26 +18,43 @@ import (
 )
 
 const (
-	schemaExistsSQL = "SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE UPPER(SCHEMA_NAME)=?"
-	tableExistsSQL  = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_SCHEMA)=? and UPPER(TABLE_NAME)=?`
-	tableSchemaSQL  = `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-		WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
-	tableSchemasInSchema = `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-		WHERE UPPER(TABLE_SCHEMA)=? ORDER BY TABLE_NAME, ORDINAL_POSITION`
+	schemaExistsSQL = `
+		SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA WHERE UPPER(SCHEMA_NAME)=?
+	`
+
+	tableExistsSQL = `
+		SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
+		WHERE UPPER(TABLE_SCHEMA)=? and UPPER(TABLE_NAME)=?
+	`
+
+	tableSchemaSQL = `
+		SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION
+	`
+
+	tableSchemasInSchema = `
+		SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE UPPER(TABLE_SCHEMA)=? ORDER BY TABLE_NAME, ORDINAL_POSITION
+	`
 )
 
+type dbCacheKey struct {
+	dbName string
+	value  string
+}
+
 type informationSchemaCache struct {
-	tableSchemaCache  *expirable.LRU[string, *protos.TableSchema]
-	schemaExistsCache *expirable.LRU[string, bool]
-	tableExistsCache  *expirable.LRU[string, bool]
+	tableSchemaCache  *expirable.LRU[dbCacheKey, *protos.TableSchema]
+	schemaExistsCache *expirable.LRU[dbCacheKey, bool]
+	tableExistsCache  *expirable.LRU[dbCacheKey, bool]
 }
 
 func newInformationSchemaCache() *informationSchemaCache {
-	schemaExistsCache := expirable.NewLRU[string, bool](100_000, nil, time.Hour*1)
-	tableExistsCache := expirable.NewLRU[string, bool](100_000, nil, time.Hour*1)
+	schemaExistsCache := expirable.NewLRU[dbCacheKey, bool](100_000, nil, time.Hour*1)
+	tableExistsCache := expirable.NewLRU[dbCacheKey, bool](100_000, nil, time.Hour*1)
 
 	tsCacheExpiry := peerdbenv.PeerDBSnowflakeTableSchemaCacheSeconds()
-	tableSchemaCache := expirable.NewLRU[string, *protos.TableSchema](100_000, nil, tsCacheExpiry)
+	tableSchemaCache := expirable.NewLRU[dbCacheKey, *protos.TableSchema](100_000, nil, tsCacheExpiry)
 
 	return &informationSchemaCache{
 		tableSchemaCache:  tableSchemaCache,
@@ -55,12 +72,14 @@ type SnowflakeInformationSchemaCache struct {
 	ctx      context.Context
 	database *sql.DB
 	logger   slog.Logger
+	dbname   string
 }
 
 func NewSnowflakeInformationSchemaCache(
 	ctx context.Context,
 	database *sql.DB,
 	logger slog.Logger,
+	dbname string,
 ) *SnowflakeInformationSchemaCache {
 	cacheInit.Do(func() {
 		cache = newInformationSchemaCache()
@@ -69,14 +88,19 @@ func NewSnowflakeInformationSchemaCache(
 		ctx:      ctx,
 		database: database,
 		logger:   logger,
+		dbname:   dbname,
 	}
 }
 
 // SchemaExists returns true if the schema exists in the database.
 func (c *SnowflakeInformationSchemaCache) SchemaExists(schemaName string) (bool, error) {
 	schemaName = strings.ToUpper(schemaName)
+	cacheKey := dbCacheKey{
+		dbName: c.dbname,
+		value:  schemaName,
+	}
 
-	if cachedExists, ok := cache.schemaExistsCache.Get(schemaName); ok {
+	if cachedExists, ok := cache.schemaExistsCache.Get(cacheKey); ok {
 		if cachedExists {
 			return true, nil
 		}
@@ -98,7 +122,7 @@ func (c *SnowflakeInformationSchemaCache) SchemaExists(schemaName string) (bool,
 		}
 	}
 
-	cache.schemaExistsCache.Add(schemaName, exists)
+	cache.schemaExistsCache.Add(cacheKey, exists)
 
 	return exists, nil
 }
@@ -113,7 +137,12 @@ func (c *SnowflakeInformationSchemaCache) TableExists(schemaName string, tableNa
 		Table:  tableName,
 	}
 
-	if cachedExists, ok := cache.tableExistsCache.Get(schemaTable.String()); ok {
+	cacheKey := dbCacheKey{
+		dbName: c.dbname,
+		value:  schemaTable.String(),
+	}
+
+	if cachedExists, ok := cache.tableExistsCache.Get(cacheKey); ok {
 		if cachedExists {
 			return true, nil
 		}
@@ -127,20 +156,33 @@ func (c *SnowflakeInformationSchemaCache) TableExists(schemaName string, tableNa
 		return false, fmt.Errorf("error querying Snowflake peer for table %s: %w", tableName, err)
 	}
 
-	cache.tableExistsCache.Add(schemaTable.String(), exists)
+	cache.tableExistsCache.Add(cacheKey, exists)
 
 	return exists, nil
 }
 
 func (c *SnowflakeInformationSchemaCache) TableSchemaForTable(tableName string) (*protos.TableSchema, error) {
 	tableName = strings.ToUpper(tableName)
+	cacheKey := dbCacheKey{
+		dbName: c.dbname,
+		value:  tableName,
+	}
 
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing table schema and name: %w", err)
 	}
 
-	if cachedSchema, ok := cache.tableSchemaCache.Get(schemaTable.String()); ok {
+	exists, err := c.SchemaExists(schemaTable.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("error while checking if schema exists: %w", err)
+	}
+
+	if !exists {
+		return nil, fmt.Errorf("schema %s does not exist", schemaTable.Schema)
+	}
+
+	if cachedSchema, ok := cache.tableSchemaCache.Get(cacheKey); ok {
 		return cachedSchema, nil
 	}
 
@@ -183,7 +225,7 @@ func (c *SnowflakeInformationSchemaCache) TableSchemaForTable(tableName string) 
 		ColumnTypes:     columnTypes,
 	}
 
-	cache.tableSchemaCache.Add(schemaTable.String(), tblSchema)
+	cache.tableSchemaCache.Add(cacheKey, tblSchema)
 
 	return tblSchema, nil
 }
@@ -224,13 +266,6 @@ func (c *SnowflakeInformationSchemaCache) cacheAllTablesInSchema(schemaName stri
 		}
 
 		if _, ok := cs[tableName.String]; !ok {
-			schemaTable := &utils.SchemaTable{
-				Schema: schemaName,
-				Table:  strings.ToUpper(tableName.String),
-			}
-
-			cache.tableExistsCache.Add(schemaTable.String(), true)
-
 			cs[tableName.String] = &protos.TableSchema{
 				TableIdentifier: tableName.String,
 				ColumnNames:     make([]string, 0, 8),
@@ -243,7 +278,18 @@ func (c *SnowflakeInformationSchemaCache) cacheAllTablesInSchema(schemaName stri
 	}
 
 	for _, tblSchema := range cs {
-		cache.tableSchemaCache.Add(tblSchema.TableIdentifier, tblSchema)
+		schemaTable := &utils.SchemaTable{
+			Schema: schemaName,
+			Table:  strings.ToUpper(tblSchema.TableIdentifier),
+		}
+
+		stCacheKey := dbCacheKey{
+			dbName: c.dbname,
+			value:  schemaTable.String(),
+		}
+
+		cache.tableExistsCache.Add(stCacheKey, true)
+		cache.tableSchemaCache.Add(stCacheKey, tblSchema)
 	}
 
 	return nil

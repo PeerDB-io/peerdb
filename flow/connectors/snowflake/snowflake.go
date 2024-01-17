@@ -145,7 +145,7 @@ func NewSnowflakeConnector(ctx context.Context,
 	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 	logger := *slog.With(slog.String(string(shared.FlowNameKey), flowName))
 
-	informationSchemaCache := NewSnowflakeInformationSchemaCache(ctx, database, logger)
+	informationSchemaCache := NewSnowflakeInformationSchemaCache(ctx, database, logger, snowflakeProtoConfig.Database)
 
 	return &SnowflakeConnector{
 		ctx:                    ctx,
