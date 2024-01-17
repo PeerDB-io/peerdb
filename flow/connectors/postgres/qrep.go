@@ -68,7 +68,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 func (c *PostgresConnector) setTransactionSnapshot(tx pgx.Tx) error {
 	snapshot := c.config.TransactionSnapshot
 	if snapshot != "" {
-		if _, err := tx.Exec(c.ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", snapshot)); err != nil {
+		if _, err := tx.Exec(c.ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT %s", QuoteLiteral(snapshot))); err != nil {
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
 		}
 	}

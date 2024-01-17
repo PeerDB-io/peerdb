@@ -45,7 +45,6 @@ const (
 	getTableNameToUnchangedToastColsSQL = `SELECT _peerdb_destination_table_name,
 	ARRAY_AGG(DISTINCT _peerdb_unchanged_toast_columns) FROM %s.%s WHERE
 	_peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_record_type!=2 GROUP BY _peerdb_destination_table_name`
-	srcTableName      = "src"
 	mergeStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
@@ -55,10 +54,8 @@ const (
 	USING (SELECT %s,_peerdb_record_type,_peerdb_unchanged_toast_columns FROM src_rank WHERE _peerdb_rank=1) src
 	ON %s
 	WHEN NOT MATCHED AND src._peerdb_record_type!=2 THEN
-	INSERT (%s) VALUES (%s)
-	%s
-	WHEN MATCHED AND src._peerdb_record_type=2 THEN
-	%s`
+	INSERT (%s) VALUES (%s) %s
+	WHEN MATCHED AND src._peerdb_record_type=2 THEN %s`
 	fallbackUpsertStatementSQL = `WITH src_rank AS (
 		SELECT _peerdb_data,_peerdb_record_type,_peerdb_unchanged_toast_columns,
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
@@ -71,7 +68,7 @@ const (
 		RANK() OVER (PARTITION BY %s ORDER BY _peerdb_timestamp DESC) AS _peerdb_rank
 		FROM %s.%s WHERE _peerdb_batch_id>$1 AND _peerdb_batch_id<=$2 AND _peerdb_destination_table_name=$3
 	)
-	%s src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
+	DELETE FROM %s USING %s FROM src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
 
 	dropTableIfExistsSQL     = "DROP TABLE IF EXISTS %s.%s"
 	deleteJobMetadataSQL     = "DELETE FROM %s.%s WHERE mirror_job_name=$1"
@@ -246,15 +243,17 @@ func (c *PostgresConnector) checkSlotAndPublication(slot string, publication str
 // If slotName input is empty, all slot info rows are returned - this is for UI.
 // Else, only the row pertaining to that slotName will be returned.
 func (c *PostgresConnector) GetSlotInfo(slotName string) ([]*protos.SlotInfo, error) {
-	specificSlotClause := ""
+	whereClause := ""
 	if slotName != "" {
-		specificSlotClause = fmt.Sprintf(" WHERE slot_name = '%s'", slotName)
+		whereClause = fmt.Sprintf(" WHERE slot_name = %s", QuoteLiteral(slotName))
+	} else {
+		whereClause = fmt.Sprintf(" WHERE database = %s", QuoteLiteral(c.config.Database))
 	}
 	rows, err := c.pool.Query(c.ctx, "SELECT slot_name, redo_lsn::Text,restart_lsn::text,wal_status,"+
 		"confirmed_flush_lsn::text,active,"+
 		"round((CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END"+
 		" - confirmed_flush_lsn) / 1024 / 1024) AS MB_Behind"+
-		" FROM pg_control_checkpoint(), pg_replication_slots"+specificSlotClause+";")
+		" FROM pg_control_checkpoint(), pg_replication_slots"+whereClause)
 	if err != nil {
 		return nil, err
 	}
@@ -403,20 +402,19 @@ func generateCreateTableSQLForNormalizedTable(
 
 	if softDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`"%s" BOOL DEFAULT FALSE,`, softDeleteColName))
+			fmt.Sprintf(`%s BOOL DEFAULT FALSE,`, QuoteIdentifier(softDeleteColName)))
 	}
 
 	if syncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf(`"%s" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, syncedAtColName))
+			fmt.Sprintf(`%s TIMESTAMP DEFAULT CURRENT_TIMESTAMP,`, QuoteIdentifier(syncedAtColName)))
 	}
 
 	// add composite primary key to the table
 	if len(sourceTableSchema.PrimaryKeyColumns) > 0 {
 		primaryKeyColsQuoted := make([]string, 0, len(sourceTableSchema.PrimaryKeyColumns))
 		for _, primaryKeyCol := range sourceTableSchema.PrimaryKeyColumns {
-			primaryKeyColsQuoted = append(primaryKeyColsQuoted,
-				fmt.Sprintf(`"%s"`, primaryKeyCol))
+			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s),",
 			strings.TrimSuffix(strings.Join(primaryKeyColsQuoted, ","), ",")))
