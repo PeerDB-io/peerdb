@@ -656,7 +656,6 @@ func (c *PostgresConnector) getTableSchemaForTable(
 
 	return &protos.TableSchema{
 		TableIdentifier:       tableName,
-		Columns:               nil,
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		ColumnNames:           columnNames,
@@ -776,7 +775,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(flowJobName string,
 func (c *PostgresConnector) EnsurePullability(
 	req *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
-	tableIdentifierMapping := make(map[string]*protos.TableIdentifier)
+	tableIdentifierMapping := make(map[string]*protos.PostgresTableIdentifier)
 	for _, tableName := range req.SourceTableIdentifiers {
 		schemaTable, err := utils.ParseSchemaTable(tableName)
 		if err != nil {
@@ -804,12 +803,8 @@ func (c *PostgresConnector) EnsurePullability(
 			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
 		}
 
-		tableIdentifierMapping[tableName] = &protos.TableIdentifier{
-			TableIdentifier: &protos.TableIdentifier_PostgresTableIdentifier{
-				PostgresTableIdentifier: &protos.PostgresTableIdentifier{
-					RelId: relID,
-				},
-			},
+		tableIdentifierMapping[tableName] = &protos.PostgresTableIdentifier{
+			RelId: relID,
 		}
 		utils.RecordHeartbeatWithRecover(c.ctx, fmt.Sprintf("ensured pullability table %s", tableName))
 	}
@@ -852,7 +847,7 @@ func (c *PostgresConnector) SetupReplication(signal SlotSignal, req *protos.Setu
 	}
 	// Create the replication slot and publication
 	err = c.createSlotAndPublication(signal, exists,
-		slotName, publicationName, tableNameMapping, req.DoInitialCopy)
+		slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
 	if err != nil {
 		return fmt.Errorf("error creating replication slot and publication: %w", err)
 	}

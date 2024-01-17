@@ -29,14 +29,6 @@ const MirrorValues = (mirrorConfig: FlowConnectionConfigs | undefined) => {
       label: 'Snapshot Parallel Tables',
     },
     {
-      value: `${syncModeToLabel(mirrorConfig?.cdcSyncMode!)}`,
-      label: 'CDC Sync Mode',
-    },
-    {
-      value: `${syncModeToLabel(mirrorConfig?.snapshotSyncMode!)}`,
-      label: 'Snapshot Sync Mode',
-    },
-    {
       value: `${
         mirrorConfig?.cdcStagingPath?.length
           ? mirrorConfig?.cdcStagingPath
