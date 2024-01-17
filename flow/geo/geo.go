@@ -34,6 +34,16 @@ func GeoValidate(hexWkb string) (string, error) {
 	return wkt, nil
 }
 
+func GeoToWKB(wkt string) ([]byte, error) {
+	// UnmarshalWKB performs geometry validation along with WKB parsing
+	geometryObject, geoErr := geom.NewGeomFromWKT(wkt)
+	if geoErr != nil {
+		return []byte{}, geoErr
+	}
+
+	return geometryObject.ToWKB(), nil
+}
+
 // compares WKTs
 func GeoCompare(wkt1, wkt2 string) bool {
 	geom1, geoErr := geom.NewGeomFromWKT(wkt1)

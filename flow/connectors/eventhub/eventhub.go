@@ -121,7 +121,7 @@ func (c *EventHubConnector) processBatch(
 ) (uint32, error) {
 	ctx := context.Background()
 	batchPerTopic := NewHubBatches(c.hubManager)
-	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns)
+	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
 	eventHubFlushTimeout := peerdbenv.PeerDBEventhubFlushTimeoutSeconds()
 

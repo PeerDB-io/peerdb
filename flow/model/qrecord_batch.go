@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/PeerDB-io/peer-flow/geo"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -191,6 +192,28 @@ func (src *QRecordBatchCopyFromSource) Values() ([]interface{}, error) {
 			date := pgtype.Date{Time: t, Valid: true}
 			values[i] = date
 
+		case qvalue.QValueKindHStore:
+			v, ok := qValue.Value.(string)
+			if !ok {
+				src.err = fmt.Errorf("invalid HStore value")
+				return nil, src.err
+			}
+
+			values[i] = v
+		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
+			v, ok := qValue.Value.(string)
+			if !ok {
+				src.err = fmt.Errorf("invalid Geospatial value")
+				return nil, src.err
+			}
+
+			wkb, err := geo.GeoToWKB(v)
+			if err != nil {
+				src.err = fmt.Errorf("failed to convert Geospatial value to wkb")
+				return nil, src.err
+			}
+
+			values[i] = wkb
 		case qvalue.QValueKindArrayString:
 			v, ok := qValue.Value.([]string)
 			if !ok {

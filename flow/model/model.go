@@ -131,7 +131,7 @@ func (r *RecordItems) Len() int {
 	return len(r.Values)
 }
 
-func (r *RecordItems) toMap() (map[string]interface{}, error) {
+func (r *RecordItems) toMap(hstoreAsJSON bool) (map[string]interface{}, error) {
 	if r.ColToValIdx == nil {
 		return nil, errors.New("colToValIdx is nil")
 	}
@@ -163,15 +163,19 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 				return nil, fmt.Errorf("expected string value for hstore column %s for value %T", col, v.Value)
 			}
 
-			jsonVal, err := hstore_util.ParseHstore(hstoreVal)
-			if err != nil {
-				return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T", col, v.Value)
-			}
-
-			if len(jsonVal) > 15*1024*1024 {
-				jsonStruct[col] = ""
+			if !hstoreAsJSON {
+				jsonStruct[col] = hstoreVal
 			} else {
-				jsonStruct[col] = jsonVal
+				jsonVal, err := hstore_util.ParseHstore(hstoreVal)
+				if err != nil {
+					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T", col, v.Value)
+				}
+
+				if len(jsonVal) > 15*1024*1024 {
+					jsonStruct[col] = ""
+				} else {
+					jsonStruct[col] = jsonVal
+				}
 			}
 
 		case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindDate,
@@ -246,20 +250,22 @@ func (r *RecordItems) toMap() (map[string]interface{}, error) {
 
 type ToJSONOptions struct {
 	UnnestColumns map[string]struct{}
+	HStoreAsJSON  bool
 }
 
-func NewToJSONOptions(unnestCols []string) *ToJSONOptions {
+func NewToJSONOptions(unnestCols []string, hstoreAsJSON bool) *ToJSONOptions {
 	unnestColumns := make(map[string]struct{}, len(unnestCols))
 	for _, col := range unnestCols {
 		unnestColumns[col] = struct{}{}
 	}
 	return &ToJSONOptions{
 		UnnestColumns: unnestColumns,
+		HStoreAsJSON:  hstoreAsJSON,
 	}
 }
 
 func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
-	jsonStruct, err := r.toMap()
+	jsonStruct, err := r.toMap(opts.HStoreAsJSON)
 	if err != nil {
 		return "", err
 	}
@@ -290,9 +296,15 @@ func (r *RecordItems) ToJSONWithOpts(opts *ToJSONOptions) (string, error) {
 	return string(jsonBytes), nil
 }
 
+// a separate method like gives flexibility
+// for us to handle some data types differently
+func (r *RecordItems) ToJSONWithOptions(options *ToJSONOptions) (string, error) {
+	return r.ToJSONWithOpts(options)
+}
+
 func (r *RecordItems) ToJSON() (string, error) {
 	unnestCols := make([]string, 0)
-	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols))
+	return r.ToJSONWithOpts(NewToJSONOptions(unnestCols, true))
 }
 
 type InsertRecord struct {

@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -44,16 +45,21 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 	)
 	partitionID := partition.PartitionId
 	startTime := time.Now()
-
-	pool := s.connector.pool
 	schema, err := stream.Schema()
 	if err != nil {
 		slog.Error("failed to get schema from stream", slog.Any("error", err), syncLog)
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
+	txConfig := s.connector.pool.poolConfig.Copy()
+	txConfig.AfterConnect = utils.RegisterHStore
+	txPool, err := pgxpool.NewWithConfig(s.connector.pool.ctx, txConfig)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create tx pool: %v", err)
+	}
+
 	// Second transaction - to handle rest of the processing
-	tx, err := pool.Begin(context.Background())
+	tx, err := txPool.Begin(context.Background())
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %v", err)
 	}
