@@ -74,3 +74,9 @@ func PeerDBCatalogDatabase() string {
 func PeerDBEnableWALHeartbeat() bool {
 	return getEnvBool("PEERDB_ENABLE_WAL_HEARTBEAT", false)
 }
+
+// PEERDB_SNOWFLAKE_TABLE_SCHEMA_CACHE_SECONDS
+func PeerDBSnowflakeTableSchemaCacheSeconds() time.Duration {
+	x := getEnvInt("PEERDB_SNOWFLAKE_TABLE_SCHEMA_CACHE_SECONDS", 600)
+	return time.Duration(x) * time.Second
+}
