@@ -27,7 +27,8 @@ type KafkaConnector struct {
 }
 
 func NewKafkaConnector(ctx context.Context,
-	kafkaProtoConfig *protos.KafkaConfig) (*KafkaConnector, error) {
+	kafkaProtoConfig *protos.KafkaConfig,
+) (*KafkaConnector, error) {
 	brokers := kafkaProtoConfig.Servers
 	connectorConfig := kafka.ConfigMap{
 		"bootstrap.servers":        brokers,
@@ -190,7 +191,8 @@ func topicExists(err string) bool {
 }
 
 func (c *KafkaConnector) SetupNormalizedTables(
-	req *protos.SetupNormalizedTableBatchInput) (*protos.SetupNormalizedTableBatchOutput, error) {
+	req *protos.SetupNormalizedTableBatchInput,
+) (*protos.SetupNormalizedTableBatchOutput, error) {
 	tableExistsMapping := make(map[string]bool)
 	for tableIdentifier := range req.TableNameSchemaMapping {
 		topicResults, createErr := c.client.CreateTopics(c.ctx, []kafka.TopicSpecification{
@@ -232,8 +234,6 @@ func (c *KafkaConnector) InitializeTableSchema(req map[string]*protos.TableSchem
 
 func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.SyncResponse, error) {
 	var destinationMessage kafka.Message
-	first := true
-	var firstCP int64 = 0
 	lastCP, err := req.Records.GetLastCheckpoint()
 	if err != nil {
 		return nil, err
@@ -244,7 +244,7 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 		switch typedRecord := record.(type) {
 		case *model.InsertRecord:
 			insertData := KafkaRecord{
-				Before: *model.NewRecordItems(),
+				Before: model.RecordItems{},
 				After:  *typedRecord.Items,
 			}
 
@@ -274,7 +274,7 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 		case *model.DeleteRecord:
 			deleteData := KafkaRecord{
 				Before: *typedRecord.Items,
-				After:  *model.NewRecordItems(),
+				After:  model.RecordItems{},
 			}
 
 			deleteJSON, err := json.Marshal(deleteData)
@@ -288,7 +288,7 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 		default:
 			return nil, fmt.Errorf("record type %T not supported in Kafka flow connector", typedRecord)
 		}
-		destinationTopicName := "peerdb_" + record.GetTableName()
+		destinationTopicName := "peerdb_" + record.GetDestinationTableName()
 		destinationTopic := kafka.TopicPartition{
 			Topic:     &destinationTopicName,
 			Partition: kafka.PartitionAny,
@@ -296,17 +296,11 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 		destinationMessage.TopicPartition = destinationTopic
 		destinationMessage.Key = []byte("CDC")
 		records = append(records, destinationMessage)
-
-		if first {
-			firstCP = record.GetCheckPointID()
-			first = false
-		}
 	}
 	if len(records) == 0 {
 		return &model.SyncResponse{
-			FirstSyncedCheckPointID: 0,
-			LastSyncedCheckPointID:  0,
-			NumRecordsSynced:        0,
+			LastSyncedCheckPointID: 0,
+			NumRecordsSynced:       0,
 		}, nil
 	}
 	metadataTopicName := "peerdb_" + req.FlowJobName
@@ -355,9 +349,8 @@ func (c *KafkaConnector) SyncRecords(req *model.SyncRecordsRequest) (*model.Sync
 	}
 
 	return &model.SyncResponse{
-		FirstSyncedCheckPointID: firstCP,
-		LastSyncedCheckPointID:  lastCP,
-		NumRecordsSynced:        int64(len(records)),
+		LastSyncedCheckPointID: lastCP,
+		NumRecordsSynced:       int64(len(records)),
 	}, nil
 }
 

@@ -123,8 +123,8 @@ enum DBType {
   S3 = 5;
   SQLSERVER = 6;
   EVENTHUB_GROUP = 7;
-  KAFKA = 8;
-  CLICKHOUSE = 8;  
+  CLICKHOUSE = 8;
+  KAFKA = 9;
 }
 
 message Peer {
@@ -139,7 +139,7 @@ message Peer {
     S3Config s3_config = 8;
     SqlServerConfig sqlserver_config = 9;
     EventHubGroupConfig eventhub_group_config = 10;
-    KafkaConfig kafka_config = 11;
     ClickhouseConfig clickhouse_config = 11;
+    KafkaConfig kafka_config = 12;
   }
 }
