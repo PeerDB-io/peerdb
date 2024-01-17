@@ -12,7 +12,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/shared"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -51,11 +51,15 @@ func (s *QRepStagingTableSync) SyncQRepRecords(
 		return 0, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
 
-	txPool := s.connector.pool
+	txConfig := s.connector.pool.poolConfig.Copy()
+	txConfig.AfterConnect = utils.RegisterHStore
+	txPool, err := pgxpool.NewWithConfig(s.connector.pool.ctx, txConfig)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create tx pool: %v", err)
+	}
 
 	// Second transaction - to handle rest of the processing
 	tx, err := txPool.Begin(context.Background())
-	tx.Conn().TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: 19698, Codec: pgtype.HstoreCodec{}})
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %v", err)
 	}
