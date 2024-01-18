@@ -100,8 +100,7 @@ export default function QRepStatusTable({
   );
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedPartitions = useMemo(() => {
-    let currentPartitions = [...visiblePartitions];
-    currentPartitions = currentPartitions.filter(
+    const currentPartitions = visiblePartitions.filter(
       (partition: QRepPartitionStatus) => {
         return partition.partitionId
           .toLowerCase()
