@@ -263,8 +263,10 @@ func (s *SetupFlowExecution) executeSetupFlow(
 	}
 
 	setupFlowOutput := protos.SetupFlowOutput{}
-	checkConstraints := !config.InitialSnapshotOnly
-	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, checkConstraints)
+	srcTableIdNameMapping, err := s.ensurePullability(ctx, config, !config.InitialSnapshotOnly)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
+	}
 	setupFlowOutput.SrcTableIdNameMapping = srcTableIdNameMapping
 
 	// for initial copy only flows, we don't need to create the raw table
