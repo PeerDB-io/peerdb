@@ -286,15 +286,12 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []str
 		return nil, nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	//nolint:gosec
-	queryString := fmt.Sprintf(`
-	SELECT column_name, data_type
-	FROM information_schema.columns
-	WHERE UPPER(table_name) = '%s' AND UPPER(table_schema) = '%s'
-	ORDER BY ordinal_position
-	`, strings.ToUpper(schemaTable.Table), strings.ToUpper(schemaTable.Schema))
-
-	rows, err := c.database.QueryContext(c.ctx, queryString)
+	rows, err := c.database.QueryContext(
+		c.ctx,
+		getTableSchemaSQL,
+		strings.ToUpper(schemaTable.Schema),
+		strings.ToUpper(schemaTable.Table),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -309,6 +306,10 @@ func (c *SnowflakeConnector) getColsFromTable(tableName string) ([]string, []str
 		}
 		colNames = append(colNames, colName.String)
 		colTypes = append(colTypes, colType.String)
+	}
+
+	if len(colNames) == 0 {
+		return nil, nil, fmt.Errorf("cannot load schema: table %s.%s does not exist", schemaTable.Schema, schemaTable.Table)
 	}
 
 	return colNames, colTypes, nil
