@@ -968,8 +968,10 @@ func (c *PostgresConnector) AddTablesToPublication(req *protos.AddTablesToPublic
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
-		if len(utils.ArrayMinus(tableNames, additionalSrcTables)) > 0 {
-			return fmt.Errorf("some additional tables not present in custom publication")
+		notPresentTables := utils.ArrayMinus(tableNames, additionalSrcTables)
+		if len(notPresentTables) > 0 {
+			return fmt.Errorf("some additional tables not present in custom publication: %s",
+				strings.Join(notPresentTables, ", "))
 		}
 	}
 
